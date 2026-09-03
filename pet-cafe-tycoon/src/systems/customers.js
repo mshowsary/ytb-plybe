@@ -2,6 +2,7 @@
 import { spawnInterval, maxCustomers, cafeLevel } from '../sim/economy.js';
 import { spawnMult, capBonus } from '../sim/day.js';
 import { stepCustomers, createCustomer, SPECIES, PATIENCE } from '../sim/customers.js';
+import { serviceRecoveryCost, SERVICE_LABEL, dirtyTablesBlockingSeats } from '../sim/serviceQuality.js';
 import { PET_VARIANT_WEIGHTS, petProfile } from '../sim/petBook.js';
 import { seatById } from '../sim/world.js';
 import { createHuman } from '../render/human.js';
@@ -33,9 +34,24 @@ export function createCustomers(G, S, ctx) {
   const price = ctx.price;
   const rng = makeRng(SPAWN_SEED);
   const rec = new Map();
-  let spawnT = 2, seq = 1, speciesIdx = 0;
+  let spawnT = 2, seq = 1, speciesIdx = 0, penaltyToastCd = 0;
   let cachedBuiltSize = -1, interval = 4, maxC = 6;
   const tmpProj = { sx: 0, sy: 0, visible: true };
+
+  function applyServicePenalty(reason, r) {
+    const fee = serviceRecoveryCost(reason, G.coins);
+    G.dayStats.serviceMisses = (G.dayStats.serviceMisses | 0) + 1;
+    if (fee <= 0) return;
+    G.coins -= fee;
+    G.dayStats.serviceFees = (G.dayStats.serviceFees | 0) + fee;
+    G.stats.serviceFees = (G.stats.serviceFees | 0) + fee;
+    hud.setCoins(G.coins); ctx.audio.play('penalty');
+    if (r) fx.number(r.human.group.position.x, r.human.height + 0.62, r.human.group.position.z, `-${fee}`, 'lost');
+    if (penaltyToastCd <= 0) {
+      penaltyToastCd = 1.8;
+      hud.toast(`${SERVICE_LABEL[reason] || 'Service miss'} · recovery -${fee}`);
+    }
+  }
 
   function spawn() {
     const species = SPECIES[speciesIdx++ % SPECIES.length];
@@ -54,7 +70,7 @@ export function createCustomers(G, S, ctx) {
     rec.set(c.id, {
       human, pet, leash, identity, profile,
       px: c.x, pz: c.z, eating: false, bub,
-      lastState: c.state, petHappyT: 0, treatCelebrated: false,
+      lastState: c.state, petHappyT: 0, treatCelebrated: false, tablePenalty: false,
     });
     if (ctx.discoverPet) ctx.discoverPet(species, petVariant);
   }
@@ -69,6 +85,7 @@ export function createCustomers(G, S, ctx) {
   return {
     teardown,
     update(dt) {
+      penaltyToastCd = Math.max(0, penaltyToastCd - dt);
       if (world.built.size !== cachedBuiltSize) {
         cachedBuiltSize = world.built.size;
         interval = spawnInterval(world.built); maxC = maxCustomers(world.built);
@@ -85,8 +102,6 @@ export function createCustomers(G, S, ctx) {
 
       stepCustomers(G.customers, world, price, dt);
 
-      // A successful bowl visit is the strongest "this is a PET café" moment in the loop. Detect
-      // the pure-sim state transition here instead of adding presentation-only events to sim code.
       for (const c of G.customers) {
         const r = rec.get(c.id); if (!r) continue;
         if (!r.treatCelebrated && r.lastState === 'atBowl' && c.state !== 'atBowl' && (c.order || []).includes('treat')) {
@@ -95,10 +110,20 @@ export function createCustomers(G, S, ctx) {
           fx.hearts(r.pet.group.position.x, r.pet.height + 0.25, r.pet.group.position.z);
           ctx.audio.play(petSound(c.species));
         }
+        // This is intentionally narrower than "no table": we only charge when a free-but-dirty
+        // table is what prevented this paid customer from sitting. A genuinely full café is not a
+        // cleanliness failure and therefore carries no extra recovery fee.
+        if (!r.tablePenalty && r.lastState === 'atRegister' && c.state === 'leave' && c.paid && dirtyTablesBlockingSeats(world)) {
+          r.tablePenalty = true;
+          applyServicePenalty('table', r);
+          r.identity.announce('WANTED A CLEAN TABLE', 2.2);
+        }
       }
 
       for (const e of world.events) {
-        const r = rec.get(e.id); if (!r) continue;
+        const r = rec.get(e.id);
+        if (e.type === 'lost') applyServicePenalty(e.reason, r || null);
+        if (!r) continue;
         if (e.type === 'took') { r.pet.carry(itemFor(e.product)); r.human.setMood('none'); }
         else if (e.type === 'pay') { G.stats.served = (G.stats.served | 0) + 1; }
         else if (e.type === 'angry') { r.human.setMood('angry'); ctx.audio.play('angry'); }
