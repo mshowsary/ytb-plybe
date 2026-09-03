@@ -1,8 +1,8 @@
-// src/systems/customers.js — spawns humans-with-pets, steps the sim, renders the pair and owns wish UI.
+// Customer render/system layer: human + named pet visitor, wish UI and pet delight moments.
 import { spawnInterval, maxCustomers, cafeLevel } from '../sim/economy.js';
 import { spawnMult, capBonus } from '../sim/day.js';
 import { stepCustomers, createCustomer, SPECIES, PATIENCE } from '../sim/customers.js';
-import { PET_VARIANT_WEIGHTS } from '../sim/petBook.js';
+import { PET_VARIANT_WEIGHTS, petProfile } from '../sim/petBook.js';
 import { seatById } from '../sim/world.js';
 import { createHuman } from '../render/human.js';
 import { createPet } from '../render/pets.js';
@@ -10,6 +10,7 @@ import { createLeash } from '../render/leash.js';
 import { itemFor } from '../render/props.js';
 import { makeRng } from '../core/rng.js';
 import { iconFor, treatIcon } from '../ui/icons.js';
+import { createPetMoment } from '../ui/petMoments.js';
 
 const SPAWN_SEED = 20260902;
 
@@ -25,6 +26,7 @@ function makeBubble(els) {
   return { wrap, icon1, icon2, bar, fill };
 }
 function removeBubble(b) { b.wrap.remove(); b.bar.remove(); }
+function petSound(species) { return species === 'dog' ? 'petDog' : species === 'bunny' ? 'petBunny' : 'petCat'; }
 
 export function createCustomers(G, S, ctx) {
   const { area, world, scene, hud, fx, els } = ctx;
@@ -38,6 +40,7 @@ export function createCustomers(G, S, ctx) {
   function spawn() {
     const species = SPECIES[speciesIdx++ % SPECIES.length];
     const petVariant = rng.pick(PET_VARIANT_WEIGHTS);
+    const profile = petProfile(species, petVariant);
     const variant = { shirt: rng.i(0, 4), hair: rng.i(0, 3), skin: rng.i(0, 2) };
     const c = createCustomer(seq++, species, variant, area);
     c.petVariant = petVariant;
@@ -46,19 +49,30 @@ export function createCustomers(G, S, ctx) {
     const pet = createPet(species, petVariant); scene.add(pet.group);
     const leash = createLeash(scene); leash.attach(human.hand, pet.neck);
     const bub = makeBubble(els);
-    rec.set(c.id, { human, pet, leash, px: c.x, pz: c.z, eating: false, bub });
+    const identity = createPetMoment(els, profile);
+    if (profile.rarity === 'rare' || profile.rarity === 'epic') identity.announce(`${profile.rarity.toUpperCase()} VISITOR`, 2.8);
+    rec.set(c.id, {
+      human, pet, leash, identity, profile,
+      px: c.x, pz: c.z, eating: false, bub,
+      lastState: c.state, petHappyT: 0, treatCelebrated: false,
+    });
     if (ctx.discoverPet) ctx.discoverPet(species, petVariant);
   }
 
   function teardown() {
-    for (const r of rec.values()) { scene.remove(r.human.group); scene.remove(r.pet.group); r.leash.detach(); removeBubble(r.bub); }
+    for (const r of rec.values()) {
+      scene.remove(r.human.group); scene.remove(r.pet.group); r.leash.detach(); removeBubble(r.bub); r.identity.remove();
+    }
     rec.clear();
   }
 
   return {
     teardown,
     update(dt) {
-      if (world.built.size !== cachedBuiltSize) { cachedBuiltSize = world.built.size; interval = spawnInterval(world.built); maxC = maxCustomers(world.built); }
+      if (world.built.size !== cachedBuiltSize) {
+        cachedBuiltSize = world.built.size;
+        interval = spawnInterval(world.built); maxC = maxCustomers(world.built);
+      }
       const d = G.dayState;
       const mult = d ? spawnMult(d) : 1;
       const effMaxC = maxC + (d ? capBonus(d) : 0) + Math.min(3, Math.floor(cafeLevel(G) / 5));
@@ -70,6 +84,18 @@ export function createCustomers(G, S, ctx) {
       }
 
       stepCustomers(G.customers, world, price, dt);
+
+      // A successful bowl visit is the strongest "this is a PET café" moment in the loop. Detect
+      // the pure-sim state transition here instead of adding presentation-only events to sim code.
+      for (const c of G.customers) {
+        const r = rec.get(c.id); if (!r) continue;
+        if (!r.treatCelebrated && r.lastState === 'atBowl' && c.state !== 'atBowl' && (c.order || []).includes('treat')) {
+          r.treatCelebrated = true; r.petHappyT = 1.7; r.pet.setMood('happy');
+          r.identity.announce('LOVES THE TREAT ♥', 2.5);
+          fx.hearts(r.pet.group.position.x, r.pet.height + 0.25, r.pet.group.position.z);
+          ctx.audio.play(petSound(c.species));
+        }
+      }
 
       for (const e of world.events) {
         const r = rec.get(e.id); if (!r) continue;
@@ -108,31 +134,51 @@ export function createCustomers(G, S, ctx) {
           r.human.sit(); r.human.setMood('none');
           r.bub.wrap.classList.add('hidden'); r.bub.bar.classList.add('hidden');
           r.pet.group.position.set(seat.pair.pet.x, 0, seat.pair.pet.z);
-          r.pet.sit(); r.eating = true;
+          r.pet.sit(); r.eating = true; r.identity.setSeated(true); r.identity.announce('RELAXING', 1.5);
           fx.hearts(seat.pair.pet.x, r.pet.height + 0.3, seat.pair.pet.z);
         }
       }
 
       for (let i = G.customers.length - 1; i >= 0; i--) {
         const c = G.customers[i]; const r = rec.get(c.id);
-        if (c.done) { scene.remove(r.human.group); scene.remove(r.pet.group); r.leash.detach(); removeBubble(r.bub); rec.delete(c.id); G.customers.splice(i, 1); continue; }
-        if (r.eating && c.state !== 'eating') { r.pet.stand(); r.human.stand(); r.eating = false; }
-        if (r.eating) { r.pet.update(dt, false, 0); }
-        else {
-          const vx = (c.x - r.px) / dt, vz = (c.z - r.pz) / dt;
+        if (!r) continue;
+        if (c.done) {
+          scene.remove(r.human.group); scene.remove(r.pet.group); r.leash.detach(); removeBubble(r.bub); r.identity.remove();
+          rec.delete(c.id); G.customers.splice(i, 1); continue;
+        }
+
+        if (r.petHappyT > 0) {
+          r.petHappyT = Math.max(0, r.petHappyT - dt);
+          if (r.petHappyT === 0) r.pet.setMood('none');
+        }
+        if (r.eating && c.state !== 'eating') {
+          r.pet.stand(); r.human.stand(); r.eating = false; r.identity.setSeated(false);
+        }
+        if (r.eating) {
+          r.pet.update(dt, false, 0);
+        } else {
+          const safeDt = Math.max(dt, 1e-4);
+          const vx = (c.x - r.px) / safeDt, vz = (c.z - r.pz) / safeDt;
           r.human.group.position.set(c.x, 0, c.z); r.human.update(dt, vx, vz);
           r.pet.followTarget(c.x, c.z, c.rot, dt);
           r.px = c.x; r.pz = c.z;
           if (c.state === 'queue' || c.state === 'atBowl' || c.state === 'atRegister') r.human.setMood(c.mood === 'wait' ? 'wait' : 'none');
         }
         r.leash.update();
-        if (c.state === 'leave' || c.done) { r.bub.wrap.classList.add('hidden'); r.bub.bar.classList.add('hidden'); }
-        else if (!r.eating) {
+
+        if (c.state === 'leave' || c.done) {
+          r.bub.wrap.classList.add('hidden'); r.bub.bar.classList.add('hidden');
+        } else if (!r.eating) {
           fx.project(c.x, r.human.height + 0.55, c.z, tmpProj);
           r.bub.wrap.style.left = tmpProj.sx + 'px'; r.bub.wrap.style.top = tmpProj.sy + 'px';
           r.bub.bar.style.left = tmpProj.sx + 'px'; r.bub.bar.style.top = (tmpProj.sy + 6) + 'px';
         }
+
+        const pp = r.pet.group.position;
+        r.identity.update(dt, fx, pp.x, r.pet.height + 0.42, pp.z);
+        r.lastState = c.state;
       }
+
       let urgent = false;
       for (const c of G.customers) if (!c.done && c.patience < 4) { urgent = true; break; }
       hud.setCrowd(G.customers.length, effMaxC, urgent);
