@@ -42,6 +42,7 @@ jobs:
         working-directory: pet-cafe-tycoon
         run: npm run build
 
+      # Pages was enabled after the first workflow attempt; a fresh run now discovers the site.
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
