@@ -3,6 +3,7 @@ import { createScene } from './render/scene.js';
 import { createGame } from './game.js';
 import { createYouTubePlatform } from './platform/youtube.js';
 import { createMachineJuice } from './systems/machineJuice.js';
+import { createResponsivePolish } from './ui/responsive.js';
 import { AREA1 } from '../data/area1.js';
 
 const $ = id => document.getElementById(id);
@@ -19,11 +20,13 @@ async function boot() {
     platform,
   );
   const machineJuice = createMachineJuice(G.world, S.scene);
+  const responsive = createResponsivePolish(G);
   platform.bindGame(G);
 
   const save = await platform.load();
   if (save) G.restore(save);
   platform.sendScore(G.meta && G.meta.reputation);
+  responsive.update();
 
   window.__game = G;
   window.__scene = S;
@@ -39,6 +42,7 @@ async function boot() {
     if (!platform.paused) {
       G.update(dt);
       machineJuice.update(dt);
+      responsive.update();
       G.audio.setMusicPhase(G.dayState.phase);
       G.audio.musicUpdate(dt);
       const rep = (G.meta && G.meta.reputation) | 0;
