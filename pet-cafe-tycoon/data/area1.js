@@ -27,7 +27,10 @@ export const AREA1 = {
 
     { id: 'seat1', type: 'seat', x: -8.0, z: 6.0, rot: Math.PI, fw: 1.4, fd: 1.4, builtBy: 'z_seats1' },
     { id: 'seat2', type: 'seat', x: -5.5, z: 6.0, rot: Math.PI, fw: 1.4, fd: 1.4, builtBy: 'z_seats1' },
-    { id: 'seat3', type: 'seat', x: -3.0, z: 6.0, rot: Math.PI, fw: 1.4, fd: 1.4, builtBy: 'z_seats2' },
+    // The first lounge table faces sideways so its service/cleaning spot does not sit directly on
+    // the westbound exit stream. This gives guests right-of-way through the doorway approach while
+    // keeping the table in the same visual row and footprint.
+    { id: 'seat3', type: 'seat', x: -3.0, z: 6.0, rot: Math.PI / 2, fw: 1.4, fd: 1.4, builtBy: 'z_seats2' },
     { id: 'seat4', type: 'seat', x: -0.5, z: 6.0, rot: Math.PI, fw: 1.4, fd: 1.4, builtBy: 'z_seats2' },
     { id: 'seat5', type: 'seat', x: 2.0,  z: 6.0, rot: Math.PI, fw: 1.4, fd: 1.4, builtBy: 'z_seats2' },
     { id: 'seat6', type: 'seat', x: 4.5,  z: 6.0, rot: Math.PI, fw: 1.4, fd: 1.4, builtBy: 'z_seats2' },
