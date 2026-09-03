@@ -4,6 +4,7 @@ import { applySave } from './sim/save.js';
 import { salePrice, chooseGoal, cafeLevel, goalLabel, goalProgress, goalMet } from './sim/economy.js';
 import { createDay, stepDay, nextDay, phaseFrac, isWeekend, isHoliday, tipMult } from './sim/day.js';
 import { ensureReputation, recordShift, reputationLevel, reputationProgress, reputationTitle, REPUTATION_TITLES } from './sim/reputation.js';
+import { ensurePetBook, discoverPet, petBookProgress, allPetCards } from './sim/petBook.js';
 import { createCarry } from './sim/carry.js';
 import { createInput } from './core/input.js';
 import { buildStatic } from './render/props.js';
@@ -36,7 +37,7 @@ export function createGame(S, area, els, platform = null) {
     settings: { sfx: true },
     meta: {
       rewardedDays: {}, completedDays: 0, reputation: 0, perfectShifts: 0,
-      bestServiceStreak: 0, shiftRatings: {},
+      bestServiceStreak: 0, shiftRatings: {}, petBook: {}, petDiscoveries: 0,
     },
     serviceStreak: { count: 0, t: 0 },
     shiftBestStreak: 0,
@@ -46,7 +47,7 @@ export function createGame(S, area, els, platform = null) {
     dayState: createDay(), stars: {}, goal: chooseGoal(1),
     dayStats: { served: 0, lost: 0, earned: 0 },
   };
-  ensureReputation(G.meta);
+  ensureReputation(G.meta); ensurePetBook(G.meta);
 
   const world = createWorld(area); G.world = world;
   world.dayState = G.dayState; world.stars = G.stars;
@@ -78,7 +79,12 @@ export function createGame(S, area, els, platform = null) {
       nextTitle: REPUTATION_TITLES[level + 1] || null,
     });
   }
-  syncReputationPresentation();
+  function syncPetBookPresentation() {
+    ensurePetBook(G.meta);
+    const progress = petBookProgress(G.meta);
+    metaUI.setPetBook({ ...progress, cards: allPetCards(G.meta) });
+  }
+  syncReputationPresentation(); syncPetBookPresentation();
 
   const owner = createOwner(); scene.add(owner.group); G.owner = owner;
   const P = { x: 0, z: 2.5, vx: 0, vz: 0 };
@@ -99,6 +105,14 @@ export function createGame(S, area, els, platform = null) {
     hints: { oven: 0, counter: 0, cash: 0, zone: 0, refillCoffee: 0, refillBowl: 0, harvest: 0, blend: 0, clean: 0 },
     firstHint: { msg: null, t: 0 },
   };
+  ctx.discoverPet = (species, variant) => {
+    const discovery = discoverPet(G.meta, species, variant);
+    if (!discovery.isNew) return;
+    syncPetBookPresentation();
+    metaUI.announcePet(discovery);
+    audio.play('ding');
+    if (platform && G.snapshot) platform.save(G.snapshot());
+  };
 
   const stations = createStations(G, S, ctx);
   const zones = createZones(G, S, ctx);
@@ -118,7 +132,6 @@ export function createGame(S, area, els, platform = null) {
     visuals.update(dt); objective.update(dt);
     fx.update(dt); hud.update();
 
-    // Service streak is a mastery signal only: satisfying feedback without inflating the economy.
     G.serviceStreak.t = Math.max(0, G.serviceStreak.t - dt);
     for (const e of world.events) {
       if (e.type === 'pay') {
@@ -154,7 +167,6 @@ export function createGame(S, area, els, platform = null) {
       lastAwningSet = setIdx;
       G.awning && G.awning.setSet(setIdx);
     }
-
     world.events.length = 0;
   };
 
@@ -224,7 +236,6 @@ export function createGame(S, area, els, platform = null) {
         },
       } : null,
     });
-
     if (platform) platform.save(G.snapshot());
   }
 
@@ -232,27 +243,21 @@ export function createGame(S, area, els, platform = null) {
     const completedDay = G.dayState.day;
     metaUI.lockSummary(false);
     sheets.close();
-
-    // Day 3 is ~12 minutes into a normal session. Only natural day breaks can request interstitials.
-    if (platform && completedDay >= 3 && completedDay % 3 === 0) {
-      await platform.requestInterstitialAd();
-    }
-
+    if (platform && completedDay >= 3 && completedDay % 3 === 0) await platform.requestInterstitialAd();
     nextDay(G.dayState);
     G.dayStats = { served: 0, lost: 0, earned: 0 };
     G.serviceStreak = { count: 0, t: 0 };
     G.shiftBestStreak = 0;
     G.goal = chooseGoal(G.dayState.day);
     const d = G.dayState.day;
-    if (isWeekend(d) && isHoliday(d)) {
-      hud.banner('WEEKEND'); setTimeout(() => hud.banner('HOLIDAY'), 2700);
-    } else if (isWeekend(d)) hud.banner('WEEKEND');
+    if (isWeekend(d) && isHoliday(d)) { hud.banner('WEEKEND'); setTimeout(() => hud.banner('HOLIDAY'), 2700); }
+    else if (isWeekend(d)) hud.banner('WEEKEND');
     else if (isHoliday(d)) hud.banner('HOLIDAY');
     if (platform) platform.save(G.snapshot());
   }
 
   G.snapshot = () => ({
-    v: 3,
+    v: 4,
     coins: G.coins,
     lifetimeEarned: G.stats.lifetimeEarned | 0,
     builds: { a1: Array.from(world.built) },
@@ -275,6 +280,8 @@ export function createGame(S, area, els, platform = null) {
       perfectShifts: G.meta.perfectShifts | 0,
       bestServiceStreak: G.meta.bestServiceStreak | 0,
       shiftRatings: { ...G.meta.shiftRatings },
+      petBook: { ...G.meta.petBook },
+      petDiscoveries: G.meta.petDiscoveries | 0,
     },
     dayState: { ...G.dayState },
     stars: { ...G.stars },
@@ -304,7 +311,7 @@ export function createGame(S, area, els, platform = null) {
     visuals.syncAll();
     zones.syncAll();
     hud.setCoins(G.coins);
-    syncReputationPresentation();
+    syncReputationPresentation(); syncPetBookPresentation();
   };
 
   return G;
