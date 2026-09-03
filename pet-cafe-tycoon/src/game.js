@@ -3,6 +3,7 @@ import { createWorld, refreshActive, cleanSeat } from './sim/world.js';
 import { applySave } from './sim/save.js';
 import { salePrice, chooseGoal, cafeLevel, goalLabel, goalProgress, goalMet } from './sim/economy.js';
 import { createDay, stepDay, nextDay, phaseFrac, isWeekend, isHoliday, tipMult } from './sim/day.js';
+import { ensureReputation, recordShift, reputationLevel, reputationProgress, reputationTitle, REPUTATION_TITLES } from './sim/reputation.js';
 import { createCarry } from './sim/carry.js';
 import { createInput } from './core/input.js';
 import { buildStatic } from './render/props.js';
@@ -33,14 +34,19 @@ export function createGame(S, area, els, platform = null) {
     boosts: {},
     stats: { served: 0, lifetimeEarned: 0 },
     settings: { sfx: true },
-    meta: { rewardedDays: {}, completedDays: 0 },
+    meta: {
+      rewardedDays: {}, completedDays: 0, reputation: 0, perfectShifts: 0,
+      bestServiceStreak: 0, shiftRatings: {},
+    },
     serviceStreak: { count: 0, t: 0 },
+    shiftBestStreak: 0,
     customers: [], staffList: [], time: 0, state: 'play',
     carry: createCarry(),
     hintsSeen: new Set(), intro: {},
     dayState: createDay(), stars: {}, goal: chooseGoal(1),
     dayStats: { served: 0, lost: 0, earned: 0 },
   };
+  ensureReputation(G.meta);
 
   const world = createWorld(area); G.world = world;
   world.dayState = G.dayState; world.stars = G.stars;
@@ -59,6 +65,20 @@ export function createGame(S, area, els, platform = null) {
   G.audio = audio;
   input.onFirstInput(() => audio.unlock());
   audio.setSfx(G.settings.sfx);
+
+  function syncReputationPresentation() {
+    ensureReputation(G.meta);
+    const progress = reputationProgress(G.meta);
+    const level = reputationLevel(G.meta);
+    ambience.setPrestige(level);
+    metaUI.setReputation({
+      rep: G.meta.reputation,
+      title: reputationTitle(G.meta),
+      frac: progress.frac,
+      nextTitle: REPUTATION_TITLES[level + 1] || null,
+    });
+  }
+  syncReputationPresentation();
 
   const owner = createOwner(); scene.add(owner.group); G.owner = owner;
   const P = { x: 0, z: 2.5, vx: 0, vz: 0 };
@@ -105,6 +125,7 @@ export function createGame(S, area, els, platform = null) {
         G.dayStats.served++; G.dayStats.earned += e.amount;
         G.serviceStreak.count = G.serviceStreak.t > 0 ? G.serviceStreak.count + 1 : 1;
         G.serviceStreak.t = 7;
+        G.shiftBestStreak = Math.max(G.shiftBestStreak, G.serviceStreak.count);
         if (G.serviceStreak.count === 5 || (G.serviceStreak.count >= 10 && G.serviceStreak.count % 10 === 0)) {
           hud.banner(`${G.serviceStreak.count}x SERVICE STREAK`, 1200);
           audio.play('chime');
@@ -153,6 +174,11 @@ export function createGame(S, area, els, platform = null) {
     const lostRate = G.dayStats.lost / outcomes;
     const rating = met && lostRate <= 0.06 ? 3 : lostRate <= 0.14 ? 2 : 1;
 
+    const repResult = recordShift(G.meta, completedDay, rating, G.shiftBestStreak);
+    const repProgress = reputationProgress(G.meta);
+    const repLevel = reputationLevel(G.meta);
+    syncReputationPresentation();
+
     const model = {
       day: completedDay,
       earnings: G.dayStats.earned,
@@ -171,6 +197,15 @@ export function createGame(S, area, els, platform = null) {
 
     metaUI.decorateSummary({
       rating,
+      reputation: {
+        awarded: repResult.awarded,
+        levelUp: repResult.levelUp,
+        title: reputationTitle(G.meta),
+        nextTitle: REPUTATION_TITLES[repLevel + 1] || null,
+        current: repProgress.current,
+        needed: repProgress.needed,
+        frac: repProgress.frac,
+      },
       rewardOffer: rewardVisible ? {
         amount: rewardAmount,
         claimed: rewardClaimed,
@@ -206,6 +241,7 @@ export function createGame(S, area, els, platform = null) {
     nextDay(G.dayState);
     G.dayStats = { served: 0, lost: 0, earned: 0 };
     G.serviceStreak = { count: 0, t: 0 };
+    G.shiftBestStreak = 0;
     G.goal = chooseGoal(G.dayState.day);
     const d = G.dayState.day;
     if (isWeekend(d) && isHoliday(d)) {
@@ -216,7 +252,7 @@ export function createGame(S, area, els, platform = null) {
   }
 
   G.snapshot = () => ({
-    v: 2,
+    v: 3,
     coins: G.coins,
     lifetimeEarned: G.stats.lifetimeEarned | 0,
     builds: { a1: Array.from(world.built) },
@@ -232,7 +268,14 @@ export function createGame(S, area, els, platform = null) {
     },
     machineLevels: { ...G.machineLevels },
     intro: { ...G.intro },
-    meta: { completedDays: G.meta.completedDays | 0, rewardedDays: { ...G.meta.rewardedDays } },
+    meta: {
+      completedDays: G.meta.completedDays | 0,
+      rewardedDays: { ...G.meta.rewardedDays },
+      reputation: G.meta.reputation | 0,
+      perfectShifts: G.meta.perfectShifts | 0,
+      bestServiceStreak: G.meta.bestServiceStreak | 0,
+      shiftRatings: { ...G.meta.shiftRatings },
+    },
     dayState: { ...G.dayState },
     stars: { ...G.stars },
     goal: { ...G.goal },
@@ -244,6 +287,7 @@ export function createGame(S, area, els, platform = null) {
     applySave(G, save);
     audio.setSfx(G.settings.sfx);
     G.serviceStreak = { count: 0, t: 0 };
+    G.shiftBestStreak = 0;
     world.dayState = G.dayState; world.stars = G.stars; lastAwningSet = -1;
 
     customers.teardown(); staff.teardown();
@@ -260,6 +304,7 @@ export function createGame(S, area, els, platform = null) {
     visuals.syncAll();
     zones.syncAll();
     hud.setCoins(G.coins);
+    syncReputationPresentation();
   };
 
   return G;
