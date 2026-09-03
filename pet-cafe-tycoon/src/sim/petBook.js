@@ -1,22 +1,22 @@
 // Persistent Pet Visitor Book. Discovery is cosmetic/meta only and never gates core progression.
 export const PET_PROFILES = {
   cat: [
-    { name: 'Marmalade', rarity: 'common', body: '#D6A35F', belly: '#FFF0D5', accent: '#E0B34F' },
-    { name: 'Tuxedo', rarity: 'common', body: '#4A4548', belly: '#FFF4E6', accent: '#E45E75' },
-    { name: 'Lavender', rarity: 'rare', body: '#A89AC2', belly: '#F5ECFF', accent: '#7E6AE8' },
-    { name: 'Calico', rarity: 'epic', body: '#E9D5BC', belly: '#FFF4E6', accent: '#EF8B67' },
+    { name: 'Marmalade', rarity: 'common', trait: 'Sunbeam seeker', body: '#D6A35F', belly: '#FFF0D5', accent: '#E0B34F' },
+    { name: 'Tuxedo', rarity: 'common', trait: 'Counter inspector', body: '#4A4548', belly: '#FFF4E6', accent: '#E45E75' },
+    { name: 'Lavender', rarity: 'rare', trait: 'Quiet-window dreamer', body: '#A89AC2', belly: '#F5ECFF', accent: '#7E6AE8' },
+    { name: 'Calico', rarity: 'epic', trait: 'Treat critic', body: '#E9D5BC', belly: '#FFF4E6', accent: '#EF8B67' },
   ],
   dog: [
-    { name: 'Biscuit', rarity: 'common', body: '#C9A276', belly: '#FFF0D7', accent: '#71B8E4' },
-    { name: 'Cocoa', rarity: 'common', body: '#7B5947', belly: '#E9C8A9', accent: '#E6A742' },
-    { name: 'Cloud', rarity: 'rare', body: '#E6DDD3', belly: '#FFF9F0', accent: '#E88CA6' },
-    { name: 'Bluebell', rarity: 'epic', body: '#8298AC', belly: '#EAF4FF', accent: '#8B7CF6' },
+    { name: 'Biscuit', rarity: 'common', trait: 'Everyone is a friend', body: '#C9A276', belly: '#FFF0D7', accent: '#71B8E4' },
+    { name: 'Cocoa', rarity: 'common', trait: 'Chair-side napper', body: '#7B5947', belly: '#E9C8A9', accent: '#E6A742' },
+    { name: 'Cloud', rarity: 'rare', trait: 'Professional greeter', body: '#E6DDD3', belly: '#FFF9F0', accent: '#E88CA6' },
+    { name: 'Bluebell', rarity: 'epic', trait: 'Zoomie expert', body: '#8298AC', belly: '#EAF4FF', accent: '#8B7CF6' },
   ],
   bunny: [
-    { name: 'Snowdrop', rarity: 'common', body: '#EFE8E3', belly: '#FFC5D2', accent: '#D99BE8' },
-    { name: 'Mocha', rarity: 'common', body: '#A77B63', belly: '#EBC9B2', accent: '#E7A644' },
-    { name: 'Lilac', rarity: 'rare', body: '#C8B8DD', belly: '#F2D8EA', accent: '#8B7CF6' },
-    { name: 'Honey', rarity: 'epic', body: '#E7C47E', belly: '#FFF0D0', accent: '#D99542' },
+    { name: 'Snowdrop', rarity: 'common', trait: 'Garden watcher', body: '#EFE8E3', belly: '#FFC5D2', accent: '#D99BE8' },
+    { name: 'Mocha', rarity: 'common', trait: 'Crumb detective', body: '#A77B63', belly: '#EBC9B2', accent: '#E7A644' },
+    { name: 'Lilac', rarity: 'rare', trait: 'Soft-seat connoisseur', body: '#C8B8DD', belly: '#F2D8EA', accent: '#8B7CF6' },
+    { name: 'Honey', rarity: 'epic', trait: 'Tiny café celebrity', body: '#E7C47E', belly: '#FFF0D0', accent: '#D99542' },
   ],
 };
 
