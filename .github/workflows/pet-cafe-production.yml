@@ -1,0 +1,49 @@
+name: Pet Cafe Production
+
+on:
+  push:
+    branches: [chatgpt/pet-cafe-production]
+    paths:
+      - 'pet-cafe-tycoon/**'
+      - '.github/workflows/pet-cafe-production.yml'
+  pull_request:
+    paths:
+      - 'pet-cafe-tycoon/**'
+      - '.github/workflows/pet-cafe-production.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-build-visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: pet-cafe-tycoon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: pet-cafe-tycoon/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Unit and simulation tests
+        run: npm test
+      - name: Production build
+        run: npm run build
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Browser visual smoke
+        run: node tools/production-smoke.js
+      - name: Upload visual report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pet-cafe-production-shots
+          path: pet-cafe-tycoon/shots-production
+          if-no-files-found: warn
+          retention-days: 14
