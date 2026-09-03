@@ -91,6 +91,32 @@ export function createAudio() {
     step: () => noise({ ft: 'bandpass', f0: 1200, q: 1, dur: 0.04, vol: 0.12 }),
     tap: () => tone({ type: 'sine', f0: 1000, dur: 0.03, vol: 0.15 }),
     angry: () => tone({ type: 'square', f0: 180, dur: 0.15, vol: 0.18 }),
+
+    // Original café/pet cues. These are intentionally stylised rather than literal animal samples:
+    // no licensing burden, no network asset, and each species remains readable even on phone speakers.
+    petCat: () => {
+      if (!ctx) return; const t = ctx.currentTime;
+      tone({ type: 'triangle', f0: 620, f1: 860, dur: 0.16, vol: 0.12, at: t });
+      tone({ type: 'sine', f0: 760, f1: 1050, dur: 0.2, vol: 0.095, at: t + 0.11 });
+    },
+    petDog: () => {
+      if (!ctx) return; const t = ctx.currentTime;
+      tone({ type: 'triangle', f0: 230, f1: 150, dur: 0.11, vol: 0.15, at: t, lp: 1200 });
+      tone({ type: 'triangle', f0: 270, f1: 170, dur: 0.1, vol: 0.12, at: t + 0.13, lp: 1200 });
+    },
+    petBunny: () => {
+      if (!ctx) return; const t = ctx.currentTime;
+      [920, 1160, 1380].forEach((f, i) => tone({ type: 'sine', f0: f, dur: 0.12 + i * 0.03, vol: 0.07, at: t + i * 0.045 }));
+    },
+    pour: () => {
+      noise({ ft: 'bandpass', f0: 1800, f1: 650, q: 0.7, dur: 0.22, vol: 0.08, att: 0.02 });
+      tone({ type: 'sine', f0: 540, f1: 380, dur: 0.18, vol: 0.06 });
+    },
+    clean: () => {
+      if (!ctx) return; const t = ctx.currentTime;
+      noise({ ft: 'highpass', f0: 1500, f1: 4200, q: 0.5, dur: 0.16, vol: 0.055, att: 0.02, at: t });
+      [880, 1320].forEach((f, i) => tone({ type: 'sine', f0: f, dur: 0.18, vol: 0.09, at: t + 0.09 + i * 0.04 }));
+    },
   };
 
   A.play = (name, opts = {}) => {
@@ -99,7 +125,7 @@ export function createAudio() {
   };
 
   // A restrained pentatonic lounge loop changes density by day phase. It is intentionally quiet
-  // enough that register/machine SFX remain the foreground information channel.
+  // enough that register/machine/pet SFX remain the foreground information channel.
   const MUSIC = {
     morning:   { gap: 0.46, roots: [261.63, 293.66, 349.23, 329.63], notes: [0, 4, 7, 11, 14], vol: 0.055, dur: 0.5 },
     rush:      { gap: 0.285, roots: [293.66, 349.23, 392.00, 329.63], notes: [0, 4, 7, 9, 12, 14], vol: 0.058, dur: 0.34 },
@@ -110,9 +136,7 @@ export function createAudio() {
 
   A.setMusicPhase = phase => {
     if (!MUSIC[phase] || phase === musicPhase) return;
-    musicPhase = phase;
-    musicStep = 0;
-    musicClock = Math.min(musicClock, 0.15);
+    musicPhase = phase; musicStep = 0; musicClock = Math.min(musicClock, 0.15);
     if (ctx && music) {
       const target = phase === 'rush' ? 0.25 : phase === 'closing' ? 0.16 : 0.22;
       music.gain.setTargetAtTime(target, ctx.currentTime, 0.3);
@@ -130,11 +154,7 @@ export function createAudio() {
     const semi = cfg.notes[musicStep % cfg.notes.length];
     const f = root * ratio(semi);
     tone({ type: 'triangle', f0: f, dur: cfg.dur, vol: cfg.vol, att: 0.025, lp: 1800 }, music);
-
-    // Soft root pulse every four notes gives the loop shape without a separate percussion sample.
-    if (musicStep % 4 === 0) {
-      tone({ type: 'sine', f0: root / 2, dur: Math.min(0.65, cfg.dur + 0.1), vol: cfg.vol * 0.68, att: 0.03, lp: 700 }, music);
-    }
+    if (musicStep % 4 === 0) tone({ type: 'sine', f0: root / 2, dur: Math.min(0.65, cfg.dur + 0.1), vol: cfg.vol * 0.68, att: 0.03, lp: 700 }, music);
     musicStep++;
   };
 
