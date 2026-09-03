@@ -1,6 +1,7 @@
 // src/sim/save.js — pure save/restore helper shared by game.js and node tests.
 import { createDay } from './day.js';
 import { chooseGoal } from './economy.js';
+import { ensureReputation } from './reputation.js';
 
 export function applySave(state, save) {
   if (!save || typeof save !== 'object') return;
@@ -25,7 +26,12 @@ export function applySave(state, save) {
   state.meta = {
     completedDays: meta.completedDays | 0,
     rewardedDays: (meta.rewardedDays && typeof meta.rewardedDays === 'object') ? { ...meta.rewardedDays } : {},
+    reputation: meta.reputation | 0,
+    perfectShifts: meta.perfectShifts | 0,
+    bestServiceStreak: meta.bestServiceStreak | 0,
+    shiftRatings: (meta.shiftRatings && typeof meta.shiftRatings === 'object') ? { ...meta.shiftRatings } : {},
   };
+  ensureReputation(state.meta);
 
   state.dayState = (save.dayState && typeof save.dayState === 'object') ? { ...save.dayState } : createDay();
   state.stars = (save.stars && typeof save.stars === 'object') ? { ...save.stars } : {};
