@@ -1,13 +1,9 @@
-// src/render/human.js — blocky toy human (customers, runner, cashier, owner).
-// Meshes: legL, legR, body+head (merged, one draw), armL, armR = 5. Only the merged
-// body+head mesh casts a shadow (legs/arms swing independently and skip the shadow pass).
+// src/render/human.js — stylized café people with merged detail geometry and a five-draw-call budget.
 import * as THREE from 'three';
 import { part, merge } from './geo.js';
 import { C, toonMaterial } from './palette.js';
 import { damp } from '../core/tween.js';
 
-// I7: mood bubble parts — same shapes the pet's bubble uses (three white dots for 'wait', a red
-// exclamation mark for 'angry'), no heart (the pet keeps that one for 'seated', via fx.hearts).
 let _bWaitGeo = null, _bAngryGeo = null;
 function bWaitGeo() { return _bWaitGeo || (_bWaitGeo = merge([part('sph', [0.06, 8], C.white, { x: -0.15 }), part('sph', [0.06, 8], C.white), part('sph', [0.06, 8], C.white, { x: 0.15 })])); }
 function bAngryGeo() { return _bAngryGeo || (_bAngryGeo = merge([part('rbox', [0.08, 0.3, 0.08, 0.03], '#FF3B3B', { y: 0.05 }), part('sph', [0.06, 8], '#FF3B3B', { y: -0.2 })])); }
@@ -21,7 +17,12 @@ const HIP_Y = 0.55, SHOULDER_Y = 1.25;
 let _legGeo = null;
 function legGeo() {
   if (_legGeo) return _legGeo;
-  return _legGeo = merge([part('rbox', [0.22, 0.55, 0.26, 0.06], C.ink, { y: -0.275 })]);
+  _legGeo = merge([
+    part('rbox', [0.22, 0.5, 0.25, 0.055], C.ink, { y: -0.25 }),
+    part('rbox', [0.28, 0.14, 0.38, 0.045], '#584741', { y: -0.54, z: 0.055 }),
+    part('box', [0.26, 0.035, 0.36], '#2D2725', { y: -0.62, z: 0.055 }),
+  ]);
+  return _legGeo;
 }
 
 const _geoCache = new Map();
@@ -29,28 +30,77 @@ function geosFor(role, shirtHex, hairHex, skinHex) {
   const key = role + '|' + shirtHex + '|' + hairHex + '|' + skinHex;
   let g = _geoCache.get(key);
   if (g) return g;
-  const bodyParts = [part('rbox', [0.62, 0.72, 0.42, 0.1], shirtHex, { y: 0.95 })];
-  if (role === 'runner' || role === 'owner') bodyParts.push(part('rbox', [0.5, 0.55, 0.08, 0.04], C.cream, { y: 0.86, z: 0.23 }));   // apron
-  if (role === 'cashier') bodyParts.push(part('rbox', [0.56, 0.4, 0.06, 0.04], C.accent, { y: 1.06, z: 0.22 }));                     // vest
-  const armGeo = merge([
-    part('rbox', [0.16, 0.55, 0.16, 0.05], shirtHex, { y: -0.275 }),
-    part('sph', [0.09, 8], skinHex, { y: -0.56 }),
-  ]);
+
+  const bodyParts = [
+    part('rbox', [0.64, 0.7, 0.43, 0.1], shirtHex, { y: 0.95 }),
+    part('rbox', [0.5, 0.11, 0.045, 0.025], C.cream, { y: 1.23, z: 0.235 }),
+  ];
+
+  if (role === 'runner' || role === 'owner') {
+    bodyParts.push(
+      part('rbox', [0.51, 0.54, 0.075, 0.035], C.cream, { y: 0.86, z: 0.235 }),
+      part('rbox', [0.31, 0.19, 0.035, 0.02], '#F5E5CF', { y: 0.8, z: 0.283 }),
+      part('box', [0.54, 0.055, 0.05], '#E9D4BA', { y: 1.04, z: 0.27 }),
+    );
+  }
+  if (role === 'cashier') {
+    bodyParts.push(
+      part('rbox', [0.56, 0.42, 0.055, 0.03], C.accent, { y: 1.02, z: 0.225 }),
+      part('sph', [0.035, 7], '#FFF4E6', { x: -0.13, y: 1.08, z: 0.26 }),
+      part('sph', [0.035, 7], '#FFF4E6', { x: 0.13, y: 1.08, z: 0.26 }),
+    );
+  }
+
+  const armParts = [
+    part('rbox', [0.17, 0.49, 0.17, 0.05], shirtHex, { y: -0.245 }),
+    part('rbox', [0.18, 0.08, 0.18, 0.03], role === 'owner' || role === 'runner' ? C.cream : shirtHex, { y: -0.5 }),
+    part('sph', [0.1, 8], skinHex, { y: -0.59 }),
+  ];
+  const armGeo = merge(armParts);
+
+  const faceZ = 0.275;
   const headParts = [
     part('rbox', [0.5, 0.5, 0.5, 0.14], skinHex, { y: 1.62 }),
-    part('sph', [0.045, 8], C.ink, { x: -0.11, y: 1.65, z: 0.27 }), part('sph', [0.045, 8], C.ink, { x: 0.11, y: 1.65, z: 0.27 }),
-    part('sph', [0.045, 8], C.pink, { x: -0.19, y: 1.55, z: 0.25 }), part('sph', [0.045, 8], C.pink, { x: 0.19, y: 1.55, z: 0.25 }),
+    part('sph', [0.07, 8], skinHex, { x: -0.27, y: 1.62, z: 0 }),
+    part('sph', [0.07, 8], skinHex, { x: 0.27, y: 1.62, z: 0 }),
+    part('sph', [0.05, 8], C.ink, { x: -0.11, y: 1.67, z: faceZ }),
+    part('sph', [0.05, 8], C.ink, { x: 0.11, y: 1.67, z: faceZ }),
+    part('sph', [0.017, 6], '#FFFFFF', { x: -0.095, y: 1.686, z: faceZ + 0.04 }),
+    part('sph', [0.017, 6], '#FFFFFF', { x: 0.125, y: 1.686, z: faceZ + 0.04 }),
+    part('sph', [0.035, 7], '#C98A73', { y: 1.58, z: faceZ + 0.025 }),
+    part('box', [0.11, 0.022, 0.025], '#71453D', { y: 1.505, z: faceZ + 0.032 }),
+    part('sph', [0.045, 8], C.pink, { x: -0.19, y: 1.55, z: 0.25 }),
+    part('sph', [0.045, 8], C.pink, { x: 0.19, y: 1.55, z: 0.25 }),
   ];
+
   if (role === 'owner') {
-    headParts.push(part('cyl', [0.28, 0.3, 0.12, 12], C.cream, { y: 1.94 }), part('sph', [0.28, 12], C.cream, { y: 2.08, sy: 0.7 }));   // chef hat
+    headParts.push(
+      part('cyl', [0.29, 0.3, 0.12, 12], '#F7ECDD', { y: 1.92 }),
+      part('rbox', [0.54, 0.12, 0.48, 0.05], C.cream, { y: 1.92 }),
+      part('sph', [0.23, 12], C.cream, { x: -0.18, y: 2.08, sy: 0.82 }),
+      part('sph', [0.26, 12], C.cream, { y: 2.13, sy: 0.82 }),
+      part('sph', [0.23, 12], C.cream, { x: 0.18, y: 2.08, sy: 0.82 }),
+      part('box', [0.22, 0.055, 0.035], C.coral, { y: 1.36, z: 0.23, rz: 0.36 }),
+      part('box', [0.22, 0.055, 0.035], C.coral, { y: 1.36, z: 0.23, rz: -0.36 }),
+    );
+  } else if (role === 'runner') {
+    headParts.push(
+      part('rbox', [0.55, 0.18, 0.53, 0.08], C.cream, { y: 1.86 }),
+      part('box', [0.35, 0.08, 0.23], C.cream, { y: 1.79, z: 0.31 }),
+      part('rbox', [0.46, 0.13, 0.43, 0.05], hairHex, { y: 1.79, z: -0.04 }),
+    );
   } else {
-    const capHex = role === 'runner' ? C.cream : hairHex;
-    headParts.push(part('rbox', [0.54, 0.18, 0.54, 0.08], capHex, { y: 1.86 }));           // cap
-    headParts.push(part('box', [0.5, 0.14, 0.12], capHex, { y: 1.78, z: 0.22 }));          // front fringe
+    headParts.push(
+      part('rbox', [0.53, 0.2, 0.52, 0.09], hairHex, { y: 1.84, z: -0.02 }),
+      part('rbox', [0.48, 0.2, 0.12, 0.05], hairHex, { y: 1.78, z: 0.23 }),
+      part('rbox', [0.1, 0.27, 0.43, 0.05], hairHex, { x: -0.245, y: 1.72, z: -0.03 }),
+      part('rbox', [0.1, 0.27, 0.43, 0.05], hairHex, { x: 0.245, y: 1.72, z: -0.03 }),
+    );
+    if (role === 'cashier') {
+      headParts.push(part('rbox', [0.2, 0.065, 0.04, 0.025], C.accent, { y: 1.87, z: 0.27 }));
+    }
   }
-  // body + head share the exact same per-frame transform (both just bob by the same amount, no
-  // independent rotation), so they're merged into one draw call; legs and arms swing independently
-  // and stay separate meshes.
+
   const bodyHeadGeo = merge([...bodyParts, ...headParts]);
   g = { legGeo: legGeo(), bodyHeadGeo, armGeo };
   _geoCache.set(key, g);
@@ -64,32 +114,24 @@ export function createHuman(variant = {}, role = 'customer') {
   const G = geosFor(role, shirtHex, hairHex, skinHex);
   const mat = toonMaterial();
   const group = new THREE.Group();
-  // legs and arms swing independently frame to frame, so they don't cast shadows (draw-call budget:
-  // the shadow pass would otherwise double their cost) — the merged body+head mesh still grounds
-  // everyone with a real shadow.
   const legL = new THREE.Mesh(G.legGeo, mat); legL.position.set(-0.15, HIP_Y, 0); legL.castShadow = false; legL.receiveShadow = true;
   const legR = new THREE.Mesh(G.legGeo, mat); legR.position.set(0.15, HIP_Y, 0); legR.castShadow = false; legR.receiveShadow = true;
   const bodyHead = new THREE.Mesh(G.bodyHeadGeo, mat); bodyHead.castShadow = true; bodyHead.receiveShadow = true;
   const armL = new THREE.Mesh(G.armGeo, mat); armL.position.set(-0.44, SHOULDER_Y, 0); armL.castShadow = false; armL.receiveShadow = true;
   const armR = new THREE.Mesh(G.armGeo, mat); armR.position.set(0.44, SHOULDER_Y, 0); armR.castShadow = false; armR.receiveShadow = true;
   group.add(legL, legR, bodyHead, armL, armR);
-  const hand = new THREE.Object3D(); hand.position.set(0, -0.56, 0); armR.add(hand);
+  const hand = new THREE.Object3D(); hand.position.set(0, -0.59, 0); armR.add(hand);
   const stack = new THREE.Group(); stack.position.set(0, 1.05, 0.42); group.add(stack);
 
-  // I7: mood bubble, positioned above the head.
   const bubble = new THREE.Group(); bubble.position.set(0, 2.25, 0); bubble.visible = false; group.add(bubble);
   const bWait = new THREE.Mesh(bWaitGeo(), mat); bWait.castShadow = false; bWait.receiveShadow = true;
   const bAngry = new THREE.Mesh(bAngryGeo(), mat); bAngry.castShadow = false; bAngry.receiveShadow = true;
   bubble.add(bWait, bAngry);
 
-  const H = { group, hand, stack, height: 1.95, _t: 0, _idleT: Math.random() * 6, _face: 0, _carryN: 0, _armBase: 0, _sitting: false, _tapT: 0 };
+  const H = { group, hand, stack, height: 2.04, _t: 0, _idleT: Math.random() * 6, _face: 0, _carryN: 0, _armBase: 0, _sitting: false, _tapT: 0 };
   H.setCarry = n => { H._carryN = n | 0; };
   H.setMood = m => { bubble.visible = m !== 'none'; bWait.visible = m === 'wait'; bAngry.visible = m === 'angry'; };
-  // I7/T3: the register "cha-ching" tap — a brief right-arm bump (reuses the walk-cycle swing
-  // amplitude) independent of movement/carry state, for the owner/cashier each time a register
-  // processes a customer. 0.2s one-shot; a fresh call while one is still playing just restarts it.
   H.tap = () => { H._tapT = 0.2; };
-  // I6: sit lowers the group and bends the legs back under the table; stand restores the walk pose.
   H.sit = () => { H._sitting = true; group.position.y = -0.35; legL.rotation.x = -1.5; legR.rotation.x = -1.5; };
   H.stand = () => { H._sitting = false; group.position.y = 0; legL.rotation.x = 0; legR.rotation.x = 0; };
   H.update = (dt, vx, vz) => {
@@ -107,7 +149,7 @@ export function createHuman(variant = {}, role = 'customer') {
     armL.rotation.x = H._armBase - armSwing; armR.rotation.x = H._armBase + armSwing;
     if (H._tapT > 0) {
       H._tapT = Math.max(0, H._tapT - dt);
-      const k = Math.sin((1 - H._tapT / 0.2) * Math.PI); // 0 -> 1 -> 0 bump over 0.2s
+      const k = Math.sin((1 - H._tapT / 0.2) * Math.PI);
       armR.rotation.x -= k * 0.6;
     }
   };
