@@ -19,7 +19,6 @@ export function createScene(canvas) {
   scene.fog = new THREE.Fog('#F7EDE2', 42, 88);
   const camera = new THREE.PerspectiveCamera(FOV, 1, 0.5, 200);
 
-  // Sky dome with a warm horizon so the low-poly art has a premium illustrative backdrop.
   {
     const g = new THREE.SphereGeometry(90, 24, 12), n = g.getAttribute('position').count;
     const col = new Float32Array(n * 3), top = new THREE.Color('#CDEEFF'), hor = new THREE.Color('#FFF0DE'), c = new THREE.Color();
@@ -59,7 +58,8 @@ export function createScene(canvas) {
     renderer.setPixelRatio(basePixelRatio * renderScale); renderer.setSize(w, h, false);
     camera.aspect = w / h; camera.updateProjectionMatrix();
     const a = camera.aspect;
-    const want = a <= 0.8 ? 10 : a >= 1.25 ? 18 : a <= 1 ? lerp(10, 13, (a - 0.8) / 0.2) : lerp(13, 18, (a - 1) / 0.25);
+    // Portrait needs room for touch UI; landscape benefits from a closer, more premium read.
+    const want = a <= 0.8 ? 10 : a >= 1.25 ? 16.25 : a <= 1 ? lerp(10, 13, (a - 0.8) / 0.2) : lerp(13, 16.25, (a - 1) / 0.25);
     S.dist = want / (2 * Math.tan(FOV * Math.PI / 360) * camera.aspect);
     const size = innerWidth < 700 ? 1024 : 2048;
     if (sun.shadow.mapSize.width !== size) { sun.shadow.mapSize.set(size, size); sun.shadow.map = null; sun.shadow.needsUpdate = true; }
@@ -83,7 +83,6 @@ export function createScene(canvas) {
   S.follow = (x, z, dt) => { goal.set(x, 0, z); target.x = damp(target.x, goal.x, 6, dt); target.z = damp(target.z, goal.z, 6, dt); place(dt); };
   S.snap = (x, z) => { target.set(x, 0, z); place(); };
 
-  // Hysteresis keeps resolution changes invisible while rescuing sustained low frame rates.
   let avgDt = 1 / 60, sampleFrames = 0, cooldownFrames = 0;
   S.noteFrame = dt => {
     avgDt += (dt - avgDt) * 0.035;
