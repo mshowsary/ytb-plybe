@@ -2,11 +2,16 @@
 // Nothing touches AudioContext until the player's first interaction unlocks audio.
 export function createAudio() {
   let ctx = null, master = null, comp = null, sfx = null, music = null, noiseBuf = null, voices = 0;
-  let hostMuted = false, sfxOn = true;
+  let hostMuted = false, sfxOn = true, musicOn = true;
   let musicPhase = 'morning', musicClock = 0, musicStep = 0;
 
   const A = {};
-  Object.defineProperty(A, 'muted', { get: () => hostMuted || !sfxOn, enumerable: true });
+  Object.defineProperty(A, 'muted', { get: () => hostMuted, enumerable: true });
+  Object.defineProperty(A, 'sfxEnabled', { get: () => sfxOn, enumerable: true });
+  Object.defineProperty(A, 'musicEnabled', { get: () => musicOn, enumerable: true });
+
+  const MUSIC_GAIN = { morning: 0.22, rush: 0.25, afternoon: 0.22, closing: 0.16 };
+  const currentMusicGain = () => musicOn ? (MUSIC_GAIN[musicPhase] || 0.22) : 0;
 
   A.unlock = () => {
     if (ctx) { if (ctx.state === 'suspended') ctx.resume().catch(() => {}); return; }
@@ -15,13 +20,13 @@ export function createAudio() {
     if (!Ctx) return;
     try { ctx = new Ctx(); } catch (_) { return; }
 
-    master = ctx.createGain(); master.gain.value = A.muted ? 0 : 1;
+    master = ctx.createGain(); master.gain.value = hostMuted ? 0 : 1;
     comp = ctx.createDynamicsCompressor(); comp.threshold.value = -14; comp.knee.value = 20; comp.ratio.value = 6;
     comp.attack.value = 0.004; comp.release.value = 0.18;
     master.connect(comp); comp.connect(ctx.destination);
 
-    sfx = ctx.createGain(); sfx.gain.value = 1; sfx.connect(master);
-    music = ctx.createGain(); music.gain.value = 0.22; music.connect(master);
+    sfx = ctx.createGain(); sfx.gain.value = sfxOn ? 1 : 0; sfx.connect(master);
+    music = ctx.createGain(); music.gain.value = currentMusicGain(); music.connect(master);
 
     const len = ctx.sampleRate | 0;
     noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -30,11 +35,15 @@ export function createAudio() {
     musicClock = 0.1;
   };
 
-  const applyMaster = () => {
-    if (ctx && master) master.gain.setTargetAtTime(A.muted ? 0 : 1, ctx.currentTime, 0.03);
+  const applyBuses = () => {
+    if (!ctx) return;
+    if (master) master.gain.setTargetAtTime(hostMuted ? 0 : 1, ctx.currentTime, 0.03);
+    if (sfx) sfx.gain.setTargetAtTime(sfxOn ? 1 : 0, ctx.currentTime, 0.03);
+    if (music) music.gain.setTargetAtTime(currentMusicGain(), ctx.currentTime, 0.12);
   };
-  A.setHostMute = b => { hostMuted = !!b; applyMaster(); };
-  A.setSfx = b => { sfxOn = !!b; applyMaster(); };
+  A.setHostMute = b => { hostMuted = !!b; applyBuses(); };
+  A.setSfx = b => { sfxOn = !!b; applyBuses(); };
+  A.setMusic = b => { musicOn = !!b; applyBuses(); };
 
   function tone(o, bus = sfx) {
     if (!ctx || !bus || voices >= 28) return;
@@ -91,9 +100,11 @@ export function createAudio() {
     step: () => noise({ ft: 'bandpass', f0: 1200, q: 1, dur: 0.04, vol: 0.12 }),
     tap: () => tone({ type: 'sine', f0: 1000, dur: 0.03, vol: 0.15 }),
     angry: () => tone({ type: 'square', f0: 180, dur: 0.15, vol: 0.18 }),
-
-    // Original café/pet cues. These are intentionally stylised rather than literal animal samples:
-    // no licensing burden, no network asset, and each species remains readable even on phone speakers.
+    penalty: () => {
+      if (!ctx) return; const t = ctx.currentTime;
+      tone({ type: 'triangle', f0: 310, f1: 155, dur: 0.18, vol: 0.13, at: t });
+      tone({ type: 'sine', f0: 210, f1: 140, dur: 0.22, vol: 0.08, at: t + 0.08 });
+    },
     petCat: () => {
       if (!ctx) return; const t = ctx.currentTime;
       tone({ type: 'triangle', f0: 620, f1: 860, dur: 0.16, vol: 0.12, at: t });
@@ -120,12 +131,10 @@ export function createAudio() {
   };
 
   A.play = (name, opts = {}) => {
-    if (!ctx || A.muted) return;
+    if (!ctx || hostMuted || !sfxOn) return;
     const p = PATCHES[name]; if (p) p(opts);
   };
 
-  // A restrained pentatonic lounge loop changes density by day phase. It is intentionally quiet
-  // enough that register/machine/pet SFX remain the foreground information channel.
   const MUSIC = {
     morning:   { gap: 0.46, roots: [261.63, 293.66, 349.23, 329.63], notes: [0, 4, 7, 11, 14], vol: 0.055, dur: 0.5 },
     rush:      { gap: 0.285, roots: [293.66, 349.23, 392.00, 329.63], notes: [0, 4, 7, 9, 12, 14], vol: 0.058, dur: 0.34 },
@@ -137,14 +146,11 @@ export function createAudio() {
   A.setMusicPhase = phase => {
     if (!MUSIC[phase] || phase === musicPhase) return;
     musicPhase = phase; musicStep = 0; musicClock = Math.min(musicClock, 0.15);
-    if (ctx && music) {
-      const target = phase === 'rush' ? 0.25 : phase === 'closing' ? 0.16 : 0.22;
-      music.gain.setTargetAtTime(target, ctx.currentTime, 0.3);
-    }
+    applyBuses();
   };
 
   A.musicUpdate = dt => {
-    if (!ctx || !music || A.muted || ctx.state !== 'running') return;
+    if (!ctx || !music || hostMuted || !musicOn || ctx.state !== 'running') return;
     const cfg = MUSIC[musicPhase] || MUSIC.morning;
     musicClock -= dt;
     if (musicClock > 0) return;
