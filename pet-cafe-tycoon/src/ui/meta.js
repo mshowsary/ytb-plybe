@@ -8,6 +8,7 @@ function injectStyle() {
   s.textContent = `
     .meta-streak{position:fixed;right:calc(12px + env(safe-area-inset-right,0px));top:calc(184px + env(safe-area-inset-top,0px));z-index:14;pointer-events:none;padding:7px 12px;border-radius:999px;background:linear-gradient(135deg,#fff5dc,#ffe09a);color:#68431d;font:900 13px/1.1 system-ui,sans-serif;box-shadow:0 4px 0 #c68c3b33,0 9px 22px #7c4a1828;transform:translateY(-5px) scale(.94);opacity:0;transition:.18s ease}
     .meta-streak.show{transform:none;opacity:1}
+    body.meta-summary-open #hint,body.meta-summary-open .objCaption,body.meta-summary-open .fbtn,body.meta-summary-open .skipPill{opacity:0!important;pointer-events:none!important}
     .meta-rating{width:100%;box-sizing:border-box;margin:0 auto 2px;padding:10px 12px;border-radius:16px;background:#ffffffa8;border:1px solid #0000000a;display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left}
     .meta-rating-copy{display:flex;flex-direction:column;gap:2px;min-width:0}
     .meta-kicker{font:800 10px/1.1 system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;opacity:.55}
@@ -32,8 +33,6 @@ export function createMetaUI() {
   const toastEl = document.createElement('div'); toastEl.className = 'meta-toast'; document.body.appendChild(toastEl);
   let summaryLocked = false, lastStreak = -1, toastTimer = null;
 
-  // Capture before sheets.js bubble listeners. We stop propagation but never preventDefault(), so
-  // browser/YouTube Escape semantics stay untouched while the frozen end-of-day card is protected.
   document.addEventListener('click', e => {
     if (summaryLocked && e.target && e.target.classList && e.target.classList.contains('backdrop')) e.stopPropagation();
   }, true);
@@ -54,10 +53,13 @@ export function createMetaUI() {
     streak.classList.add('show');
   };
 
-  M.lockSummary = locked => { summaryLocked = !!locked; };
+  M.lockSummary = locked => {
+    summaryLocked = !!locked;
+    document.body.classList.toggle('meta-summary-open', summaryLocked);
+  };
 
   M.decorateSummary = model => {
-    summaryLocked = true;
+    M.lockSummary(true);
     let tries = 0;
     const attach = () => {
       const card = document.querySelector('.sheet-root .card');
@@ -67,8 +69,6 @@ export function createMetaUI() {
       }
       if (card.querySelector('.meta-rating')) return;
 
-      // A day summary freezes the simulation until CONTINUE, so the generic sheet close control is
-      // not a valid action here. Remove it rather than showing a button that can soft-lock a run.
       const close = card.querySelector('.sclose');
       if (close) close.remove();
 
