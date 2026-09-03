@@ -33,7 +33,7 @@ export function createMetaUI() {
   let summaryLocked = false, lastStreak = -1, toastTimer = null;
 
   // Capture before sheets.js bubble listeners. We stop propagation but never preventDefault(), so
-  // the browser/YouTube Escape semantics remain untouched while the day-end simulation is frozen.
+  // browser/YouTube Escape semantics stay untouched while the frozen end-of-day card is protected.
   document.addEventListener('click', e => {
     if (summaryLocked && e.target && e.target.classList && e.target.classList.contains('backdrop')) e.stopPropagation();
   }, true);
@@ -66,6 +66,11 @@ export function createMetaUI() {
         return;
       }
       if (card.querySelector('.meta-rating')) return;
+
+      // A day summary freezes the simulation until CONTINUE, so the generic sheet close control is
+      // not a valid action here. Remove it rather than showing a button that can soft-lock a run.
+      const close = card.querySelector('.sclose');
+      if (close) close.remove();
 
       const rating = document.createElement('div'); rating.className = 'meta-rating';
       const rc = document.createElement('div'); rc.className = 'meta-rating-copy';
