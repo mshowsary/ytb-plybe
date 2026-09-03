@@ -1,0 +1,55 @@
+name: Pet Cafe Live Preview
+
+on:
+  push:
+    branches: [chatgpt/pet-cafe-production]
+    paths:
+      - 'pet-cafe-tycoon/**'
+      - '.github/workflows/pet-cafe-preview-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pet-cafe-pages
+  cancel-in-progress: true
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: pet-cafe-tycoon/package-lock.json
+
+      - name: Install
+        working-directory: pet-cafe-tycoon
+        run: npm ci
+
+      - name: Build playable
+        working-directory: pet-cafe-tycoon
+        run: npm run build
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload playable
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: pet-cafe-tycoon/dist
+
+      - name: Deploy preview
+        id: deployment
+        uses: actions/deploy-pages@v4
