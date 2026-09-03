@@ -31,7 +31,6 @@ for (const [tag, width, height, dpr] of [['portrait', 450, 800, 2], ['landscape'
   page.on('pageerror', e => errors.push(String(e)));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
 
-  // Deterministic local mode: don't depend on the external SDK network request in CI.
   await page.route('https://www.youtube.com/game_api/v1', route => route.fulfill({ status: 200, contentType: 'text/javascript', body: 'window.ytgame={IN_PLAYABLES_ENV:false};' }));
   await page.goto('http://127.0.0.1:4174/', { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => window.__game && document.getElementById('loading').classList.contains('hidden'), null, { timeout: 30000 });
@@ -43,8 +42,6 @@ for (const [tag, width, height, dpr] of [['portrait', 450, 800, 2], ['landscape'
   });
   await page.screenshot({ path: path.join(shots, `01-boot-${tag}.png`), fullPage: true });
 
-  // A synthetic but structurally valid late-Area-1 save lets CI judge the art under the density
-  // the real game is designed to reach, instead of only photographing the deliberately calm tutorial.
   await page.evaluate(() => {
     const g = window.__game;
     const s = g.snapshot();
@@ -61,6 +58,8 @@ for (const [tag, width, height, dpr] of [['portrait', 450, 800, 2], ['landscape'
       perfectShifts: 5,
       bestServiceStreak: 18,
       shiftRatings: { 1: 2, 2: 3, 3: 2, 4: 3, 5: 3, 6: 2, 7: 3, 8: 2, 9: 3, 10: 2, 11: 3, 12: 3 },
+      petBook: { 'cat:0': 1, 'cat:1': 1, 'cat:2': 1, 'dog:0': 1, 'dog:1': 1, 'bunny:0': 1, 'bunny:2': 1 },
+      petDiscoveries: 7,
     };
     s.dayState = { day: 13, t: 78, phase: 'rush', _ended: false };
     s.dayStats = { served: 14, lost: 1, earned: 420 };
@@ -86,11 +85,21 @@ for (const [tag, width, height, dpr] of [['portrait', 450, 800, 2], ['landscape'
       triangles: r.triangles,
       reputation: window.__game.meta.reputation,
       repLabel: document.querySelector('.meta-rep-title')?.textContent || '',
+      petCount: document.querySelector('.meta-book-count')?.textContent || '',
     };
   });
   await page.screenshot({ path: path.join(shots, `02-busy-${tag}.png`), fullPage: true });
 
-  // Force a strong natural day-end result to exercise rating, reputation and rewarded presentation.
+  await page.click('.meta-pawbook');
+  await page.waitForFunction(() => !document.querySelector('.meta-book-root')?.classList.contains('hidden'), null, { timeout: 3000 });
+  const book = await page.evaluate(() => ({
+    cards: document.querySelectorAll('.meta-pet-card').length,
+    found: document.querySelectorAll('.meta-pet-card:not(.locked)').length,
+    title: document.querySelector('.meta-book-title')?.textContent || '',
+  }));
+  await page.screenshot({ path: path.join(shots, `03-book-${tag}.png`), fullPage: true });
+  await page.click('.meta-book-close');
+
   await page.evaluate(() => {
     const g = window.__game;
     g.dayStats = { served: 42, lost: 1, earned: 1180 };
@@ -107,10 +116,10 @@ for (const [tag, width, height, dpr] of [['portrait', 450, 800, 2], ['landscape'
     repSummary: !!document.querySelector('.meta-rep-summary'),
     repTitle: document.querySelector('.meta-rep-summary .meta-kicker')?.textContent || '',
   }));
-  await page.screenshot({ path: path.join(shots, `03-summary-${tag}.png`), fullPage: true });
+  await page.screenshot({ path: path.join(shots, `04-summary-${tag}.png`), fullPage: true });
 
-  if (!info.platform || info.metaVersion !== 3 || !meta.stars || !meta.reward || !meta.repSummary || !busy.repLabel || errors.length) failed = true;
-  report.push({ tag, ...info, busy, ...meta, errors });
+  if (!info.platform || info.metaVersion !== 4 || !meta.stars || !meta.reward || !meta.repSummary || !busy.repLabel || !busy.petCount || book.cards !== 12 || book.found < 7 || errors.length) failed = true;
+  report.push({ tag, ...info, busy, book, ...meta, errors });
   await ctx.close();
 }
 
