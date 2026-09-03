@@ -23,11 +23,11 @@ test('pendingJobs: buildAffordable + next "build" once coins cover the first act
 
 test('pendingJobs: a customer waiting unserved at a register → registerWaiting and next "register", beating an affordable build', () => {
   const w = createWorld(AREA1);
-  w.stations.get('register1').serving = ''; // unmanned
+  w.stations.get('register1').serving = '';
   const customers = [mockCustomer({ state: 'atRegister', registerId: 'register1' })];
   const j = pendingJobs(w, { coins: 999999, customers });
   assert.equal(j.registerWaiting, 1);
-  assert.equal(j.buildAffordable, true); // still true, just outranked
+  assert.equal(j.buildAffordable, true);
   assert.equal(j.next, 'register');
 });
 
@@ -45,7 +45,7 @@ test('pendingJobs: a customer waiting at a counter lacking its product → empty
   const customers = [mockCustomer({ state: 'queue', slot: 0, mood: 'wait' })];
   const j = pendingJobs(w, { coins: 999999, customers });
   assert.equal(j.emptyDisplayWithWaiting, 1);
-  assert.equal(j.next, 'restock'); // beats an affordable build, loses to a register wait
+  assert.equal(j.next, 'restock');
 });
 
 test('pendingJobs: register beats restock beats build, in that priority order', () => {
@@ -68,13 +68,13 @@ test('pendingJobs ignores done customers', () => {
   assert.equal(j.registerWaiting, 0);
 });
 
-// Task 4: refill (empty coffee/bowl sacks) / clean (dirty tables) / harvest (ripe bushes), and
-// their place in the priority chain: register > restock > refill > clean > harvest > build.
-const T4_BUILT = ['z_seats1', 'z_register2', 'z_coffee', 'z_bowl', 'z_garden'];
+// Maintenance systems available once the starter Smoothie Bar is built. Garden expansion is no
+// longer required to harvest because bush1 now arrives with the blender and smoothie display.
+const T4_BUILT = ['z_seats1', 'z_register2', 'z_coffee', 'z_bowl', 'z_blender'];
 
 test('pendingJobs: an empty coffee machine → sacksEmpty and next "refill", beating an affordable build', () => {
   const w = createWorld(AREA1, { built: T4_BUILT });
-  w.stations.get('bowl1').stock = 5; // keep the bowl non-empty so only the coffee machine is pending
+  w.stations.get('bowl1').stock = 5;
   w.stations.get('coffee1').beans = 0;
   const j = pendingJobs(w, { coins: 999999, customers: [] });
   assert.equal(j.sacksEmpty, 1);
@@ -83,7 +83,7 @@ test('pendingJobs: an empty coffee machine → sacksEmpty and next "refill", bea
 
 test('pendingJobs: an active bowl at 0 stock also counts toward sacksEmpty', () => {
   const w = createWorld(AREA1, { built: T4_BUILT });
-  w.stations.get('bowl1').stock = 0; // already 0 by default, explicit for clarity
+  w.stations.get('bowl1').stock = 0;
   const j = pendingJobs(w, { coins: 0, customers: [] });
   assert.equal(j.sacksEmpty, 1);
   assert.equal(j.next, 'refill');
@@ -91,15 +91,14 @@ test('pendingJobs: an active bowl at 0 stock also counts toward sacksEmpty', () 
 
 test('pendingJobs: a dirty seat → dirtyTables and next "clean", beating harvest and build but losing to refill', () => {
   const w = createWorld(AREA1, { built: T4_BUILT });
-  w.stations.get('bowl1').stock = 5; // keep the bowl non-empty so only the dirty seat is pending
+  w.stations.get('bowl1').stock = 5;
   w.stations.get('seat1').dirty = true;
-  w.stations.get('bush1').stage = 3; // ripe too — clean must still win
+  w.stations.get('bush1').stage = 3;
   const j = pendingJobs(w, { coins: 999999, customers: [] });
   assert.equal(j.sacksEmpty, 0);
   assert.equal(j.dirtyTables, 1);
   assert.equal(j.ripeBushes, 1);
   assert.equal(j.next, 'clean');
-  // now also empty a sack: refill must outrank clean
   w.stations.get('coffee1').beans = 0;
   const j2 = pendingJobs(w, { coins: 999999, customers: [] });
   assert.equal(j2.next, 'refill');
@@ -107,9 +106,9 @@ test('pendingJobs: a dirty seat → dirtyTables and next "clean", beating harves
 
 test('pendingJobs: a ripe bush → ripeBushes and next "harvest", beating an affordable build', () => {
   const w = createWorld(AREA1, { built: T4_BUILT });
-  w.stations.get('bowl1').stock = 5; // keep the bowl non-empty so only the ripe bush is pending
+  w.stations.get('bowl1').stock = 5;
   w.stations.get('bush1').stage = 3;
-  w.stations.get('bush2').stage = 2; // not ripe yet — shouldn't count
+  w.stations.get('bush2').stage = 2;
   const j = pendingJobs(w, { coins: 999999, customers: [] });
   assert.equal(j.sacksEmpty, 0);
   assert.equal(j.ripeBushes, 1);
@@ -127,8 +126,6 @@ test('pendingJobs: register still beats refill/clean/harvest all at once', () =>
   assert.equal(j.next, 'register');
 });
 
-// M3 T5: jobTarget(w, G) — the objective arrow's target chooser, one concrete station/zone
-// position per `next` kind.
 test('jobTarget: nothing pending → null', () => {
   const w = createWorld(AREA1);
   const t = jobTarget(w, { coins: 0, customers: [] });
@@ -157,7 +154,7 @@ test('jobTarget: restock → the display customers are waiting at', () => {
 });
 test('jobTarget: refill → the empty coffee machine', () => {
   const w = createWorld(AREA1, { built: T4_BUILT });
-  w.stations.get('bowl1').stock = 5; // keep the bowl non-empty so refill unambiguously targets coffee1
+  w.stations.get('bowl1').stock = 5;
   w.stations.get('coffee1').beans = 0;
   const t = jobTarget(w, { coins: 0, customers: [] });
   assert.equal(t.kind, 'refill');
@@ -166,7 +163,7 @@ test('jobTarget: refill → the empty coffee machine', () => {
 });
 test('jobTarget: clean → the nearest dirty seat to G.P', () => {
   const w = createWorld(AREA1, { built: T4_BUILT });
-  w.stations.get('bowl1').stock = 5; // keep the bowl non-empty so only the dirty seats are pending
+  w.stations.get('bowl1').stock = 5;
   const near = w.stations.get('seat1'), far = w.stations.get('seat2');
   near.dirty = true; far.dirty = true;
   const t = jobTarget(w, { coins: 0, customers: [], P: { x: near.x, z: near.z } });
@@ -194,18 +191,15 @@ test('busy: true once >= 2 of the pending categories are non-zero', () => {
   const w = createWorld(AREA1);
   w.stations.get('register1').serving = '';
   const oneOnly = [mockCustomer({ state: 'atRegister', registerId: 'register1' })];
-  assert.equal(busy(w, { coins: 0, customers: oneOnly }), false); // only registerWaiting pending
+  assert.equal(busy(w, { coins: 0, customers: oneOnly }), false);
   const both = [
     mockCustomer({ state: 'atRegister', registerId: 'register1' }),
     mockCustomer({ state: 'queue', slot: 0, mood: 'wait' }),
   ];
-  assert.equal(busy(w, { coins: 0, customers: both }), true); // registerWaiting + emptyDisplayWithWaiting
-  assert.equal(busy(w, { coins: 999999, customers: oneOnly }), true); // registerWaiting + buildAffordable
+  assert.equal(busy(w, { coins: 0, customers: both }), true);
+  assert.equal(busy(w, { coins: 999999, customers: oneOnly }), true);
 });
 
-// M3 T6 pass 2 (controller ruling): busyIndex redefinition — urgent() counts ONLY
-// register-waiting-unserved / empty-display-with-waiting / patience<4s, and does NOT count
-// buildAffordable or the maintenance chores (dirty/sacks/ripe) at all, unlike busy() above.
 test('urgentJobs/urgent: buildAffordable alone is never urgent, even with a huge pile of coins', () => {
   const w = createWorld(AREA1);
   const u = urgentJobs(w, { coins: 999999, customers: [] });
@@ -227,7 +221,7 @@ test('urgentJobs/urgent: a single empty-display-with-waiting customer alone is u
 });
 test('urgentJobs/urgent: a waiting customer with patience < 4s counts as urgent even mid-queue (slot != 0) or at a register that IS being served', () => {
   const w = createWorld(AREA1);
-  w.stations.get('register1').serving = 'owner'; // manned: not registerWaiting
+  w.stations.get('register1').serving = 'owner';
   const customers = [mockCustomer({ state: 'atRegister', registerId: 'register1', mood: 'wait', patience: 3.9 })];
   const u = urgentJobs(w, { coins: 0, customers });
   assert.equal(u.registerWaiting, 0); assert.equal(u.lowPatience, 1);
@@ -245,5 +239,5 @@ test('urgentJobs/urgent: dirty tables / empty sacks / ripe bushes never count, u
   w.stations.get('coffee1').beans = 0;
   w.stations.get('bush1').stage = 3;
   assert.equal(urgent(w, { coins: 0, customers: [] }), false);
-  assert.equal(busy(w, { coins: 0, customers: [] }), true); // busy() DOES count these (>= 2 categories)
+  assert.equal(busy(w, { coins: 0, customers: [] }), true);
 });
