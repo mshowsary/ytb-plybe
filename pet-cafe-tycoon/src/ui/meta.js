@@ -1,22 +1,21 @@
 // Retention/meta presentation layered on top of the existing HUD/sheets without owning simulation.
 const STYLE_ID = 'pet-cafe-meta-style';
+const SPECIES_ICON = { cat: 'CAT', dog: 'DOG', bunny: 'BUN' };
 
 function injectStyle() {
   if (document.getElementById(STYLE_ID)) return;
   const s = document.createElement('style');
   s.id = STYLE_ID;
   s.textContent = `
-    .meta-streak{position:fixed;right:calc(12px + env(safe-area-inset-right,0px));top:calc(184px + env(safe-area-inset-top,0px));z-index:14;pointer-events:none;padding:7px 12px;border-radius:999px;background:linear-gradient(135deg,#fff5dc,#ffe09a);color:#68431d;font:900 13px/1.1 system-ui,sans-serif;box-shadow:0 4px 0 #c68c3b33,0 9px 22px #7c4a1828;transform:translateY(-5px) scale(.94);opacity:0;transition:.18s ease}
-    .meta-streak.show{transform:none;opacity:1}
-    .meta-reputation{position:fixed;left:calc(12px + env(safe-area-inset-left,0px));top:calc(184px + env(safe-area-inset-top,0px));z-index:13;pointer-events:none;min-width:144px;max-width:210px;padding:7px 11px 8px;border-radius:14px;background:#fffef5e8;color:#493b35;box-shadow:0 4px 0 #00000010,0 8px 20px #0000001e;backdrop-filter:blur(5px);font-family:system-ui,sans-serif}
-    .meta-rep-top{display:flex;align-items:center;gap:6px;font-weight:900;font-size:12px;line-height:1.05}.meta-rep-star{color:#e8aa25;font-size:15px;text-shadow:0 1px 0 #8b5d1733}.meta-rep-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.meta-rep-value{margin-left:auto;font-size:11px;opacity:.64}.meta-rep-bar{height:4px;border-radius:3px;background:#00000012;overflow:hidden;margin-top:6px}.meta-rep-fill{height:100%;width:0;border-radius:3px;background:linear-gradient(90deg,#f1b73a,#ff8a80);transition:width .45s cubic-bezier(.2,.8,.2,1)}
-    body.meta-summary-open #hint,body.meta-summary-open .objCaption,body.meta-summary-open .fbtn,body.meta-summary-open .skipPill{opacity:0!important;pointer-events:none!important}
-    .meta-rating{width:100%;box-sizing:border-box;margin:0 auto 2px;padding:10px 12px;border-radius:16px;background:#ffffffa8;border:1px solid #0000000a;display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left}
-    .meta-rating-copy{display:flex;flex-direction:column;gap:2px;min-width:0}.meta-kicker{font:800 10px/1.1 system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;opacity:.55}.meta-rating-stars{font:900 24px/1 system-ui,sans-serif;letter-spacing:.04em;color:#f4b942;text-shadow:0 2px 0 #9a65182a;white-space:nowrap}
+    .meta-streak{position:fixed;right:calc(12px + env(safe-area-inset-right,0px));top:calc(184px + env(safe-area-inset-top,0px));z-index:14;pointer-events:none;padding:7px 12px;border-radius:999px;background:linear-gradient(135deg,#fff5dc,#ffe09a);color:#68431d;font:900 13px/1.1 system-ui,sans-serif;box-shadow:0 4px 0 #c68c3b33,0 9px 22px #7c4a1828;transform:translateY(-5px) scale(.94);opacity:0;transition:.18s ease}.meta-streak.show{transform:none;opacity:1}
+    .meta-reputation{position:fixed;left:calc(12px + env(safe-area-inset-left,0px));top:calc(184px + env(safe-area-inset-top,0px));z-index:13;pointer-events:none;min-width:144px;max-width:210px;padding:7px 11px 8px;border-radius:14px;background:#fffef5e8;color:#493b35;box-shadow:0 4px 0 #00000010,0 8px 20px #0000001e;backdrop-filter:blur(5px);font-family:system-ui,sans-serif}.meta-rep-top{display:flex;align-items:center;gap:6px;font-weight:900;font-size:12px;line-height:1.05}.meta-rep-star{color:#e8aa25;font-size:15px;text-shadow:0 1px 0 #8b5d1733}.meta-rep-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.meta-rep-value{margin-left:auto;font-size:11px;opacity:.64}.meta-rep-bar{height:4px;border-radius:3px;background:#00000012;overflow:hidden;margin-top:6px}.meta-rep-fill{height:100%;width:0;border-radius:3px;background:linear-gradient(90deg,#f1b73a,#ff8a80);transition:width .45s cubic-bezier(.2,.8,.2,1)}
+    .meta-pawbook{position:fixed;left:calc(12px + env(safe-area-inset-left,0px));top:calc(238px + env(safe-area-inset-top,0px));z-index:15;min-height:40px;padding:0 12px;border:0;border-radius:13px;background:#fff9f1eb;color:#493b35;font:900 12px/1 system-ui,sans-serif;box-shadow:0 4px 0 #00000010,0 8px 18px #0000001b;cursor:pointer;display:flex;align-items:center;gap:7px;transition:transform .16s ease}.meta-pawbook.bump{transform:scale(1.12)}.meta-paw{font-size:16px;color:#db7b6c}.meta-book-root{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}.meta-book-root.hidden{display:none}.meta-book-backdrop{position:absolute;inset:0;background:#251d1a88;backdrop-filter:blur(4px)}.meta-book{position:relative;width:min(470px,100%);max-height:min(680px,88vh);box-sizing:border-box;overflow:auto;border-radius:25px;background:#fff4e6;color:#3b2e2a;padding:20px;box-shadow:0 20px 60px #0005;font-family:system-ui,sans-serif}.meta-book-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:14px}.meta-book-title{font:900 23px/1.05 system-ui,sans-serif}.meta-book-sub{font:700 12px/1.3 system-ui,sans-serif;opacity:.6;margin-top:5px}.meta-book-close{width:44px;height:44px;flex:none;border:0;border-radius:50%;background:#0000000c;color:#3b2e2a;font-size:22px;cursor:pointer}.meta-book-progress{height:7px;border-radius:5px;background:#0000000e;overflow:hidden;margin:0 0 15px}.meta-book-progress>div{height:100%;border-radius:5px;background:linear-gradient(90deg,#ff8a80,#8b7cf6)}.meta-book-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}.meta-pet-card{min-height:112px;border-radius:16px;padding:10px;box-sizing:border-box;background:#ffffffa8;border:1px solid #0000000a;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:5px}.meta-pet-card.locked{background:#eadfd3;color:#8c817a}.meta-pet-swatch{width:42px;height:42px;border-radius:50%;box-sizing:border-box;border:5px solid #ffffffaa;box-shadow:0 3px 9px #0002;position:relative}.meta-pet-swatch:after{content:'';position:absolute;left:50%;bottom:-8px;width:20px;height:10px;transform:translateX(-50%);border-radius:50%;background:var(--accent,#ff8a80)}.meta-pet-lock{font:900 27px/1 system-ui,sans-serif;opacity:.35}.meta-pet-name{font:900 12px/1.1 system-ui,sans-serif}.meta-pet-kind{font:800 9px/1 system-ui,sans-serif;letter-spacing:.1em;opacity:.5}.meta-pet-rarity{font:900 9px/1 system-ui,sans-serif;text-transform:uppercase;letter-spacing:.08em;color:#8b67d5}.meta-pet-rarity.common{color:#8b817a}.meta-pet-rarity.epic{color:#d06da7}
+    body.meta-summary-open #hint,body.meta-summary-open .objCaption,body.meta-summary-open .fbtn,body.meta-summary-open .skipPill,body.meta-summary-open .meta-pawbook{opacity:0!important;pointer-events:none!important}
+    .meta-rating{width:100%;box-sizing:border-box;margin:0 auto 2px;padding:10px 12px;border-radius:16px;background:#ffffffa8;border:1px solid #0000000a;display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left}.meta-rating-copy{display:flex;flex-direction:column;gap:2px;min-width:0}.meta-kicker{font:800 10px/1.1 system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;opacity:.55}.meta-rating-stars{font:900 24px/1 system-ui,sans-serif;letter-spacing:.04em;color:#f4b942;text-shadow:0 2px 0 #9a65182a;white-space:nowrap}
     .meta-rep-summary{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:16px;background:linear-gradient(135deg,#fff7dd,#fff);border:1px solid #e6b74c38;text-align:left}.meta-rep-summary-top{display:flex;align-items:center;justify-content:space-between;gap:10px}.meta-rep-gain{font:900 15px/1 system-ui,sans-serif;color:#bd7c11}.meta-rep-levelup{margin-top:5px;font:900 11px/1.2 system-ui,sans-serif;color:#7b5ed5;letter-spacing:.06em;text-transform:uppercase}
     .meta-reward{width:100%;box-sizing:border-box;padding:12px 13px;border-radius:18px;background:linear-gradient(135deg,#fff,#f3efff);border:1px solid #8b7cf635;box-shadow:inset 0 1px 0 #fff,0 7px 20px #5d4bc219;display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left}.meta-reward-copy{display:flex;min-width:0;flex:1;flex-direction:column;gap:3px}.meta-reward-title{font:900 14px/1.15 system-ui,sans-serif;color:#3b2e2a}.meta-reward-sub{font:700 11px/1.25 system-ui,sans-serif;color:#756a66}.meta-reward-btn{min-height:46px;min-width:112px;border:0;border-radius:14px;padding:0 13px;background:linear-gradient(135deg,#8b7cf6,#6b58e4);color:#fff;font:900 13px/1 system-ui,sans-serif;box-shadow:0 4px 0 #5145b8,0 8px 18px #5d4bc229;display:flex;align-items:center;justify-content:center;gap:7px;cursor:pointer}.meta-reward-btn:disabled{cursor:default;background:#d8d2ea;color:#777;box-shadow:none}.meta-ad{height:21px;min-width:28px;box-sizing:border-box;border-radius:7px;border:1px solid #ffffff66;background:#ffffff25;display:inline-flex;align-items:center;justify-content:center;padding:0 5px;font-size:9px;letter-spacing:.08em}
-    .meta-toast{position:fixed;left:50%;bottom:calc(172px + env(safe-area-inset-bottom,0px));z-index:60;pointer-events:none;transform:translate(-50%,10px);opacity:0;padding:9px 15px;border-radius:999px;background:#302824;color:#fff;font:800 13px/1 system-ui,sans-serif;box-shadow:0 8px 24px #0004;transition:.2s ease;white-space:nowrap}.meta-toast.show{opacity:1;transform:translate(-50%,0)}
-    @media(max-width:520px){.meta-reputation{min-width:0;max-width:124px}.meta-rep-title{max-width:68px}.meta-rep-value{display:none}.meta-reward{align-items:stretch;flex-direction:column}.meta-reward-btn{width:100%}}
+    .meta-toast{position:fixed;left:50%;bottom:calc(172px + env(safe-area-inset-bottom,0px));z-index:80;pointer-events:none;transform:translate(-50%,10px);opacity:0;padding:9px 15px;border-radius:999px;background:#302824;color:#fff;font:800 13px/1 system-ui,sans-serif;box-shadow:0 8px 24px #0004;transition:.2s ease;white-space:nowrap}.meta-toast.show{opacity:1;transform:translate(-50%,0)}
+    @media(max-width:520px){.meta-reputation{min-width:0;max-width:124px}.meta-rep-title{max-width:68px}.meta-rep-value{display:none}.meta-book-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.meta-pet-card{min-height:101px;padding:8px}.meta-reward{align-items:stretch;flex-direction:column}.meta-reward-btn{width:100%}}
   `;
   document.head.appendChild(s);
 }
@@ -28,13 +27,23 @@ export function createMetaUI() {
   reputation.innerHTML = '<div class="meta-rep-top"><span class="meta-rep-star">★</span><span class="meta-rep-title">Cozy Corner</span><span class="meta-rep-value">0</span></div><div class="meta-rep-bar"><div class="meta-rep-fill"></div></div>';
   document.body.appendChild(reputation);
   const repTitle = reputation.querySelector('.meta-rep-title'), repValue = reputation.querySelector('.meta-rep-value'), repFill = reputation.querySelector('.meta-rep-fill');
+
+  const bookBtn = document.createElement('button'); bookBtn.type = 'button'; bookBtn.className = 'meta-pawbook'; bookBtn.innerHTML = '<span class="meta-paw">●</span><span class="meta-book-count">0/12</span>'; document.body.appendChild(bookBtn);
+  const bookRoot = document.createElement('div'); bookRoot.className = 'meta-book-root hidden';
+  bookRoot.innerHTML = '<div class="meta-book-backdrop"></div><div class="meta-book"><div class="meta-book-head"><div><div class="meta-book-title">Pet Visitor Book</div><div class="meta-book-sub">Meet every café regular and discover rare coats.</div></div><button class="meta-book-close" type="button" aria-label="Close">×</button></div><div class="meta-book-progress"><div></div></div><div class="meta-book-grid"></div></div>';
+  document.body.appendChild(bookRoot);
+  const bookGrid = bookRoot.querySelector('.meta-book-grid'), bookCount = bookBtn.querySelector('.meta-book-count'), bookFill = bookRoot.querySelector('.meta-book-progress>div');
+  const closeBook = () => bookRoot.classList.add('hidden');
+  bookBtn.addEventListener('click', () => bookRoot.classList.remove('hidden'));
+  bookRoot.querySelector('.meta-book-close').addEventListener('click', closeBook);
+  bookRoot.querySelector('.meta-book-backdrop').addEventListener('click', closeBook);
+
   const toastEl = document.createElement('div'); toastEl.className = 'meta-toast'; document.body.appendChild(toastEl);
   let summaryLocked = false, lastStreak = -1, toastTimer = null, lastRep = -1;
 
-  document.addEventListener('click', e => {
-    if (summaryLocked && e.target && e.target.classList && e.target.classList.contains('backdrop')) e.stopPropagation();
-  }, true);
+  document.addEventListener('click', e => { if (summaryLocked && e.target && e.target.classList && e.target.classList.contains('backdrop')) e.stopPropagation(); }, true);
   document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !bookRoot.classList.contains('hidden')) { closeBook(); e.stopPropagation(); return; }
     if (summaryLocked && e.key === 'Escape') e.stopPropagation();
   }, true);
 
@@ -42,7 +51,7 @@ export function createMetaUI() {
   M.toast = text => {
     if (toastTimer) clearTimeout(toastTimer);
     toastEl.textContent = text; toastEl.classList.add('show');
-    toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1500);
+    toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1800);
   };
 
   M.setStreak = (count, ttl) => {
@@ -59,8 +68,39 @@ export function createMetaUI() {
     reputation.title = model.nextTitle ? `${model.rep} reputation · next: ${model.nextTitle}` : `${model.rep} reputation · max rank`;
   };
 
+  M.setPetBook = model => {
+    if (!model) return;
+    bookCount.textContent = `${model.found}/${model.total}`;
+    bookFill.style.width = `${Math.round((model.frac || 0) * 100)}%`;
+    bookGrid.textContent = '';
+    for (const c of model.cards || []) {
+      const el = document.createElement('div'); el.className = 'meta-pet-card' + (c.found ? '' : ' locked');
+      if (c.found) {
+        const sw = document.createElement('div'); sw.className = 'meta-pet-swatch'; sw.style.background = c.profile.body; sw.style.setProperty('--accent', c.profile.accent);
+        const name = document.createElement('div'); name.className = 'meta-pet-name'; name.textContent = c.profile.name;
+        const kind = document.createElement('div'); kind.className = 'meta-pet-kind'; kind.textContent = SPECIES_ICON[c.species] || c.species.toUpperCase();
+        const rare = document.createElement('div'); rare.className = `meta-pet-rarity ${c.profile.rarity}`; rare.textContent = c.profile.rarity;
+        el.append(sw, name, kind, rare);
+      } else {
+        const lock = document.createElement('div'); lock.className = 'meta-pet-lock'; lock.textContent = '?';
+        const name = document.createElement('div'); name.className = 'meta-pet-name'; name.textContent = 'Unknown';
+        const kind = document.createElement('div'); kind.className = 'meta-pet-kind'; kind.textContent = SPECIES_ICON[c.species] || c.species.toUpperCase();
+        el.append(lock, name, kind);
+      }
+      bookGrid.appendChild(el);
+    }
+  };
+
+  M.announcePet = discovery => {
+    if (!discovery || !discovery.isNew) return;
+    M.toast(`New visitor · ${discovery.profile.name} · ${discovery.profile.rarity.toUpperCase()}`);
+    bookBtn.classList.add('bump');
+    setTimeout(() => bookBtn.classList.remove('bump'), 450);
+  };
+
   M.lockSummary = locked => {
     summaryLocked = !!locked;
+    if (summaryLocked) closeBook();
     document.body.classList.toggle('meta-summary-open', summaryLocked);
   };
 
@@ -71,14 +111,12 @@ export function createMetaUI() {
       const card = document.querySelector('.sheet-root .card');
       if (!card) { if (++tries < 20) setTimeout(attach, 25); return; }
       if (card.querySelector('.meta-rating')) return;
-
       const close = card.querySelector('.sclose'); if (close) close.remove();
 
       const rating = document.createElement('div'); rating.className = 'meta-rating';
       const rc = document.createElement('div'); rc.className = 'meta-rating-copy';
       const kicker = document.createElement('div'); kicker.className = 'meta-kicker'; kicker.textContent = 'SERVICE RATING';
-      const note = document.createElement('div'); note.className = 'meta-reward-sub';
-      note.textContent = model.rating >= 3 ? 'Flawless shift' : model.rating === 2 ? 'Solid shift' : 'Room to improve';
+      const note = document.createElement('div'); note.className = 'meta-reward-sub'; note.textContent = model.rating >= 3 ? 'Flawless shift' : model.rating === 2 ? 'Solid shift' : 'Room to improve';
       rc.append(kicker, note);
       const stars = document.createElement('div'); stars.className = 'meta-rating-stars'; stars.textContent = '★'.repeat(model.rating) + '☆'.repeat(3 - model.rating);
       rating.append(rc, stars);
@@ -90,18 +128,13 @@ export function createMetaUI() {
         const top = document.createElement('div'); top.className = 'meta-rep-summary-top';
         const copy = document.createElement('div'); copy.className = 'meta-rating-copy';
         const k = document.createElement('div'); k.className = 'meta-kicker'; k.textContent = model.reputation.title;
-        const sub = document.createElement('div'); sub.className = 'meta-reward-sub';
-        sub.textContent = model.reputation.nextTitle
-          ? `${model.reputation.current}/${model.reputation.needed} toward ${model.reputation.nextTitle}`
-          : 'Maximum reputation reached';
+        const sub = document.createElement('div'); sub.className = 'meta-reward-sub'; sub.textContent = model.reputation.nextTitle ? `${model.reputation.current}/${model.reputation.needed} toward ${model.reputation.nextTitle}` : 'Maximum reputation reached';
         copy.append(k, sub);
         const gain = document.createElement('div'); gain.className = 'meta-rep-gain'; gain.textContent = `+${model.reputation.awarded} ★`;
         top.append(copy, gain); rep.appendChild(top);
         const bar = document.createElement('div'); bar.className = 'meta-rep-bar';
         const fill = document.createElement('div'); fill.className = 'meta-rep-fill'; fill.style.width = `${Math.round(model.reputation.frac * 100)}%`; bar.appendChild(fill); rep.appendChild(bar);
-        if (model.reputation.levelUp) {
-          const levelUp = document.createElement('div'); levelUp.className = 'meta-rep-levelup'; levelUp.textContent = `NEW RANK · ${model.reputation.title}`; rep.appendChild(levelUp);
-        }
+        if (model.reputation.levelUp) { const levelUp = document.createElement('div'); levelUp.className = 'meta-rep-levelup'; levelUp.textContent = `NEW RANK · ${model.reputation.title}`; rep.appendChild(levelUp); }
         anchor.after(rep); anchor = rep;
       }
 
@@ -114,10 +147,7 @@ export function createMetaUI() {
       sub.textContent = model.rewardOffer.claimed ? `+${model.rewardOffer.amount.toLocaleString('en-US')} coins added` : model.rewardOffer.liveAd ? 'Optional rewarded ad · never required for progress' : 'Local preview reward';
       copy.append(title, sub);
       const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'meta-reward-btn';
-      const paintButton = () => {
-        btn.disabled = !!model.rewardOffer.claimed;
-        btn.innerHTML = model.rewardOffer.claimed ? 'CLAIMED' : `<span class="meta-ad">${model.rewardOffer.liveAd ? 'AD' : 'DEV'}</span><span>+${model.rewardOffer.amount.toLocaleString('en-US')}</span>`;
-      };
+      const paintButton = () => { btn.disabled = !!model.rewardOffer.claimed; btn.innerHTML = model.rewardOffer.claimed ? 'CLAIMED' : `<span class="meta-ad">${model.rewardOffer.liveAd ? 'AD' : 'DEV'}</span><span>+${model.rewardOffer.amount.toLocaleString('en-US')}</span>`; };
       paintButton();
       btn.addEventListener('click', async () => {
         if (btn.disabled || model.rewardOffer.claimed) return;
