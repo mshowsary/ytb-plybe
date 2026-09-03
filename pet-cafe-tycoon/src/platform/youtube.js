@@ -1,5 +1,4 @@
-// YouTube Playables host boundary with a safe local-preview fallback.
-const LOCAL_SAVE_KEY = 'pet-cafe-tycoon-save-v2';
+// YouTube Playables host boundary. Local preview intentionally keeps persistence in-memory only.
 const LOAD_TIMEOUT_MS = 2200;
 const INTERSTITIAL_GAP_MS = 4 * 60 * 1000;
 
@@ -31,11 +30,11 @@ function safeParse(raw) {
 
 export function createYouTubePlatform(host = globalThis) {
   const yt = host.ytgame && host.ytgame.IN_PLAYABLES_ENV ? host.ytgame : null;
-  const storage = (() => { try { return host.localStorage || null; } catch (_) { return null; } })();
 
   let game = null;
   let audio = null;
   let paused = false;
+  let previewSave = null;
   let saveInFlight = null;
   let pendingSave = null;
   let rewardedBusy = false;
@@ -63,7 +62,7 @@ export function createYouTubePlatform(host = globalThis) {
       const raw = await withTimeout(yt.game.loadData());
       return safeParse(raw);
     }
-    try { return safeParse(storage && storage.getItem(LOCAL_SAVE_KEY)); } catch (_) { return null; }
+    return previewSave ? JSON.parse(previewSave) : null;
   };
 
   async function writeSave(data) {
@@ -74,15 +73,12 @@ export function createYouTubePlatform(host = globalThis) {
       try { await yt.game.saveData(raw); return true; } catch (_) { return false; }
     }
 
-    try {
-      if (storage) storage.setItem(LOCAL_SAVE_KEY, raw);
-      return true;
-    } catch (_) {
-      return false;
-    }
+    // Development-only in-memory fallback. It never enters persistent browser storage and vanishes
+    // on refresh, matching the SDK's local no-op philosophy while keeping save code testable.
+    previewSave = raw;
+    return true;
   }
 
-  // Coalesce bursts of save requests so only the newest snapshot waits behind an in-flight save.
   P.save = data => {
     pendingSave = data;
     if (saveInFlight) return saveInFlight;
@@ -112,32 +108,25 @@ export function createYouTubePlatform(host = globalThis) {
   P.bindGame = g => {
     game = g;
     if (g && g.audio) P.bindAudio(g.audio);
+    if (!yt || !yt.system) return;
 
-    if (yt && yt.system) {
-      try {
-        yt.system.onPause(() => {
-          paused = true;
-          if (game && game.snapshot) P.save(game.snapshot());
-        });
-      } catch (_) {}
-      try { yt.system.onResume(() => { paused = false; }); } catch (_) {}
-      try {
-        const lang = yt.system.getLanguage && yt.system.getLanguage();
-        if (lang && typeof lang.then === 'function') {
-          lang.then(v => { if (typeof v === 'string' && v) P.language = v; }).catch(() => {});
-        } else if (typeof lang === 'string' && lang) {
-          P.language = lang;
-        }
-      } catch (_) {}
-    } else if (host.document && typeof host.document.addEventListener === 'function') {
-      host.document.addEventListener('visibilitychange', () => {
-        paused = !!host.document.hidden;
-        if (paused && game && game.snapshot) P.save(game.snapshot());
+    try {
+      yt.system.onPause(() => {
+        paused = true;
+        if (game && game.snapshot) P.save(game.snapshot());
       });
-    }
+    } catch (_) {}
+    try { yt.system.onResume(() => { paused = false; }); } catch (_) {}
+    try {
+      const lang = yt.system.getLanguage && yt.system.getLanguage();
+      if (lang && typeof lang.then === 'function') {
+        lang.then(v => { if (typeof v === 'string' && v) P.language = v; }).catch(() => {});
+      } else if (typeof lang === 'string' && lang) {
+        P.language = lang;
+      }
+    } catch (_) {}
   };
 
-  // Local preview grants the reward immediately so the complete reward path is testable.
   P.requestRewardedAd = async (rewardId = 'pet-cafe-day-bonus-coins') => {
     if (rewardedBusy) return false;
     if (!P.rewardedAvailable) return !P.inPlayables;
@@ -148,8 +137,6 @@ export function createYouTubePlatform(host = globalThis) {
     finally { rewardedBusy = false; }
   };
 
-  // Interstitials are requested only at natural breaks by game.js. A shared cooldown also stops
-  // a rewarded ad and an interstitial from stacking at the same day boundary.
   P.requestInterstitialAd = async (minGapMs = INTERSTITIAL_GAP_MS) => {
     if (!P.interstitialAvailable || interstitialBusy) return false;
     const now = Date.now();
