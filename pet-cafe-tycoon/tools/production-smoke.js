@@ -43,22 +43,74 @@ for (const [tag, width, height, dpr] of [['portrait', 450, 800, 2], ['landscape'
   });
   await page.screenshot({ path: path.join(shots, `01-boot-${tag}.png`), fullPage: true });
 
-  // Force the natural day-end path to exercise the rating + rewarded summary presentation.
+  // A synthetic but structurally valid late-Area-1 save lets CI judge the art under the density
+  // the real game is designed to reach, instead of only photographing the deliberately calm tutorial.
   await page.evaluate(() => {
-    const d = window.__game.dayState;
+    const g = window.__game;
+    const s = g.snapshot();
+    s.coins = 2400;
+    s.builds.a1 = g.world.area.zones.map(z => z.id);
+    s.staff = { runner: 2, cashier: 1, cleaner: 1 };
+    s.staffLevels = { runner: { speed: 2, carry: 2 }, cashier: { speed: 2 }, cleaner: { speed: 1 } };
+    s.machineLevels = { oven: 2, coffee: 2, display: 2 };
+    s.intro = { step: 5, active: false, target: null };
+    s.meta = {
+      completedDays: 12,
+      rewardedDays: {},
+      reputation: 34,
+      perfectShifts: 5,
+      bestServiceStreak: 18,
+      shiftRatings: { 1: 2, 2: 3, 3: 2, 4: 3, 5: 3, 6: 2, 7: 3, 8: 2, 9: 3, 10: 2, 11: 3, 12: 3 },
+    };
+    s.dayState = { day: 13, t: 78, phase: 'rush', _ended: false };
+    s.dayStats = { served: 14, lost: 1, earned: 420 };
+    g.restore(s);
+
+    for (const [id, product] of [['dispCookie','cookie'], ['dispCupcake','cupcake'], ['barCoffee','coffee'], ['barSmoothie','smoothie']]) {
+      const st = g.world.stations.get(id);
+      if (st) { st.stock = 8; st.product = product; }
+    }
+    const bowl = g.world.stations.get('bowl1'); if (bowl) bowl.stock = 8;
+    const oven1 = g.world.stations.get('oven1'); if (oven1) oven1.stock = 8;
+    const oven2 = g.world.stations.get('oven2'); if (oven2) oven2.stock = 8;
+    const coffee = g.world.stations.get('coffee1'); if (coffee) { coffee.stock = 8; coffee.beans = 12; }
+  });
+  await page.waitForTimeout(8500);
+
+  const busy = await page.evaluate(() => {
+    const r = window.__scene.renderer.info.render;
+    return {
+      customers: window.__game.customers.length,
+      staff: window.__game.staffList.length,
+      calls: r.calls,
+      triangles: r.triangles,
+      reputation: window.__game.meta.reputation,
+      repLabel: document.querySelector('.meta-rep-title')?.textContent || '',
+    };
+  });
+  await page.screenshot({ path: path.join(shots, `02-busy-${tag}.png`), fullPage: true });
+
+  // Force a strong natural day-end result to exercise rating, reputation and rewarded presentation.
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.dayStats = { served: 42, lost: 1, earned: 1180 };
+    g.shiftBestStreak = 14;
+    const d = g.dayState;
     d.t = 239.99; d.phase = 'closing'; d._ended = false;
   });
   await page.waitForFunction(() => !!document.querySelector('.sheet-root .card'), null, { timeout: 5000 });
   await page.waitForFunction(() => !!document.querySelector('.meta-rating'), null, { timeout: 5000 });
-  await page.waitForTimeout(250);
+  await page.waitForTimeout(300);
   const meta = await page.evaluate(() => ({
     stars: document.querySelector('.meta-rating-stars')?.textContent || '',
     reward: !!document.querySelector('.meta-reward-btn'),
+    repSummary: !!document.querySelector('.meta-rep-summary'),
+    repTitle: document.querySelector('.meta-rep-summary .meta-kicker')?.textContent || '',
   }));
-  await page.screenshot({ path: path.join(shots, `02-summary-${tag}.png`), fullPage: true });
+  await page.screenshot({ path: path.join(shots, `03-summary-${tag}.png`), fullPage: true });
 
-  if (!info.platform || info.metaVersion !== 2 || !meta.stars || !meta.reward || errors.length) failed = true;
-  report.push({ tag, ...info, ...meta, errors });
+  if (!info.platform || info.metaVersion !== 3 || !meta.stars || !meta.reward || !meta.repSummary || !busy.repLabel || errors.length) failed = true;
+  report.push({ tag, ...info, busy, ...meta, errors });
   await ctx.close();
 }
 
