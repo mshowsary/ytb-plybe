@@ -5,6 +5,7 @@ import { createYouTubePlatform } from './platform/youtube.js';
 import { createMachineJuice } from './systems/machineJuice.js';
 import { createResponsivePolish } from './ui/responsive.js';
 import { createPauseMenu } from './ui/pauseMenu.js';
+import { createCashTrays } from './render/cashTrays.js';
 import { AREA1 } from '../data/area1.js';
 
 const $ = id => document.getElementById(id);
@@ -39,6 +40,7 @@ async function boot() {
   );
   const machineJuice = createMachineJuice(G.world, S.scene);
   const responsive = createResponsivePolish(G);
+  const cashTrays = createCashTrays(G.world, S.scene);
   const pauseOverlay = makePauseOverlay();
   platform.bindGame(G);
 
@@ -69,6 +71,7 @@ async function boot() {
     if (!paused) {
       G.update(dt);
       machineJuice.update(dt);
+      cashTrays.update(dt);
       responsive.update();
       G.audio.setMusicPhase(G.dayState.phase);
       G.audio.musicUpdate(dt);
