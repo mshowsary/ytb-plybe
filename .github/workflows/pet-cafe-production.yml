@@ -33,17 +33,21 @@ jobs:
         run: npm ci
       - name: Unit and simulation tests
         run: npm test
+      - name: Economy pacing bot
+        run: mkdir -p reports-production && npm run bot | tee reports-production/bot-report.txt
       - name: Production build
         run: npm run build
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
       - name: Browser visual smoke
         run: node tools/production-smoke.js
-      - name: Upload visual report
+      - name: Upload production QA
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: pet-cafe-production-shots
-          path: pet-cafe-tycoon/shots-production
+          path: |
+            pet-cafe-tycoon/shots-production
+            pet-cafe-tycoon/reports-production
           if-no-files-found: warn
           retention-days: 14
