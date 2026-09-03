@@ -1,0 +1,173 @@
+:root{--sat:env(safe-area-inset-top,0px);--sab:env(safe-area-inset-bottom,0px);--sal:env(safe-area-inset-left,0px);--sar:env(safe-area-inset-right,0px);
+  --cream:#FFF4E6;--coral:#FF8A80;--coin:#FFD84D;--ink:#3B2E2A;--accent:#8B7CF6;}
+html,body{margin:0;height:100%;overflow:hidden;background:#BFE8D8;font-family:"Segoe UI",system-ui,sans-serif;-webkit-user-select:none;user-select:none;touch-action:none;}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block;}
+.hidden{display:none!important}
+#loading{position:fixed;inset:0;background:#BFE8D8;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:50;color:var(--ink);font-weight:800;letter-spacing:.2em}
+#loading .spin{width:44px;height:44px;border-radius:50%;border:5px solid #fff4;border-top-color:var(--coral);animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+#hud{position:fixed;inset:0;pointer-events:none;z-index:10}
+.pill{position:absolute;background:#fff;color:var(--ink);border-radius:999px;padding:8px 14px;font-weight:800;font-size:18px;box-shadow:0 4px 0 #0001,0 8px 20px #0002;display:flex;align-items:center;gap:8px;min-height:48px;box-sizing:border-box}
+#wallet{left:calc(12px + var(--sal));top:calc(12px + var(--sat))}
+#wallet .coin{width:22px;height:22px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#fff6b0,var(--coin) 60%,#e0a800);box-shadow:inset 0 -2px 0 #0002}
+#crowd{left:calc(12px + var(--sal));top:calc(72px + var(--sat));font-size:16px;transition:background .15s,color .15s}
+#crowd .picon{width:22px;height:22px;flex:none;color:var(--ink)}
+/* M3 T5: coral + '!' while any customer's patience is under 4s */
+#crowd.urgent{background:var(--coral);color:#fff}
+#crowd.urgent .picon{color:#fff}
+.bang{font-weight:900;font-size:16px;color:#fff;background:var(--ink);width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none}
+/* Loop v2 Task 1: "hands full · <product>" tag, pinned just under the crowd pill. */
+#handsFull{left:calc(12px + var(--sal));top:calc(130px + var(--sat));font-size:14px;background:var(--cream)}
+#hint{left:50%;transform:translateX(-50%);bottom:calc(120px + var(--sab));font-size:16px;background:#fffd}
+/* Loop v2 Task 2: the SKIP pill (src/systems/intro.js), sitting just under #hint. #hud is
+   pointer-events:none, so this (appended straight to <body>, not #hud) needs its own auto. */
+.skipPill{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(64px + var(--sab));
+  font-size:14px;border:none;cursor:pointer;font-family:inherit;pointer-events:auto;z-index:10;opacity:.85}
+.toast{position:absolute;left:50%;bottom:calc(172px + var(--sab));transform:translate(-50%,8px);opacity:0;transition:opacity .2s ease,transform .2s ease;background:var(--ink);color:#fff;font-weight:700;font-size:14px;padding:8px 16px;border-radius:999px;box-shadow:0 6px 16px #0003;max-width:min(80vw,360px);text-align:center;box-sizing:border-box;pointer-events:none}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+/* Loop v2 Task 3: the day pill ("Day 3 · Rush", right side, same row as #crowd — design section
+   5's day clock) with a thin phase-progress bar underneath, and a small goal-text pill right below
+   it (right side, same row #handsFull sits at on the left, so the two never collide). */
+#dayPill{right:calc(12px + var(--sar));top:calc(72px + var(--sat));font-size:15px;flex-direction:column;align-items:stretch;gap:4px;padding:8px 12px;min-width:120px}
+#dayPill .dayTop{display:flex;align-items:center;justify-content:space-between;gap:8px;font-weight:800}
+.dayBar{width:100%;height:5px;border-radius:3px;background:#0001;overflow:hidden}
+.dayBarFill{height:100%;background:var(--accent);border-radius:3px;transition:width .2s linear}
+#goalPill{right:calc(12px + var(--sar));top:calc(130px + var(--sat));font-size:13px;background:var(--cream)}
+/* The top-centre rush/weekend/holiday/closing banner — a large pill sliding in from above for a
+   few seconds (design section 5 / Task 3 brief's hud.banner(text, ms)). */
+#banner{left:50%;top:calc(16px + var(--sat));transform:translate(-50%,-160%);font-size:22px;font-weight:900;letter-spacing:.04em;padding:12px 28px;background:var(--coral);color:#fff;box-shadow:0 8px 24px #0004;transition:transform .35s cubic-bezier(.2,.9,.3,1.3);z-index:11}
+#banner.show{transform:translate(-50%,0)}
+#joy{position:absolute;width:120px;height:120px;border-radius:50%;background:#fff3;border:3px solid #fff8;transform:translate(-50%,-50%)}
+#joyKnob{position:absolute;left:50%;top:50%;width:52px;height:52px;border-radius:50%;background:#fffc;transform:translate(-50%,-50%);box-shadow:0 4px 10px #0002}
+#fx{position:fixed;inset:0;pointer-events:none;z-index:9;overflow:hidden}
+.fnum{position:absolute;font-weight:900;font-size:22px;color:var(--coin);-webkit-text-stroke:1px #7a5a00;text-shadow:0 2px 0 #0003;transform:translate(-50%,-50%);animation:fn .9s ease-out forwards}
+@keyframes fn{0%{opacity:0;transform:translate(-50%,-30%) scale(.6)}20%{opacity:1;transform:translate(-50%,-60%) scale(1.15)}100%{opacity:0;transform:translate(-50%,-160%) scale(1)}}
+.fcoin{position:absolute;width:18px;height:18px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#fff6b0,#FFD84D 60%,#e0a800);transform:translate(-50%,-50%);box-shadow:0 2px 4px #0003}
+.zlabel{position:absolute;transform:translate(-50%,-50%);background:#8B7CF6;color:#fff;font-weight:900;font-size:15px;padding:6px 12px;border-radius:999px;box-shadow:0 3px 0 #5f52c7;white-space:nowrap}
+.fnum.lost{color:#FF3B3B;-webkit-text-stroke:1px #7a1010}
+
+/* M3 T5: wish bubble — a 44x44 icon bubble (80px wide when a treat is also wished, two icons
+   side by side), a 44x6 patience bar under it (green/amber/coral by remaining %, shaking under
+   25%). Replaces the T3 colour-chip + bone version. */
+.wish{position:absolute;transform:translate(-50%,-100%);display:flex;align-items:center;justify-content:center;gap:3px;background:#fff;border-radius:22px;width:44px;height:44px;box-sizing:border-box;padding:2px;box-shadow:0 3px 8px #0003;pointer-events:none;z-index:1}
+.wish.wide{width:80px}
+.wish.shake{animation:wishShake .4s ease-in-out infinite}
+@keyframes wishShake{0%,100%{margin-left:0}25%{margin-left:-3px}75%{margin-left:3px}}
+.wishIcon{width:38px;height:38px;flex:none}
+.wishIcon svg{width:100%;height:100%;display:block}
+.patience{position:absolute;transform:translate(-50%,0);width:44px;height:6px;background:#0002;border-radius:3px;overflow:hidden;pointer-events:none}
+.patienceFill{height:100%;width:44px;background:#7FD69A;transition:background .15s}
+.patienceFill.warn{background:#FFC24D}
+.patienceFill.bad{background:var(--coral)}
+
+/* M3 T5: demand counters — n/cap label above every counter/machine/bowl/bush/oven */
+.demand{position:absolute;transform:translate(-50%,-50%);background:var(--cream);color:var(--ink);
+  font-size:15px;font-weight:800;border-radius:10px;padding:2px 8px;min-height:24px;box-sizing:border-box;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  box-shadow:0 2px 6px #0002;pointer-events:none;white-space:nowrap;z-index:1}
+.demand.zero{background:var(--coral);color:#fff}
+.demand.pulse{animation:demandPulse 0.9s ease-in-out infinite}
+@keyframes demandPulse{0%,100%{background:var(--coral);color:#fff}50%{background:#fff;color:var(--coral)}}
+.dpips{display:flex;gap:2px}
+.dpip{width:5px;height:5px;border-radius:50%;background:#0000002a}
+.dpip.filled.bean{background:#6B4A2B}
+.dpip.filled.fruit{background:var(--coral)}
+.dstage{width:6px;height:6px;border-radius:50%;background:#0000002a}
+.dstage.filled{background:#7BC47F}
+
+/* Loop v2 Task 2: chalkboards — a small dark station-name + product-icon label, projected from the
+   3D chalkboard mesh's front-left-corner position (src/render/props.js's chalkboardMesh, positioned
+   in src/systems/visuals.js). Kept well below the demand counters (CHALK_Y 1.05 vs DEMAND_Y
+   1.55-2.3) so the two never overlap. */
+.chalk{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;gap:5px;
+  background:#2B2320;color:var(--cream);font-size:11px;font-weight:800;letter-spacing:.02em;
+  border-radius:8px;padding:4px 8px;box-shadow:0 2px 6px #0003;pointer-events:none;white-space:nowrap;z-index:1}
+.chalkIcon{width:15px;height:15px;flex:none}
+.chalkIcon svg{width:100%;height:100%;display:block}
+/* Loop v2 Task 3: a star-eligible station's chalkboard is tappable (opens the kiosk on its own
+   Machines row — see systems/visuals.js/stations.js) — needs its own pointer-events, #fx is none. */
+.chalk.tappable{pointer-events:auto;cursor:pointer}
+
+/* Loop v2 Task 2: the floating kiosk/hire button (design section 3/4) — appears above whichever
+   station the owner is standing in front of; #fx is pointer-events:none, so this needs its own auto. */
+.fbtn{position:absolute;transform:translate(-50%,-50%);left:0;top:0;min-height:48px;box-sizing:border-box;
+  padding:0 22px;border:none;border-radius:999px;background:var(--coral);color:#fff;font-weight:800;
+  font-size:15px;letter-spacing:.02em;box-shadow:0 4px 0 #0001,0 8px 20px #0002;cursor:pointer;
+  pointer-events:auto;white-space:nowrap;z-index:2}
+
+/* M3 T5: objective arrow caption (one word, under the 3D chevron) */
+.objCaption{position:absolute;transform:translate(-50%,-50%);background:var(--ink);color:var(--coin);
+  font-weight:900;font-size:14px;letter-spacing:.03em;padding:4px 12px;border-radius:999px;
+  box-shadow:0 3px 8px #0003;pointer-events:none;white-space:nowrap;z-index:1}
+
+/* M3 T5: build-spot price bubble + flying cash bills */
+.zprice{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;gap:5px;
+  background:#fff;color:var(--ink);font-weight:900;font-size:15px;padding:6px 12px;border-radius:999px;
+  box-shadow:0 3px 8px #0003;pointer-events:none;white-space:nowrap;z-index:1}
+.zprice .coin{width:16px;height:16px;flex:none}
+.fbill{position:absolute;width:16px;height:10px;border-radius:2px;background:linear-gradient(#8FE0A8,#5FBE84);
+  border:1px solid #3E8F5F;transform:translate(-50%,-50%);pointer-events:none;z-index:1}
+
+/* bottom sheets, end card */
+.sheet-root{position:fixed;inset:0;z-index:30}
+.sheet-root.hidden{display:none}
+.sheet-root .backdrop{position:absolute;inset:0;background:rgba(0,0,0,.25)}
+.sheet{position:fixed;left:50%;right:auto;bottom:0;width:100%;max-width:420px;box-sizing:border-box;
+  transform:translate(-50%,100%);transition:transform .22s ease;
+  background:var(--cream);color:var(--ink);border-radius:24px 24px 0 0;
+  padding:16px calc(16px + var(--sar)) calc(16px + var(--sab)) calc(16px + var(--sal));
+  max-height:85vh;display:flex;flex-direction:column;box-shadow:0 -8px 30px #0003}
+.sheet.show{transform:translate(-50%,0)}
+.card{position:fixed;left:50%;top:50%;box-sizing:border-box;
+  transform:translate(-50%,-50%) scale(.92);opacity:0;transition:transform .22s ease,opacity .22s ease;
+  width:calc(100% - 32px);max-width:420px;background:var(--cream);color:var(--ink);border-radius:24px;
+  padding:28px 24px 24px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:14px;
+  box-shadow:0 12px 40px #0004;max-height:85vh;overflow:auto}
+.card.show{transform:translate(-50%,-50%) scale(1);opacity:1}
+.sclose{position:absolute;top:12px;right:12px;width:48px;height:48px;box-sizing:border-box;border:none;border-radius:50%;
+  background:#0000000f;color:var(--ink);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.stitle,.ctitle{font-size:20px;font-weight:900;letter-spacing:.04em;margin:4px 44px 12px 0}
+.ctitle{margin:4px 0 0}
+.cbody{font-size:15px;font-weight:600;line-height:1.4;opacity:.85}
+.srows{overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:12px;-webkit-overflow-scrolling:touch}
+.srow{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#ffffffb0;border-radius:16px;padding:10px 14px;box-sizing:border-box}
+/* Loop v2 Task 3: the Machines-tab row a chalkboard tap focused on (sheets.js's renderMachinesTab). */
+.srow-focus{outline:2px solid var(--accent);background:#ffffffe0}
+.srow-info{display:flex;flex-direction:column;gap:4px;min-width:0}
+.srow-label{font-size:16px;font-weight:800}
+.srow-label-row{display:flex;align-items:center;gap:8px}
+.srow-sub{font-size:14px;font-weight:600;opacity:.8}
+.tier-dots{display:flex;gap:6px;margin-top:2px}
+.tdot{width:10px;height:10px;border-radius:50%;background:#0000002a}
+.tdot.filled{background:var(--accent)}
+.count-badge{background:var(--ink);color:#fff;font-size:14px;font-weight:800;border-radius:999px;padding:2px 10px;min-width:20px;text-align:center;box-sizing:border-box}
+.sbtn{flex:none;min-width:96px;min-height:48px;box-sizing:border-box;border:none;border-radius:14px;
+  background:var(--coral);color:var(--ink);font-size:18px;font-weight:800;
+  display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;padding:0 16px}
+.sbtn:disabled{opacity:.45;cursor:default}
+.sbtn.continue{width:100%;min-height:52px}
+
+/* M3 T5: upgrade panel tabs (Player | Workers | Machines) */
+.stabs{display:flex;gap:4px;margin:0 44px 8px 0}
+.stab{flex:1;min-height:48px;box-sizing:border-box;border:none;background:transparent;color:var(--ink);
+  font-size:15px;font-weight:800;opacity:.55;cursor:pointer;border-bottom:3px solid transparent;
+  display:flex;align-items:center;justify-content:center;padding:0}
+.stab.active{opacity:1;border-bottom-color:var(--coral)}
+.srow-max{background:var(--ink);color:#fff;font-size:14px;font-weight:800;border-radius:999px;padding:2px 12px;min-width:96px;min-height:48px;box-sizing:border-box;display:flex;align-items:center;justify-content:center}
+.subrow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:4px}
+.sublabel{font-size:13px;font-weight:700;opacity:.75}
+.subbtn{flex:none;min-width:48px;min-height:48px;box-sizing:border-box;padding:0 12px;border:none;border-radius:10px;background:var(--accent);color:#fff;font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:4px;cursor:pointer}
+.subbtn:disabled{opacity:.4;cursor:default}
+
+/* Loop v2 Task 2: inline icon inside a .sbtn (the pantry popup's sack buttons) — the raw icons.js
+   SVG has no width/height of its own, sized here instead. */
+.sicon{width:20px;height:20px;flex:none;display:inline-flex}
+.sicon svg{width:100%;height:100%;display:block}
+
+/* Loop v2 Task 2: the runner-assignment picker (Workers tab, under a hired runner) — one chip per
+   active display, the runner's current s.assign highlighted. */
+.chiprow{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.chip{width:36px;height:36px;flex:none;box-sizing:border-box;padding:6px;border:none;border-radius:10px;
+  background:#0000000f;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.chip svg{width:100%;height:100%;display:block}
+.chip.active{background:var(--accent)}

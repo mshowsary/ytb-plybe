@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Pet Café Tycoon</title>
+<script src="https://www.youtube.com/game_api/v1"></script>
+<link rel="stylesheet" href="./src/style.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="loading"><div class="spin"></div><div class="lbl">LOADING</div></div>
+<div id="hud" class="hidden">
+  <div id="wallet" class="pill"><span class="coin"></span><span id="walletNum">0</span></div>
+  <div id="crowd" class="pill">
+    <svg class="picon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <circle cx="8" cy="8" r="3.4" fill="currentColor"/>
+      <path d="M2 19c0-3.3 2.7-5.6 6-5.6s6 2.3 6 5.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      <circle cx="16.5" cy="9" r="2.8" fill="currentColor" opacity=".55"/>
+      <path d="M12.6 19c.2-2.6 2-4.6 4.4-4.9 2.5.3 4.6 2.4 5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity=".55"/>
+    </svg>
+    <span id="crowdNum">0/6</span>
+  </div>
+  <div id="hint" class="pill hidden"></div>
+  <!-- Loop v2 Task 2: the temporary HUD "UPGRADES" pill is gone — src/systems/stations.js now
+       creates a floating ".fbtn" button (projected 1.6m above the kiosk/hire desk) whenever the
+       owner stands in front of one; see that file and src/style.css's .fbtn rule. -->
+  <div id="joy" class="hidden"><div id="joyKnob"></div></div>
+</div>
+<div id="fx"></div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
