@@ -8,13 +8,13 @@ import { createCustomer, stepCustomers, SPECIES } from '../src/sim/customers.js'
 import { createStaff, stepStaff } from '../src/sim/staff.js';
 const DT = 1 / 30, MINUTES = 20, MAXC = 12;
 function buildAll(w) { for (const z of AREA1.zones) { let g = 0; while (!w.built.has(z.id) && g++ < 1000) payZone(w, z.id, 1e9, 1); } refreshActive(w); }
-function moverLabel(owner, mover, index) {
-  if (owner.kind === 'customer') {
-    const c = owner.entity;
+function moverLabel(actor) {
+  if (actor.kind === 'customer') {
+    const c = actor.entity;
     return `customer#${c.id}:${c.state}[slot=${c.slot}]`;
   }
-  const s = owner.entity;
-  return `${s.kind || owner.kind}#${index}:${s.state || 'idle'}`;
+  const s = actor.entity;
+  return `${s.kind || actor.kind}#${actor.staffIndex}:${s.state || 'idle'}`;
 }
 test('full house: 20 minutes, no stalls, no teleports, no overlaps, no leaked seats', () => {
   const w = createWorld(AREA1); buildAll(w); w.grid = buildGrid(AREA1, w);
@@ -32,8 +32,8 @@ test('full house: 20 minutes, no stalls, no teleports, no overlaps, no leaked se
     stepCustomers(customers, w, price, DT); stepStaff(staff, w, DT, () => {});
     const activeCustomers = customers.filter(c => !c.done);
     const actors = [
-      ...activeCustomers.map(c => ({ kind: 'customer', entity: c, mover: c.mover })),
-      ...staff.map(s => ({ kind: s.kind, entity: s, mover: s.mover })),
+      ...activeCustomers.map(c => ({ key: `c${c.id}`, kind: 'customer', entity: c, mover: c.mover })),
+      ...staff.map((s, i) => ({ key: `s${i}`, kind: s.kind, staffIndex: i, entity: s, mover: s.mover })),
     ];
     const movers = actors.map(a => a.mover);
     for (const m of movers) {
@@ -46,15 +46,20 @@ test('full house: 20 minutes, no stalls, no teleports, no overlaps, no leaked se
         lastPos.set(m, p);
       } else lastPos.delete(m);
     }
+    const livePairKeys = new Set();
     for (let i = 0; i < movers.length; i++) for (let j = i + 1; j < movers.length; j++) {
-      const pen = overlapPenetration(movers[i], movers[j]); const key = `${movers[i]._uid || i}:${movers[j]._uid || j}`;
+      const key = actors[i].key < actors[j].key ? `${actors[i].key}:${actors[j].key}` : `${actors[j].key}:${actors[i].key}`;
+      livePairKeys.add(key);
+      const pen = overlapPenetration(movers[i], movers[j]);
       if (pen > 0.15) overlaps.set(key, (overlaps.get(key) || 0) + DT); else overlaps.delete(key);
       if ((overlaps.get(key) || 0) > 1.0) {
         const a = movers[i], b = movers[j];
-        const la = moverLabel(actors[i], a, i), lb = moverLabel(actors[j], b, j);
+        const la = moverLabel(actors[i]), lb = moverLabel(actors[j]);
         assert.fail(`${la}@(${a.x.toFixed(2)},${a.z.toFixed(2)})→(${a.tx?.toFixed?.(2) ?? '-'},${a.tz?.toFixed?.(2) ?? '-'}) vs ${lb}@(${b.x.toFixed(2)},${b.z.toFixed(2)})→(${b.tx?.toFixed?.(2) ?? '-'},${b.tz?.toFixed?.(2) ?? '-'}) overlap ${pen.toFixed(2)}m for >1s at t=${t.toFixed(1)}`);
       }
     }
+    // A pair disappears when either actor leaves; never let its old duration leak into a later pair.
+    for (const key of overlaps.keys()) if (!livePairKeys.has(key)) overlaps.delete(key);
     for (const e of w.events) if (e.type === 'pay') served++;
     w.events.length = 0;
     for (let i = customers.length - 1; i >= 0; i--) if (customers[i].done) customers.splice(i, 1);
