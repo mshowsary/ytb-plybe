@@ -1,4 +1,4 @@
-// Build + serve + browser-smoke the production branch and capture phone/desktop screenshots.
+// Build + serve + browser-smoke the production branch across phone/desktop sizes.
 import { execSync } from 'node:child_process';
 import http from 'node:http';
 import fs from 'node:fs';
@@ -23,9 +23,14 @@ const server = http.createServer((req, res) => {
 const browser = await chromium.launch({ headless: true, args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });
 const report = [];
 let failed = false;
+const viewports = [
+  ['small', 320, 568, 1.5],
+  ['portrait', 450, 800, 2],
+  ['landscape', 1280, 720, 1],
+];
 
-for (const [tag, width, height, dpr] of [['portrait', 450, 800, 2], ['landscape', 1280, 720, 1]]) {
-  const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: dpr, hasTouch: tag === 'portrait' });
+for (const [tag, width, height, dpr] of viewports) {
+  const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: dpr, hasTouch: tag !== 'landscape' });
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));
@@ -53,21 +58,15 @@ for (const [tag, width, height, dpr] of [['portrait', 450, 800, 2], ['landscape'
     s.intro = { step: 5, active: false, target: null };
     s.meta = {
       completedDays: 12,
-      rewardedDays: {},
-      reputation: 34,
-      perfectShifts: 5,
-      bestServiceStreak: 18,
+      rewardedDays: {}, reputation: 34, perfectShifts: 5, bestServiceStreak: 18,
       shiftRatings: { 1: 2, 2: 3, 3: 2, 4: 3, 5: 3, 6: 2, 7: 3, 8: 2, 9: 3, 10: 2, 11: 3, 12: 3 },
-      petBook: { 'cat:0': 1, 'cat:1': 1, 'cat:2': 1, 'dog:0': 1, 'dog:1': 1, 'bunny:0': 1, 'bunny:2': 1 },
-      petDiscoveries: 7,
+      petBook: { 'cat:0': 1, 'cat:1': 1, 'cat:2': 1, 'dog:0': 1, 'dog:1': 1, 'bunny:0': 1, 'bunny:2': 1 }, petDiscoveries: 7,
     };
     s.dayState = { day: 13, t: 78, phase: 'rush', _ended: false };
     s.dayStats = { served: 14, lost: 1, earned: 420 };
     g.restore(s);
-
     for (const [id, product] of [['dispCookie','cookie'], ['dispCupcake','cupcake'], ['barCoffee','coffee'], ['barSmoothie','smoothie']]) {
-      const st = g.world.stations.get(id);
-      if (st) { st.stock = 8; st.product = product; }
+      const st = g.world.stations.get(id); if (st) { st.stock = 8; st.product = product; }
     }
     const bowl = g.world.stations.get('bowl1'); if (bowl) bowl.stock = 8;
     const oven1 = g.world.stations.get('oven1'); if (oven1) oven1.stock = 8;
@@ -79,16 +78,57 @@ for (const [tag, width, height, dpr] of [['portrait', 450, 800, 2], ['landscape'
   const busy = await page.evaluate(() => {
     const r = window.__scene.renderer.info.render;
     return {
-      customers: window.__game.customers.length,
-      staff: window.__game.staffList.length,
-      calls: r.calls,
-      triangles: r.triangles,
-      reputation: window.__game.meta.reputation,
+      customers: window.__game.customers.length, staff: window.__game.staffList.length,
+      calls: r.calls, triangles: r.triangles, reputation: window.__game.meta.reputation,
       repLabel: document.querySelector('.meta-rep-title')?.textContent || '',
       petCount: document.querySelector('.meta-book-count')?.textContent || '',
+      bodyWidth: document.body.scrollWidth, viewportWidth: window.innerWidth,
     };
   });
   await page.screenshot({ path: path.join(shots, `02-busy-${tag}.png`), fullPage: true });
+
+  let interaction = null;
+  if (tag === 'small') {
+    const placeAt = async id => {
+      await page.evaluate(id2 => {
+        const g = window.__game, st = g.world.stations.get(id2);
+        g.setMove(0, 0); g.P.x = st.front.x; g.P.z = st.front.z; g.P.vx = 0; g.P.vz = 0;
+      }, id);
+      await page.waitForTimeout(550);
+    };
+
+    await placeAt('kiosk1');
+    await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'UPGRADES' && !document.querySelector('.fbtn')?.classList.contains('hidden'));
+    await page.click('.fbtn');
+    await page.waitForFunction(() => !!document.querySelector('.sheet-root .sheet'));
+    await page.evaluate(() => { const g = window.__game; g.P.x = 0; g.P.z = 2.5; g.P.vx = 0; g.P.vz = 0; });
+    await page.waitForFunction(() => document.querySelector('.sheet-root')?.classList.contains('hidden'), null, { timeout: 3000 });
+
+    await placeAt('pantry1');
+    await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'SUPPLIES' && !document.querySelector('.fbtn')?.classList.contains('hidden'));
+    await page.click('.fbtn');
+    await page.waitForFunction(() => document.querySelectorAll('.sheet .sbtn').length >= 2);
+    await page.click('.sheet .sbtn');
+    await page.waitForTimeout(600);
+    const pantry = await page.evaluate(() => ({ sack: window.__game.carry.sack, guide: window.__game.contextGuide?.caption || '' }));
+
+    await placeAt('return1');
+    await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'RETURN ITEMS' && !document.querySelector('.fbtn')?.classList.contains('hidden'));
+    await page.click('.fbtn');
+    await page.waitForTimeout(250);
+    const returned = await page.evaluate(() => !window.__game.carry.sack);
+
+    await page.evaluate(() => { const g = window.__game; g.carry.fruit = 2; const b = g.world.stations.get('blender1'); b.fruit = 0; b.stock = 0; });
+    await placeAt('blender1');
+    await page.waitForTimeout(650);
+    const blender = await page.evaluate(() => {
+      const g = window.__game, b = g.world.stations.get('blender1');
+      return { remaining: g.carry.fruit, machineFruit: b.fruit, stock: b.stock };
+    });
+    interaction = { pantry, returned, blender };
+    await page.screenshot({ path: path.join(shots, '05-interaction-small.png'), fullPage: true });
+    await page.evaluate(() => window.__game.setMove(null));
+  }
 
   await page.click('.meta-pawbook');
   await page.waitForFunction(() => !document.querySelector('.meta-book-root')?.classList.contains('hidden'), null, { timeout: 3000 });
@@ -96,30 +136,30 @@ for (const [tag, width, height, dpr] of [['portrait', 450, 800, 2], ['landscape'
     cards: document.querySelectorAll('.meta-pet-card').length,
     found: document.querySelectorAll('.meta-pet-card:not(.locked)').length,
     title: document.querySelector('.meta-book-title')?.textContent || '',
+    bodyWidth: document.body.scrollWidth, viewportWidth: window.innerWidth,
   }));
   await page.screenshot({ path: path.join(shots, `03-book-${tag}.png`), fullPage: true });
   await page.click('.meta-book-close');
 
   await page.evaluate(() => {
     const g = window.__game;
-    g.dayStats = { served: 42, lost: 1, earned: 1180 };
-    g.shiftBestStreak = 14;
-    const d = g.dayState;
-    d.t = 239.99; d.phase = 'closing'; d._ended = false;
+    g.dayStats = { served: 42, lost: 1, earned: 1180 }; g.shiftBestStreak = 14;
+    const d = g.dayState; d.t = 239.99; d.phase = 'closing'; d._ended = false;
   });
   await page.waitForFunction(() => !!document.querySelector('.sheet-root .card'), null, { timeout: 5000 });
   await page.waitForFunction(() => !!document.querySelector('.meta-rating'), null, { timeout: 5000 });
   await page.waitForTimeout(300);
   const meta = await page.evaluate(() => ({
-    stars: document.querySelector('.meta-rating-stars')?.textContent || '',
-    reward: !!document.querySelector('.meta-reward-btn'),
-    repSummary: !!document.querySelector('.meta-rep-summary'),
-    repTitle: document.querySelector('.meta-rep-summary .meta-kicker')?.textContent || '',
+    stars: document.querySelector('.meta-rating-stars')?.textContent || '', reward: !!document.querySelector('.meta-reward-btn'),
+    repSummary: !!document.querySelector('.meta-rep-summary'), repTitle: document.querySelector('.meta-rep-summary .meta-kicker')?.textContent || '',
+    bodyWidth: document.body.scrollWidth, viewportWidth: window.innerWidth,
   }));
   await page.screenshot({ path: path.join(shots, `04-summary-${tag}.png`), fullPage: true });
 
-  if (!info.platform || info.metaVersion !== 4 || !meta.stars || !meta.reward || !meta.repSummary || !busy.repLabel || !busy.petCount || book.cards !== 12 || book.found < 7 || errors.length) failed = true;
-  report.push({ tag, ...info, busy, book, ...meta, errors });
+  const overflow = busy.bodyWidth > busy.viewportWidth + 1 || book.bodyWidth > book.viewportWidth + 1 || meta.bodyWidth > meta.viewportWidth + 1;
+  const interactionBad = tag === 'small' && (!interaction || interaction.pantry.sack !== 'beans' || interaction.pantry.guide !== 'COFFEE' || !interaction.returned || (interaction.blender.machineFruit + interaction.blender.stock) <= 0);
+  if (!info.platform || info.metaVersion !== 4 || !meta.stars || !meta.reward || !meta.repSummary || !busy.repLabel || !busy.petCount || book.cards !== 12 || book.found < 7 || overflow || interactionBad || errors.length) failed = true;
+  report.push({ tag, ...info, busy, book, interaction, ...meta, overflow, errors });
   await ctx.close();
 }
 
