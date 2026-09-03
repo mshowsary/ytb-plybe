@@ -21,8 +21,6 @@ async function boot() {
   const machineJuice = createMachineJuice(G.world, S.scene);
   platform.bindGame(G);
 
-  // Restore before exposing the café so a returning player never watches a fresh café pop into
-  // their real progression state. A platform timeout prevents a broken cloud call from blocking boot.
   const save = await platform.load();
   if (save) G.restore(save);
 
@@ -31,7 +29,6 @@ async function boot() {
   window.__audio = G.audio;
   window.__platform = platform;
 
-  // Paint one complete restored frame before releasing YouTube's loading screen.
   S.render();
   platform.firstFrameReady();
 
@@ -41,6 +38,8 @@ async function boot() {
     if (!platform.paused) {
       G.update(dt);
       machineJuice.update(dt);
+      G.audio.setMusicPhase(G.dayState.phase);
+      G.audio.musicUpdate(dt);
     }
     if (S.noteFrame) S.noteFrame(dt);
     S.render();
