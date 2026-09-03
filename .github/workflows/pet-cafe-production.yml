@@ -12,6 +12,12 @@ on:
       - '.github/workflows/pet-cafe-production.yml'
   workflow_dispatch:
 
+# Push + PR events can arrive for the same commit. Keep one newest full validation alive instead of
+# burning phone-driven iteration time installing Chromium for obsolete intermediate commits.
+concurrency:
+  group: pet-cafe-production
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
