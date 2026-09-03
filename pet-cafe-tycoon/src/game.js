@@ -25,6 +25,8 @@ import { createIntro } from './systems/intro.js';
 import { jobTarget } from './sim/jobs.js';
 import { decide } from './sim/botDecide.js';
 
+const freshDayStats = () => ({ served: 0, lost: 0, earned: 0, serviceFees: 0, serviceMisses: 0 });
+
 export function createGame(S, area, els, platform = null) {
   const G = {
     coins: 0,
@@ -33,8 +35,8 @@ export function createGame(S, area, els, platform = null) {
     staffLevels: { runner: { speed: 0, carry: 0 }, cashier: { speed: 0 }, cleaner: { speed: 0 } },
     machineLevels: { oven: 0, coffee: 0, display: 0 },
     boosts: {},
-    stats: { served: 0, lifetimeEarned: 0 },
-    settings: { sfx: true },
+    stats: { served: 0, lifetimeEarned: 0, serviceFees: 0 },
+    settings: { sfx: true, music: true },
     meta: {
       rewardedDays: {}, completedDays: 0, reputation: 0, perfectShifts: 0,
       bestServiceStreak: 0, shiftRatings: {}, petBook: {}, petDiscoveries: 0,
@@ -45,7 +47,7 @@ export function createGame(S, area, els, platform = null) {
     carry: createCarry(),
     hintsSeen: new Set(), intro: {},
     dayState: createDay(), stars: {}, goal: chooseGoal(1),
-    dayStats: { served: 0, lost: 0, earned: 0 },
+    dayStats: freshDayStats(),
   };
   ensureReputation(G.meta); ensurePetBook(G.meta);
 
@@ -66,6 +68,7 @@ export function createGame(S, area, els, platform = null) {
   G.audio = audio;
   input.onFirstInput(() => audio.unlock());
   audio.setSfx(G.settings.sfx);
+  audio.setMusic(G.settings.music);
 
   function syncReputationPresentation() {
     ensureReputation(G.meta);
@@ -196,6 +199,8 @@ export function createGame(S, area, els, platform = null) {
       earnings: G.dayStats.earned,
       served: G.dayStats.served,
       lost: G.dayStats.lost,
+      serviceFees: G.dayStats.serviceFees | 0,
+      serviceMisses: G.dayStats.serviceMisses | 0,
       cafeLevel: cafeLevel(G),
       goalText: goalLabel(goal), goalMet: met, goalReward: goal.reward,
       tomorrowText: goalLabel(tomorrow), tomorrowReward: tomorrow.reward,
@@ -245,7 +250,7 @@ export function createGame(S, area, els, platform = null) {
     sheets.close();
     if (platform && completedDay >= 3 && completedDay % 3 === 0) await platform.requestInterstitialAd();
     nextDay(G.dayState);
-    G.dayStats = { served: 0, lost: 0, earned: 0 };
+    G.dayStats = freshDayStats();
     G.serviceStreak = { count: 0, t: 0 };
     G.shiftBestStreak = 0;
     G.goal = chooseGoal(G.dayState.day);
@@ -292,7 +297,10 @@ export function createGame(S, area, els, platform = null) {
   G.restore = save => {
     if (!save || typeof save !== 'object') return;
     applySave(G, save);
+    if (typeof G.settings.music !== 'boolean') G.settings.music = true;
+    if (typeof G.settings.sfx !== 'boolean') G.settings.sfx = true;
     audio.setSfx(G.settings.sfx);
+    audio.setMusic(G.settings.music);
     G.serviceStreak = { count: 0, t: 0 };
     G.shiftBestStreak = 0;
     world.dayState = G.dayState; world.stars = G.stars; lastAwningSet = -1;
