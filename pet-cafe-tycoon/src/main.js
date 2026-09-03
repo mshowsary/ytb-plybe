@@ -4,6 +4,7 @@ import { createGame } from './game.js';
 import { createYouTubePlatform } from './platform/youtube.js';
 import { createMachineJuice } from './systems/machineJuice.js';
 import { createResponsivePolish } from './ui/responsive.js';
+import { createPauseMenu } from './ui/pauseMenu.js';
 import { AREA1 } from '../data/area1.js';
 
 const $ = id => document.getElementById(id);
@@ -43,6 +44,7 @@ async function boot() {
 
   const save = await platform.load();
   if (save) G.restore(save);
+  const pauseMenu = createPauseMenu(G, platform);
   platform.sendScore(G.meta && G.meta.reputation);
   responsive.update();
 
@@ -50,18 +52,20 @@ async function boot() {
   window.__scene = S;
   window.__audio = G.audio;
   window.__platform = platform;
+  window.__pauseMenu = pauseMenu;
 
   S.render();
   platform.firstFrameReady();
 
-  let last = performance.now(), first = true, lastRep = (G.meta && G.meta.reputation) | 0, wasPaused = false;
+  let last = performance.now(), first = true, lastRep = (G.meta && G.meta.reputation) | 0, wasHostPaused = false;
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
-    const paused = platform.paused;
-    if (paused !== wasPaused) {
-      wasPaused = paused;
-      pauseOverlay.classList.toggle('hidden', !paused);
+    const hostPaused = platform.paused;
+    if (hostPaused !== wasHostPaused) {
+      wasHostPaused = hostPaused;
+      pauseOverlay.classList.toggle('hidden', !hostPaused);
     }
+    const paused = hostPaused || G.userPaused;
     if (!paused) {
       G.update(dt);
       machineJuice.update(dt);
