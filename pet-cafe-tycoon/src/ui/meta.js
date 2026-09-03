@@ -8,21 +8,15 @@ function injectStyle() {
   s.textContent = `
     .meta-streak{position:fixed;right:calc(12px + env(safe-area-inset-right,0px));top:calc(184px + env(safe-area-inset-top,0px));z-index:14;pointer-events:none;padding:7px 12px;border-radius:999px;background:linear-gradient(135deg,#fff5dc,#ffe09a);color:#68431d;font:900 13px/1.1 system-ui,sans-serif;box-shadow:0 4px 0 #c68c3b33,0 9px 22px #7c4a1828;transform:translateY(-5px) scale(.94);opacity:0;transition:.18s ease}
     .meta-streak.show{transform:none;opacity:1}
+    .meta-reputation{position:fixed;left:calc(12px + env(safe-area-inset-left,0px));top:calc(184px + env(safe-area-inset-top,0px));z-index:13;pointer-events:none;min-width:144px;max-width:210px;padding:7px 11px 8px;border-radius:14px;background:#fffef5e8;color:#493b35;box-shadow:0 4px 0 #00000010,0 8px 20px #0000001e;backdrop-filter:blur(5px);font-family:system-ui,sans-serif}
+    .meta-rep-top{display:flex;align-items:center;gap:6px;font-weight:900;font-size:12px;line-height:1.05}.meta-rep-star{color:#e8aa25;font-size:15px;text-shadow:0 1px 0 #8b5d1733}.meta-rep-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.meta-rep-value{margin-left:auto;font-size:11px;opacity:.64}.meta-rep-bar{height:4px;border-radius:3px;background:#00000012;overflow:hidden;margin-top:6px}.meta-rep-fill{height:100%;width:0;border-radius:3px;background:linear-gradient(90deg,#f1b73a,#ff8a80);transition:width .45s cubic-bezier(.2,.8,.2,1)}
     body.meta-summary-open #hint,body.meta-summary-open .objCaption,body.meta-summary-open .fbtn,body.meta-summary-open .skipPill{opacity:0!important;pointer-events:none!important}
     .meta-rating{width:100%;box-sizing:border-box;margin:0 auto 2px;padding:10px 12px;border-radius:16px;background:#ffffffa8;border:1px solid #0000000a;display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left}
-    .meta-rating-copy{display:flex;flex-direction:column;gap:2px;min-width:0}
-    .meta-kicker{font:800 10px/1.1 system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;opacity:.55}
-    .meta-rating-stars{font:900 24px/1 system-ui,sans-serif;letter-spacing:.04em;color:#f4b942;text-shadow:0 2px 0 #9a65182a;white-space:nowrap}
-    .meta-reward{width:100%;box-sizing:border-box;padding:12px 13px;border-radius:18px;background:linear-gradient(135deg,#fff,#f3efff);border:1px solid #8b7cf635;box-shadow:inset 0 1px 0 #fff,0 7px 20px #5d4bc219;display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left}
-    .meta-reward-copy{display:flex;min-width:0;flex:1;flex-direction:column;gap:3px}
-    .meta-reward-title{font:900 14px/1.15 system-ui,sans-serif;color:#3b2e2a}
-    .meta-reward-sub{font:700 11px/1.25 system-ui,sans-serif;color:#756a66}
-    .meta-reward-btn{min-height:46px;min-width:112px;border:0;border-radius:14px;padding:0 13px;background:linear-gradient(135deg,#8b7cf6,#6b58e4);color:#fff;font:900 13px/1 system-ui,sans-serif;box-shadow:0 4px 0 #5145b8,0 8px 18px #5d4bc229;display:flex;align-items:center;justify-content:center;gap:7px;cursor:pointer}
-    .meta-reward-btn:disabled{cursor:default;background:#d8d2ea;color:#777;box-shadow:none}
-    .meta-ad{height:21px;min-width:28px;box-sizing:border-box;border-radius:7px;border:1px solid #ffffff66;background:#ffffff25;display:inline-flex;align-items:center;justify-content:center;padding:0 5px;font-size:9px;letter-spacing:.08em}
-    .meta-toast{position:fixed;left:50%;bottom:calc(172px + env(safe-area-inset-bottom,0px));z-index:60;pointer-events:none;transform:translate(-50%,10px);opacity:0;padding:9px 15px;border-radius:999px;background:#302824;color:#fff;font:800 13px/1 system-ui,sans-serif;box-shadow:0 8px 24px #0004;transition:.2s ease;white-space:nowrap}
-    .meta-toast.show{opacity:1;transform:translate(-50%,0)}
-    @media(max-width:420px){.meta-reward{align-items:stretch;flex-direction:column}.meta-reward-btn{width:100%}}
+    .meta-rating-copy{display:flex;flex-direction:column;gap:2px;min-width:0}.meta-kicker{font:800 10px/1.1 system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;opacity:.55}.meta-rating-stars{font:900 24px/1 system-ui,sans-serif;letter-spacing:.04em;color:#f4b942;text-shadow:0 2px 0 #9a65182a;white-space:nowrap}
+    .meta-rep-summary{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:16px;background:linear-gradient(135deg,#fff7dd,#fff);border:1px solid #e6b74c38;text-align:left}.meta-rep-summary-top{display:flex;align-items:center;justify-content:space-between;gap:10px}.meta-rep-gain{font:900 15px/1 system-ui,sans-serif;color:#bd7c11}.meta-rep-levelup{margin-top:5px;font:900 11px/1.2 system-ui,sans-serif;color:#7b5ed5;letter-spacing:.06em;text-transform:uppercase}
+    .meta-reward{width:100%;box-sizing:border-box;padding:12px 13px;border-radius:18px;background:linear-gradient(135deg,#fff,#f3efff);border:1px solid #8b7cf635;box-shadow:inset 0 1px 0 #fff,0 7px 20px #5d4bc219;display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left}.meta-reward-copy{display:flex;min-width:0;flex:1;flex-direction:column;gap:3px}.meta-reward-title{font:900 14px/1.15 system-ui,sans-serif;color:#3b2e2a}.meta-reward-sub{font:700 11px/1.25 system-ui,sans-serif;color:#756a66}.meta-reward-btn{min-height:46px;min-width:112px;border:0;border-radius:14px;padding:0 13px;background:linear-gradient(135deg,#8b7cf6,#6b58e4);color:#fff;font:900 13px/1 system-ui,sans-serif;box-shadow:0 4px 0 #5145b8,0 8px 18px #5d4bc229;display:flex;align-items:center;justify-content:center;gap:7px;cursor:pointer}.meta-reward-btn:disabled{cursor:default;background:#d8d2ea;color:#777;box-shadow:none}.meta-ad{height:21px;min-width:28px;box-sizing:border-box;border-radius:7px;border:1px solid #ffffff66;background:#ffffff25;display:inline-flex;align-items:center;justify-content:center;padding:0 5px;font-size:9px;letter-spacing:.08em}
+    .meta-toast{position:fixed;left:50%;bottom:calc(172px + env(safe-area-inset-bottom,0px));z-index:60;pointer-events:none;transform:translate(-50%,10px);opacity:0;padding:9px 15px;border-radius:999px;background:#302824;color:#fff;font:800 13px/1 system-ui,sans-serif;box-shadow:0 8px 24px #0004;transition:.2s ease;white-space:nowrap}.meta-toast.show{opacity:1;transform:translate(-50%,0)}
+    @media(max-width:520px){.meta-reputation{min-width:0;max-width:124px}.meta-rep-title{max-width:68px}.meta-rep-value{display:none}.meta-reward{align-items:stretch;flex-direction:column}.meta-reward-btn{width:100%}}
   `;
   document.head.appendChild(s);
 }
@@ -30,8 +24,12 @@ function injectStyle() {
 export function createMetaUI() {
   injectStyle();
   const streak = document.createElement('div'); streak.className = 'meta-streak'; document.body.appendChild(streak);
+  const reputation = document.createElement('div'); reputation.className = 'meta-reputation';
+  reputation.innerHTML = '<div class="meta-rep-top"><span class="meta-rep-star">★</span><span class="meta-rep-title">Cozy Corner</span><span class="meta-rep-value">0</span></div><div class="meta-rep-bar"><div class="meta-rep-fill"></div></div>';
+  document.body.appendChild(reputation);
+  const repTitle = reputation.querySelector('.meta-rep-title'), repValue = reputation.querySelector('.meta-rep-value'), repFill = reputation.querySelector('.meta-rep-fill');
   const toastEl = document.createElement('div'); toastEl.className = 'meta-toast'; document.body.appendChild(toastEl);
-  let summaryLocked = false, lastStreak = -1, toastTimer = null;
+  let summaryLocked = false, lastStreak = -1, toastTimer = null, lastRep = -1;
 
   document.addEventListener('click', e => {
     if (summaryLocked && e.target && e.target.classList && e.target.classList.contains('backdrop')) e.stopPropagation();
@@ -53,6 +51,14 @@ export function createMetaUI() {
     streak.classList.add('show');
   };
 
+  M.setReputation = model => {
+    if (!model) return;
+    repTitle.textContent = model.title;
+    if (model.rep !== lastRep) { lastRep = model.rep; repValue.textContent = model.rep; }
+    repFill.style.width = `${Math.round((model.frac || 0) * 100)}%`;
+    reputation.title = model.nextTitle ? `${model.rep} reputation · next: ${model.nextTitle}` : `${model.rep} reputation · max rank`;
+  };
+
   M.lockSummary = locked => {
     summaryLocked = !!locked;
     document.body.classList.toggle('meta-summary-open', summaryLocked);
@@ -63,14 +69,10 @@ export function createMetaUI() {
     let tries = 0;
     const attach = () => {
       const card = document.querySelector('.sheet-root .card');
-      if (!card) {
-        if (++tries < 20) setTimeout(attach, 25);
-        return;
-      }
+      if (!card) { if (++tries < 20) setTimeout(attach, 25); return; }
       if (card.querySelector('.meta-rating')) return;
 
-      const close = card.querySelector('.sclose');
-      if (close) close.remove();
+      const close = card.querySelector('.sclose'); if (close) close.remove();
 
       const rating = document.createElement('div'); rating.className = 'meta-rating';
       const rc = document.createElement('div'); rc.className = 'meta-rating-copy';
@@ -78,11 +80,30 @@ export function createMetaUI() {
       const note = document.createElement('div'); note.className = 'meta-reward-sub';
       note.textContent = model.rating >= 3 ? 'Flawless shift' : model.rating === 2 ? 'Solid shift' : 'Room to improve';
       rc.append(kicker, note);
-      const stars = document.createElement('div'); stars.className = 'meta-rating-stars';
-      stars.textContent = '★'.repeat(model.rating) + '☆'.repeat(3 - model.rating);
+      const stars = document.createElement('div'); stars.className = 'meta-rating-stars'; stars.textContent = '★'.repeat(model.rating) + '☆'.repeat(3 - model.rating);
       rating.append(rc, stars);
-      const body = card.querySelector('.cbody');
-      if (body) body.after(rating); else card.appendChild(rating);
+      const body = card.querySelector('.cbody'); if (body) body.after(rating); else card.appendChild(rating);
+
+      let anchor = rating;
+      if (model.reputation) {
+        const rep = document.createElement('div'); rep.className = 'meta-rep-summary';
+        const top = document.createElement('div'); top.className = 'meta-rep-summary-top';
+        const copy = document.createElement('div'); copy.className = 'meta-rating-copy';
+        const k = document.createElement('div'); k.className = 'meta-kicker'; k.textContent = model.reputation.title;
+        const sub = document.createElement('div'); sub.className = 'meta-reward-sub';
+        sub.textContent = model.reputation.nextTitle
+          ? `${model.reputation.current}/${model.reputation.needed} toward ${model.reputation.nextTitle}`
+          : 'Maximum reputation reached';
+        copy.append(k, sub);
+        const gain = document.createElement('div'); gain.className = 'meta-rep-gain'; gain.textContent = `+${model.reputation.awarded} ★`;
+        top.append(copy, gain); rep.appendChild(top);
+        const bar = document.createElement('div'); bar.className = 'meta-rep-bar';
+        const fill = document.createElement('div'); fill.className = 'meta-rep-fill'; fill.style.width = `${Math.round(model.reputation.frac * 100)}%`; bar.appendChild(fill); rep.appendChild(bar);
+        if (model.reputation.levelUp) {
+          const levelUp = document.createElement('div'); levelUp.className = 'meta-rep-levelup'; levelUp.textContent = `NEW RANK · ${model.reputation.title}`; rep.appendChild(levelUp);
+        }
+        anchor.after(rep); anchor = rep;
+      }
 
       if (!model.rewardOffer) return;
       const reward = document.createElement('div'); reward.className = 'meta-reward';
@@ -90,32 +111,22 @@ export function createMetaUI() {
       const title = document.createElement('div'); title.className = 'meta-reward-title';
       const sub = document.createElement('div'); sub.className = 'meta-reward-sub';
       title.textContent = model.rewardOffer.claimed ? 'BONUS CLAIMED' : model.rewardOffer.label;
-      sub.textContent = model.rewardOffer.claimed
-        ? `+${model.rewardOffer.amount.toLocaleString('en-US')} coins added`
-        : model.rewardOffer.liveAd ? 'Optional rewarded ad · never required for progress' : 'Local preview reward';
+      sub.textContent = model.rewardOffer.claimed ? `+${model.rewardOffer.amount.toLocaleString('en-US')} coins added` : model.rewardOffer.liveAd ? 'Optional rewarded ad · never required for progress' : 'Local preview reward';
       copy.append(title, sub);
       const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'meta-reward-btn';
       const paintButton = () => {
         btn.disabled = !!model.rewardOffer.claimed;
-        btn.innerHTML = model.rewardOffer.claimed
-          ? 'CLAIMED'
-          : `<span class="meta-ad">${model.rewardOffer.liveAd ? 'AD' : 'DEV'}</span><span>+${model.rewardOffer.amount.toLocaleString('en-US')}</span>`;
+        btn.innerHTML = model.rewardOffer.claimed ? 'CLAIMED' : `<span class="meta-ad">${model.rewardOffer.liveAd ? 'AD' : 'DEV'}</span><span>+${model.rewardOffer.amount.toLocaleString('en-US')}</span>`;
       };
       paintButton();
       btn.addEventListener('click', async () => {
         if (btn.disabled || model.rewardOffer.claimed) return;
         btn.disabled = true; btn.textContent = '…';
         const ok = await model.rewardOffer.onClaim();
-        if (ok) {
-          model.rewardOffer.claimed = true;
-          title.textContent = 'BONUS CLAIMED';
-          sub.textContent = `+${model.rewardOffer.amount.toLocaleString('en-US')} coins added`;
-          paintButton();
-        } else {
-          paintButton();
-        }
+        if (ok) { model.rewardOffer.claimed = true; title.textContent = 'BONUS CLAIMED'; sub.textContent = `+${model.rewardOffer.amount.toLocaleString('en-US')} coins added`; paintButton(); }
+        else paintButton();
       });
-      reward.append(copy, btn); rating.after(reward);
+      reward.append(copy, btn); anchor.after(reward);
     };
     attach();
   };
