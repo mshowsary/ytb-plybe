@@ -23,6 +23,7 @@ async function boot() {
 
   const save = await platform.load();
   if (save) G.restore(save);
+  platform.sendScore(G.meta && G.meta.reputation);
 
   window.__game = G;
   window.__scene = S;
@@ -32,7 +33,7 @@ async function boot() {
   S.render();
   platform.firstFrameReady();
 
-  let last = performance.now(), first = true;
+  let last = performance.now(), first = true, lastRep = (G.meta && G.meta.reputation) | 0;
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     if (!platform.paused) {
@@ -40,6 +41,8 @@ async function boot() {
       machineJuice.update(dt);
       G.audio.setMusicPhase(G.dayState.phase);
       G.audio.musicUpdate(dt);
+      const rep = (G.meta && G.meta.reputation) | 0;
+      if (rep !== lastRep) { lastRep = rep; platform.sendScore(rep); }
     }
     if (S.noteFrame) S.noteFrame(dt);
     S.render();
