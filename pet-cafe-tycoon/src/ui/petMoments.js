@@ -10,7 +10,7 @@ function ensureStyle() {
       background:#fff9f0ee;color:#493b35;box-shadow:0 3px 10px #0002;border:1px solid #fff;
       font:900 11px/1.05 system-ui,sans-serif;white-space:nowrap;opacity:0;transition:opacity .18s ease,transform .18s ease}
     .pet-identity.show{opacity:1;transform:translate(-50%,-108%)}
-    .pet-identity .paw{font-size:12px;color:#d97c70}.pet-identity .detail{font-size:9px;font-weight:800;opacity:.56;text-transform:uppercase;letter-spacing:.06em}
+    .pet-identity .paw{font-size:12px;color:#d97c70}.pet-identity .detail{font-size:9px;font-weight:800;opacity:.56;text-transform:uppercase;letter-spacing:.06em;max-width:76px;overflow:hidden;text-overflow:ellipsis}
     .pet-identity.rare{border-color:#9d87ed88}.pet-identity.epic{border-color:#df78b488;background:#fff4faee}
     body.ui-compact .pet-identity{font-size:10px;padding:4px 7px}.pet-identity.seated .detail{display:none}
     @media(max-width:380px){.pet-identity{max-width:110px;font-size:9px;padding:4px 6px}.pet-identity .detail{display:none}}
@@ -28,6 +28,7 @@ export function createPetMoment(els, profile) {
   el.append(paw, name, detail); els.fx.appendChild(el);
 
   let timer = 0, seated = false, detailText = '';
+  const projection = { sx: 0, sy: 0, visible: true };
   const P = {};
   P.announce = (text = '', seconds = 2.2) => { detailText = text; detail.textContent = text; timer = Math.max(timer, seconds); };
   P.setSeated = value => { seated = !!value; el.classList.toggle('seated', seated); };
@@ -37,10 +38,13 @@ export function createPetMoment(els, profile) {
     const visible = seated || timer > 0;
     if (!visible) { el.classList.remove('show'); return; }
     if (seated && timer <= 0 && detailText) { detailText = ''; detail.textContent = ''; }
-    const p = { sx: 0, sy: 0, visible: true };
-    fx.project(x, y, z, p);
-    el.style.left = p.sx + 'px'; el.style.top = p.sy + 'px';
-    el.classList.toggle('show', p.visible);
+    fx.project(x, y, z, projection);
+    el.style.left = projection.sx + 'px'; el.style.top = projection.sy + 'px';
+    el.classList.toggle('show', projection.visible);
   };
+
+  // Common visitors get a tiny personality introduction; rare/epic callers can immediately
+  // overwrite this with a higher-priority rarity announcement without creating another element.
+  if (profile.trait) P.announce(profile.trait, 2.1);
   return P;
 }
