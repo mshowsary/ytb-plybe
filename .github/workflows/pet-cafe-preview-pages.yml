@@ -38,11 +38,16 @@ jobs:
         working-directory: pet-cafe-tycoon
         run: npm ci
 
+      # Never replace the phone-playable demo with a commit that already fails deterministic core
+      # simulation/layout/save tests. The heavier economy + Chromium suite remains in production CI.
+      - name: Core simulation gate
+        working-directory: pet-cafe-tycoon
+        run: npm test
+
       - name: Build playable
         working-directory: pet-cafe-tycoon
         run: npm run build
 
-      # Pages was enabled after the first workflow attempt; a fresh run now discovers the site.
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
