@@ -41,11 +41,11 @@ export const AREA1 = {
     { id: 'kiosk1', type: 'kiosk', x: 9.0, z: -3.5, rot: -Math.PI / 2, fw: 1.0, fd: 1.6 },
   ],
 
-  // Capital pacing: pet-specific content arrives in a coherent order. The garden is immediately
-  // followed by the blender, so harvested fruit is never introduced several purchases before it
-  // has a use. The final expansion becomes a pet lounge rather than generic extra tables.
+  // Capital pacing: the first expansion remains quick, then decisions get progressively more
+  // expensive once staff/pet systems create real alternatives. Pet-specific systems arrive in a
+  // coherent order: fruit is never introduced several purchases before the blender can use it.
   zones: [
-    { id: 'z_seats1',    x: -6.75, z: 4.3,  price: 120,  adds: ['seat1', 'seat2'],                       label: 'Tables' },
+    { id: 'z_seats1',    x: -6.75, z: 4.3,  price: 90,   adds: ['seat1', 'seat2'],                       label: 'Tables' },
     { id: 'z_oven2',     x: 3.5,   z: -3.6, price: 220,  adds: ['oven2', 'dispCupcake'],                 requires: 'z_seats1',    label: 'Cupcake oven' },
     { id: 'z_register2', x: -8.0,  z: -0.6, price: 340,  adds: ['register2'],                            requires: 'z_oven2',     label: 'Second register' },
     { id: 'z_hire',      x: -7.2,  z: 1.0,  price: 480,  adds: ['hire1'],                                requires: 'z_register2', label: 'Staff desk' },
