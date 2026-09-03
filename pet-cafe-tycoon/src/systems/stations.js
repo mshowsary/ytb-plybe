@@ -8,7 +8,7 @@ import {
   stepOvens, stepMachines, takeFromOven, takeFromMachine, putOnDisplay, collectCash,
   refillBeans, refillBowl, harvestBush, addFruit as stationAddFruit, cleanSeat,
 } from '../sim/world.js';
-import { canTakeItems, takeSack, useSack, addFruit as carryAddFruit, isEmpty as carryIsEmpty, returnAll } from '../sim/carry.js';
+import { canTakeItems, takeSack, useSack, addFruit as carryAddFruit, returnAll } from '../sim/carry.js';
 import { heldState, destinationFor, findReturnStation, heldLabel, destinationLabel } from '../sim/interaction.js';
 import { itemFor } from '../render/props.js';
 import { C } from '../render/palette.js';
@@ -23,7 +23,7 @@ const SHEET_CLOSE_RADIUS = 2.45;
 const FIRST_HINT = {
   oven: 'Stand here to take finished food',
   display: 'Stock only the matching shelf',
-  checkout: 'Stand here to take payment',
+  checkout: 'Serve here · collect payment from the cash tray',
   pantry: 'Tap SUPPLIES to choose beans or kibble',
   return: 'Tap RETURN ITEMS to empty your hands',
   bush: 'Ripe garden: stand here to harvest fruit',
@@ -36,11 +36,11 @@ const FIRST_HINT = {
 const FIRST_HINT_SECONDS = 4;
 
 export function createStations(G, S, ctx) {
-  const { area, world, hud, fx, audio, input, owner, P, sheets, hints } = ctx;
+  const { area, world, hud, fx, audio, input, owner, P, sheets, hints, els } = ctx;
   const carry = G.carry;
   let takeT = 0, dropT = 0, stepT = 0, frameDt = 0;
   const prevStock = new Map();
-  const cleanProg = new Map(); // kept for visuals.js compatibility; owner cleaning is now explicit.
+  const cleanProg = new Map();
   const dwellT = new Map();
   ctx.cleanProg = cleanProg;
   P.rot = P.rot || 0;
@@ -141,7 +141,8 @@ export function createStations(G, S, ctx) {
   function openPantry(st) {
     const held = heldState(owner.items, carry);
     if (held) {
-      const target = guideCarry(`Hands busy · ${heldLabel(held)} → ${destinationLabel(destinationFor(world, held, P))}`, 5);
+      const dest = destinationFor(world, held, P);
+      const target = guideCarry(`Hands busy · ${heldLabel(held)}${dest ? ` → ${destinationLabel(dest)}` : ''}`, 5);
       audio.play('angry'); hud.toast(target ? 'Finish what you are carrying first' : 'Empty your hands first');
       return;
     }
@@ -175,22 +176,47 @@ export function createStations(G, S, ctx) {
     return true;
   }
 
+  // A register now has a physically separate payment tray. The existing 3D cash pile already
+  // lives at st.cash; this projected badge makes that spot readable on tiny screens too.
+  const cashPads = new Map();
+  for (const st of world.stations.values()) {
+    if (st.type !== 'checkout') continue;
+    const el = document.createElement('div');
+    el.className = 'cash-tray-badge hidden';
+    el.style.cssText = 'position:absolute;transform:translate(-50%,-50%);min-height:32px;padding:5px 9px;box-sizing:border-box;border:2px solid #E0A800;border-radius:10px;background:#FFF6B0E8;color:#5B4314;font:900 11px/1 system-ui,sans-serif;box-shadow:0 3px 9px #0002;white-space:nowrap;pointer-events:none';
+    els.fx.appendChild(el);
+    cashPads.set(st.id, { el, tmp: { sx: 0, sy: 0, visible: true }, last: -1 });
+  }
+
   const fbtn = document.createElement('button');
   fbtn.type = 'button'; fbtn.className = 'fbtn hidden'; ctx.els.fx.appendChild(fbtn);
   const fbtnTmp = { sx: 0, sy: 0, visible: true };
   let floatAction = null;
-  function offerAction(best, st, kind, label, priority = 0) {
-    const d = dist2(P, st.front);
-    if (!best || priority > best.priority || (priority === best.priority && d < best.d)) return { st, kind, label, priority, d };
+  function offerAction(best, st, kind, label, priority = 0, point = null) {
+    const p = point || st.front;
+    const d = dist2(P, p);
+    if (!best || priority > best.priority || (priority === best.priority && d < best.d)) return { st, kind, label, priority, d, point: p };
     return best;
   }
-  fbtn.addEventListener('click', () => {
+
+  function collectRegisterCash(st) {
+    if (!st || st.pile <= 0) return;
+    const amt = collectCash(world, st.id); if (amt <= 0) return;
+    const cs = st.cash; hints.cash = 1;
+    G.coins += amt; G.stats.lifetimeEarned = (G.stats.lifetimeEarned | 0) + amt;
+    hud.setCoins(G.coins); audio.play('coin');
+    fx.coinArc(cs.x, 0.3, cs.z, Math.min(10, 2 + (amt / 5 | 0)), () => hud.bump());
+    fx.number(cs.x, 0.8, cs.z, '+' + amt);
+  }
+
+  function triggerFloatAction() {
     const a = floatAction;
     if (!a) return;
     const st = a.st;
     if (a.kind === 'kiosk') openKiosk(st, 'player');
     else if (a.kind === 'hire') openKiosk(st, 'workers');
     else if (a.kind === 'pantry') openPantry(st);
+    else if (a.kind === 'collect') collectRegisterCash(st);
     else if (a.kind === 'return') {
       const held = heldState(owner.items, carry);
       if (!held) return;
@@ -198,10 +224,14 @@ export function createStations(G, S, ctx) {
       hud.toast(`Returned ${heldLabel(held)}`); clearGuide();
     } else if (a.kind === 'clean') {
       if (!st.dirty) return;
-      cleanSeat(world, st.id); hints.clean = 1; audio.play('chime');
+      cleanSeat(world, st.id); hints.clean = 1; audio.play('clean');
       fx.burst(st.x, 0.8, st.z, C.cream, 8); hud.toast('Table sparkling');
     }
     floatAction = null; fbtn.classList.add('hidden');
+  }
+  fbtn.addEventListener('click', triggerFloatAction);
+  document.addEventListener('keydown', e => {
+    if (e.code === 'KeyE' && floatAction && !sheets.isOpen) { e.preventDefault(); triggerFloatAction(); }
   });
 
   return {
@@ -252,7 +282,7 @@ export function createStations(G, S, ctx) {
             const current = held || heldState(owner.items, carry);
             if (current) {
               const target = destinationFor(world, current, P);
-              guideCarry(`${heldLabel(current)} → ${destinationLabel(target)}`, 5);
+              guideCarry(`${heldLabel(current)}${target ? ` → ${destinationLabel(target)}` : ''}`, 5);
             }
           } else if (dwellOk && takeT <= 0 && canTakeItems(carry) && owner.items.length < carryCap(G.up) && st.stock > 0) {
             const first = owner.items.length === 0;
@@ -265,14 +295,14 @@ export function createStations(G, S, ctx) {
           if (st.type === 'coffee' && dwellOk && carry.sack === 'beans') {
             const used = refillBeans(world, st.id, carry.sackLeft);
             if (used > 0) {
-              useSack(carry, used); hints.refillCoffee = 1; audio.play('chime'); fx.burst(st.x, 0.9, st.z, C.coral, 6);
+              useSack(carry, used); hints.refillCoffee = 1; audio.play('pour'); fx.burst(st.x, 0.9, st.z, C.coral, 6);
               maybeGuideLeftovers(st, 'Coffee stocked · return leftover beans');
             }
           }
           if (st.type === 'blender' && dwellOk && carry.fruit > 0) {
             const added = stationAddFruit(world, st.id, carry.fruit);
             if (added > 0) {
-              carry.fruit -= added; hints.blend = 1; audio.play('drop'); fx.burst(st.x, 0.9, st.z, C.plant, 6);
+              carry.fruit -= added; hints.blend = 1; audio.play('pour'); fx.burst(st.x, 0.9, st.z, C.plant, 6);
               maybeGuideLeftovers(st, 'Blender full · keep or return leftover fruit');
             }
           }
@@ -286,7 +316,7 @@ export function createStations(G, S, ctx) {
           if (owner.items.length && familyOf(owner.items[0].userData.product) !== familyOf(st.product)) {
             if (atFront && held) {
               const target = destinationFor(world, held, P);
-              guideCarry(`Wrong shelf · ${heldLabel(held)} → ${destinationLabel(target)}`, 5);
+              guideCarry(`Wrong shelf · ${heldLabel(held)}${target ? ` → ${destinationLabel(target)}` : ''}`, 5);
             }
           } else if (owner.items.length && st.stock >= st.capacity) {
             if (atFront) guideCarry(`${destinationLabel(st)} full · take leftovers to RETURN`, 5, true);
@@ -302,10 +332,16 @@ export function createStations(G, S, ctx) {
           const atFront = near(P, st.front, 1.2);
           noteFirstHint('checkout', atFront);
           if (atFront) st.serving = 'owner';
-          if (st.pile > 0 && near(P, st.cash, 1.0)) {
-            const amt = collectCash(world, st.id); const cs = st.cash; hints.cash = 1;
-            G.coins += amt; G.stats.lifetimeEarned = (G.stats.lifetimeEarned | 0) + amt; hud.setCoins(G.coins); audio.play('coin');
-            fx.coinArc(cs.x, 0.3, cs.z, Math.min(10, 2 + amt / 5 | 0), () => hud.bump()); fx.number(cs.x, 0.8, cs.z, '+' + amt);
+
+          const pad = cashPads.get(st.id);
+          if (pad) {
+            fx.project(st.cash.x, 0.18, st.cash.z, pad.tmp);
+            if (st.pile !== pad.last) { pad.last = st.pile; pad.el.textContent = `CASH TRAY · ${Math.round(st.pile)}`; }
+            pad.el.style.left = pad.tmp.sx + 'px'; pad.el.style.top = pad.tmp.sy + 'px';
+            pad.el.classList.toggle('hidden', !(st.pile > 0 && pad.tmp.visible));
+          }
+          if (st.pile > 0 && near(P, st.cash, 1.05) && !sheets.isOpen) {
+            actionCandidate = offerAction(actionCandidate, st, 'collect', `COLLECT ${Math.round(st.pile)}`, 8, st.cash);
           }
         }
 
@@ -327,7 +363,7 @@ export function createStations(G, S, ctx) {
           if (dwellOk && carry.sack === 'kibble') {
             const used = refillBowl(world, st.id, carry.sackLeft);
             if (used > 0) {
-              useSack(carry, used); hints.refillBowl = 1; audio.play('chime'); fx.burst(st.x, 0.5, st.z, C.pink, 6);
+              useSack(carry, used); hints.refillBowl = 1; audio.play('pour'); fx.burst(st.x, 0.5, st.z, C.pink, 6);
               maybeGuideLeftovers(st, 'Treat bowl full · return leftover kibble');
             }
           }
@@ -363,8 +399,8 @@ export function createStations(G, S, ctx) {
 
       floatAction = actionCandidate;
       if (floatAction && !sheets.isOpen) {
-        const st = floatAction.st;
-        fx.project(st.x, 1.65, st.z, fbtnTmp);
+        const p = floatAction.point || floatAction.st;
+        fx.project(p.x, floatAction.kind === 'collect' ? 0.75 : 1.65, p.z, fbtnTmp);
         fbtn.style.left = fbtnTmp.sx + 'px'; fbtn.style.top = fbtnTmp.sy + 'px';
         if (fbtn.textContent !== floatAction.label) fbtn.textContent = floatAction.label;
         fbtn.classList.toggle('hidden', !fbtnTmp.visible);
