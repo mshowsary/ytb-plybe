@@ -3,18 +3,26 @@ import * as THREE from 'three';
 import { part, merge } from './geo.js';
 import { C, toonMaterial, emissiveMaterial } from './palette.js';
 import { damp } from '../core/tween.js';
+import { petProfile } from '../sim/petBook.js';
 
 const SPEC = {
-  cat:   { body: C.cat,   belly: C.cream, ear: 'cone',  earCol: '#E6A5A0', tail: 'long',  eye: C.ink, w: 0.5, h: 0.42, l: 0.8, accent: '#F3C16B' },
-  dog:   { body: C.dog,   belly: C.cream, ear: 'flop',  earCol: '#B98C64', tail: 'short', eye: C.ink, w: 0.56, h: 0.48, l: 0.9, accent: '#75BCE8' },
-  bunny: { body: C.bunny, belly: C.pink,  ear: 'tall',  earCol: C.pink,  tail: 'puff',  eye: C.ink, w: 0.46, h: 0.4, l: 0.7, accent: '#9B82E8' },
+  cat:   { body: C.cat,   belly: C.cream, earCol: '#E6A5A0', tail: 'long',  eye: C.ink, w: 0.5, h: 0.42, l: 0.8, accent: '#F3C16B' },
+  dog:   { body: C.dog,   belly: C.cream, earCol: '#B98C64', tail: 'short', eye: C.ink, w: 0.56, h: 0.48, l: 0.9, accent: '#75BCE8' },
+  bunny: { body: C.bunny, belly: C.pink,  earCol: C.pink,  tail: 'puff',  eye: C.ink, w: 0.46, h: 0.4, l: 0.7, accent: '#9B82E8' },
 };
 const _heartMat = emissiveMaterial(C.coral);
 const _geoCache = new Map();
 
-function geosFor(species) {
-  if (_geoCache.has(species)) return _geoCache.get(species);
-  const s = SPEC[species] || SPEC.cat;
+function specFor(species, variant = 0) {
+  const base = SPEC[species] || SPEC.cat;
+  const coat = petProfile(species, variant);
+  return { ...base, body: coat.body, belly: coat.belly, accent: coat.accent };
+}
+
+function geosFor(species, variant = 0) {
+  const cacheKey = `${species}:${variant | 0}`;
+  if (_geoCache.has(cacheKey)) return _geoCache.get(cacheKey);
+  const s = specFor(species, variant);
   const legDims = [0.14, 0.27, 0.14, 0.05];
   const paw = (x, z) => part('rbox', [0.17, 0.09, 0.2, 0.045], s.belly, { x, y: 0.045, z: z + 0.035 });
 
@@ -33,8 +41,8 @@ function geosFor(species) {
     part('rbox', [s.w * 0.9, 0.09, s.l * 0.78, 0.035], s.accent, { y: 0.3 + s.h * 0.76, z: 0.02 }),
     part('sph', [0.055, 7], '#E7B64E', { x: 0, y: 0.3 + s.h * 0.69, z: s.l * 0.43 }),
   ];
-  if (species === 'cat') bodyParts.push(part('rbox', [s.w * 0.42, s.h * 0.12, s.l * 0.28, 0.04], '#B7A6A0', { y: 0.3 + s.h * 0.86, z: -s.l * 0.14 }));
-  if (species === 'dog') bodyParts.push(part('rbox', [s.w * 0.48, s.h * 0.28, s.l * 0.22, 0.06], '#B98C64', { x: -s.w * 0.16, y: 0.3 + s.h * 0.68, z: s.l * 0.2 }));
+  if (species === 'cat') bodyParts.push(part('rbox', [s.w * 0.42, s.h * 0.12, s.l * 0.28, 0.04], s.accent, { y: 0.3 + s.h * 0.86, z: -s.l * 0.14 }));
+  if (species === 'dog') bodyParts.push(part('rbox', [s.w * 0.48, s.h * 0.28, s.l * 0.22, 0.06], s.earCol, { x: -s.w * 0.16, y: 0.3 + s.h * 0.68, z: s.l * 0.2 }));
   const bodyGeo = merge(bodyParts);
 
   const headParts = [
@@ -71,7 +79,7 @@ function geosFor(species) {
     headParts.push(
       part('rbox', [0.13, 0.4, 0.23, 0.05], s.earCol, { x: -s.w * 0.59, y: s.w * 0.34, rz: -0.12 }),
       part('rbox', [0.13, 0.4, 0.23, 0.05], s.earCol, { x: s.w * 0.59, y: s.w * 0.34, rz: 0.12 }),
-      part('rbox', [s.w * 0.34, s.w * 0.11, 0.025, 0.02], '#B98C64', { x: -s.w * 0.17, y: 0.24, z: s.w * 0.46, rz: -0.2 }),
+      part('rbox', [s.w * 0.34, s.w * 0.11, 0.025, 0.02], s.accent, { x: -s.w * 0.17, y: 0.24, z: s.w * 0.46, rz: -0.2 }),
     );
   }
   const headGeo = merge(headParts);
@@ -90,13 +98,13 @@ function geosFor(species) {
   const bWaitGeo = merge([part('sph', [0.06, 8], C.white, { x: -0.15 }), part('sph', [0.06, 8], C.white), part('sph', [0.06, 8], C.white, { x: 0.15 })]);
   const bAngryGeo = merge([part('rbox', [0.08, 0.3, 0.08, 0.03], '#FF3B3B', { y: 0.05 }), part('sph', [0.06, 8], '#FF3B3B', { y: -0.2 })]);
   const g = { legPairAGeo, legPairBGeo, bodyGeo, headGeo, tailGeo, bWaitGeo, bAngryGeo };
-  _geoCache.set(species, g);
+  _geoCache.set(cacheKey, g);
   return g;
 }
 
-export function createPet(species) {
-  const s = SPEC[species] || SPEC.cat; const group = new THREE.Group();
-  const G = geosFor(species); const mat = toonMaterial();
+export function createPet(species, variant = 0) {
+  const s = specFor(species, variant); const group = new THREE.Group();
+  const G = geosFor(species, variant); const mat = toonMaterial();
   const legPairA = new THREE.Mesh(G.legPairAGeo, mat); legPairA.castShadow = false; legPairA.receiveShadow = true;
   const legPairB = new THREE.Mesh(G.legPairBGeo, mat); legPairB.castShadow = false; legPairB.receiveShadow = true;
   const body = new THREE.Mesh(G.bodyGeo, mat); body.castShadow = true; body.receiveShadow = true;
@@ -112,7 +120,7 @@ export function createPet(species) {
   const bHappy = new THREE.Mesh(heartGeo(), _heartMat); bHappy.scale.setScalar(0.5);
   bubble.add(bWait, bAngry, bHappy);
   const mouth = new THREE.Group(); mouth.position.set(0, -0.05, s.w * 0.7); head.add(mouth);
-  const P = { group, neck, height: head.position.y + s.w * 0.6, _t: Math.random() * 6, _mood: 'none', _carried: null, _sitting: false, _face: 0, _hop: 0 };
+  const P = { group, neck, height: head.position.y + s.w * 0.6, species, variant: variant | 0, _t: Math.random() * 6, _mood: 'none', _carried: null, _sitting: false, _face: 0, _hop: 0 };
   P.setMood = m => { P._mood = m; bubble.visible = m !== 'none'; bWait.visible = m === 'wait'; bAngry.visible = m === 'angry'; bHappy.visible = m === 'happy'; };
   P.carry = m => { if (P._carried) mouth.remove(P._carried); P._carried = m; if (m) { m.position.set(0, 0, 0); m.scale.setScalar(0.8); mouth.add(m); } };
   P.sit = () => { P._sitting = true; };
