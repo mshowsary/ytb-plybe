@@ -47,11 +47,44 @@ for (const [tag, width, height, dpr] of viewports) {
   });
   await page.screenshot({ path: path.join(shots, `01-boot-${tag}.png`), fullPage: true });
 
+  let buildIntent = null, pauseState = null;
+  if (tag === 'small') {
+    await page.click('.pause-btn');
+    await page.waitForFunction(() => window.__game.userPaused === true && !document.querySelector('.pause-root')?.classList.contains('hidden'));
+    const beforePause = await page.evaluate(() => window.__game.dayState.t);
+    await page.waitForTimeout(650);
+    const afterPause = await page.evaluate(() => window.__game.dayState.t);
+    await page.click('[data-setting="music"]');
+    const musicOff = await page.evaluate(() => window.__game.settings.music === false && window.__audio.musicEnabled === false && window.__audio.sfxEnabled === true);
+    await page.click('[data-setting="music"]');
+    await page.click('[data-action="resume"]');
+    await page.waitForFunction(() => window.__game.userPaused === false);
+    pauseState = { frozen: Math.abs(afterPause - beforePause) < 0.001, musicOff };
+
+    await page.evaluate(() => {
+      const g = window.__game, z = g.world.activeZoneList[0];
+      g.coins = 500; g.P.x = z.x; g.P.z = z.z; g.P.vx = 0; g.P.vz = 0; g.setMove(1, 0);
+    });
+    await page.waitForTimeout(180);
+    const walkPaid = await page.evaluate(() => Object.values(window.__game.world.partial).reduce((a, b) => a + b, 0));
+    await page.evaluate(() => {
+      const g = window.__game, z = g.world.activeZoneList[0];
+      g.setMove(0, 0); g.P.x = z.x; g.P.z = z.z; g.P.vx = 0; g.P.vz = 0;
+    });
+    await page.waitForTimeout(320);
+    const earlyPaid = await page.evaluate(() => Object.values(window.__game.world.partial).reduce((a, b) => a + b, 0));
+    await page.waitForTimeout(700);
+    const heldPaid = await page.evaluate(() => Object.values(window.__game.world.partial).reduce((a, b) => a + b, 0));
+    buildIntent = { walkPaid, earlyPaid, heldPaid };
+    await page.evaluate(() => window.__game.setMove(null));
+  }
+
   await page.evaluate(() => {
     const g = window.__game;
     const s = g.snapshot();
     s.coins = 2400;
     s.builds.a1 = g.world.area.zones.map(z => z.id);
+    s.partial = {};
     s.staff = { runner: 2, cashier: 1, cleaner: 1 };
     s.staffLevels = { runner: { speed: 2, carry: 2 }, cashier: { speed: 2 }, cleaner: { speed: 1 } };
     s.machineLevels = { oven: 2, coffee: 2, display: 2 };
@@ -63,7 +96,7 @@ for (const [tag, width, height, dpr] of viewports) {
       petBook: { 'cat:0': 1, 'cat:1': 1, 'cat:2': 1, 'dog:0': 1, 'dog:1': 1, 'bunny:0': 1, 'bunny:2': 1 }, petDiscoveries: 7,
     };
     s.dayState = { day: 13, t: 78, phase: 'rush', _ended: false };
-    s.dayStats = { served: 14, lost: 1, earned: 420 };
+    s.dayStats = { served: 14, lost: 1, earned: 420, serviceFees: 0, serviceMisses: 0 };
     g.restore(s);
     for (const [id, product] of [['dispCookie','cookie'], ['dispCupcake','cupcake'], ['barCoffee','coffee'], ['barSmoothie','smoothie']]) {
       const st = g.world.stations.get(id); if (st) { st.stock = 8; st.product = product; }
@@ -89,11 +122,11 @@ for (const [tag, width, height, dpr] of viewports) {
 
   let interaction = null;
   if (tag === 'small') {
-    const placeAt = async id => {
-      await page.evaluate(id2 => {
-        const g = window.__game, st = g.world.stations.get(id2);
-        g.setMove(0, 0); g.P.x = st.front.x; g.P.z = st.front.z; g.P.vx = 0; g.P.vz = 0;
-      }, id);
+    const placeAt = async (id, point = 'front') => {
+      await page.evaluate(({ id: id2, point: point2 }) => {
+        const g = window.__game, st = g.world.stations.get(id2), p = st[point2] || st.front;
+        g.setMove(0, 0); g.P.x = p.x; g.P.z = p.z; g.P.vx = 0; g.P.vz = 0;
+      }, { id, point });
       await page.waitForTimeout(550);
     };
 
@@ -125,7 +158,16 @@ for (const [tag, width, height, dpr] of viewports) {
       const g = window.__game, b = g.world.stations.get('blender1');
       return { remaining: g.carry.fruit, machineFruit: b.fruit, stock: b.stock };
     });
-    interaction = { pantry, returned, blender };
+
+    const cashBefore = await page.evaluate(() => { const g = window.__game, st = g.world.stations.get('register1'); st.pile = 27; return g.coins; });
+    await placeAt('register1', 'cash');
+    await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'COLLECT 27' && !document.querySelector('.fbtn')?.classList.contains('hidden'));
+    const trayVisible = await page.evaluate(() => !document.querySelector('.cash-tray-badge')?.classList.contains('hidden'));
+    await page.click('.fbtn');
+    await page.waitForTimeout(250);
+    const cash = await page.evaluate(before => ({ pile: window.__game.world.stations.get('register1').pile, gained: window.__game.coins - before }), cashBefore);
+
+    interaction = { pantry, returned, blender, cash: { ...cash, trayVisible } };
     await page.screenshot({ path: path.join(shots, '05-interaction-small.png'), fullPage: true });
     await page.evaluate(() => window.__game.setMove(null));
   }
@@ -143,7 +185,7 @@ for (const [tag, width, height, dpr] of viewports) {
 
   await page.evaluate(() => {
     const g = window.__game;
-    g.dayStats = { served: 42, lost: 1, earned: 1180 }; g.shiftBestStreak = 14;
+    g.dayStats = { served: 42, lost: 1, earned: 1180, serviceFees: 9, serviceMisses: 2 }; g.shiftBestStreak = 14;
     const d = g.dayState; d.t = 239.99; d.phase = 'closing'; d._ended = false;
   });
   await page.waitForFunction(() => !!document.querySelector('.sheet-root .card'), null, { timeout: 5000 });
@@ -157,9 +199,11 @@ for (const [tag, width, height, dpr] of viewports) {
   await page.screenshot({ path: path.join(shots, `04-summary-${tag}.png`), fullPage: true });
 
   const overflow = busy.bodyWidth > busy.viewportWidth + 1 || book.bodyWidth > book.viewportWidth + 1 || meta.bodyWidth > meta.viewportWidth + 1;
-  const interactionBad = tag === 'small' && (!interaction || interaction.pantry.sack !== 'beans' || interaction.pantry.guide !== 'COFFEE' || !interaction.returned || (interaction.blender.machineFruit + interaction.blender.stock) <= 0);
-  if (!info.platform || info.metaVersion !== 4 || !meta.stars || !meta.reward || !meta.repSummary || !busy.repLabel || !busy.petCount || book.cards !== 12 || book.found < 7 || overflow || interactionBad || errors.length) failed = true;
-  report.push({ tag, ...info, busy, book, interaction, ...meta, overflow, errors });
+  const interactionBad = tag === 'small' && (!interaction || interaction.pantry.sack !== 'beans' || interaction.pantry.guide !== 'COFFEE' || !interaction.returned || (interaction.blender.machineFruit + interaction.blender.stock) <= 0 || interaction.cash.pile !== 0 || interaction.cash.gained !== 27 || !interaction.cash.trayVisible);
+  const buildBad = tag === 'small' && (!buildIntent || buildIntent.walkPaid !== 0 || buildIntent.earlyPaid !== 0 || !(buildIntent.heldPaid > 0));
+  const pauseBad = tag === 'small' && (!pauseState || !pauseState.frozen || !pauseState.musicOff);
+  if (!info.platform || info.metaVersion !== 4 || !meta.stars || !meta.reward || !meta.repSummary || !busy.repLabel || !busy.petCount || book.cards !== 12 || book.found < 7 || overflow || interactionBad || buildBad || pauseBad || errors.length) failed = true;
+  report.push({ tag, ...info, buildIntent, pauseState, busy, book, interaction, ...meta, overflow, errors });
   await ctx.close();
 }
 
