@@ -40,6 +40,7 @@ export function createYouTubePlatform(host = globalThis) {
   let rewardedBusy = false;
   let interstitialBusy = false;
   let lastAdAt = 0;
+  let lastScore = -1;
 
   const P = {
     inPlayables: !!yt,
@@ -72,9 +73,6 @@ export function createYouTubePlatform(host = globalThis) {
     if (yt && yt.game && typeof yt.game.saveData === 'function') {
       try { await yt.game.saveData(raw); return true; } catch (_) { return false; }
     }
-
-    // Development-only in-memory fallback. It never enters persistent browser storage and vanishes
-    // on refresh, matching the SDK's local no-op philosophy while keeping save code testable.
     previewSave = raw;
     return true;
   }
@@ -125,6 +123,16 @@ export function createYouTubePlatform(host = globalThis) {
         P.language = lang;
       }
     } catch (_) {}
+  };
+
+  // Reputation is the stable player-skill/progression signal. Avoids tying platform score to ads
+  // or raw coins, both of which can distort the meaning of an engagement score.
+  P.sendScore = value => {
+    const score = Math.max(0, Math.floor(Number(value) || 0));
+    if (score === lastScore) return false;
+    lastScore = score;
+    if (!yt || !yt.engagement || typeof yt.engagement.sendScore !== 'function') return false;
+    try { yt.engagement.sendScore({ value: score }); return true; } catch (_) { return false; }
   };
 
   P.requestRewardedAd = async (rewardId = 'pet-cafe-day-bonus-coins') => {
