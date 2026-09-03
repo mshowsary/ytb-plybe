@@ -2,6 +2,7 @@
 import { createScene } from './render/scene.js';
 import { createGame } from './game.js';
 import { createYouTubePlatform } from './platform/youtube.js';
+import { createMachineJuice } from './systems/machineJuice.js';
 import { AREA1 } from '../data/area1.js';
 
 const $ = id => document.getElementById(id);
@@ -17,6 +18,7 @@ async function boot() {
     { fx: $('fx'), wallet: $('wallet'), joy: $('joy'), joyKnob: $('joyKnob') },
     platform,
   );
+  const machineJuice = createMachineJuice(G.world, S.scene);
   platform.bindGame(G);
 
   // Restore before exposing the café so a returning player never watches a fresh café pop into
@@ -36,7 +38,10 @@ async function boot() {
   let last = performance.now(), first = true;
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
-    if (!platform.paused) G.update(dt);
+    if (!platform.paused) {
+      G.update(dt);
+      machineJuice.update(dt);
+    }
     if (S.noteFrame) S.noteFrame(dt);
     S.render();
 
