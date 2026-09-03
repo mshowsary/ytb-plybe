@@ -89,13 +89,20 @@ test('pantry, return and blender are physically separated', () => {
   }
 });
 
-test('zone chain introduces pet systems in a coherent order', () => {
-  const order = ['z_seats1', 'z_oven2', 'z_register2', 'z_hire', 'z_coffee', 'z_bowl', 'z_garden', 'z_blender', 'z_seats2'];
+test('zone chain unlocks a complete smoothie loop before garden expansion', () => {
+  const order = ['z_seats1', 'z_oven2', 'z_register2', 'z_hire', 'z_coffee', 'z_bowl', 'z_blender', 'z_garden', 'z_seats2'];
   assert.deepEqual(AREA1.zones.map(z => z.id), order);
   const stationIds = new Set(AREA1.stations.map(s => s.id));
   assert.equal(AREA1.zones[0].requires, undefined);
   for (let i = 1; i < order.length; i++) assert.equal(AREA1.zones[i].requires, order[i - 1], `${order[i]} should require ${order[i - 1]}`);
   for (const z of AREA1.zones) for (const id of z.adds) assert.ok(stationIds.has(id), `zone ${z.id} adds unknown station ${id}`);
-  assert.ok(order.indexOf('z_garden') < order.indexOf('z_blender'));
-  assert.equal(order.indexOf('z_blender'), order.indexOf('z_garden') + 1, 'blender must immediately follow garden');
+
+  const smoothie = AREA1.zones.find(z => z.id === 'z_blender');
+  assert.ok(smoothie.adds.includes('blender1'), 'smoothie unlock must include blender');
+  assert.ok(smoothie.adds.includes('barSmoothie'), 'smoothie unlock must include display');
+  assert.ok(smoothie.adds.some(id => id.startsWith('bush')), 'smoothie unlock must include starter fruit source');
+
+  const garden = AREA1.zones.find(z => z.id === 'z_garden');
+  assert.ok(garden.adds.every(id => id.startsWith('bush')), 'garden expansion should add fruit capacity only');
+  assert.ok(garden.adds.length >= 2, 'garden expansion should materially increase fruit throughput');
 });
