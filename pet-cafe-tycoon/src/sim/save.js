@@ -2,6 +2,7 @@
 import { createDay } from './day.js';
 import { chooseGoal } from './economy.js';
 import { ensureReputation } from './reputation.js';
+import { ensurePetBook } from './petBook.js';
 
 export function applySave(state, save) {
   if (!save || typeof save !== 'object') return;
@@ -30,8 +31,11 @@ export function applySave(state, save) {
     perfectShifts: meta.perfectShifts | 0,
     bestServiceStreak: meta.bestServiceStreak | 0,
     shiftRatings: (meta.shiftRatings && typeof meta.shiftRatings === 'object') ? { ...meta.shiftRatings } : {},
+    petBook: (meta.petBook && typeof meta.petBook === 'object') ? { ...meta.petBook } : {},
+    petDiscoveries: meta.petDiscoveries | 0,
   };
   ensureReputation(state.meta);
+  ensurePetBook(state.meta);
 
   state.dayState = (save.dayState && typeof save.dayState === 'object') ? { ...save.dayState } : createDay();
   state.stars = (save.stars && typeof save.stars === 'object') ? { ...save.stars } : {};
