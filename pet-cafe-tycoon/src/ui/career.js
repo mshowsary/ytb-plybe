@@ -14,14 +14,15 @@ function injectStyle() {
     .career-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px;margin-top:10px}.career-day{min-width:0;height:44px;border-radius:11px;background:#efe5d9;display:flex;flex-direction:column;align-items:center;justify-content:center;font:900 9px/1 system-ui,sans-serif;color:#776960}.career-day.played{background:#fff0c4;color:#704b1e}.career-day .stars{font-size:10px;color:#e8a729;margin-top:3px;white-space:nowrap}.career-day.current{outline:2px solid #8b7cf6;outline-offset:1px}.career-cup{font:950 12px/1 system-ui,sans-serif;color:#9d6612}.career-trophies{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.career-trophy{padding:6px 9px;border-radius:999px;background:#f4eadf;font:900 10px/1 system-ui,sans-serif}.career-trophy.gold{background:#fff0b6;color:#7b5310}.career-trophy.silver{background:#eceff2;color:#586068}.career-trophy.bronze{background:#f2d4bf;color:#845032}
     .career-mastery{display:grid;gap:8px}.career-master-row{display:grid;grid-template-columns:minmax(90px,1.2fr) minmax(100px,2fr) auto;align-items:center;gap:9px}.career-master-name{font:900 12px/1.1 system-ui,sans-serif}.career-master-name small{display:block;font:750 9px/1.2 system-ui,sans-serif;opacity:.5;margin-top:3px}.career-master-bar{height:6px;border-radius:5px;background:#2c211810;overflow:hidden}.career-master-bar>div{height:100%;border-radius:inherit;background:linear-gradient(90deg,#75c88a,#f0b33f)}.career-bonus{font:900 10px/1 system-ui,sans-serif;color:#4f8a5c;white-space:nowrap}
     .career-finish{background:linear-gradient(135deg,#f6efff,#fff);border-color:#8b7cf62d}.career-finish .career-big{color:#674fd0}
-    .career-summary{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:16px;background:linear-gradient(135deg,#eef8ff,#fff);border:1px solid #5ba3da2c;text-align:left}.career-summary-top{display:flex;align-items:center;justify-content:space-between;gap:10px}.career-summary-cup{font:950 14px/1 system-ui,sans-serif;color:#4c76a0}.career-summary-award{margin-top:8px;padding:9px 10px;border-radius:12px;background:#fff0bd;font:950 11px/1.2 system-ui,sans-serif;color:#7d5612;text-align:center}
-    @media(max-width:430px){.career-card{padding:16px;border-radius:23px}.career-title{font-size:22px}.career-section{padding:12px}.career-day{height:40px}.career-master-row{grid-template-columns:90px 1fr auto}.career-master-name{font-size:11px}}
+    .career-result{width:100%;box-sizing:border-box;padding:11px 12px;border-radius:16px;background:linear-gradient(135deg,#eef8ff,#fff);border:1px solid #5ba3da2c;text-align:left}.career-result.won{background:linear-gradient(135deg,#effbec,#fff8df);border-color:#68b85b32}.career-result-top{display:flex;align-items:center;justify-content:space-between;gap:10px}.career-result-score{font:950 18px/1 system-ui,sans-serif;color:#53779a}.career-result.won .career-result-score{color:#4b8a46}.career-result-delta{margin-top:5px;font:900 11px/1.2 system-ui,sans-serif;color:#6b5bd1}.career-summary{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:16px;background:linear-gradient(135deg,#eef8ff,#fff);border:1px solid #5ba3da2c;text-align:left}.career-summary-top{display:flex;align-items:center;justify-content:space-between;gap:10px}.career-summary-cup{font:950 14px/1 system-ui,sans-serif;color:#4c76a0}.career-summary-award{margin-top:8px;padding:9px 10px;border-radius:12px;background:#fff0bd;font:950 11px/1.2 system-ui,sans-serif;color:#7d5612;text-align:center}.career-next-chase{width:100%;box-sizing:border-box;padding:9px 12px;border-radius:14px;background:#f6f0ff;border:1px solid #8b7cf621;font:850 11px/1.25 system-ui,sans-serif;color:#5d4bc0;text-align:left}.card .career-hidden-report{display:none!important}
+    @media(max-width:430px){.career-card{padding:16px;border-radius:23px}.career-title{font-size:22px}.career-section{padding:12px}.career-day{height:40px}.career-master-row{grid-template-columns:90px 1fr auto}.career-master-name{font-size:11px}.career-result-score{font-size:16px}}
     @media(max-height:600px){.career-card{max-height:95vh}.career-section{margin-top:9px;padding:10px}.career-week{margin-top:7px}.career-day{height:34px}}
   `;
   document.head.appendChild(s);
 }
 
 function pct(n) { return `${Math.round(Math.max(0, Math.min(1, n || 0)) * 100)}%`; }
+function metricValue(kind, n) { return kind === 'earn' ? `${Math.round(n).toLocaleString('en-US')} coins` : kind === 'streak' ? `${n}x streak` : `${n} guests`; }
 
 export function createCareerUI() {
   injectStyle();
@@ -89,7 +90,35 @@ export function createCareerUI() {
     const attach = () => {
       const card = document.querySelector('.sheet-root .card');
       if (!card) { if (++tries < 20) setTimeout(attach, 25); return; }
-      const old = card.querySelector('.career-summary'); if (old) old.remove();
+      card.querySelectorAll('.career-result,.career-summary,.career-next-chase').forEach(el => el.remove());
+
+      const body = card.querySelector('.cbody');
+      if (body) {
+        for (const row of body.querySelectorAll('.srow-sub')) {
+          const t = row.textContent || '';
+          if (t.startsWith('Lost sales:')) row.textContent = summary.lost > 0 ? `Service misses: ${summary.lost}` : 'Service: PERFECT · no walkouts';
+          else if (t.startsWith('Next unlock:') && !summary.nextUnlock) row.classList.add('career-hidden-report');
+        }
+      }
+
+      const result = document.createElement('div'); result.className = 'career-result' + (summary.contract.met ? ' won' : '');
+      const resultTop = document.createElement('div'); resultTop.className = 'career-result-top';
+      const resultCopy = document.createElement('div');
+      resultCopy.innerHTML = `<div class="career-kicker">${summary.contract.rival ? 'RIVAL RESULT' : 'DAILY CONTRACT'}</div><div class="career-muted">${summary.contract.label}</div>`;
+      const resultScore = document.createElement('div'); resultScore.className = 'career-result-score'; resultScore.textContent = summary.contract.met ? 'WON ✓' : 'NEXT TIME';
+      resultTop.append(resultCopy, resultScore); result.appendChild(resultTop);
+      const delta = document.createElement('div'); delta.className = 'career-result-delta';
+      if (summary.contract.rival && summary.contract.previous != null) {
+        const diff = summary.contract.progress - summary.contract.previous;
+        const diffText = summary.contract.kind === 'earn' ? Math.round(diff).toLocaleString('en-US') : diff;
+        delta.textContent = `${metricValue(summary.contract.kind, summary.contract.progress)} · ${diff >= 0 ? '+' : ''}${diffText} vs last week`;
+      } else {
+        delta.textContent = `${metricValue(summary.contract.kind, summary.contract.progress)} this shift · ${summary.contract.met ? `+${summary.contract.reward} contract reward` : `${Math.max(0, summary.contract.target - summary.contract.progress)} to target`}`;
+      }
+      result.appendChild(delta);
+      const rating = card.querySelector('.meta-rating');
+      if (rating) rating.before(result); else if (body) body.after(result); else card.appendChild(result);
+
       const box = document.createElement('div'); box.className = 'career-summary';
       const top = document.createElement('div'); top.className = 'career-summary-top';
       const copy = document.createElement('div');
@@ -103,6 +132,12 @@ export function createCareerUI() {
       }
       const continueBtn = card.querySelector('.continue');
       if (continueBtn) continueBtn.before(box); else card.appendChild(box);
+
+      if (summary.nextChase) {
+        const chase = document.createElement('div'); chase.className = 'career-next-chase';
+        chase.textContent = `NEXT CHASE · ${summary.nextChase}`;
+        box.before(chase);
+      }
     };
     attach();
   }
