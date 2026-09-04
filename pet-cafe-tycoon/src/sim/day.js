@@ -30,21 +30,6 @@ export function nextDay(d) {
 export function isWeekend(day) { return day % 7 === 6 || day % 7 === 0; }
 export function isHoliday(day) { return day % 7 === 0; }
 
-// Customer-volume rhythm. The old afternoon multiplier produced more >6s waits than rush in the
-// long-run bot. Afternoon is now explicitly a decompression phase; rush remains the only crowd peak.
-export function spawnMult(d) {
-  const base = d.phase === 'morning' ? 0.45 : d.phase === 'rush' ? 1.35 : d.phase === 'afternoon' ? 0.48 : 0;
-  return (d.phase === 'rush' && isWeekend(d.day)) ? base * 1.25 : base;
-}
-// Rush is valuable as well as busy, so good service is rewarded rather than pressure existing only
-// to create failure. Weekend guests continue to tip more in every phase.
-export function tipMult(d) {
-  const base = d.phase === 'rush' ? 1.5 : 1.0;
-  return isWeekend(d.day) ? base * 1.25 : base;
-}
-// Rush expands the active crowd, but by three rather than four so queues can recover afterward.
-export function capBonus(d) { return d.phase === 'rush' ? 3 : 0; }
-
 const PHASE_BOUNDS = {
   morning: [0, MORNING],
   rush: [MORNING, MORNING + RUSH],
@@ -55,3 +40,26 @@ export function phaseFrac(d) {
   const [start, end] = PHASE_BOUNDS[d.phase] || [0, DAY_LENGTH];
   return end > start ? (d.t - start) / (end - start) : 1;
 }
+
+// Customer-volume rhythm. Day 1 gets a small activity lift after the tutorial cap so a competent
+// first-time player is not set up to miss the very first contract by one guest. From Day 3 onward,
+// the first 20 seconds of afternoon are an explicit recovery window: no second rush hidden inside
+// the backlog, just enough quiet to restock/clean before normal afternoon traffic resumes.
+export function spawnMult(d) {
+  let base = 0;
+  if (d.phase === 'morning') base = d.day === 1 ? 0.52 : 0.45;
+  else if (d.phase === 'rush') base = d.day === 1 ? 1.42 : 1.35;
+  else if (d.phase === 'afternoon') {
+    const recovering = d.day >= 3 && phaseFrac(d) < (20 / AFTERNOON);
+    base = recovering ? 0.16 : 0.48;
+  }
+  return (d.phase === 'rush' && isWeekend(d.day)) ? base * 1.25 : base;
+}
+// Rush is valuable as well as busy, so good service is rewarded rather than pressure existing only
+// to create failure. Weekend guests continue to tip more in every phase.
+export function tipMult(d) {
+  const base = d.phase === 'rush' ? 1.5 : 1.0;
+  return isWeekend(d.day) ? base * 1.25 : base;
+}
+// Rush expands the active crowd, but by three rather than four so queues can recover afterward.
+export function capBonus(d) { return d.phase === 'rush' ? 3 : 0; }
