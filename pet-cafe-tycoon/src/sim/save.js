@@ -1,8 +1,8 @@
 // src/sim/save.js — pure save/restore helper shared by game.js and node tests.
 import { createDay } from './day.js';
-import { chooseGoal } from './economy.js';
 import { ensureReputation } from './reputation.js';
 import { ensurePetBook } from './petBook.js';
+import { ensureCareer, chooseCareerGoal } from './career.js';
 
 export function applySave(state, save) {
   if (!save || typeof save !== 'object') return;
@@ -24,6 +24,7 @@ export function applySave(state, save) {
   state.intro = (save.intro && typeof save.intro === 'object') ? { ...save.intro } : {};
 
   const meta = (save.meta && typeof save.meta === 'object') ? save.meta : {};
+  const savedCareer = (meta.career && typeof meta.career === 'object') ? meta.career : {};
   state.meta = {
     completedDays: meta.completedDays | 0,
     rewardedDays: (meta.rewardedDays && typeof meta.rewardedDays === 'object') ? { ...meta.rewardedDays } : {},
@@ -33,12 +34,32 @@ export function applySave(state, save) {
     shiftRatings: (meta.shiftRatings && typeof meta.shiftRatings === 'object') ? { ...meta.shiftRatings } : {},
     petBook: (meta.petBook && typeof meta.petBook === 'object') ? { ...meta.petBook } : {},
     petDiscoveries: meta.petDiscoveries | 0,
+    career: {
+      history: (savedCareer.history && typeof savedCareer.history === 'object') ? structuredCloneSafe(savedCareer.history) : {},
+      weeklyCups: (savedCareer.weeklyCups && typeof savedCareer.weeklyCups === 'object') ? structuredCloneSafe(savedCareer.weeklyCups) : {},
+      trophies: (savedCareer.trophies && typeof savedCareer.trophies === 'object') ? { ...savedCareer.trophies } : { bronze: 0, silver: 0, gold: 0 },
+      recipeSales: (savedCareer.recipeSales && typeof savedCareer.recipeSales === 'object') ? { ...savedCareer.recipeSales } : {},
+      contractStreak: savedCareer.contractStreak | 0,
+      bestContractStreak: savedCareer.bestContractStreak | 0,
+      bestWeekPoints: savedCareer.bestWeekPoints | 0,
+    },
   };
   ensureReputation(state.meta);
   ensurePetBook(state.meta);
+  ensureCareer(state.meta);
 
   state.dayState = (save.dayState && typeof save.dayState === 'object') ? { ...save.dayState } : createDay();
   state.stars = (save.stars && typeof save.stars === 'object') ? { ...save.stars } : {};
-  state.goal = (save.goal && typeof save.goal === 'object') ? { ...save.goal } : chooseGoal(state.dayState.day);
-  state.dayStats = (save.dayStats && typeof save.dayStats === 'object') ? { ...save.dayStats } : { served: 0, lost: 0, earned: 0 };
+  // Deliberately regenerate the contract. This migrates old Day 8+ saves away from legacy goals
+  // like "Serve 110" and keeps rival targets deterministic from the persisted career history.
+  state.goal = chooseCareerGoal(state.dayState.day, state.meta);
+  state.dayStats = (save.dayStats && typeof save.dayStats === 'object')
+    ? { serviceFees: 0, serviceMisses: 0, bestStreak: 0, ...save.dayStats }
+    : { served: 0, lost: 0, earned: 0, serviceFees: 0, serviceMisses: 0, bestStreak: 0 };
+}
+
+function structuredCloneSafe(value) {
+  const out = {};
+  for (const [k, v] of Object.entries(value || {})) out[k] = (v && typeof v === 'object') ? { ...v } : v;
+  return out;
 }
