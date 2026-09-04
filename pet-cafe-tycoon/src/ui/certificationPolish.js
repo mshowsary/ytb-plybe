@@ -71,6 +71,29 @@ export function installCertificationPolish() {
       body.playables-tiny .career-renovation .reno-name{font-size:9px!important;line-height:1.05!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important}
       body.playables-tiny .career-renovation .reno-buy{min-width:72px!important;padding-left:6px!important;padding-right:6px!important}
     }
+    /* Real-world ultra-narrow portrait stress: the three progression chips share the row using
+       the available width instead of assuming the older 218px publisher fixture. At 183px this
+       keeps honest gaps between reputation, Visitor Book and Party Order while preserving 48px
+       touch height. The calculation also degrades gracefully a little below 183px. */
+    @media(orientation:portrait) and (max-width:200px){
+      body.playables-tiny .meta-reputation,
+      body.playables-tiny .meta-pawbook,
+      body.playables-tiny .party-order-btn{
+        width:calc((100vw - 20px)/3)!important;
+        min-width:0!important;
+        max-width:none!important;
+        height:48px!important;
+        min-height:48px!important;
+        padding-left:3px!important;
+        padding-right:3px!important;
+        gap:2px!important
+      }
+      body.playables-tiny .meta-reputation{left:calc(5px + env(safe-area-inset-left,0px))!important}
+      body.playables-tiny .meta-pawbook{left:calc(10px + env(safe-area-inset-left,0px) + (100vw - 20px)/3)!important;font-size:8px!important}
+      body.playables-tiny .party-order-btn{left:calc(15px + env(safe-area-inset-left,0px) + 2*(100vw - 20px)/3)!important;right:auto!important;font-size:8px!important}
+      body.playables-tiny .meta-paw{font-size:13px!important}
+      body.playables-tiny .party-order-box{font-size:12px!important}
+    }
     /* 418x218 is a publisher stress viewport, not a normal phone layout. Keep every actionable
        Journey control visible at once: rank, current week and renovation are the three actionable
        summaries. Mastery/finish remain available in portrait and all normal landscape sizes. */
