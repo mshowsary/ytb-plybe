@@ -82,18 +82,47 @@ await page.evaluate(() => {
   if (!c || !st || !st.queue || !st.queue[0]) throw new Error('Rush Help fixture missing real guest/cookie queue');
   const q = st.queue[0], m = c.mover;
   c.state = 'queue'; c.counterId = st.id; c.slot = 0; c.arrived = G.world.seq = (G.world.seq || 0) + 1;
-  c.wish = { product:'cookie', treat:false }; c.order = null; c.mood = 'none'; c.patience = 17; c._patQ = 68; c._settled = false;
+  c.wish = { product:'cookie', treat:false }; c.order = null; c.mood = 'none'; c.patience = 17; c._patQ = 68;
+  // This smoke is testing the rewarded surface, not the already-unit-tested settle-for branch.
+  // Keep the real guest committed to the real empty shelf for the controller's 5s sustained-pressure window.
+  c._settled = true;
   c.x = q.x; c.z = q.z;
   m.x = q.x; m.z = q.z; m.tx = q.x; m.tz = q.z; m.hasTarget = false; m.n = 0; m.k = 0; m.vx = 0; m.vz = 0; m.mask = 0;
   m.stall = 0; m.blockedT = 0; m.bestD = Infinity; m._winD = Infinity; m.gridVersion = G.world.grid.version; m._planMask = 0;
 });
 await page.waitForFunction(() => window.__game.customers.some(c => !c.done && c.state === 'queue' && c.slot === 0 && c.mood === 'wait'), null, { timeout:3000 });
 
-await page.waitForFunction(() => {
+// The controller deliberately requires 5 seconds of sustained evidence. Give it one extra polling
+// interval, then fail with a full live-state dump instead of an opaque waitForFunction timeout.
+await page.waitForTimeout(6200);
+const surfaceState = await page.evaluate(() => {
+  const G = window.__game;
   const root = document.querySelector('.relief-root');
-  const el = document.querySelector('.relief-pill');
-  return root && !root.classList.contains('hidden') && el && !el.classList.contains('hidden') && /Rush Runner/i.test(el.textContent || '');
-}, null, { timeout:9000 });
+  const pill = document.querySelector('.relief-pill');
+  const card = document.querySelector('.relief-card');
+  const pickStation = id => {
+    const s = G.world.stations.get(id);
+    return s ? { id:s.id, type:s.type, active:s.active, stock:s.stock, capacity:s.capacity, product:s.product } : null;
+  };
+  return {
+    day:{ day:G.dayState.day, phase:G.dayState.phase, t:G.dayState.t },
+    time:G.time,
+    claim:G.meta.rewardedDays['relief:4'] || 0,
+    staff:{ ...G.staff },
+    runnerLevels:{ ...G.staffLevels.runner },
+    runners:(G.staffList || []).filter(s => s.kind === 'runner').map(s => ({ state:s.state, items:[...(s.items || [])], x:s.x, z:s.z })),
+    customers:(G.customers || []).filter(c => !c.done).map(c => ({ id:c.id, state:c.state, counterId:c.counterId, slot:c.slot, mood:c.mood, patience:c.patience, wish:c.wish, settled:c._settled })),
+    stations:[pickStation('oven1'),pickStation('oven2'),pickStation('dispCookie'),pickStation('dispCupcake')],
+    rootClass:root && root.className,
+    pillClass:pill && pill.className,
+    pillText:pill && pill.textContent.replace(/\s+/g,' ').trim(),
+    cardClass:card && card.className,
+    rewardIds:[...window.__rewardIds],
+  };
+});
+const rushPillVisible = surfaceState.rootClass && !surfaceState.rootClass.split(/\s+/).includes('hidden') &&
+  surfaceState.pillClass && !surfaceState.pillClass.split(/\s+/).includes('hidden') && /Rush Runner/i.test(surfaceState.pillText || '');
+if (!rushPillVisible) throw new Error(`Rush Runner surface did not stabilize: ${JSON.stringify(surfaceState)}`);
 
 const pillGeometry = await page.evaluate(() => {
   const el = document.querySelector('.relief-pill'); const r = el.getBoundingClientRect();
@@ -158,5 +187,5 @@ const expired = await page.evaluate(() => {
 });
 if (expired.live || expired.saved) throw new Error(`Rush Crew leaked beyond rush: ${JSON.stringify(expired)}`);
 
-console.log(JSON.stringify({ pillGeometry, cardGeometry, awarded, expired }, null, 2));
+console.log(JSON.stringify({ surfaceState, pillGeometry, cardGeometry, awarded, expired }, null, 2));
 await ctx.close(); await browser.close(); await new Promise(resolve => server.close(resolve));
