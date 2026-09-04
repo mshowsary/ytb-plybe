@@ -42,6 +42,7 @@ export function applySave(state, save) {
       contractStreak: savedCareer.contractStreak | 0,
       bestContractStreak: savedCareer.bestContractStreak | 0,
       bestWeekPoints: savedCareer.bestWeekPoints | 0,
+      renovationLevel: savedCareer.renovationLevel | 0,
     },
   };
   ensureReputation(state.meta);
