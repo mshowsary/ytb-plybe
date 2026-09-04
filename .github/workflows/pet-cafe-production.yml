@@ -39,6 +39,8 @@ jobs:
           set -o pipefail
           mkdir -p reports-production
           npm run bot | tee reports-production/bot-report.txt
+      - name: Staff overhead what-if
+        run: node tools/payroll-whatif.js
       - name: Production build
         run: npm run build
       - name: Install Chromium
