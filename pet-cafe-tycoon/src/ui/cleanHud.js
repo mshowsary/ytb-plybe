@@ -1,10 +1,15 @@
 // Global HUD declutter. Depth stays available behind taps; the playfield only shows information
 // that changes the player's immediate decision.
-const ID = 'pet-cafe-clean-hud-v2';
+const ID = 'pet-cafe-clean-hud-v3';
 export function installCleanHud() {
   if (document.getElementById(ID)) return;
   const s = document.createElement('style'); s.id = ID;
   s.textContent = `
+    /* The café is the interface. Persistent tutorial/report prose does not belong over gameplay. */
+    body.playables-clean #hint,
+    body.playables-clean #handsFull,
+    body.playables-clean #goalPill{display:none!important}
+
     body.playables-clean .meta-reputation{width:54px!important;height:48px!important;min-width:54px!important;max-width:54px!important;box-sizing:border-box!important;padding:5px 7px!important;display:grid!important;place-items:center!important}
     body.playables-clean .meta-reputation .meta-rep-title,
     body.playables-clean .meta-reputation .meta-rep-value,
@@ -16,7 +21,6 @@ export function installCleanHud() {
     body.playables-clean .party-order-btn{width:82px!important;max-width:82px!important;justify-content:center!important;padding:0 7px!important}
     body.playables-clean .party-order-label{display:none!important}
     body.playables-clean.meta-dense-cafe .chalk{display:none!important}
-    body.playables-clean #goalPill{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;padding:6px 10px;min-height:40px}
     body.playables-clean #banner{font-size:17px;padding:9px 18px}
     body.playables-clean .meta-streak{font-size:11px;padding:6px 9px}
 
