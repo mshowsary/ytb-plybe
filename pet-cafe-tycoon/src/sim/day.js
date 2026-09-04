@@ -44,7 +44,8 @@ export function phaseFrac(d) {
 // Customer-volume rhythm. Day 1 gets a small activity lift after the tutorial cap so a competent
 // first-time player is not set up to miss the very first contract by one guest. From Day 3 onward,
 // the first 20 seconds of afternoon are an explicit recovery window. It slows arrivals enough to
-// clear the rush backlog without making the café suddenly feel empty or starving the economy.
+// clear part of the rush backlog without making the café suddenly feel empty or changing the
+// long-run deterministic crowd topology that the movement gate has already proven stable.
 export function spawnMult(d) {
   let base = 0;
   if (d.phase === 'morning') base = d.day === 1 ? 0.52 : 0.45;
@@ -55,14 +56,13 @@ export function spawnMult(d) {
   }
   return (d.phase === 'rush' && isWeekend(d.day)) ? base * 1.25 : base;
 }
-// After the teaching shift, rush difficulty comes slightly more from value/tempo and slightly less
-// from raw simultaneous bodies. This keeps the room readable on phones and prevents rush backlog
-// from becoming the entire afternoon, while good service remains economically worth the pressure.
+// Rush is valuable as well as busy, so good service is rewarded rather than pressure existing only
+// to create failure. Weekend guests continue to tip more in every phase.
 export function tipMult(d) {
-  const base = d.phase === 'rush' ? (d.day === 1 ? 1.5 : 1.6) : 1.0;
+  const base = d.phase === 'rush' ? 1.5 : 1.0;
   return isWeekend(d.day) ? base * 1.25 : base;
 }
-export function capBonus(d) {
-  if (d.phase !== 'rush') return 0;
-  return d.day === 1 ? 3 : 2;
-}
+// Keep the proven crowd cap profile. A one-slot reduction improved average friction but changed
+// late-game route timing enough to expose a deterministic stall; retention tuning must not trade
+// away movement reliability.
+export function capBonus(d) { return d.phase === 'rush' ? 3 : 0; }
