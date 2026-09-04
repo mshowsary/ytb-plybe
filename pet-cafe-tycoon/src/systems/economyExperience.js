@@ -1,6 +1,9 @@
 import {
-  recommendSmartRelief, reliefClaimKey, returnWasteCost, SMART_RELIEF_REWARD_ID,
+  recommendSmartRelief, recommendRushHelp, reliefClaimKey, returnWasteCost, SMART_RELIEF_REWARD_ID,
 } from '../sim/relief.js';
+import { makeRushCrewBoost, rushCrewActive, rushCrewHasBenefit } from '../sim/rushCrew.js';
+
+export const RUSH_CREW_REWARD_ID = 'pet-cafe-rush-crew';
 
 function ensureStyles() {
   if (document.getElementById('pet-cafe-relief-style')) return;
@@ -43,13 +46,14 @@ function createReliefUI(isDev) {
   function render() {
     if (!model) { root.classList.add('hidden'); return; }
     root.classList.remove('hidden'); pill.classList.toggle('hidden', expanded); card.classList.toggle('hidden', !expanded);
-    pillTitle.textContent = `${model.label} · +${model.reward} coins`;
-    title.textContent = `${model.label} would help now`;
+    const crew = model.mode === 'crew';
+    pillTitle.textContent = crew ? `${model.label} · this rush` : `${model.label} · +${model.reward} coins`;
+    title.textContent = crew ? `${model.label} can jump in` : `${model.label} would help now`;
     why.textContent = model.why;
-    math.textContent = model.remaining > 0
+    math.textContent = crew ? model.detail : model.remaining > 0
       ? `${model.cost.toLocaleString('en-US')} coins · ${model.gap} short · earn ${model.remaining} more after the reward`
       : `${model.cost.toLocaleString('en-US')} coins · this reward closes the ${model.gap}-coin gap`;
-    reward.textContent = `+${model.reward}`;
+    reward.textContent = crew ? '+1 TIER' : `+${model.reward}`;
   }
   pill.addEventListener('click', () => { expanded = true; render(); });
   return {
@@ -60,10 +64,50 @@ function createReliefUI(isDev) {
   };
 }
 
+function crewDetail(role) {
+  if (role === 'runner') return 'Your existing Runner borrows +1 Speed and +1 Carry tier until Rush ends. Permanent upgrades are unchanged.';
+  if (role === 'cashier') return 'Your existing Cashier borrows +1 Speed tier until Rush ends. Permanent upgrades are unchanged.';
+  return 'Your existing Cleaner borrows +1 Speed tier until Rush ends. Permanent upgrades are unchanged.';
+}
+
+// Pure filter layered over the pressure classifier. The temporary crew reward is only actionable
+// when that worker already belongs to the player and at least one permanent tier remains to borrow.
+// This prevents an ad from quietly becoming a free hire or doing literally nothing for a maxed worker.
+export function rushCrewOfferFor(G, world, context = {}) {
+  const next = recommendRushHelp(G, world, context);
+  if (!next || next.kind !== 'crew' || !next.role) return null;
+  if (((G.staff && G.staff[next.role]) | 0) < 1) return null;
+  if (!rushCrewHasBenefit(G.staffLevels, next.role)) return null;
+  return {
+    ...next,
+    mode: 'crew',
+    key: `crew:${next.role}`,
+    detail: crewDetail(next.role),
+  };
+}
+
 export function createEconomyExperience(G, S, ctx, platform) {
   const { world, hud, fx, audio, owner, sheets } = ctx;
   const ui = createReliefUI(!platform || !platform.inPlayables);
   let dismissedDay = -1, pressureKey = '', pressureT = 0, current = null, tick = 0, busy = false;
+  let snapshotWrapped = false;
+
+  // game.js defines G.snapshot later in createGame(). Wrap it lazily on the first live update so an
+  // active Rush Crew can survive a host save/reload. Only an ACTUALLY active matching-day rush is
+  // serialized; stale transient state is never written forward.
+  function ensureSnapshotIncludesRushCrew() {
+    if (snapshotWrapped || typeof G.snapshot !== 'function') return;
+    const baseSnapshot = G.snapshot;
+    G.snapshot = () => {
+      const save = baseSnapshot();
+      if (rushCrewActive(G.boosts, G.dayState)) {
+        const b = G.boosts.rushCrew;
+        save.boosts = { ...(save.boosts || {}), rushCrew: { role: b.role, day: b.day | 0 } };
+      }
+      return save;
+    };
+    snapshotWrapped = true;
+  }
 
   // Return crate consequence: finished food/fruit is waste; supply sacks are legitimate inventory returns.
   G.carry.onReturn = had => {
@@ -81,19 +125,40 @@ export function createEconomyExperience(G, S, ctx, platform) {
   };
 
   function hide() { current = null; pressureKey = ''; pressureT = 0; ui.setModel(null); }
+
   async function claim() {
     if (busy || !current) return;
     const offer = current, day = G.dayState.day | 0;
     if (G.meta.rewardedDays[reliefClaimKey(day)]) { hide(); return; }
+    // A crew offer is valid only while the bottleneck is still in the actual rush. If the phase
+    // rolled over while the card was open, close it rather than selling a benefit that has expired.
+    if (offer.mode === 'crew' && (!G.dayState || G.dayState.phase !== 'rush')) { hide(); return; }
+
     busy = true; ui.watch.disabled = true;
-    const earned = await (platform ? platform.requestRewardedAd(SMART_RELIEF_REWARD_ID) : Promise.resolve(true));
+    const rewardId = offer.mode === 'crew' ? RUSH_CREW_REWARD_ID : SMART_RELIEF_REWARD_ID;
+    const earned = await (platform ? platform.requestRewardedAd(rewardId) : Promise.resolve(true));
     busy = false; ui.watch.disabled = false;
     if (!earned) { hud.toast('Reward unavailable · keep playing'); return; }
-    G.meta.rewardedDays[reliefClaimKey(day)] = 1;
-    G.coins += offer.reward;
-    G.stats.rewardedReliefCoins = (G.stats.rewardedReliefCoins | 0) + offer.reward;
-    hud.setCoins(G.coins); hud.bump(); audio.play('chime');
-    hud.banner(`RUSH HELP · +${offer.reward} COINS`, 2200);
+
+    if (offer.mode === 'crew') {
+      // Re-check after the async ad: the player may have upgraded the worker or the host may have
+      // resumed into a different phase. Never consume the daily claim for a now-useless reward.
+      if (!G.dayState || G.dayState.phase !== 'rush' || ((G.staff && G.staff[offer.role]) | 0) < 1 || !rushCrewHasBenefit(G.staffLevels, offer.role)) {
+        hud.toast('Rush changed · reward not consumed'); hide(); return;
+      }
+      const boost = makeRushCrewBoost(offer.role, day);
+      if (!boost) { hide(); return; }
+      G.boosts.rushCrew = boost;
+      G.meta.rewardedDays[reliefClaimKey(day)] = 1;
+      audio.play('chime');
+      hud.banner(`${offer.label.toUpperCase()} · +1 TIER THIS RUSH`, 2200);
+    } else {
+      G.meta.rewardedDays[reliefClaimKey(day)] = 1;
+      G.coins += offer.reward;
+      G.stats.rewardedReliefCoins = (G.stats.rewardedReliefCoins | 0) + offer.reward;
+      hud.setCoins(G.coins); hud.bump(); audio.play('chime');
+      hud.banner(`RUSH HELP · +${offer.reward} COINS`, 2200);
+    }
     if (platform && G.snapshot) platform.save(G.snapshot());
     hide();
   }
@@ -102,6 +167,12 @@ export function createEconomyExperience(G, S, ctx, platform) {
 
   return {
     update(dt) {
+      ensureSnapshotIncludesRushCrew();
+
+      // Transient means transient: once the phase/day stops matching, remove the live object too.
+      // applySave performs the same rejection on reload, so both uninterrupted and restored play agree.
+      if (G.boosts && G.boosts.rushCrew && !rushCrewActive(G.boosts, G.dayState)) delete G.boosts.rushCrew;
+
       tick -= dt;
       if (tick > 0) return;
       const elapsed = 0.5; tick = elapsed;
@@ -109,12 +180,21 @@ export function createEconomyExperience(G, S, ctx, platform) {
       const inReliefWindow = d && (d.phase === 'rush' || (d.phase === 'afternoon' && d.t < 172));
       const claimed = d && G.meta.rewardedDays[reliefClaimKey(d.day)];
       const adReady = platform && (platform.rewardedAvailable || !platform.inPlayables);
-      if (!inReliefWindow || claimed || dismissedDay === (d && d.day) || !adReady || G.userPaused || (sheets && sheets.isOpen)) { hide(); return; }
-      const next = recommendSmartRelief(G, world);
+      if (!inReliefWindow || claimed || rushCrewActive(G.boosts, d) || dismissedDay === (d && d.day) || !adReady || G.userPaused || (sheets && sheets.isOpen)) { hide(); return; }
+
+      // During Rush, prefer an operational worker boost when the pressure classifier identifies a
+      // concrete bottleneck and the player already owns that worker. If not actionable, keep the
+      // existing permanent-purchase coin bridge as the fallback. Early afternoon remains coin-only.
+      let next = d.phase === 'rush' ? rushCrewOfferFor(G, world, { now: G.time }) : null;
+      if (!next) {
+        const coin = recommendSmartRelief(G, world);
+        next = coin ? { ...coin, mode: 'coins' } : null;
+      }
       if (!next) { hide(); return; }
       if (next.key !== pressureKey) { pressureKey = next.key; pressureT = 0; current = next; ui.setModel(null); return; }
       pressureT += elapsed; current = next;
-      // Five seconds of sustained evidence prevents the card from flashing because of one temporary empty shelf.
+      // Five seconds of sustained evidence prevents monetization from flashing because of one
+      // temporary empty shelf or a single guest briefly entering the register queue.
       if (pressureT >= 5) ui.setModel(next);
     },
     teardown() {
