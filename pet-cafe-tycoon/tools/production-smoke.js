@@ -77,14 +77,13 @@ for (const [tag, width, height, dpr] of viewports) {
     });
     await page.waitForTimeout(320);
     const earlyPaid = await page.evaluate(() => Object.values(window.__game.world.partial).reduce((a, b) => a + b, 0));
-    await page.waitForTimeout(700);
+    await page.waitForFunction(() => Object.values(window.__game.world.partial).reduce((a, b) => a + b, 0) > 0, null, { timeout: 4000 });
     const heldPaid = await page.evaluate(() => Object.values(window.__game.world.partial).reduce((a, b) => a + b, 0));
     buildIntent = { walkPaid, earlyPaid, heldPaid };
     await page.evaluate(() => window.__game.setMove(null));
   }
 
-  // Load a late-game shape with prior same-weekday history. Day 13 (Saturday) must become a
-  // streak rival against Day 6 instead of the retired day-number goal formula.
+  // Load a late-game shape with prior same-weekday history. Day 13 (Saturday) becomes a streak rival.
   await page.evaluate(() => {
     const g = window.__game;
     const s = g.snapshot();
@@ -134,7 +133,6 @@ for (const [tag, width, height, dpr] of viewports) {
     target: window.__game.goal?.target,
     previous: window.__game.goal?.previous,
     rival: window.__game.goal?.rival,
-    text: document.querySelector('.goal')?.textContent || '',
   }));
 
   await page.click('.meta-reputation');
@@ -168,11 +166,16 @@ for (const [tag, width, height, dpr] of viewports) {
   await page.waitForTimeout(8000);
   const busy = await page.evaluate(() => {
     const r = window.__scene.renderer.info.render;
+    const visible = sel => {
+      const el = document.querySelector(sel); if (!el) return false;
+      const cs = getComputedStyle(el); return cs.display !== 'none' && cs.visibility !== 'hidden' && Number(cs.opacity) !== 0 && !el.classList.contains('hidden');
+    };
     return {
       customers: window.__game.customers.length, staff: window.__game.staffList.length,
       calls: r.calls, triangles: r.triangles, reputation: window.__game.meta.reputation,
       repLabel: document.querySelector('.meta-rep-title')?.textContent || '',
       petCount: document.querySelector('.meta-book-count')?.textContent || '',
+      hintVisible: visible('#hint'), handsVisible: visible('#handsFull'), goalVisible: visible('#goalPill'),
       bodyWidth: document.body.scrollWidth, viewportWidth: window.innerWidth,
     };
   });
@@ -200,8 +203,6 @@ for (const [tag, width, height, dpr] of viewports) {
     await page.evaluate(() => { const g = window.__game; g.P.x = 0; g.P.z = 2.5; g.P.vx = 0; g.P.vz = 0; });
     await page.waitForFunction(() => document.querySelector('.sheet-root')?.classList.contains('hidden'), null, { timeout: 3000 });
 
-    // Important fixture invariant: Pantry is physically near Return. Empty hands first so the
-    // higher-priority RETURN action cannot correctly override SUPPLIES and make this test lie.
     await clearHands();
     await placeAt('pantry1');
     await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'SUPPLIES' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
@@ -213,14 +214,13 @@ for (const [tag, width, height, dpr] of viewports) {
 
     const supplyCoinsBefore = await page.evaluate(() => window.__game.coins);
     await placeAt('return1');
-    await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'RETURN ITEMS' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'RETURN' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
     await page.click('.fbtn'); await page.waitForTimeout(250);
     const supplyReturn = await page.evaluate(before => ({ empty: !window.__game.carry.sack, delta: window.__game.coins - before }), supplyCoinsBefore);
 
-    // Harvested fruit is genuine food waste at Return: small, wallet-capped handling fee.
     const wasteBefore = await page.evaluate(() => { const g = window.__game; g.coins = 1000; g.carry.fruit = 2; return g.coins; });
     await placeAt('return1');
-    await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'RETURN ITEMS' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'RETURN' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
     await page.click('.fbtn'); await page.waitForTimeout(250);
     const wasteReturn = await page.evaluate(before => ({ fruit: window.__game.carry.fruit, spent: before - window.__game.coins, tracked: window.__game.dayStats.wasteFees | 0 }), wasteBefore);
 
@@ -231,28 +231,30 @@ for (const [tag, width, height, dpr] of viewports) {
       return { remaining: g.carry.fruit, machineFruit: b.fruit, stock: b.stock };
     });
 
+    // Cash collection is now automatic and text-free.
     await clearHands();
     const cashBefore = await page.evaluate(() => { const g = window.__game, st = g.world.stations.get('register1'); st.pile = 206; return g.coins; });
-    await page.waitForFunction(() => {
-      const el = document.querySelector('.register-money-badge');
-      return el && !el.classList.contains('hidden') && el.textContent.includes('206');
-    });
-    const cashVisual = await page.evaluate(() => {
-      const modern = document.querySelector('.register-money-badge');
-      const legacy = document.querySelector('.cash-tray-badge');
-      return {
-        modernVisible: !!modern && getComputedStyle(modern).display !== 'none' && !modern.classList.contains('hidden'),
-        modernText: modern?.textContent || '',
-        legacyHidden: !legacy || getComputedStyle(legacy).display === 'none',
-      };
-    });
     await placeAt('register1', 'cash');
-    await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'COLLECT 206' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
-    await page.screenshot({ path: path.join(shots, '05-register-cash-small.png'), fullPage: true });
-    await page.click('.fbtn'); await page.waitForTimeout(250);
-    const cash = await page.evaluate(before => ({ pile: window.__game.world.stations.get('register1').pile, gained: window.__game.coins - before }), cashBefore);
+    await page.waitForFunction(() => window.__game.world.stations.get('register1').pile === 0, null, { timeout: 3000 });
+    const cash = await page.evaluate(before => ({
+      pile: window.__game.world.stations.get('register1').pile,
+      gained: window.__game.coins - before,
+      collectButton: /^COLLECT/.test(document.querySelector('.fbtn')?.textContent || '') && !document.querySelector('.fbtn')?.classList.contains('hidden'),
+      cashLabel: !!document.querySelector('.register-money-badge'),
+      legacyLabel: !!document.querySelector('.cash-tray-badge'),
+    }), cashBefore);
+    await page.screenshot({ path: path.join(shots, '05-register-auto-cash-small.png'), fullPage: true });
 
-    interaction = { pantry, supplyReturn, wasteReturn, blender, cash: { ...cash, ...cashVisual } };
+    // Dirty-table maintenance is also automatic; no CLEAN TABLE prompt is allowed.
+    await page.evaluate(() => { const st = window.__game.world.stations.get('seat1'); st.dirty = true; });
+    await placeAt('seat1');
+    await page.waitForFunction(() => window.__game.world.stations.get('seat1').dirty === false, null, { timeout: 3000 });
+    const cleaning = await page.evaluate(() => ({
+      dirty: window.__game.world.stations.get('seat1').dirty,
+      cleanButton: (document.querySelector('.fbtn')?.textContent || '') === 'CLEAN TABLE' && !document.querySelector('.fbtn')?.classList.contains('hidden'),
+    }));
+
+    interaction = { pantry, supplyReturn, wasteReturn, blender, cash, cleaning };
     await page.evaluate(() => window.__game.setMove(null));
   }
 
@@ -288,7 +290,8 @@ for (const [tag, width, height, dpr] of viewports) {
   await page.screenshot({ path: path.join(shots, `07-summary-${tag}.png`), fullPage: true });
 
   const overflow = journeyBefore.bodyWidth > journeyBefore.viewportWidth + 1 || busy.bodyWidth > busy.viewportWidth + 1 || book.bodyWidth > book.viewportWidth + 1 || meta.bodyWidth > meta.viewportWidth + 1;
-  const interactionBad = tag === 'small' && (!interaction || interaction.pantry.sack !== 'beans' || interaction.pantry.guide !== 'COFFEE' || !interaction.supplyReturn.empty || interaction.supplyReturn.delta !== 0 || interaction.wasteReturn.fruit !== 0 || interaction.wasteReturn.spent <= 0 || interaction.wasteReturn.tracked <= 0 || (interaction.blender.machineFruit + interaction.blender.stock) <= 0 || interaction.cash.pile !== 0 || interaction.cash.gained !== 206 || !interaction.cash.modernVisible || !interaction.cash.modernText.includes('206') || !interaction.cash.legacyHidden);
+  const proseLeak = busy.hintVisible || busy.handsVisible || busy.goalVisible;
+  const interactionBad = tag === 'small' && (!interaction || interaction.pantry.sack !== 'beans' || interaction.pantry.guide !== 'COFFEE' || !interaction.supplyReturn.empty || interaction.supplyReturn.delta !== 0 || interaction.wasteReturn.fruit !== 0 || interaction.wasteReturn.spent <= 0 || interaction.wasteReturn.tracked <= 0 || (interaction.blender.machineFruit + interaction.blender.stock) <= 0 || interaction.cash.pile !== 0 || interaction.cash.gained !== 206 || interaction.cash.collectButton || interaction.cash.cashLabel || interaction.cash.legacyLabel || interaction.cleaning.dirty || interaction.cleaning.cleanButton);
   const buildBad = tag === 'small' && (!buildIntent || buildIntent.walkPaid !== 0 || buildIntent.earlyPaid !== 0 || !(buildIntent.heldPaid > 0));
   const pauseBad = tag === 'small' && (!pauseState || !pauseState.frozen || !pauseState.musicOff);
   const journeyBad = journeyBefore.days !== 7 || journeyBefore.masteries !== 5 || !journeyBefore.renovation || journeyBefore.renoButtonDisabled;
@@ -296,8 +299,8 @@ for (const [tag, width, height, dpr] of viewports) {
   const goalBad = goalState.day !== 13 || goalState.kind !== 'streak' || goalState.target !== 10 || goalState.previous !== 9 || goalState.rival !== true;
   const summaryBad = meta.careerResult !== 'WON ✓' || !meta.cupText || !meta.nextChase || !meta.perfectText.includes('PERFECT');
 
-  if (!info.platform || !info.reliefRoot || info.metaVersion !== 4 || !meta.stars || !meta.reward || !meta.repSummary || !busy.repLabel || !busy.petCount || book.cards !== 12 || book.found < 7 || overflow || interactionBad || buildBad || pauseBad || journeyBad || renovationBad || goalBad || summaryBad || errors.length) failed = true;
-  report.push({ tag, ...info, buildIntent, pauseState, goalState, journeyBefore, renovation, busy, book, interaction, ...meta, overflow, errors });
+  if (!info.platform || !info.reliefRoot || info.metaVersion !== 4 || !meta.stars || !meta.reward || !meta.repSummary || !busy.repLabel || !busy.petCount || book.cards !== 12 || book.found < 7 || overflow || proseLeak || interactionBad || buildBad || pauseBad || journeyBad || renovationBad || goalBad || summaryBad || errors.length) failed = true;
+  report.push({ tag, ...info, buildIntent, pauseState, goalState, journeyBefore, renovation, busy, book, interaction, ...meta, proseLeak, overflow, errors });
   await ctx.close();
 }
 
