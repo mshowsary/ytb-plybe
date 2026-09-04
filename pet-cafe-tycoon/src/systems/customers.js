@@ -10,10 +10,14 @@ import { createPet } from '../render/pets.js';
 import { createLeash } from '../render/leash.js';
 import { itemFor } from '../render/props.js';
 import { makeRng } from '../core/rng.js';
+import { cappedVisualStep } from '../core/visualMotion.js';
 import { iconFor, treatIcon } from '../ui/icons.js';
 import { createPetMoment } from '../ui/petMoments.js';
 
 const SPAWN_SEED = 20260902;
+// Sim customers normally walk at 2.2 m/s. 2.8 leaves normal movement untouched while absorbing
+// any re-plan/rescue discontinuity into a short catch-up instead of exposing it as a visible warp.
+const GUEST_VISUAL_MAX_SPEED = 2.8;
 
 function makeBubble(els) {
   const wrap = document.createElement('div'); wrap.className = 'wish hidden';
@@ -61,8 +65,8 @@ export function createCustomers(G, S, ctx) {
     const c = createCustomer(seq++, species, variant, area);
     c.petVariant = petVariant;
     G.customers.push(c);
-    const human = createHuman(variant, 'customer'); scene.add(human.group);
-    const pet = createPet(species, petVariant); scene.add(pet.group);
+    const human = createHuman(variant, 'customer'); human.group.position.set(c.x, 0, c.z); scene.add(human.group);
+    const pet = createPet(species, petVariant); pet.group.position.set(c.x + 0.45, 0, c.z - 0.9); scene.add(pet.group);
     const leash = createLeash(scene); leash.attach(human.hand, pet.neck);
     const bub = makeBubble(els);
     const identity = createPetMoment(els, profile);
@@ -110,9 +114,6 @@ export function createCustomers(G, S, ctx) {
           fx.hearts(r.pet.group.position.x, r.pet.height + 0.25, r.pet.group.position.z);
           ctx.audio.play(petSound(c.species));
         }
-        // This is intentionally narrower than "no table": we only charge when a free-but-dirty
-        // table is what prevented this paid customer from sitting. A genuinely full café is not a
-        // cleanliness failure and therefore carries no extra recovery fee.
         if (!r.tablePenalty && r.lastState === 'atRegister' && c.state === 'leave' && c.paid && dirtyTablesBlockingSeats(world)) {
           r.tablePenalty = true;
           applyServicePenalty('table', r);
@@ -155,6 +156,7 @@ export function createCustomers(G, S, ctx) {
           const seat = seatById(world, e.seatId);
           const c = G.customers.find(cc => cc.id === e.id);
           r.human.group.position.set(seat.pair.human.x, 0, seat.pair.human.z);
+          r.px = seat.pair.human.x; r.pz = seat.pair.human.z;
           if (c) r.human.group.rotation.y = c.rot;
           r.human.sit(); r.human.setMood('none');
           r.bub.wrap.classList.add('hidden'); r.bub.bar.classList.add('hidden');
@@ -178,15 +180,19 @@ export function createCustomers(G, S, ctx) {
         }
         if (r.eating && c.state !== 'eating') {
           r.pet.stand(); r.human.stand(); r.eating = false; r.identity.setSeated(false);
+          // Resume from the real seated render position, not the sim's potentially already-moving coordinate.
+          r.px = r.human.group.position.x; r.pz = r.human.group.position.z;
         }
         if (r.eating) {
           r.pet.update(dt, false, 0);
         } else {
+          const step = cappedVisualStep(r.px, r.pz, c.x, c.z, GUEST_VISUAL_MAX_SPEED, dt);
           const safeDt = Math.max(dt, 1e-4);
-          const vx = (c.x - r.px) / safeDt, vz = (c.z - r.pz) / safeDt;
-          r.human.group.position.set(c.x, 0, c.z); r.human.update(dt, vx, vz);
-          r.pet.followTarget(c.x, c.z, c.rot, dt);
-          r.px = c.x; r.pz = c.z;
+          const vx = (step.x - r.px) / safeDt, vz = (step.z - r.pz) / safeDt;
+          r.px = step.x; r.pz = step.z;
+          r.human.group.position.set(r.px, 0, r.pz); r.human.update(dt, vx, vz);
+          // Follow the visible human. A hidden sim recovery can no longer yank the pet ahead of its owner.
+          r.pet.followTarget(r.px, r.pz, c.rot, dt);
           if (c.state === 'queue' || c.state === 'atBowl' || c.state === 'atRegister') r.human.setMood(c.mood === 'wait' ? 'wait' : 'none');
         }
         r.leash.update();
@@ -194,7 +200,7 @@ export function createCustomers(G, S, ctx) {
         if (c.state === 'leave' || c.done) {
           r.bub.wrap.classList.add('hidden'); r.bub.bar.classList.add('hidden');
         } else if (!r.eating) {
-          fx.project(c.x, r.human.height + 0.55, c.z, tmpProj);
+          fx.project(r.px, r.human.height + 0.55, r.pz, tmpProj);
           r.bub.wrap.style.left = tmpProj.sx + 'px'; r.bub.wrap.style.top = tmpProj.sy + 'px';
           r.bub.bar.style.left = tmpProj.sx + 'px'; r.bub.bar.style.top = (tmpProj.sy + 6) + 'px';
         }
