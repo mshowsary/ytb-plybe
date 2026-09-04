@@ -5,12 +5,11 @@
 // src/systems/objective.js reads G.intro.target/G.intro.active and forces the objective arrow to
 // this step's target instead of the normal jobTarget() pick, with the caption showing the step's
 // verb (CAPTION in objective.js). src/systems/customers.js reads G.intro.step to cap spawns at 2
-// until step 3 (design: "spawns locked to 2 customers until step 3") so the café stays calm enough
-// to actually demonstrate bake -> stock -> serve before a crowd shows up. A "SKIP" pill appears
-// under the hint pill from step 3 onward (design: "skippable with a tap after step 3") — tapping it
-// jumps straight to done.
+// until step 3 so the café stays calm enough to demonstrate bake -> stock -> serve before crowds.
+// A "SKIP" pill appears from step 3 onward. Completed tutorial actions get tiny world-space feedback
+// rather than another text popup: the player should feel progress without reading a checklist.
 export function createIntro(G, S, ctx) {
-  const { world, owner } = ctx;
+  const { world, owner, fx } = ctx;
 
   const skipBtn = document.createElement('button');
   skipBtn.type = 'button'; skipBtn.className = 'pill skipPill hidden'; skipBtn.textContent = 'SKIP';
@@ -40,11 +39,20 @@ export function createIntro(G, S, ctx) {
     return true;
   }
 
+  function celebrateStep(step) {
+    const target = stepTarget(step);
+    if (target && fx) fx.burst(target.x, 1.05, target.z, step === 4 ? '#7FD69A' : '#FFD36A', step === 4 ? 10 : 6);
+    if (ctx.audio) ctx.audio.play(step === 4 ? 'chime' : 'ding');
+  }
+
   return {
     update() {
       if (G.intro.step === undefined) { G.intro.step = 0; G.intro.active = true; }
       let step = G.intro.step;
-      if (step < 5 && stepDone(step)) step += 1;
+      if (step < 5 && stepDone(step)) {
+        celebrateStep(step);
+        step += 1;
+      }
       G.intro.step = step;
       G.intro.active = step < 5;
       G.intro.target = G.intro.active ? stepTarget(step) : null;
