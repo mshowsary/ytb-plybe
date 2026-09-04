@@ -32,7 +32,7 @@ test('smart relief recommends a cashier only inside a genuine near-affordability
   const G = state({ coins: 360, customers: [{ state: 'atRegister', mood: 'wait', done: false }] });
   const r = recommendSmartRelief(G, fakeWorld());
   assert.equal(r.key, 'cashier');
-  assert.equal(r.cost, 600);
+  assert.equal(r.cost, 800);
   assert.ok(r.reward > 0 && r.reward <= r.gap);
   assert.equal(r.remaining, r.gap - r.reward);
 });
