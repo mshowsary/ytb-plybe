@@ -34,7 +34,11 @@ jobs:
       - name: Unit and simulation tests
         run: npm test
       - name: Economy pacing bot
-        run: mkdir -p reports-production && npm run bot | tee reports-production/bot-report.txt
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p reports-production
+          npm run bot | tee reports-production/bot-report.txt
       - name: Production build
         run: npm run build
       - name: Install Chromium
