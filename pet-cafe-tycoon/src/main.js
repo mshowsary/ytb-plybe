@@ -68,20 +68,39 @@ async function boot() {
   platform.firstFrameReady();
 
   let last = performance.now(), first = true, lastRep = (G.meta && G.meta.reputation) | 0;
-  let wasHostPaused = false, wasPaused = false;
+  let frameId = 0, wasPaused = false;
+
+  function applyPauseState() {
+    const paused = platform.paused || G.userPaused;
+    if (paused === wasPaused) return paused;
+    wasPaused = paused;
+    document.body.classList.toggle('game-paused', paused);
+    if (G.audio && G.audio.setPaused) G.audio.setPaused(paused);
+    return paused;
+  }
+
+  function scheduleFrame() {
+    if (!frameId && !platform.paused) frameId = requestAnimationFrame(frame);
+  }
+
+  platform.onPauseChange(hostPaused => {
+    pauseOverlay.classList.toggle('hidden', !hostPaused);
+    applyPauseState();
+    if (hostPaused) {
+      // Certification requirement: no game-frame execution keeps ticking in the background.
+      if (frameId) cancelAnimationFrame(frameId);
+      frameId = 0;
+    } else {
+      last = performance.now();
+      scheduleFrame();
+    }
+  });
+
   function frame(now) {
+    frameId = 0;
+    if (platform.paused) return;
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
-    const hostPaused = platform.paused;
-    if (hostPaused !== wasHostPaused) {
-      wasHostPaused = hostPaused;
-      pauseOverlay.classList.toggle('hidden', !hostPaused);
-    }
-    const paused = hostPaused || G.userPaused;
-    if (paused !== wasPaused) {
-      wasPaused = paused;
-      document.body.classList.toggle('game-paused', paused);
-      if (G.audio && G.audio.setPaused) G.audio.setPaused(paused);
-    }
+    const paused = applyPauseState();
 
     if (!paused) {
       G.update(dt);
@@ -102,7 +121,10 @@ async function boot() {
       $('loading').classList.add('hidden');
       platform.gameReady();
     }
-    requestAnimationFrame(frame);
+    scheduleFrame();
   }
-  requestAnimationFrame(frame);
+
+  pauseOverlay.classList.toggle('hidden', !platform.paused);
+  applyPauseState();
+  scheduleFrame();
 }
