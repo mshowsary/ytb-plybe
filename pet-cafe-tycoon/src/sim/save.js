@@ -1,8 +1,9 @@
-// src/sim/save.js — pure save/restore helper shared by game.js and node tests.
+// Pure save/restore helper shared by game.js and node tests.
 import { createDay } from './day.js';
 import { ensureReputation } from './reputation.js';
 import { ensurePetBook } from './petBook.js';
 import { ensureCareer, chooseCareerGoal } from './career.js';
+import { ensurePartyOrders } from './partyOrders.js';
 
 export function applySave(state, save) {
   if (!save || typeof save !== 'object') return;
@@ -20,11 +21,11 @@ export function applySave(state, save) {
   };
   const ml = (save.machineLevels && typeof save.machineLevels === 'object') ? save.machineLevels : {};
   state.machineLevels = { oven: ml.oven | 0, coffee: ml.coffee | 0, display: ml.display | 0 };
-
   state.intro = (save.intro && typeof save.intro === 'object') ? { ...save.intro } : {};
 
   const meta = (save.meta && typeof save.meta === 'object') ? save.meta : {};
   const savedCareer = (meta.career && typeof meta.career === 'object') ? meta.career : {};
+  const savedParty = (meta.partyOrders && typeof meta.partyOrders === 'object') ? meta.partyOrders : {};
   state.meta = {
     completedDays: meta.completedDays | 0,
     rewardedDays: (meta.rewardedDays && typeof meta.rewardedDays === 'object') ? { ...meta.rewardedDays } : {},
@@ -44,19 +45,28 @@ export function applySave(state, save) {
       bestWeekPoints: savedCareer.bestWeekPoints | 0,
       renovationLevel: savedCareer.renovationLevel | 0,
     },
+    partyOrders: {
+      nextId: savedParty.nextId | 0,
+      completed: savedParty.completed | 0,
+      lastOfferDay: savedParty.lastOfferDay | 0,
+      active: savedParty.active && typeof savedParty.active === 'object' ? {
+        ...savedParty.active,
+        requirements: Array.isArray(savedParty.active.requirements) ? savedParty.active.requirements.map(r => ({ ...r })) : [],
+      } : null,
+    },
   };
   ensureReputation(state.meta);
   ensurePetBook(state.meta);
   ensureCareer(state.meta);
+  ensurePartyOrders(state.meta);
 
   state.dayState = (save.dayState && typeof save.dayState === 'object') ? { ...save.dayState } : createDay();
   state.stars = (save.stars && typeof save.stars === 'object') ? { ...save.stars } : {};
-  // Deliberately regenerate the contract. This migrates old Day 8+ saves away from legacy goals
-  // like "Serve 110" and keeps rival targets deterministic from the persisted career history.
+  // Regenerate the live adaptive contract so old saves cannot preserve retired Serve-110 style goals.
   state.goal = chooseCareerGoal(state.dayState.day, state.meta);
   state.dayStats = (save.dayStats && typeof save.dayStats === 'object')
-    ? { serviceFees: 0, serviceMisses: 0, bestStreak: 0, ...save.dayStats }
-    : { served: 0, lost: 0, earned: 0, serviceFees: 0, serviceMisses: 0, bestStreak: 0 };
+    ? { serviceFees: 0, serviceMisses: 0, wasteFees: 0, bestStreak: 0, ...save.dayStats }
+    : { served: 0, lost: 0, earned: 0, serviceFees: 0, serviceMisses: 0, wasteFees: 0, bestStreak: 0 };
 }
 
 function structuredCloneSafe(value) {
