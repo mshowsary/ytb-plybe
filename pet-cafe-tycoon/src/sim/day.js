@@ -55,11 +55,14 @@ export function spawnMult(d) {
   }
   return (d.phase === 'rush' && isWeekend(d.day)) ? base * 1.25 : base;
 }
-// Rush is valuable as well as busy, so good service is rewarded rather than pressure existing only
-// to create failure. Weekend guests continue to tip more in every phase.
+// After the teaching shift, rush difficulty comes slightly more from value/tempo and slightly less
+// from raw simultaneous bodies. This keeps the room readable on phones and prevents rush backlog
+// from becoming the entire afternoon, while good service remains economically worth the pressure.
 export function tipMult(d) {
-  const base = d.phase === 'rush' ? 1.5 : 1.0;
+  const base = d.phase === 'rush' ? (d.day === 1 ? 1.5 : 1.6) : 1.0;
   return isWeekend(d.day) ? base * 1.25 : base;
 }
-// Rush expands the active crowd, but by three rather than four so queues can recover afterward.
-export function capBonus(d) { return d.phase === 'rush' ? 3 : 0; }
+export function capBonus(d) {
+  if (d.phase !== 'rush') return 0;
+  return d.day === 1 ? 3 : 2;
+}
