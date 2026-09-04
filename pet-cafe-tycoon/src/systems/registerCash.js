@@ -1,5 +1,5 @@
-// Countertop register-cash presentation. This supersedes the legacy floor cashPile mesh without
-// changing the simulation's st.pile or collection rules.
+// Countertop register-cash presentation. Money is represented by the physical till stack only;
+// the exact amount appears as a brief +number when collected, not as permanent text over gameplay.
 import * as THREE from 'three';
 
 const BILL_MAX = 24;
@@ -45,8 +45,7 @@ function makeRegisterStack(st) {
     group.visible = amount > 0;
     if (!amount) { bills.count = 0; coins.count = 0; return grew; }
 
-    // Logarithmic visual growth: 100 and 4,000 coins both remain a believable compact till stack,
-    // while the badge carries the exact number. The money grows UP, never outward into a carpet.
+    // Logarithmic visual growth keeps the stack compact even when a register is very full.
     const billCount = Math.min(BILL_MAX, Math.max(2, Math.ceil(Math.log2(amount + 1) * 2.25)));
     const coinCount = Math.min(COIN_MAX, Math.max(1, Math.ceil(Math.log10(amount + 1) * 2.4)));
     for (let i = 0; i < billCount; i++) {
@@ -69,21 +68,19 @@ function makeRegisterStack(st) {
 }
 
 export function createRegisterCash(G, S, ctx) {
-  const { world, scene, vis, fx, els } = ctx;
+  const { world, scene, vis, els } = ctx;
   const records = new Map();
+
   // The old visuals system still owns a legacy floor pile for compatibility; disable it here.
   for (const st of world.stations.values()) {
     if (st.type !== 'checkout') continue;
     const legacy = vis.get(st.id); if (legacy && legacy.pile) legacy.pile.visible = false;
     const rec = makeRegisterStack(st); scene.add(rec.group);
-    const label = document.createElement('div');
-    label.className = 'register-money-badge hidden';
-    label.style.cssText = 'position:absolute;transform:translate(-50%,-100%);padding:5px 9px;border-radius:10px;background:#FFF6D6F2;border:1.5px solid #D6A83D;color:#5B4314;font:900 11px/1 system-ui,sans-serif;box-shadow:0 4px 12px #0002;pointer-events:none;white-space:nowrap';
-    els.fx.appendChild(label);
-    records.set(st.id, { ...rec, label, project: { sx: 0, sy: 0, visible: true }, amount: -1, st });
+    records.set(st.id, { ...rec, amount: -1, st });
   }
-  // Hide the legacy floor labels created by systems/stations.js; exact amount now lives above the till.
-  for (const el of els.fx.querySelectorAll('.cash-tray-badge')) el.style.display = 'none';
+
+  // No DOM cash labels: the physical money stack is the cue and collection is automatic.
+  for (const el of els.fx.querySelectorAll('.cash-tray-badge,.register-money-badge')) el.remove();
 
   return {
     syncAll() {
@@ -95,14 +92,9 @@ export function createRegisterCash(G, S, ctx) {
         rec.group.visible = st.active && st.pile > 0;
         if (st.pile !== rec.amount) {
           const grew = rec.setAmount(st.pile); rec.amount = st.pile;
-          rec.label.textContent = `CASH · ${Math.round(st.pile).toLocaleString('en-US')}`;
           if (grew && st.pile > 0) rec.lastPulse = 0.22;
         }
-        if (!st.active || st.pile <= 0) { rec.label.classList.add('hidden'); continue; }
-        // Register-top label: project a point just above the countertop stack, never the floor collection spot.
-        fx.project(st.x - Math.cos(st.rot || 0) * 0.35, 1.68, st.z + Math.sin(st.rot || 0) * 0.35, rec.project);
-        rec.label.style.left = rec.project.sx + 'px'; rec.label.style.top = rec.project.sy + 'px';
-        rec.label.classList.toggle('hidden', !rec.project.visible);
+        if (!st.active || st.pile <= 0) continue;
         if (rec.lastPulse > 0) {
           rec.lastPulse = Math.max(0, rec.lastPulse - dt);
           const s = 1 + Math.sin((0.22 - rec.lastPulse) * 24) * rec.lastPulse * 0.22;
