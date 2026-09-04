@@ -3,8 +3,13 @@ import {
 } from '../sim/relief.js';
 import { familyOf } from '../sim/economy.js';
 import { makeRushCrewBoost, rushCrewActive, rushCrewHasBenefit } from '../sim/rushCrew.js';
+import {
+  PET_PLAY_BREAK_SECONDS, PET_PLAY_BREAK_SLOTS, petPlayBreakActive, selectPetPlayBreakCustomers,
+  startPetPlayBreak, stepPetPlayBreak,
+} from '../sim/petPlayBreak.js';
 
 export const RUSH_CREW_REWARD_ID = 'pet-cafe-rush-crew';
+export const PET_PLAY_BREAK_REWARD_ID = 'pet-cafe-pet-play-break';
 
 function ensureStyles() {
   if (document.getElementById('pet-cafe-relief-style')) return;
@@ -47,14 +52,18 @@ function createReliefUI(isDev) {
   function render() {
     if (!model) { root.classList.add('hidden'); return; }
     root.classList.remove('hidden'); pill.classList.toggle('hidden', expanded); card.classList.toggle('hidden', !expanded);
-    const crew = model.mode === 'crew';
-    pillTitle.textContent = crew ? `${model.label} · this rush` : `${model.label} · +${model.reward} coins`;
-    title.textContent = crew ? `${model.label} can jump in` : `${model.label} would help now`;
+    const crew = model.mode === 'crew', petBreak = model.mode === 'petBreak';
+    pillTitle.textContent = crew ? `${model.label} · this rush`
+      : petBreak ? `${model.label} · ${model.duration}s`
+      : `${model.label} · +${model.reward} coins`;
+    title.textContent = crew ? `${model.label} can jump in`
+      : petBreak ? `${model.label} gives breathing room`
+      : `${model.label} would help now`;
     why.textContent = model.why;
-    math.textContent = crew ? model.detail : model.remaining > 0
+    math.textContent = (crew || petBreak) ? model.detail : model.remaining > 0
       ? `${model.cost.toLocaleString('en-US')} coins · ${model.gap} short · earn ${model.remaining} more after the reward`
       : `${model.cost.toLocaleString('en-US')} coins · this reward closes the ${model.gap}-coin gap`;
-    reward.textContent = crew ? '+1 TIER' : `+${model.reward}`;
+    reward.textContent = crew ? '+1 TIER' : petBreak ? `${model.duration}s BREAK` : `+${model.reward}`;
   }
   pill.addEventListener('click', () => { expanded = true; render(); });
   return {
@@ -69,6 +78,9 @@ function crewDetail(role) {
   if (role === 'runner') return 'Your existing Runner borrows +1 Speed and +1 Carry tier until Rush ends. Permanent upgrades are unchanged.';
   if (role === 'cashier') return 'Your existing Cashier borrows +1 Speed tier until Rush ends. Permanent upgrades are unchanged.';
   return 'Your existing Cleaner borrows +1 Speed tier until Rush ends. Permanent upgrades are unchanged.';
+}
+function petBreakDetail(seconds, slots) {
+  return `${slots} stressed pet guests get ${seconds}s where patience cannot fall. Queues keep moving and permanent stats are unchanged.`;
 }
 
 function waitingRunnerFamilies(G, world) {
@@ -119,16 +131,32 @@ export function rushCrewOfferFor(G, world, context = {}) {
   };
 }
 
+export function petPlayBreakOfferFor(G, world, context = {}) {
+  const next = recommendRushHelp(G, world, context);
+  if (!next || next.kind !== 'petLounge') return null;
+  const slots = Math.max(1, Math.min(PET_PLAY_BREAK_SLOTS, next.slots | 0 || PET_PLAY_BREAK_SLOTS));
+  const recipients = selectPetPlayBreakCustomers(G.customers, slots);
+  if (recipients.length < slots) return null;
+  const duration = Math.max(1, Math.min(PET_PLAY_BREAK_SECONDS, next.suggestedPauseSeconds | 0 || PET_PLAY_BREAK_SECONDS));
+  return {
+    ...next,
+    mode: 'petBreak', key: 'petBreak', slots, duration,
+    recipientIds: recipients.map(c => c.id),
+    detail: petBreakDetail(duration, slots),
+  };
+}
+
 export function createEconomyExperience(G, S, ctx, platform) {
   const { world, hud, fx, audio, owner, sheets } = ctx;
   const ui = createReliefUI(!platform || !platform.inPlayables);
   let dismissedDay = -1, pressureKey = '', pressureT = 0, current = null, tick = 0, busy = false;
   let snapshotWrapped = false;
 
-  // game.js defines G.snapshot later in createGame(). Wrap it lazily on the first live update so an
-  // active Rush Crew can survive a host save/reload. Only an ACTUALLY active matching-day rush is
-  // serialized; stale transient state is never written forward.
-  function ensureSnapshotIncludesRushCrew() {
+  // game.js defines G.snapshot later in createGame(). Wrap it lazily on the first live update so
+  // rewarded Rush Help survives a host save/reload while it is still meaningful. Customer ids are
+  // deliberately omitted for Pet Play Break because live customers themselves are not persisted;
+  // the restored boost reattaches its remaining time to the next two stressed guests.
+  function ensureSnapshotIncludesRushHelp() {
     if (snapshotWrapped || typeof G.snapshot !== 'function') return;
     const baseSnapshot = G.snapshot;
     G.snapshot = () => {
@@ -136,6 +164,10 @@ export function createEconomyExperience(G, S, ctx, platform) {
       if (rushCrewActive(G.boosts, G.dayState)) {
         const b = G.boosts.rushCrew;
         save.boosts = { ...(save.boosts || {}), rushCrew: { role: b.role, day: b.day | 0 } };
+      }
+      if (petPlayBreakActive(G.boosts, G.dayState)) {
+        const b = G.boosts.petPlayBreak;
+        save.boosts = { ...(save.boosts || {}), petPlayBreak: { day: b.day | 0, remaining: b.remaining, slots: b.slots | 0 } };
       }
       return save;
     };
@@ -158,17 +190,24 @@ export function createEconomyExperience(G, S, ctx, platform) {
   };
 
   function hide() { current = null; pressureKey = ''; pressureT = 0; ui.setModel(null); }
+  function celebratePetBreak(recipients, resumed = false) {
+    for (const c of recipients || []) fx.hearts(c.x, 1.05, c.z);
+    audio.play('chime');
+    hud.banner(resumed ? 'PET PLAY BREAK RESUMED' : `PET PLAY BREAK · ${recipients.length} GUESTS · ${PET_PLAY_BREAK_SECONDS}s`, 2200);
+  }
 
   async function claim() {
     if (busy || !current) return;
     const offer = current, day = G.dayState.day | 0;
     if (G.meta.rewardedDays[reliefClaimKey(day)]) { hide(); return; }
-    // A crew offer is valid only while the bottleneck is still in the actual rush. If the phase
-    // rolled over while the card was open, close it rather than selling a benefit that has expired.
-    if (offer.mode === 'crew' && (!G.dayState || G.dayState.phase !== 'rush')) { hide(); return; }
+    // Operational rewards are rush-scoped. If the phase rolled over while the card was open,
+    // close it rather than selling a benefit that has already expired.
+    if ((offer.mode === 'crew' || offer.mode === 'petBreak') && (!G.dayState || G.dayState.phase !== 'rush')) { hide(); return; }
 
     busy = true; ui.watch.disabled = true;
-    const rewardId = offer.mode === 'crew' ? RUSH_CREW_REWARD_ID : SMART_RELIEF_REWARD_ID;
+    const rewardId = offer.mode === 'crew' ? RUSH_CREW_REWARD_ID
+      : offer.mode === 'petBreak' ? PET_PLAY_BREAK_REWARD_ID
+      : SMART_RELIEF_REWARD_ID;
     const earned = await (platform ? platform.requestRewardedAd(rewardId) : Promise.resolve(true));
     busy = false; ui.watch.disabled = false;
     if (!earned) { hud.toast('Reward unavailable · keep playing'); return; }
@@ -187,6 +226,19 @@ export function createEconomyExperience(G, S, ctx, platform) {
       G.meta.rewardedDays[reliefClaimKey(day)] = 1;
       audio.play('chime');
       hud.banner(`${offer.label.toUpperCase()} · +1 TIER THIS RUSH`, 2200);
+    } else if (offer.mode === 'petBreak') {
+      // Select again AFTER the ad rather than freezing stale ids from when the card first opened.
+      // Guests may have been served while the host UI was up; an ad is never consumed for fewer
+      // than the promised two genuinely stressed recipients.
+      const stillEligible = selectPetPlayBreakCustomers(G.customers, offer.slots);
+      if (!G.dayState || G.dayState.phase !== 'rush' || stillEligible.length < offer.slots) {
+        hud.toast('Rush changed · reward not consumed'); hide(); return;
+      }
+      const picked = startPetPlayBreak(G, G.dayState, offer.duration, offer.slots);
+      if (picked.length < offer.slots) { hud.toast('Rush changed · reward not consumed'); hide(); return; }
+      G.meta.rewardedDays[reliefClaimKey(day)] = 1;
+      G.stats.rewardedPetBreaks = (G.stats.rewardedPetBreaks | 0) + 1;
+      celebratePetBreak(picked);
     } else {
       G.meta.rewardedDays[reliefClaimKey(day)] = 1;
       G.coins += offer.reward;
@@ -202,10 +254,15 @@ export function createEconomyExperience(G, S, ctx, platform) {
 
   return {
     update(dt) {
-      ensureSnapshotIncludesRushCrew();
+      ensureSnapshotIncludesRushHelp();
+
+      // This runs after customer + staff simulation in game.js. It therefore restores a play-break
+      // recipient's patience AFTER every ordinary drain path, including the register watchdog.
+      const breakStep = stepPetPlayBreak(G, G.dayState, dt);
+      if (breakStep.assigned && breakStep.assigned.length) celebratePetBreak(breakStep.assigned, true);
 
       // Transient means transient: once the phase/day stops matching, remove the live object too.
-      // applySave performs the same rejection on reload, so both uninterrupted and restored play agree.
+      // applySave performs the same rejection on reload, so uninterrupted and restored play agree.
       if (G.boosts && G.boosts.rushCrew && !rushCrewActive(G.boosts, G.dayState)) delete G.boosts.rushCrew;
 
       tick -= dt;
@@ -215,12 +272,17 @@ export function createEconomyExperience(G, S, ctx, platform) {
       const inReliefWindow = d && (d.phase === 'rush' || (d.phase === 'afternoon' && d.t < 172));
       const claimed = d && G.meta.rewardedDays[reliefClaimKey(d.day)];
       const adReady = platform && (platform.rewardedAvailable || !platform.inPlayables);
-      if (!inReliefWindow || claimed || rushCrewActive(G.boosts, d) || dismissedDay === (d && d.day) || !adReady || G.userPaused || (sheets && sheets.isOpen)) { hide(); return; }
+      const operationalActive = rushCrewActive(G.boosts, d) || petPlayBreakActive(G.boosts, d);
+      if (!inReliefWindow || claimed || operationalActive || dismissedDay === (d && d.day) || !adReady || G.userPaused || (sheets && sheets.isOpen)) { hide(); return; }
 
-      // During Rush, prefer an operational worker boost when the pressure classifier identifies a
-      // concrete bottleneck and the player already owns that worker. If not actionable, keep the
-      // existing permanent-purchase coin bridge as the fallback. Early afternoon remains coin-only.
-      let next = d.phase === 'rush' ? rushCrewOfferFor(G, world, { now: G.time }) : null;
+      // During Rush, prefer a specific worker fix; broad overload can instead earn a pet-themed
+      // breathing-room break. Both are optional and actionable. If the classifier's operational
+      // answer is not actually usable, keep the existing permanent-purchase coin bridge fallback.
+      let next = null;
+      if (d.phase === 'rush') {
+        next = rushCrewOfferFor(G, world, { now: G.time });
+        if (!next) next = petPlayBreakOfferFor(G, world, { now: G.time });
+      }
       if (!next) {
         const coin = recommendSmartRelief(G, world);
         next = coin ? { ...coin, mode: 'coins' } : null;
