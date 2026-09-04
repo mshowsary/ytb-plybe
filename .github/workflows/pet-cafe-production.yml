@@ -45,14 +45,15 @@ jobs:
         run: npm run build
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
+      # Feature-specific browser gates run before the long screenshot tour so iteration fails fast.
+      - name: Rewarded Rush Help smoke
+        run: node tools/rush-help-smoke.js
       - name: Browser visual smoke
         run: node tools/production-smoke-v2.js
       - name: Ultra-narrow 183px HUD smoke
         run: node tools/ultra-narrow-smoke.js
       - name: First-use interaction coach smoke
         run: node tools/interaction-coach-smoke.js
-      - name: Rewarded Rush Help smoke
-        run: node tools/rush-help-smoke.js
       - name: YouTube publisher certification smoke
         run: node tools/playables-cert-smoke.js
       - name: Upload production QA

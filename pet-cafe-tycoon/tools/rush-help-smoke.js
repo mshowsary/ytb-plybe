@@ -1,6 +1,7 @@
-// End-to-end rewarded Rush Crew regression. Uses the real browser game, real customer pressure and
-// the real single Rush Help surface; only the YouTube ad host is mocked. The runner is deliberately
-// frozen after spawning so the fixture can hold a deterministic bottleneck long enough to inspect.
+// End-to-end rewarded Rush Crew regression. Uses the real browser game, a real spawned guest and
+// the real single Rush Help surface; only the YouTube ad host is mocked. The targeted fixture pins
+// that real sim guest at a real queue head after spawn so this monetization test is deterministic
+// without re-testing the full doorway/navigation journey already covered by dedicated nav smokes.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -59,7 +60,7 @@ await page.evaluate(() => {
   const oven2 = G.world.stations.get('oven2');
   const cookie = G.world.stations.get('dispCookie');
   const cupcake = G.world.stations.get('dispCupcake');
-  if (oven1) oven1.stock = 12;      // cookie is the only genuinely available wish product
+  if (oven1) oven1.stock = 12;      // ready matching work: Rush Runner can genuinely help
   if (oven2) oven2.stock = 0;
   if (cookie) cookie.stock = 0;
   if (cupcake) cupcake.stock = 0;   // second real low display gives stable stock-pressure evidence
@@ -71,9 +72,23 @@ await page.evaluate(() => {
   r.state = 'frozen-fixture'; r.mover.hasTarget = false; r.items.length = 0;
 });
 
-// A real spawned guest must actually become stuck at the empty cookie shelf. We do not manufacture
-// a fake customer record because that would bypass the customer/nav system this feature responds to.
-await page.waitForFunction(() => window.__game.customers.some(c => !c.done && c.state === 'queue' && c.mood === 'wait'), null, { timeout:22000 });
+// Wait for a genuine browser-system spawn so render records, identity UI and the sim entity all
+// exist normally. Then place that SAME sim customer at the real cookie queue head. assignSlots()
+// will rebuild the queue map from this live state on the next sim tick; the normal queue branch
+// then attempts the empty shelf, drains patience and sets mood='wait' itself.
+await page.waitForFunction(() => window.__game.customers.some(c => !c.done), null, { timeout:7000 });
+await page.evaluate(() => {
+  const G = window.__game, c = G.customers.find(x => !x.done), st = G.world.stations.get('dispCookie');
+  if (!c || !st || !st.queue || !st.queue[0]) throw new Error('Rush Help fixture missing real guest/cookie queue');
+  const q = st.queue[0], m = c.mover;
+  c.state = 'queue'; c.counterId = st.id; c.slot = 0; c.arrived = G.world.seq = (G.world.seq || 0) + 1;
+  c.wish = { product:'cookie', treat:false }; c.order = null; c.mood = 'none'; c.patience = 17; c._patQ = 68; c._settled = false;
+  c.x = q.x; c.z = q.z;
+  m.x = q.x; m.z = q.z; m.tx = q.x; m.tz = q.z; m.hasTarget = false; m.n = 0; m.k = 0; m.vx = 0; m.vz = 0; m.mask = 0;
+  m.stall = 0; m.blockedT = 0; m.bestD = Infinity; m._winD = Infinity; m.gridVersion = G.world.grid.version; m._planMask = 0;
+});
+await page.waitForFunction(() => window.__game.customers.some(c => !c.done && c.state === 'queue' && c.slot === 0 && c.mood === 'wait'), null, { timeout:3000 });
+
 await page.waitForFunction(() => {
   const root = document.querySelector('.relief-root');
   const el = document.querySelector('.relief-pill');

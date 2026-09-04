@@ -1,6 +1,7 @@
 import {
   recommendSmartRelief, recommendRushHelp, reliefClaimKey, returnWasteCost, SMART_RELIEF_REWARD_ID,
 } from '../sim/relief.js';
+import { familyOf } from '../sim/economy.js';
 import { makeRushCrewBoost, rushCrewActive, rushCrewHasBenefit } from '../sim/rushCrew.js';
 
 export const RUSH_CREW_REWARD_ID = 'pet-cafe-rush-crew';
@@ -70,14 +71,46 @@ function crewDetail(role) {
   return 'Your existing Cleaner borrows +1 Speed tier until Rush ends. Permanent upgrades are unchanged.';
 }
 
+function waitingRunnerFamilies(G, world) {
+  const families = new Set();
+  for (const c of G.customers || []) {
+    if (!c || c.done || c.state !== 'queue' || c.slot !== 0 || c.mood !== 'wait') continue;
+    const display = c.counterId && world.stations.get(c.counterId);
+    const product = c.wish && c.wish.product || display && display.product;
+    if (product) families.add(familyOf(product));
+  }
+  return families;
+}
+
+// A faster Runner cannot help an empty shelf if the requested food does not exist yet. Requiring
+// ready matching stock (or a matching item already in a Runner's hands) prevents a completed ad
+// from producing a technically-active but practically useless boost while an oven is still baking.
+function runnerHasReadyWork(G, world) {
+  const families = waitingRunnerFamilies(G, world);
+  if (!families.size) return false;
+  for (const st of world.stations.values()) {
+    if (!st || !st.active || !(st.stock > 0)) continue;
+    let product = null;
+    if (st.type === 'oven' || st.type === 'coffee') product = st.product;
+    else if (st.type === 'blender') product = 'smoothie';
+    if (product && families.has(familyOf(product))) return true;
+  }
+  for (const s of G.staffList || []) {
+    if (!s || s.kind !== 'runner') continue;
+    for (const product of s.items || []) if (families.has(familyOf(product))) return true;
+  }
+  return false;
+}
+
 // Pure filter layered over the pressure classifier. The temporary crew reward is only actionable
 // when that worker already belongs to the player and at least one permanent tier remains to borrow.
-// This prevents an ad from quietly becoming a free hire or doing literally nothing for a maxed worker.
+// Runner help additionally needs work it can perform now, so the ad never substitutes for baking.
 export function rushCrewOfferFor(G, world, context = {}) {
   const next = recommendRushHelp(G, world, context);
   if (!next || next.kind !== 'crew' || !next.role) return null;
   if (((G.staff && G.staff[next.role]) | 0) < 1) return null;
   if (!rushCrewHasBenefit(G.staffLevels, next.role)) return null;
+  if (next.role === 'runner' && !runnerHasReadyWork(G, world)) return null;
   return {
     ...next,
     mode: 'crew',
@@ -141,9 +174,11 @@ export function createEconomyExperience(G, S, ctx, platform) {
     if (!earned) { hud.toast('Reward unavailable · keep playing'); return; }
 
     if (offer.mode === 'crew') {
-      // Re-check after the async ad: the player may have upgraded the worker or the host may have
-      // resumed into a different phase. Never consume the daily claim for a now-useless reward.
-      if (!G.dayState || G.dayState.phase !== 'rush' || ((G.staff && G.staff[offer.role]) | 0) < 1 || !rushCrewHasBenefit(G.staffLevels, offer.role)) {
+      // Re-check after the async ad: the player may have upgraded the worker, production may have
+      // dried up, or the host may have resumed into a different phase. Never consume the daily
+      // claim for a reward that can no longer help.
+      const roleUseful = offer.role !== 'runner' || runnerHasReadyWork(G, world);
+      if (!G.dayState || G.dayState.phase !== 'rush' || ((G.staff && G.staff[offer.role]) | 0) < 1 || !rushCrewHasBenefit(G.staffLevels, offer.role) || !roleUseful) {
         hud.toast('Rush changed · reward not consumed'); hide(); return;
       }
       const boost = makeRushCrewBoost(offer.role, day);

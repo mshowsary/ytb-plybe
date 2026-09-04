@@ -3,14 +3,15 @@ import assert from 'node:assert/strict';
 import { rushCrewOfferFor } from '../src/systems/economyExperience.js';
 import { applySave } from '../src/sim/save.js';
 
-function world() {
-  return {
-    stations: new Map([
-      ['register1', { id: 'register1', type: 'checkout', active: true, serving: '' }],
-      ['dispCookie', { id: 'dispCookie', type: 'display', active: true, stock: 1, capacity: 8 }],
-      ['hire1', { id: 'hire1', type: 'hire', active: true }],
-    ]),
-  };
+function world({ readyRunnerWork = true } = {}) {
+  const stations = new Map([
+    ['register1', { id: 'register1', type: 'checkout', active: true, serving: '' }],
+    ['dispCookie', { id: 'dispCookie', type: 'display', active: true, stock: 1, capacity: 8, product: 'cookie' }],
+    ['dispCupcake', { id: 'dispCupcake', type: 'display', active: true, stock: 0, capacity: 8, product: 'cupcake' }],
+    ['hire1', { id: 'hire1', type: 'hire', active: true }],
+  ]);
+  if (readyRunnerWork) stations.set('oven1', { id: 'oven1', type: 'oven', active: true, stock: 6, product: 'cookie' });
+  return { stations };
 }
 
 function levels() {
@@ -21,6 +22,7 @@ function baseState(overrides = {}) {
   return {
     coins: 400,
     staff: { runner: 1, cashier: 1, cleaner: 0 },
+    staffList: [],
     staffLevels: levels(),
     up: { speed: 0, carry: 0, income: 0 },
     customers: [],
@@ -51,12 +53,32 @@ test('Rush Crew never acts as a free hire and never offers a no-op max-tier rewa
   assert.equal(rushCrewOfferFor(baseState({ staffLevels: maxed, customers }), world(), { now: 120 }), null);
 });
 
-test('owned runner is selected only when empty-display pressure is genuine', () => {
-  const waiting = [
-    { id: 1, state: 'queue', counterId: 'dispCookie', slot: 0, mood: 'wait', patience: 8, done: false },
-    { id: 2, state: 'queue', counterId: 'dispCookie', slot: 0, mood: 'wait', patience: 7, done: false },
+function runnerPressure() {
+  return [
+    { id: 1, state: 'queue', counterId: 'dispCookie', slot: 0, mood: 'wait', patience: 8, wish: { product: 'cookie', treat: false }, done: false },
+    { id: 2, state: 'queue', counterId: 'dispCookie', slot: 0, mood: 'wait', patience: 7, wish: { product: 'cookie', treat: false }, done: false },
   ];
-  const offer = rushCrewOfferFor(baseState({ customers: waiting }), world(), { now: 120 });
+}
+
+test('owned runner is selected only when empty-display pressure has matching ready work', () => {
+  const G = baseState({ customers: runnerPressure() });
+  const offer = rushCrewOfferFor(G, world(), { now: 120 });
+  assert.ok(offer);
+  assert.equal(offer.role, 'runner');
+
+  assert.equal(
+    rushCrewOfferFor(baseState({ customers: runnerPressure() }), world({ readyRunnerWork: false }), { now: 120 }),
+    null,
+    'a faster Runner cannot help while the requested food is still baking',
+  );
+});
+
+test('runner carrying the requested product keeps Rush Crew useful even if production just emptied', () => {
+  const G = baseState({
+    customers: runnerPressure(),
+    staffList: [{ kind: 'runner', items: ['cookie'] }],
+  });
+  const offer = rushCrewOfferFor(G, world({ readyRunnerWork: false }), { now: 120 });
   assert.ok(offer);
   assert.equal(offer.role, 'runner');
 });
