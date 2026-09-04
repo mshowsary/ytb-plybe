@@ -17,12 +17,12 @@ test('day three onward opens afternoon with a 20 second recovery window', () => 
   assert.equal(spawnMult({ day: 3, t: 205, phase: 'afternoon' }), 0.48);
 });
 
-test('after the teaching shift rush trades one crowd slot for more order value', () => {
+test('rush keeps the proven three-slot pressure profile and standard value', () => {
   assert.equal(capBonus({ day: 1, phase: 'rush' }), 3);
-  assert.equal(capBonus({ day: 2, phase: 'rush' }), 2);
+  assert.equal(capBonus({ day: 2, phase: 'rush' }), 3);
   assert.equal(capBonus({ day: 2, phase: 'morning' }), 0);
   assert.equal(tipMult({ day: 1, phase: 'rush' }), 1.5);
-  assert.equal(tipMult({ day: 2, phase: 'rush' }), 1.6);
+  assert.equal(tipMult({ day: 2, phase: 'rush' }), 1.5);
   assert.equal(tipMult({ day: 2, phase: 'morning' }), 1.0);
 });
 
@@ -40,9 +40,9 @@ test('phase timing and fractions remain stable across the four-minute shift', ()
   assert.deepEqual(events, [{ type: 'phase', phase: 'rush' }]);
 });
 
-test('weekend rush stacks the weekend multiplier on the tuned rush values', () => {
+test('weekend rush stacks the weekend multiplier on the stable rush values', () => {
   assert.ok(Math.abs(spawnMult({ day: 6, t: 90, phase: 'rush' }) - 1.35 * 1.25) < 1e-12);
-  assert.ok(Math.abs(tipMult({ day: 6, phase: 'rush' }) - 1.6 * 1.25) < 1e-12);
-  assert.equal(capBonus({ day: 6, phase: 'rush' }), 2);
+  assert.ok(Math.abs(tipMult({ day: 6, phase: 'rush' }) - 1.5 * 1.25) < 1e-12);
+  assert.equal(capBonus({ day: 6, phase: 'rush' }), 3);
   assert.equal(spawnMult({ day: 6, t: 220, phase: 'closing' }), 0);
 });
