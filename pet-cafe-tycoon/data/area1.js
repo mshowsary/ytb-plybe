@@ -67,6 +67,9 @@ export function queueSlots(st, n = 5) {
 export function checkoutSpot(st) { return { x: st.front.x, z: st.front.z }; }
 export function cashSpot(st) {
   const rot = st.rot || 0;
-  const left = rotateOffset(rot, -1.2, 0);
-  return { x: st.front.x + left.x, z: st.front.z + left.z };
+  // Cashier/collection point stays immediately beside the till instead of 1.2m left of the
+  // customer queue. It is still outside the register collision shell, so touch collection remains
+  // easy in a crowd, but visually reads as part of the register rather than a separate floor zone.
+  const off = rotateOffset(rot, -0.78, -0.30);
+  return { x: st.front.x + off.x, z: st.front.z + off.z };
 }
