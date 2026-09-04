@@ -132,14 +132,28 @@ export function rushCrewOfferFor(G, world, context = {}) {
 }
 
 export function petPlayBreakOfferFor(G, world, context = {}) {
-  const next = recommendRushHelp(G, world, context);
-  if (!next || next.kind !== 'petLounge') return null;
-  const slots = Math.max(1, Math.min(PET_PLAY_BREAK_SLOTS, next.slots | 0 || PET_PLAY_BREAK_SLOTS));
+  // The shared Rush Help surface itself has a five-second anti-flash dwell. A break triggered only
+  // once two guests fall below the classifier's <4s low-patience threshold would therefore arrive
+  // after those guests had already left. Surface this mode from EARLIER broad overload instead:
+  // at least four genuinely waiting guests among seven active. That pressure can survive the same
+  // five-second evidence rule without changing it, and a specific actionable Crew fix still gets
+  // first priority in createEconomyExperience.update().
+  const activeCustomers = (G.customers || []).reduce((n, c) => n + (c && !c.done ? 1 : 0), 0);
+  const broadWaiting = selectPetPlayBreakCustomers(G.customers, 4);
+  if (activeCustomers < 7 || broadWaiting.length < 4) return null;
+
+  const classified = recommendRushHelp(G, world, context);
+  const base = classified && classified.kind === 'petLounge' ? classified : {
+    kind: 'petLounge', score: 64, label: 'Pet Play Break',
+    why: 'Several pet guests are waiting at once; a short breather can keep the rush recoverable.',
+    slots: PET_PLAY_BREAK_SLOTS, suggestedPauseSeconds: PET_PLAY_BREAK_SECONDS,
+  };
+  const slots = Math.max(1, Math.min(PET_PLAY_BREAK_SLOTS, base.slots | 0 || PET_PLAY_BREAK_SLOTS));
   const recipients = selectPetPlayBreakCustomers(G.customers, slots);
   if (recipients.length < slots) return null;
-  const duration = Math.max(1, Math.min(PET_PLAY_BREAK_SECONDS, next.suggestedPauseSeconds | 0 || PET_PLAY_BREAK_SECONDS));
+  const duration = Math.max(1, Math.min(PET_PLAY_BREAK_SECONDS, base.suggestedPauseSeconds | 0 || PET_PLAY_BREAK_SECONDS));
   return {
-    ...next,
+    ...base,
     mode: 'petBreak', key: 'petBreak', slots, duration,
     recipientIds: recipients.map(c => c.id),
     detail: petBreakDetail(duration, slots),

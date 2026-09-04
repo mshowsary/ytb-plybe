@@ -18,10 +18,16 @@ function state(customers) {
   };
 }
 
-test('Pet Play Break surfaces only when the broad-pressure classifier has two real recipients', () => {
-  const customers = Array.from({ length:5 }, (_, i) => ({
-    id:i + 1, state:'atBowl', mood:'wait', patience:i < 3 ? 2 + i * 0.3 : 7, done:false,
-  }));
+test('Pet Play Break surfaces from early broad overload that can survive the five-second UI dwell', () => {
+  const customers = [
+    { id:1, state:'atBowl', mood:'wait', patience:12, done:false },
+    { id:2, state:'atBowl', mood:'wait', patience:13, done:false },
+    { id:3, state:'atBowl', mood:'wait', patience:14, done:false },
+    { id:4, state:'atBowl', mood:'wait', patience:15, done:false },
+    { id:5, state:'eating', mood:'none', patience:17, done:false },
+    { id:6, state:'eating', mood:'none', patience:17, done:false },
+    { id:7, state:'eating', mood:'none', patience:17, done:false },
+  ];
   const offer = petPlayBreakOfferFor(state(customers), world(), { now:120 });
   assert.ok(offer);
   assert.equal(offer.mode, 'petBreak');
@@ -32,13 +38,15 @@ test('Pet Play Break surfaces only when the broad-pressure classifier has two re
   assert.match(offer.detail, /patience cannot fall/i);
 });
 
-test('Pet Play Break refuses to promise two guests when only one remains eligible', () => {
+test('Pet Play Break refuses broad pressure until four of seven active guests are genuinely waiting', () => {
   const customers = [
-    { id:1, state:'atBowl', mood:'wait', patience:2, done:false },
-    { id:2, state:'enter', mood:'none', patience:2, done:false },
-    { id:3, state:'eating', mood:'none', patience:17, done:false },
+    { id:1, state:'atBowl', mood:'wait', patience:12, done:false },
+    { id:2, state:'atBowl', mood:'wait', patience:13, done:false },
+    { id:3, state:'atBowl', mood:'wait', patience:14, done:false },
     { id:4, state:'eating', mood:'none', patience:17, done:false },
     { id:5, state:'eating', mood:'none', patience:17, done:false },
+    { id:6, state:'eating', mood:'none', patience:17, done:false },
+    { id:7, state:'eating', mood:'none', patience:17, done:false },
   ];
   assert.equal(petPlayBreakOfferFor(state(customers), world(), { now:120 }), null);
 });
