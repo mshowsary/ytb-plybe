@@ -2,25 +2,29 @@
 // Nothing touches AudioContext until the player's first interaction unlocks audio.
 export function createAudio() {
   let ctx = null, master = null, comp = null, sfx = null, music = null, noiseBuf = null, voices = 0;
-  let hostMuted = false, sfxOn = true, musicOn = true;
+  let hostMuted = false, sfxOn = true, musicOn = true, paused = false;
   let musicPhase = 'morning', musicClock = 0, musicStep = 0;
 
   const A = {};
   Object.defineProperty(A, 'muted', { get: () => hostMuted, enumerable: true });
   Object.defineProperty(A, 'sfxEnabled', { get: () => sfxOn, enumerable: true });
   Object.defineProperty(A, 'musicEnabled', { get: () => musicOn, enumerable: true });
+  Object.defineProperty(A, 'paused', { get: () => paused, enumerable: true });
 
   const MUSIC_GAIN = { morning: 0.22, rush: 0.25, afternoon: 0.22, closing: 0.16 };
   const currentMusicGain = () => musicOn ? (MUSIC_GAIN[musicPhase] || 0.22) : 0;
 
   A.unlock = () => {
-    if (ctx) { if (ctx.state === 'suspended') ctx.resume().catch(() => {}); return; }
+    if (ctx) {
+      if (!paused && ctx.state === 'suspended') ctx.resume().catch(() => {});
+      return;
+    }
     const Ctx = typeof AudioContext !== 'undefined' ? AudioContext
       : (typeof webkitAudioContext !== 'undefined' ? webkitAudioContext : null);
     if (!Ctx) return;
     try { ctx = new Ctx(); } catch (_) { return; }
 
-    master = ctx.createGain(); master.gain.value = hostMuted ? 0 : 1;
+    master = ctx.createGain(); master.gain.value = hostMuted || paused ? 0 : 1;
     comp = ctx.createDynamicsCompressor(); comp.threshold.value = -14; comp.knee.value = 20; comp.ratio.value = 6;
     comp.attack.value = 0.004; comp.release.value = 0.18;
     master.connect(comp); comp.connect(ctx.destination);
@@ -33,20 +37,31 @@ export function createAudio() {
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     musicClock = 0.1;
+    if (paused && ctx.state === 'running') ctx.suspend().catch(() => {});
   };
 
   const applyBuses = () => {
     if (!ctx) return;
-    if (master) master.gain.setTargetAtTime(hostMuted ? 0 : 1, ctx.currentTime, 0.03);
+    if (master) master.gain.setTargetAtTime(hostMuted || paused ? 0 : 1, ctx.currentTime, 0.015);
     if (sfx) sfx.gain.setTargetAtTime(sfxOn ? 1 : 0, ctx.currentTime, 0.03);
     if (music) music.gain.setTargetAtTime(currentMusicGain(), ctx.currentTime, 0.12);
   };
   A.setHostMute = b => { hostMuted = !!b; applyBuses(); };
   A.setSfx = b => { sfxOn = !!b; applyBuses(); };
   A.setMusic = b => { musicOn = !!b; applyBuses(); };
+  A.setPaused = b => {
+    paused = !!b;
+    applyBuses();
+    if (!ctx) return;
+    if (paused) {
+      if (ctx.state === 'running') ctx.suspend().catch(() => {});
+    } else if (ctx.state === 'suspended') {
+      ctx.resume().then(applyBuses).catch(() => {});
+    }
+  };
 
   function tone(o, bus = sfx) {
-    if (!ctx || !bus || voices >= 28) return;
+    if (!ctx || paused || !bus || voices >= 28) return;
     const t = o.at != null ? o.at : ctx.currentTime;
     voices++;
     setTimeout(() => voices--, (o.dur + 0.12) * 1000);
@@ -66,7 +81,7 @@ export function createAudio() {
   }
 
   function noise(o) {
-    if (!ctx || voices >= 28) return;
+    if (!ctx || paused || voices >= 28) return;
     const t = o.at != null ? o.at : ctx.currentTime;
     voices++;
     setTimeout(() => voices--, (o.dur + 0.1) * 1000);
@@ -131,7 +146,7 @@ export function createAudio() {
   };
 
   A.play = (name, opts = {}) => {
-    if (!ctx || hostMuted || !sfxOn) return;
+    if (!ctx || paused || hostMuted || !sfxOn) return;
     const p = PATCHES[name]; if (p) p(opts);
   };
 
@@ -150,7 +165,7 @@ export function createAudio() {
   };
 
   A.musicUpdate = dt => {
-    if (!ctx || !music || hostMuted || !musicOn || ctx.state !== 'running') return;
+    if (!ctx || !music || paused || hostMuted || !musicOn || ctx.state !== 'running') return;
     const cfg = MUSIC[musicPhase] || MUSIC.morning;
     musicClock -= dt;
     if (musicClock > 0) return;
