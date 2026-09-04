@@ -21,8 +21,6 @@ const cases = [['small',320,568,1.5],['portrait',450,800,2],['landscape',1280,72
 const report = [];
 let failed = false;
 
-const visible = el => !!el && getComputedStyle(el).display !== 'none' && getComputedStyle(el).visibility !== 'hidden' && Number(getComputedStyle(el).opacity) > 0;
-
 for (const [tag,width,height,dpr] of cases) {
   const ctx = await browser.newContext({ viewport:{width,height}, deviceScaleFactor:dpr, hasTouch:tag!=='landscape' });
   const page = await ctx.newPage();
@@ -37,10 +35,12 @@ for (const [tag,width,height,dpr] of cases) {
   const boot = await page.evaluate(() => {
     const rr = window.__scene.renderer.info.render;
     const rect = el => { if(!el) return null; const r=el.getBoundingClientRect(); return {l:r.left,t:r.top,r:r.right,b:r.bottom,w:r.width,h:r.height}; };
+    const isVisible = sel => { const el=document.querySelector(sel); if(!el)return false; const s=getComputedStyle(el); return s.display!=='none'&&s.visibility!=='hidden'&&Number(s.opacity)>0&&!el.classList.contains('hidden'); };
     return {
-      calls:rr.calls,triangles:rr.triangles,platform:!!window.__platform,metaVersion:window.__game.snapshot().v,
-      clean:document.body.classList.contains('playables-clean'),compact:document.body.classList.contains('playables-compact'),
-      overflow:document.body.scrollWidth>innerWidth+1,wallet:rect(document.querySelector('#wallet')),pause:rect(document.querySelector('.pause-btn')),
+      calls:rr.calls, triangles:rr.triangles, platform:!!window.__platform, metaVersion:window.__game.snapshot().v,
+      clean:document.body.classList.contains('playables-clean'), compact:document.body.classList.contains('playables-compact'),
+      overflow:document.body.scrollWidth>innerWidth+1, wallet:rect(document.querySelector('#wallet')), pause:rect(document.querySelector('.pause-btn')),
+      hint:isVisible('#hint'), hands:isVisible('#handsFull'), goal:isVisible('#goalPill'),
     };
   });
   await page.screenshot({ path:path.join(shots,`v2-01-boot-${tag}.png`) });
@@ -59,8 +59,7 @@ for (const [tag,width,height,dpr] of cases) {
     await page.click('[data-action="resume"]');
     await page.waitForFunction(() => !window.__game.userPaused && !document.body.classList.contains('game-paused'));
 
-    // Crossing does not spend. Stopping for less than the 0.55 s sim dwell does not spend. Then
-    // wait for ACTUAL partial construction rather than assuming CI renders 60 frames/second.
+    // Crossing does not spend. A short stop does not spend. Then wait for ACTUAL partial construction.
     await page.evaluate(() => { const g=window.__game,z=g.world.activeZoneList[0]; g.coins=500; g.P.x=z.x;g.P.z=z.z;g.P.vx=0;g.P.vz=0;g.setMove(1,0); });
     await page.waitForTimeout(180);
     const walkPaid = await page.evaluate(() => Object.values(window.__game.world.partial).reduce((a,b)=>a+b,0));
@@ -113,30 +112,51 @@ for (const [tag,width,height,dpr] of cases) {
   }
   await page.screenshot({path:path.join(shots,`v2-02-journey-${tag}.png`)});
   await page.click('.career-close');
-  await page.waitForTimeout(2500);
+  await page.waitForTimeout(1800);
 
   let interaction=null;
   if(tag==='small'){
-    const place=async(id,point='front')=>{await page.evaluate(({id,point})=>{const g=window.__game,st=g.world.stations.get(id),p=st[point]||st.front;g.setMove(0,0);g.P.x=p.x;g.P.z=p.z;g.P.vx=0;g.P.vz=0;},{id,point});await page.waitForTimeout(650);};
+    const place=async(id,point='front')=>{await page.evaluate(({id,point})=>{const g=window.__game,st=g.world.stations.get(id),p=st[point]||st.front;g.setMove(0,0);g.P.x=p.x;g.P.z=p.z;g.P.vx=0;g.P.vz=0;},{id,point});await page.waitForTimeout(500);};
     const clear=()=>page.evaluate(()=>{const g=window.__game;g.owner.clearItems();g.carry.sack=null;g.carry.sackLeft=0;g.carry.fruit=0;});
-    await clear();await place('kiosk1');await page.waitForFunction(()=>document.querySelector('.fbtn')?.textContent==='UPGRADES',{},{timeout:5000});await page.click('.fbtn');await page.waitForFunction(()=>!!document.querySelector('.sheet-root .sheet'));await page.evaluate(()=>{const g=window.__game;g.P.x=0;g.P.z=2.5;g.P.vx=g.P.vz=0;});await page.waitForFunction(()=>document.querySelector('.sheet-root').classList.contains('hidden'),null,{timeout:3000});
+
+    // Consequential/menu interactions remain explicit.
+    await clear();await place('kiosk1');await page.waitForFunction(()=>document.querySelector('.fbtn')?.textContent==='UPGRADES',null,{timeout:5000});await page.click('.fbtn');await page.waitForFunction(()=>!!document.querySelector('.sheet-root .sheet'));await page.evaluate(()=>{const g=window.__game;g.P.x=0;g.P.z=2.5;g.P.vx=g.P.vz=0;});await page.waitForFunction(()=>document.querySelector('.sheet-root').classList.contains('hidden'),null,{timeout:3000});
     await clear();await place('pantry1');await page.waitForFunction(()=>document.querySelector('.fbtn')?.textContent==='SUPPLIES',null,{timeout:5000});await page.click('.fbtn');await page.waitForFunction(()=>document.querySelectorAll('.sheet .sbtn').length>=2);await page.click('.sheet .sbtn');await page.waitForTimeout(300);
     const pantry=await page.evaluate(()=>({sack:window.__game.carry.sack,guide:window.__game.contextGuide?.caption||''}));
-    const supplyBefore=await page.evaluate(()=>window.__game.coins);await place('return1');await page.waitForFunction(()=>document.querySelector('.fbtn')?.textContent==='RETURN ITEMS',null,{timeout:5000});await page.click('.fbtn');await page.waitForTimeout(150);const supply=await page.evaluate(b=>({empty:!window.__game.carry.sack,delta:window.__game.coins-b}),supplyBefore);
-    const wasteBefore=await page.evaluate(()=>{const g=window.__game;g.coins=1000;g.carry.fruit=2;return g.coins;});await place('return1');await page.waitForFunction(()=>document.querySelector('.fbtn')?.textContent==='RETURN ITEMS',null,{timeout:5000});await page.click('.fbtn');await page.waitForTimeout(150);const waste=await page.evaluate(b=>({fruit:window.__game.carry.fruit,spent:b-window.__game.coins,tracked:window.__game.dayStats.wasteFees|0}),wasteBefore);
+    const supplyBefore=await page.evaluate(()=>window.__game.coins);await place('return1');await page.waitForFunction(()=>document.querySelector('.fbtn')?.textContent==='RETURN',null,{timeout:5000});await page.click('.fbtn');await page.waitForTimeout(150);const supply=await page.evaluate(b=>({empty:!window.__game.carry.sack,delta:window.__game.coins-b}),supplyBefore);
+    const wasteBefore=await page.evaluate(()=>{const g=window.__game;g.coins=1000;g.carry.fruit=2;return g.coins;});await place('return1');await page.waitForFunction(()=>document.querySelector('.fbtn')?.textContent==='RETURN',null,{timeout:5000});await page.click('.fbtn');await page.waitForTimeout(150);const waste=await page.evaluate(b=>({fruit:window.__game.carry.fruit,spent:b-window.__game.coins,tracked:window.__game.dayStats.wasteFees|0}),wasteBefore);
     await page.evaluate(()=>{const g=window.__game,b=g.world.stations.get('blender1');g.carry.fruit=2;b.fruit=0;b.stock=0;});await place('blender1');await page.waitForFunction(()=>{const g=window.__game,b=g.world.stations.get('blender1');return b.fruit+b.stock>0;},null,{timeout:4000});const blender=await page.evaluate(()=>{const g=window.__game,b=g.world.stations.get('blender1');return{remaining:g.carry.fruit,machine:b.fruit+b.stock};});
-    await clear();const cashBefore=await page.evaluate(()=>{const g=window.__game,st=g.world.stations.get('register1');st.pile=206;return g.coins;});await page.waitForFunction(()=>document.querySelector('.register-money-badge')?.textContent.includes('206'));const oldCashHidden=await page.evaluate(()=>{const e=document.querySelector('.cash-tray-badge');return !e||getComputedStyle(e).display==='none';});await place('register1','cash');await page.waitForFunction(()=>document.querySelector('.fbtn')?.textContent==='COLLECT 206',null,{timeout:5000});await page.click('.fbtn');await page.waitForTimeout(150);const cash=await page.evaluate(b=>({pile:window.__game.world.stations.get('register1').pile,gained:window.__game.coins-b}),cashBefore);
-    interaction={pantry,supply,waste,blender,cash,oldCashHidden};await page.evaluate(()=>window.__game.setMove(null));
+
+    // Flow chores are proximity-only. No COLLECT/CLEAN button and no permanent cash text may exist.
+    await clear();
+    const cashBefore=await page.evaluate(()=>{const g=window.__game,st=g.world.stations.get('register1');st.pile=206;return g.coins;});
+    await place('register1','cash');
+    await page.waitForFunction(()=>window.__game.world.stations.get('register1').pile===0,null,{timeout:3000});
+    const cash=await page.evaluate(b=>({
+      pile:window.__game.world.stations.get('register1').pile,gained:window.__game.coins-b,
+      collectVisible:/^COLLECT/.test(document.querySelector('.fbtn')?.textContent||'')&&!document.querySelector('.fbtn')?.classList.contains('hidden'),
+      cashLabel:!!document.querySelector('.register-money-badge'),legacyCashLabel:!!document.querySelector('.cash-tray-badge')
+    }),cashBefore);
+
+    // No hired cleaner may steal this assertion: temporarily remove staff from the live list.
+    const cleanerState=await page.evaluate(()=>{const g=window.__game;const saved=g.staffList.slice();g.staffList.length=0;const st=g.world.stations.get('seat1');st.dirty=true;return saved.map(s=>({kind:s.kind,x:s.x,z:s.z}));});
+    await place('seat1');
+    await page.waitForFunction(()=>window.__game.world.stations.get('seat1').dirty===false,null,{timeout:3000});
+    const cleaning=await page.evaluate(()=>({dirty:window.__game.world.stations.get('seat1').dirty,cleanVisible:(document.querySelector('.fbtn')?.textContent||'')==='CLEAN TABLE'&&!document.querySelector('.fbtn')?.classList.contains('hidden')}));
+
+    const prose=await page.evaluate(()=>{const v=sel=>{const e=document.querySelector(sel);if(!e)return false;const s=getComputedStyle(e);return s.display!=='none'&&s.visibility!=='hidden'&&Number(s.opacity)>0&&!e.classList.contains('hidden');};return{hint:v('#hint'),hands:v('#handsFull'),goal:v('#goalPill')};});
+    interaction={pantry,supply,waste,blender,cash,cleaning,prose,cleanerState};await page.evaluate(()=>window.__game.setMove(null));
+    await page.screenshot({path:path.join(shots,'v2-03-clean-gameplay-small.png')});
   }
 
   await page.click('.meta-pawbook');await page.waitForFunction(()=>!document.querySelector('.meta-book-root').classList.contains('hidden'));
   const book=await page.evaluate(()=>({cards:document.querySelectorAll('.meta-pet-card').length,found:document.querySelectorAll('.meta-pet-card:not(.locked)').length,overflow:document.body.scrollWidth>innerWidth+1}));
-  await page.screenshot({path:path.join(shots,`v2-03-book-${tag}.png`)});await page.click('.meta-book-close');
+  await page.screenshot({path:path.join(shots,`v2-04-book-${tag}.png`)});await page.click('.meta-book-close');
 
   await page.evaluate(()=>{const g=window.__game;g.dayStats={served:42,lost:0,earned:1180,serviceFees:0,serviceMisses:0,wasteFees:0,bestStreak:14};g.shiftBestStreak=14;const d=g.dayState;d.t=239.99;d.phase='closing';d._ended=false;});
   await page.waitForFunction(()=>!!document.querySelector('.sheet-root .card')&&!!document.querySelector('.career-result')&&!!document.querySelector('.meta-rating'),null,{timeout:5000});await page.waitForTimeout(250);
   const summary=await page.evaluate(()=>{const card=document.querySelector('.sheet-root .card'),r=card.getBoundingClientRect();const next=document.querySelector('.career-next-chase');const details=[...document.querySelectorAll('.card .cbody>.srow-sub')].filter(e=>getComputedStyle(e).display!=='none').map(e=>e.textContent);return{stars:document.querySelector('.meta-rating-stars')?.textContent||'',result:document.querySelector('.career-result-score')?.textContent||'',cup:document.querySelector('.career-summary-cup')?.textContent||'',reward:!!document.querySelector('.meta-reward-btn'),details,nextVisible:next?getComputedStyle(next).display!=='none':false,fits:r.left>=-1&&r.top>=-1&&r.right<=innerWidth+1&&r.bottom<=innerHeight+1,overflow:document.body.scrollWidth>innerWidth+1};});
-  await page.screenshot({path:path.join(shots,`v2-04-summary-${tag}.png`)});
+  await page.screenshot({path:path.join(shots,`v2-05-summary-${tag}.png`)});
 
   const ui = await page.evaluate(() => ({
     chalkVisible:[...document.querySelectorAll('.chalk')].filter(e=>getComputedStyle(e).display!=='none'&&getComputedStyle(e).visibility!=='hidden'&&Number(getComputedStyle(e).opacity)>0).length,
@@ -145,8 +165,17 @@ for (const [tag,width,height,dpr] of cases) {
 
   const goalBad=goal.day!==13||goal.kind!=='streak'||goal.target!==10||goal.previous!==9||goal.rival!==true;
   const cleanBad=(width<=600||height<=520) ? goal.visible || ui.chalkVisible!==0 : !goal.visible || !goal.text;
-  const smallBad=tag==='small'&&(!smallChecks||!smallChecks.pauseFrozen||!smallChecks.musicIndependent||smallChecks.walkPaid!==0||smallChecks.earlyPaid!==0||!(smallChecks.heldPaid>0)||!renovation||renovation.level!==1||renovation.spent!==1800||renovation.next!=='Gallery Café'||!interaction||interaction.pantry.sack!=='beans'||interaction.pantry.guide!=='COFFEE'||!interaction.supply.empty||interaction.supply.delta!==0||interaction.waste.fruit!==0||interaction.waste.spent<=0||interaction.waste.tracked<=0||interaction.blender.machine<=0||interaction.cash.pile!==0||interaction.cash.gained!==206||!interaction.oldCashHidden);
-  const bad=!boot.platform||boot.metaVersion!==4||!boot.clean||boot.overflow||goalBad||cleanBad||journey.days!==7||journey.masteries!==5||!journey.reno||journey.overflow||book.cards!==12||book.found<7||book.overflow||summary.stars!=='★★★'||summary.result!=='WON ✓'||!summary.cup||!summary.reward||!summary.fits||summary.overflow||summary.details.length>2||summary.nextVisible||smallBad||errors.length;
+  const smallBad=tag==='small'&&(
+    !smallChecks||!smallChecks.pauseFrozen||!smallChecks.musicIndependent||smallChecks.walkPaid!==0||smallChecks.earlyPaid!==0||!(smallChecks.heldPaid>0)||
+    !renovation||renovation.level!==1||renovation.spent!==1800||renovation.next!=='Gallery Café'||
+    !interaction||interaction.pantry.sack!=='beans'||interaction.pantry.guide!=='COFFEE'||!interaction.supply.empty||interaction.supply.delta!==0||
+    interaction.waste.fruit!==0||interaction.waste.spent<=0||interaction.waste.tracked<=0||interaction.blender.machine<=0||
+    interaction.cash.pile!==0||interaction.cash.gained!==206||interaction.cash.collectVisible||interaction.cash.cashLabel||interaction.cash.legacyCashLabel||
+    interaction.cleaning.dirty||interaction.cleaning.cleanVisible||interaction.prose.hint||interaction.prose.hands||interaction.prose.goal
+  );
+  const bad=!boot.platform||boot.metaVersion!==4||!boot.clean||boot.overflow||boot.hint||boot.hands||boot.goal||goalBad||cleanBad||
+    journey.days!==7||journey.masteries!==5||!journey.reno||journey.overflow||book.cards!==12||book.found<7||book.overflow||
+    summary.stars!=='★★★'||summary.result!=='WON ✓'||!summary.cup||!summary.reward||!summary.fits||summary.overflow||summary.details.length>2||summary.nextVisible||smallBad||errors.length;
   if(bad)failed=true;
   report.push({tag,boot,smallChecks,goal,journey,renovation,interaction,book,summary,ui,errors,bad});
   await ctx.close();
