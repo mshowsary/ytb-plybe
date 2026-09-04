@@ -26,6 +26,7 @@ import { createZones } from './systems/zones.js';
 import { createCustomers } from './systems/customers.js';
 import { createStaff } from './systems/staff.js';
 import { createVisuals } from './systems/visuals.js';
+import { createRegisterCash } from './systems/registerCash.js';
 import { createObjective } from './systems/objective.js';
 import { createIntro } from './systems/intro.js';
 import { jobTarget } from './sim/jobs.js';
@@ -129,8 +130,6 @@ export function createGame(S, area, els, platform = null) {
     return decide(world, G);
   };
 
-  // Recipe mastery is intentionally a small permanent bonus: it makes grinding meaningful without
-  // eclipsing staff/machine upgrades or making an old save's economy explode.
   const price = (key, seated) => Math.round(salePrice(key, G.up, G.boosts, seated, Date.now(), tipMult(G.dayState)) * masteryMultiplier(G.meta, key));
   const ctx = {
     area, world, scene, hud, fx, sheets, audio, input, owner, P, price, els,
@@ -152,6 +151,7 @@ export function createGame(S, area, els, platform = null) {
   const customers = createCustomers(G, S, ctx);
   const staff = createStaff(G, S, ctx);
   const visuals = createVisuals(G, S, ctx);
+  const registerCash = createRegisterCash(G, S, ctx);
   const objective = createObjective(G, S, ctx);
   const intro = createIntro(G, S, ctx);
 
@@ -163,7 +163,7 @@ export function createGame(S, area, els, platform = null) {
     stations.update(dt); zones.update(dt); customers.update(dt); staff.update(dt);
     intro.update(dt);
     ambience.update(dt);
-    visuals.update(dt); objective.update(dt);
+    visuals.update(dt); registerCash.update(dt); objective.update(dt);
     fx.update(dt); hud.update();
 
     G.serviceStreak.t = Math.max(0, G.serviceStreak.t - dt);
@@ -175,8 +175,6 @@ export function createGame(S, area, els, platform = null) {
         G.shiftBestStreak = Math.max(G.shiftBestStreak, G.serviceStreak.count);
         G.dayStats.bestStreak = G.shiftBestStreak;
 
-        // The customer remains in the register state on the frame stepRegisters emits `pay`, so
-        // its paid order is still available here for mastery accounting.
         const paidCustomer = G.customers.find(c => c.id === e.id);
         const levelUps = recordRecipeOrder(G.meta, paidCustomer && paidCustomer.order || []);
         for (const up of levelUps) {
@@ -230,8 +228,6 @@ export function createGame(S, area, els, platform = null) {
 
     const outcomes = Math.max(1, G.dayStats.served + G.dayStats.lost);
     const lostRate = G.dayStats.lost / outcomes;
-    // Rating measures how the cafe felt, while the contract is a separate ambition. A flawless
-    // service shift can still be 3-star even if a difficult rival target was narrowly missed.
     const rating = lostRate <= 0.06 && (met || G.shiftBestStreak >= 8) ? 3 : lostRate <= 0.16 ? 2 : 1;
 
     const repResult = recordShift(G.meta, completedDay, rating, G.shiftBestStreak);
@@ -376,7 +372,6 @@ export function createGame(S, area, els, platform = null) {
     G.serviceStreak = { count: 0, t: 0 };
     G.shiftBestStreak = G.dayStats.bestStreak | 0;
     ensureCareer(G.meta);
-    // applySave intentionally regenerates this from the current day + persisted rival history.
     G.goal = chooseCareerGoal(G.dayState.day, G.meta);
     world.dayState = G.dayState; world.stars = G.stars; lastAwningSet = -1;
 
@@ -391,7 +386,7 @@ export function createGame(S, area, els, platform = null) {
     for (const st of world.stations.values()) st.active = !st.builtBy || world.built.has(st.builtBy);
     refreshActive(world);
 
-    visuals.syncAll();
+    visuals.syncAll(); registerCash.syncAll();
     zones.syncAll();
     hud.setCoins(G.coins);
     syncReputationPresentation(); syncPetBookPresentation(); syncCareerPresentation();
