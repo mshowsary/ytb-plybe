@@ -51,6 +51,8 @@ jobs:
         run: node tools/ultra-narrow-smoke.js
       - name: First-use interaction coach smoke
         run: node tools/interaction-coach-smoke.js
+      - name: Rewarded Rush Help smoke
+        run: node tools/rush-help-smoke.js
       - name: YouTube publisher certification smoke
         run: node tools/playables-cert-smoke.js
       - name: Upload production QA
