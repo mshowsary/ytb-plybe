@@ -1,6 +1,6 @@
 // Real-world ultra-narrow portrait regression test. The 218px publisher fixture is useful, but
 // browser/device emulation can expose the playable at ~183 CSS px wide. Keep the permanent HUD
-// non-overlapping there too, and save a screenshot for remote QA.
+// non-overlapping there too, including the Day-3 Party Order chip from the user's real screenshot.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -8,7 +8,8 @@ import { chromium } from 'playwright';
 
 const dist = path.resolve('dist');
 if (!fs.existsSync(path.join(dist, 'index.html'))) throw new Error('dist missing: run npm run build first');
-const shots = path.resolve('shots-production', 'cert');
+// Keep this outside cert/: playables-cert-smoke intentionally recreates its own cert screenshot dir.
+const shots = path.resolve('shots-production', 'ultra-narrow');
 fs.mkdirSync(shots, { recursive: true });
 const types = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.png':'image/png', '.svg':'image/svg+xml' };
 const server = http.createServer((req, res) => {
@@ -32,7 +33,18 @@ const page = await ctx.newPage();
 await page.route('https://www.youtube.com/game_api/v1', route => route.fulfill({ status:200, contentType:'text/javascript', body:mockSdk }));
 await page.goto('http://127.0.0.1:4177/', { waitUntil:'domcontentloaded' });
 await page.waitForFunction(() => window.__game && window.__ready && document.getElementById('loading').classList.contains('hidden'), null, { timeout:30000 });
-await page.waitForTimeout(300);
+
+// Match the screenshot that exposed the bug: Day 3 is when Party Orders first become active. Let
+// the real party-order system create/render its chip instead of artificially un-hiding DOM.
+await page.evaluate(() => {
+  window.__game.intro.step = 5; window.__game.intro.active = false;
+  window.__game.dayState.day = 3; window.__game.dayState.t = 8; window.__game.dayState.phase = 'morning';
+});
+await page.waitForFunction(() => {
+  const el = document.querySelector('.party-order-btn');
+  return el && !el.classList.contains('hidden') && getComputedStyle(el).display !== 'none';
+}, null, { timeout:5000 });
+await page.waitForTimeout(200);
 
 const layout = await page.evaluate(() => {
   const selectors = ['#wallet','.pause-btn','#dayPill','.meta-reputation','.meta-pawbook','.party-order-btn'];
@@ -44,6 +56,10 @@ const layout = await page.evaluate(() => {
   }).filter(([,r]) => r);
   return { viewport:[innerWidth,innerHeight], bodyWidth:document.body.scrollWidth, rects };
 });
+
+const required = new Set(['#wallet','.pause-btn','#dayPill','.meta-reputation','.meta-pawbook','.party-order-btn']);
+for (const [sel] of layout.rects) required.delete(sel);
+if (required.size) throw new Error(`183x416 expected visible controls missing: ${[...required].join(', ')}`);
 
 function overlap(a,b) {
   return Math.min(a.right,b.right)-Math.max(a.left,b.left)>2 && Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top)>2;
@@ -58,6 +74,6 @@ for (let i=0;i<layout.rects.length;i++) for (let j=i+1;j<layout.rects.length;j++
   if (overlap(a,b)) throw new Error(`183x416 permanent HUD overlap: ${aSel} / ${bSel}`);
 }
 
-await page.screenshot({ path:path.join(shots,'00-ultra-narrow-183x416.png') });
+await page.screenshot({ path:path.join(shots,'00-day3-183x416.png') });
 console.log(JSON.stringify(layout,null,2));
 await ctx.close(); await browser.close(); await new Promise(resolve => server.close(resolve));
