@@ -123,7 +123,6 @@ for (const [tag,width,height] of cases) {
   const boot = await snapshot(page); validateLayout(boot, `${tag} boot`);
   const bootTargets = (await visibleTargets(page)).filter(t => /pause-btn|meta-reputation|meta-pawbook|party-order-btn|skipPill|fbtn/.test(String(t.cls)));
   validateTargets(bootTargets, `${tag} boot`);
-  if (!document) {} // keeps this script strictly module-scoped in older Node parsers
   await page.screenshot({ path:path.join(shots, `01-${tag}-boot.png`) });
 
   // User pause: time, rendering, global CSS motion and procedural audio all freeze.
