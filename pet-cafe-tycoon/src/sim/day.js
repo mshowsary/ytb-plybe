@@ -43,15 +43,15 @@ export function phaseFrac(d) {
 
 // Customer-volume rhythm. Day 1 gets a small activity lift after the tutorial cap so a competent
 // first-time player is not set up to miss the very first contract by one guest. From Day 3 onward,
-// the first 20 seconds of afternoon are an explicit recovery window: no second rush hidden inside
-// the backlog, just enough quiet to restock/clean before normal afternoon traffic resumes.
+// the first 20 seconds of afternoon are an explicit recovery window. It slows arrivals enough to
+// clear the rush backlog without making the café suddenly feel empty or starving the economy.
 export function spawnMult(d) {
   let base = 0;
   if (d.phase === 'morning') base = d.day === 1 ? 0.52 : 0.45;
   else if (d.phase === 'rush') base = d.day === 1 ? 1.42 : 1.35;
   else if (d.phase === 'afternoon') {
     const recovering = d.day >= 3 && phaseFrac(d) < (20 / AFTERNOON);
-    base = recovering ? 0.16 : 0.48;
+    base = recovering ? 0.30 : 0.48;
   }
   return (d.phase === 'rush' && isWeekend(d.day)) ? base * 1.25 : base;
 }
