@@ -45,6 +45,8 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Browser visual smoke
         run: node tools/production-smoke-v2.js
+      - name: Ultra-narrow 183px HUD smoke
+        run: node tools/ultra-narrow-smoke.js
       - name: YouTube publisher certification smoke
         run: node tools/playables-cert-smoke.js
       - name: Upload production QA
