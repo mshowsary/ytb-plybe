@@ -32,7 +32,7 @@ export function createPauseMenu(G, platform) {
   button.setAttribute('aria-label', 'Pause and settings'); button.title = 'Pause / settings';
   document.body.appendChild(button);
 
-  const root = document.createElement('div'); root.className = 'pause-root hidden';
+  const root = document.createElement('div'); root.className = 'pause-root hidden'; root.setAttribute('aria-hidden', 'true');
   root.innerHTML = `
     <div class="pause-card" role="dialog" aria-modal="true" aria-labelledby="pauseTitle">
       <div class="pause-head"><div class="pause-paw">🐾</div><div><div class="pause-title" id="pauseTitle">Café paused</div><div class="pause-sub">Take a break. Nothing in the café moves while this menu is open.</div></div></div>
@@ -61,12 +61,13 @@ export function createPauseMenu(G, platform) {
   }
   function open() {
     if (!root.classList.contains('hidden')) return;
-    G.userPaused = true; root.classList.remove('hidden');
+    G.userPaused = true; root.classList.remove('hidden'); root.setAttribute('aria-hidden', 'false');
     sync(); requestAnimationFrame(() => resumeBtn.focus({ preventScroll: true }));
   }
   function close() {
     if (root.classList.contains('hidden')) return;
-    root.classList.add('hidden'); G.userPaused = false; button.focus({ preventScroll: true });
+    root.classList.add('hidden'); root.setAttribute('aria-hidden', 'true'); G.userPaused = false;
+    button.focus({ preventScroll: true });
   }
   function toggleSetting(key) {
     G.settings[key] = !(G.settings[key] !== false);
@@ -79,7 +80,10 @@ export function createPauseMenu(G, platform) {
   sfxBtn.addEventListener('click', () => toggleSetting('sfx'));
   document.addEventListener('keydown', e => {
     if (e.code === 'KeyP' && !e.repeat) { e.preventDefault(); root.classList.contains('hidden') ? open() : close(); }
-    else if (e.key === 'Escape' && !root.classList.contains('hidden')) { e.preventDefault(); e.stopPropagation(); close(); }
+    else if (e.key === 'Escape' && !root.classList.contains('hidden')) {
+      // Playables must not prevent the browser/YouTube default Escape behavior.
+      e.stopPropagation(); close();
+    }
   }, true);
 
   sync();
