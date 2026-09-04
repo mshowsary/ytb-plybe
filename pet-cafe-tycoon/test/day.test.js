@@ -11,8 +11,8 @@ test('the first shift is slightly livelier without changing the normal day-two p
 
 test('day three onward opens afternoon with a 20 second recovery window', () => {
   assert.equal(spawnMult({ day: 2, t: 150, phase: 'afternoon' }), 0.48);
-  assert.equal(spawnMult({ day: 3, t: 150, phase: 'afternoon' }), 0.16);
-  assert.equal(spawnMult({ day: 3, t: 169.9, phase: 'afternoon' }), 0.16);
+  assert.equal(spawnMult({ day: 3, t: 150, phase: 'afternoon' }), 0.30);
+  assert.equal(spawnMult({ day: 3, t: 169.9, phase: 'afternoon' }), 0.30);
   assert.equal(spawnMult({ day: 3, t: 170, phase: 'afternoon' }), 0.48);
   assert.equal(spawnMult({ day: 3, t: 205, phase: 'afternoon' }), 0.48);
 });
