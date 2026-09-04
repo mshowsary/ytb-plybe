@@ -1,6 +1,7 @@
 // src/systems/staff.js — spawns runner/cashier renders to mirror G.staff counts, steps the
 // pure staff sim, and renders a runner's chest-carried items by reusing the human stack.
 import { stepStaff, createStaff as createStaffSim } from '../sim/staff.js';
+import { staffLevelsWithRushCrew } from '../sim/rushCrew.js';
 import { createHuman } from '../render/human.js';
 import { itemFor } from '../render/props.js';
 
@@ -16,6 +17,9 @@ const CLEANER_SPAWN = { x: -6, z: 4 };
 export function createStaff(G, S, ctx) {
   const { world, scene, hud, fx, audio } = ctx;
   const rec = new Map(); // sim staff object -> { human, itemMeshes, px, pz }
+  // Reused only while a rush boost is active. `staffLevelsWithRushCrew` returns G.staffLevels
+  // directly on the normal path, so this adds no per-frame object churn to ordinary play.
+  const rushLevelScratch = { runner: { speed: 0, carry: 0 }, cashier: { speed: 0 }, cleaner: { speed: 0 } };
 
   function spawnRunner() {
     const s = createStaffSim('runner', RUNNER_SPAWN); G.staffList.push(s);
@@ -66,9 +70,11 @@ export function createStaff(G, S, ctx) {
       if (cleaners < (G.staff.cleaner | 0)) spawnCleaner();
 
       // M3 T6: pass G.customers so a hired runner prefers restocking whatever a genuinely stuck
-      // customer is waiting on (sim/staff.js's pickSource/pickCounter) instead of just whichever
-      // production station has the most raw stock sitting in its buffer.
-      stepStaff(G.staffList, world, dt, onCollect, G.staffLevels, G.customers);
+      // customer is waiting on. A future rewarded Rush Crew activation may lend the selected role
+      // one EXISTING upgrade tier for this rush only; no active boost means this is G.staffLevels
+      // itself and simulation behaviour remains exactly the permanent-upgrade path.
+      const effectiveLevels = staffLevelsWithRushCrew(G.staffLevels, G.boosts, G.dayState, rushLevelScratch);
+      stepStaff(G.staffList, world, dt, onCollect, effectiveLevels, G.customers);
       // M3 T2: staff now walk the grid — no push-out here, the sim already resolves positions.
 
       for (const s of G.staffList) {
