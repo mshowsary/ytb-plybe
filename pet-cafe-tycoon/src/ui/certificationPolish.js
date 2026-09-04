@@ -1,6 +1,31 @@
 // Last-mile publisher QA rules. Loaded after the rest of the UI so these minimum hit areas win
 // without forcing desktop layouts to become oversized.
 const ID = 'pet-cafe-certification-polish';
+
+function compactContractTarget(label) {
+  const full = String(label || '').trim();
+  const target = full.replace(/^Rival\s*·\s*/i, '').trim();
+  let m = target.match(/Reach\s+([\d,]+)x\s+service/i);
+  if (m) return `${m[1]}x SERVICE`;
+  m = target.match(/Serve\s+([\d,]+)/i);
+  if (m) return `${m[1]} GUESTS`;
+  m = target.match(/Earn\s+([\d,]+)/i);
+  if (m) return `${m[1]} COINS`;
+  return target.toUpperCase();
+}
+
+function polishDynamicLabels(root = document) {
+  for (const el of root.querySelectorAll?.('.career-result-copy .career-muted') || []) {
+    const full = el.dataset.fullContractLabel || el.textContent.trim();
+    if (!full) continue;
+    const compact = compactContractTarget(full);
+    el.dataset.fullContractLabel = full;
+    el.setAttribute('aria-label', `Contract target: ${full}`);
+    el.title = full;
+    if (el.textContent !== compact) el.textContent = compact;
+  }
+}
+
 export function installCertificationPolish() {
   if (document.getElementById(ID)) return;
   const s = document.createElement('style'); s.id = ID;
@@ -41,6 +66,10 @@ export function installCertificationPolish() {
       body.playables-tiny .party-order-btn{height:48px!important;min-height:48px!important}
       body.playables-tiny .stabs{gap:3px!important}
       body.playables-tiny .stab{padding:0 4px!important;font-size:10px!important}
+      /* At 218px wide the renovation title gets two honest lines instead of a mechanical ellipsis. */
+      body.playables-tiny .career-renovation .reno-next{gap:4px!important}
+      body.playables-tiny .career-renovation .reno-name{font-size:9px!important;line-height:1.05!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important}
+      body.playables-tiny .career-renovation .reno-buy{min-width:72px!important;padding-left:6px!important;padding-right:6px!important}
     }
     /* 418x218 is a publisher stress viewport, not a normal phone layout. Keep every actionable
        Journey control visible at once: rank, current week and renovation are the three actionable
@@ -84,4 +113,14 @@ export function installCertificationPolish() {
     }
   `;
   document.head.appendChild(s);
+
+  const startDynamicPolish = () => {
+    polishDynamicLabels();
+    const observer = new MutationObserver(mutations => {
+      if (mutations.some(m => m.addedNodes.length)) polishDynamicLabels();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  };
+  if (document.body) startDynamicPolish();
+  else document.addEventListener('DOMContentLoaded', startDynamicPolish, { once: true });
 }
