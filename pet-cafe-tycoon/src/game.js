@@ -8,18 +8,21 @@ import { ensurePetBook, discoverPet, petBookProgress, allPetCards } from './sim/
 import {
   ensureCareer, chooseCareerGoal, careerGoalLabel, careerGoalProgress, careerGoalMet,
   recordRecipeOrder, masteryMultiplier, allMasteryProgress, recordCareerShift,
-  weeklyCupState, awardWeeklyCup, weekdayIndex, LEGENDARY_REPUTATION,
+  weeklyCupState, awardWeeklyCup, weekdayIndex, renovationState, buyRenovation,
+  LEGENDARY_REPUTATION,
 } from './sim/career.js';
 import { createCarry } from './sim/carry.js';
 import { createInput } from './core/input.js';
 import { buildStatic } from './render/props.js';
 import { createAmbience } from './render/ambience.js';
+import { createRenovationDecor } from './render/renovation.js';
 import { createOwner } from './render/owner.js';
 import { createFx } from './render/fx.js';
 import { createHud } from './ui/hud.js';
 import { createSheets } from './ui/sheets.js';
 import { createMetaUI } from './ui/meta.js';
 import { createCareerUI } from './ui/career.js';
+import { createRenovationUI } from './ui/renovation.js';
 import { createAudio } from './audio/synth.js';
 import { createStations } from './systems/stations.js';
 import { createZones } from './systems/zones.js';
@@ -64,6 +67,7 @@ export function createGame(S, area, els, platform = null) {
   const scene = S.scene;
   const staticGroup = buildStatic(area); scene.add(staticGroup);
   const ambience = createAmbience(area); scene.add(ambience.group);
+  const renovationDecor = createRenovationDecor(area); scene.add(renovationDecor.group);
   G.awning = staticGroup.awning;
   let lastAwningSet = -1;
 
@@ -71,6 +75,7 @@ export function createGame(S, area, els, platform = null) {
   const hud = createHud();
   const metaUI = createMetaUI();
   const careerUI = createCareerUI();
+  const renovationUI = createRenovationUI();
   const fx = createFx(scene, S.camera, els.fx, hud.walletEl);
   const sheets = createSheets();
   const audio = createAudio();
@@ -78,6 +83,23 @@ export function createGame(S, area, els, platform = null) {
   input.onFirstInput(() => audio.unlock());
   audio.setSfx(G.settings.sfx);
   audio.setMusic(G.settings.music);
+
+  function buyNextRenovation() {
+    const result = buyRenovation(G.meta, G.coins);
+    if (!result.ok) {
+      if (result.reason === 'coins') metaUI.toast('Save more coins for this renovation');
+      else if (result.reason === 'reputation') metaUI.toast(`Reach ${result.requiredRep} reputation first`);
+      syncCareerPresentation();
+      return false;
+    }
+    G.coins = result.coins;
+    hud.setCoins(G.coins); hud.bump(); audio.play('chime');
+    renovationDecor.setLevel(result.level);
+    hud.banner(`${result.renovation.name.toUpperCase()} RENOVATION`, 2200);
+    syncCareerPresentation();
+    if (platform && G.snapshot) platform.save(G.snapshot());
+    return true;
+  }
 
   function syncReputationPresentation() {
     ensureReputation(G.meta);
@@ -115,6 +137,8 @@ export function createGame(S, area, els, platform = null) {
       legendaryTarget: LEGENDARY_REPUTATION,
       legendary: (G.meta.reputation | 0) >= LEGENDARY_REPUTATION,
     });
+    renovationDecor.setLevel(career.renovationLevel | 0);
+    renovationUI.setModel({ ...renovationState(G.meta, G.coins), coins: G.coins, onBuy: buyNextRenovation });
   }
   syncReputationPresentation(); syncPetBookPresentation(); syncCareerPresentation();
 
@@ -130,6 +154,8 @@ export function createGame(S, area, els, platform = null) {
     return decide(world, G);
   };
 
+  // Recipe mastery is intentionally a small permanent bonus: it makes grinding meaningful without
+  // eclipsing staff/machine upgrades or making an old save's economy explode.
   const price = (key, seated) => Math.round(salePrice(key, G.up, G.boosts, seated, Date.now(), tipMult(G.dayState)) * masteryMultiplier(G.meta, key));
   const ctx = {
     area, world, scene, hud, fx, sheets, audio, input, owner, P, price, els,
@@ -162,7 +188,7 @@ export function createGame(S, area, els, platform = null) {
     input.update();
     stations.update(dt); zones.update(dt); customers.update(dt); staff.update(dt);
     intro.update(dt);
-    ambience.update(dt);
+    ambience.update(dt); renovationDecor.update(dt);
     visuals.update(dt); registerCash.update(dt); objective.update(dt);
     fx.update(dt); hud.update();
 
@@ -223,11 +249,14 @@ export function createGame(S, area, els, platform = null) {
     const completedDay = G.dayState.day;
     G.meta.completedDays = Math.max(G.meta.completedDays | 0, completedDay);
     const goal = G.goal;
+    const goalProgressNow = careerGoalProgress(goal, G.dayStats);
     const met = careerGoalMet(goal, G.dayStats);
     if (met) { G.coins += goal.reward; hud.setCoins(G.coins); }
 
     const outcomes = Math.max(1, G.dayStats.served + G.dayStats.lost);
     const lostRate = G.dayStats.lost / outcomes;
+    // Rating measures service quality; the contract is a separate ambition. This makes a clean
+    // shift worth celebrating even if a hard previous-week rival target was missed narrowly.
     const rating = lostRate <= 0.06 && (met || G.shiftBestStreak >= 8) ? 3 : lostRate <= 0.16 ? 2 : 1;
 
     const repResult = recordShift(G.meta, completedDay, rating, G.shiftBestStreak);
@@ -286,17 +315,40 @@ export function createGame(S, area, els, platform = null) {
           G.meta.rewardedDays[completedDay] = 1;
           G.coins += rewardAmount;
           hud.setCoins(G.coins); hud.bump(); audio.play('chime');
+          syncCareerPresentation();
           metaUI.toast(`Bonus +${rewardAmount.toLocaleString('en-US')}`);
           platform.save(G.snapshot());
           return true;
         },
       } : null,
     });
+
     const career = ensureCareer(G.meta);
+    const masteries = allMasteryProgress(G.meta);
+    const closestMastery = masteries.filter(m => !m.max).sort((a, b) => b.frac - a.frac)[0] || null;
+    const reno = renovationState(G.meta, G.coins);
+    const nextChase = nextUnlock
+      ? `Build ${nextUnlock.label} · ${nextUnlock.price.toLocaleString('en-US')} coins`
+      : reno.next
+        ? `${reno.next.name} renovation · ${reno.repReady ? `${reno.next.cost.toLocaleString('en-US')} coins` : `reach ${reno.next.rep} REP`}`
+        : repProgress.next != null
+          ? `Reach ${REPUTATION_TITLES[repLevel + 1]} · ${repProgress.needed - repProgress.current} REP to go`
+          : closestMastery
+            ? `Master ${closestMastery.label} · ${closestMastery.current}/${closestMastery.needed}`
+            : 'Defend Gold Cups and beat your weekly records';
+
     careerUI.decorateSummary({
       week: weeklyCupState(G.meta, completedDay),
       cupAward,
       contractStreak: career.contractStreak | 0,
+      lost: G.dayStats.lost | 0,
+      nextUnlock,
+      contract: {
+        kind: goal.kind, label: careerGoalLabel(goal), target: goal.target,
+        progress: goalProgressNow, previous: goal.previous, rival: !!goal.rival,
+        met, reward: goal.reward,
+      },
+      nextChase,
     });
     if (platform) platform.save(G.snapshot());
   }
@@ -354,6 +406,7 @@ export function createGame(S, area, els, platform = null) {
         contractStreak: G.meta.career.contractStreak | 0,
         bestContractStreak: G.meta.career.bestContractStreak | 0,
         bestWeekPoints: G.meta.career.bestWeekPoints | 0,
+        renovationLevel: G.meta.career.renovationLevel | 0,
       },
     },
     dayState: { ...G.dayState },
@@ -372,6 +425,7 @@ export function createGame(S, area, els, platform = null) {
     G.serviceStreak = { count: 0, t: 0 };
     G.shiftBestStreak = G.dayStats.bestStreak | 0;
     ensureCareer(G.meta);
+    // applySave intentionally regenerates this from the current day + persisted rival history.
     G.goal = chooseCareerGoal(G.dayState.day, G.meta);
     world.dayState = G.dayState; world.stars = G.stars; lastAwningSet = -1;
 
