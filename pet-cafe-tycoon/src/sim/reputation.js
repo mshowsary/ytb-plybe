@@ -1,12 +1,19 @@
 // Long-term cafe reputation: permanent progression earned from good shifts, never from ads.
 // Kept pure so the economy can be tuned with node:test and the headless bot.
-export const REPUTATION_LEVELS = [0, 4, 10, 18, 30, 46];
+// The first six thresholds preserve existing-save progression exactly; the extended road gives
+// a fully-built cafe a real career destination instead of topping out around day 10.
+export const REPUTATION_LEVELS = [0, 4, 10, 18, 30, 46, 70, 100, 140, 185, 220];
 export const REPUTATION_TITLES = [
   'Cozy Corner',
   'Neighborhood Favorite',
   'Pet Hotspot',
   'City Darling',
   'Iconic Café',
+  'Local Landmark',
+  'Destination Café',
+  'Five-Star Pet Café',
+  'City Institution',
+  'World-Famous Café',
   'Legendary Café',
 ];
 
