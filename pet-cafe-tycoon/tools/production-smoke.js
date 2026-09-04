@@ -79,10 +79,13 @@ for (const [tag, width, height, dpr] of viewports) {
     await page.evaluate(() => window.__game.setMove(null));
   }
 
+  // Load a late-game shape with prior same-weekday history. Day 13 (Saturday) must become a
+  // streak rival against Day 6 instead of the legacy day-number formula. Enough rep/coins are
+  // present to exercise the first visible renovation from the real Journey UI.
   await page.evaluate(() => {
     const g = window.__game;
     const s = g.snapshot();
-    s.coins = 2400;
+    s.coins = 6000;
     s.builds.a1 = g.world.area.zones.map(z => z.id);
     s.partial = {};
     s.staff = { runner: 2, cashier: 1, cleaner: 1 };
@@ -91,12 +94,26 @@ for (const [tag, width, height, dpr] of viewports) {
     s.intro = { step: 5, active: false, target: null };
     s.meta = {
       completedDays: 12,
-      rewardedDays: {}, reputation: 34, perfectShifts: 5, bestServiceStreak: 18,
+      rewardedDays: {}, reputation: 72, perfectShifts: 5, bestServiceStreak: 18,
       shiftRatings: { 1: 2, 2: 3, 3: 2, 4: 3, 5: 3, 6: 2, 7: 3, 8: 2, 9: 3, 10: 2, 11: 3, 12: 3 },
       petBook: { 'cat:0': 1, 'cat:1': 1, 'cat:2': 1, 'dog:0': 1, 'dog:1': 1, 'bunny:0': 1, 'bunny:2': 1 }, petDiscoveries: 7,
+      career: {
+        history: {
+          6: { served: 38, lost: 1, earned: 760, bestStreak: 9, rating: 2, contractMet: true, points: 3 },
+          7: { served: 41, lost: 0, earned: 860, bestStreak: 11, rating: 3, contractMet: true, points: 4 },
+          8: { served: 43, lost: 1, earned: 910, bestStreak: 12, rating: 3, contractMet: true, points: 4 },
+          9: { served: 44, lost: 0, earned: 975, bestStreak: 13, rating: 3, contractMet: true, points: 4 },
+          10:{ served: 42, lost: 1, earned: 940, bestStreak: 12, rating: 2, contractMet: false, points: 2 },
+          11:{ served: 46, lost: 0, earned: 1030, bestStreak: 14, rating: 3, contractMet: true, points: 4 },
+          12:{ served: 47, lost: 0, earned: 1120, bestStreak: 15, rating: 3, contractMet: true, points: 4 },
+        },
+        weeklyCups: {}, trophies: { bronze: 0, silver: 1, gold: 1 },
+        recipeSales: { cookie: 80, cupcake: 42, coffee: 96, smoothie: 31, treat: 45 },
+        contractStreak: 2, bestContractStreak: 5, bestWeekPoints: 25, renovationLevel: 0,
+      },
     };
     s.dayState = { day: 13, t: 78, phase: 'rush', _ended: false };
-    s.dayStats = { served: 14, lost: 1, earned: 420, serviceFees: 0, serviceMisses: 0 };
+    s.dayStats = { served: 14, lost: 1, earned: 420, serviceFees: 0, serviceMisses: 0, bestStreak: 5 };
     g.restore(s);
     for (const [id, product] of [['dispCookie','cookie'], ['dispCupcake','cupcake'], ['barCoffee','coffee'], ['barSmoothie','smoothie']]) {
       const st = g.world.stations.get(id); if (st) { st.stock = 8; st.product = product; }
@@ -106,8 +123,47 @@ for (const [tag, width, height, dpr] of viewports) {
     const oven2 = g.world.stations.get('oven2'); if (oven2) oven2.stock = 8;
     const coffee = g.world.stations.get('coffee1'); if (coffee) { coffee.stock = 8; coffee.beans = 12; }
   });
-  await page.waitForTimeout(8500);
+  await page.waitForTimeout(500);
 
+  const goalState = await page.evaluate(() => ({
+    day: window.__game.dayState.day,
+    kind: window.__game.goal?.kind,
+    target: window.__game.goal?.target,
+    previous: window.__game.goal?.previous,
+    rival: window.__game.goal?.rival,
+    text: document.querySelector('.goal')?.textContent || '',
+  }));
+
+  // Journey is part of the late-game core now, so smoke it on every viewport.
+  await page.click('.meta-reputation');
+  await page.waitForFunction(() => !document.querySelector('.career-root')?.classList.contains('hidden'));
+  const journeyBefore = await page.evaluate(() => ({
+    days: document.querySelectorAll('.career-day').length,
+    masteries: document.querySelectorAll('.career-master-row').length,
+    renovation: !!document.querySelector('.career-renovation'),
+    renovationLevel: window.__game.meta.career.renovationLevel,
+    renoButtonDisabled: document.querySelector('.reno-buy')?.disabled,
+    bodyWidth: document.body.scrollWidth,
+    viewportWidth: window.innerWidth,
+  }));
+  await page.screenshot({ path: path.join(shots, `02-journey-${tag}.png`), fullPage: true });
+
+  let renovation = null;
+  if (tag === 'small') {
+    const coinsBefore = await page.evaluate(() => window.__game.coins);
+    await page.click('.reno-buy');
+    await page.waitForFunction(() => window.__game.meta.career.renovationLevel === 1);
+    renovation = await page.evaluate(before => ({
+      level: window.__game.meta.career.renovationLevel,
+      spent: before - window.__game.coins,
+      nextName: document.querySelector('.reno-name')?.textContent || '',
+    }), coinsBefore);
+    await page.screenshot({ path: path.join(shots, '03-renovated-small.png'), fullPage: true });
+  }
+  await page.click('.career-close');
+  await page.waitForFunction(() => document.querySelector('.career-root')?.classList.contains('hidden'));
+
+  await page.waitForTimeout(8000);
   const busy = await page.evaluate(() => {
     const r = window.__scene.renderer.info.render;
     return {
@@ -118,7 +174,7 @@ for (const [tag, width, height, dpr] of viewports) {
       bodyWidth: document.body.scrollWidth, viewportWidth: window.innerWidth,
     };
   });
-  await page.screenshot({ path: path.join(shots, `02-busy-${tag}.png`), fullPage: true });
+  await page.screenshot({ path: path.join(shots, `04-busy-${tag}.png`), fullPage: true });
 
   let interaction = null;
   if (tag === 'small') {
@@ -159,16 +215,28 @@ for (const [tag, width, height, dpr] of viewports) {
       return { remaining: g.carry.fruit, machineFruit: b.fruit, stock: b.stock };
     });
 
-    const cashBefore = await page.evaluate(() => { const g = window.__game, st = g.world.stations.get('register1'); st.pile = 27; return g.coins; });
+    const cashBefore = await page.evaluate(() => { const g = window.__game, st = g.world.stations.get('register1'); st.pile = 206; return g.coins; });
+    await page.waitForFunction(() => {
+      const el = document.querySelector('.register-money-badge');
+      return el && !el.classList.contains('hidden') && el.textContent.includes('206');
+    });
+    const cashVisual = await page.evaluate(() => {
+      const modern = document.querySelector('.register-money-badge');
+      const legacy = document.querySelector('.cash-tray-badge');
+      return {
+        modernVisible: !!modern && getComputedStyle(modern).display !== 'none' && !modern.classList.contains('hidden'),
+        modernText: modern?.textContent || '',
+        legacyHidden: !legacy || getComputedStyle(legacy).display === 'none',
+      };
+    });
     await placeAt('register1', 'cash');
-    await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'COLLECT 27' && !document.querySelector('.fbtn')?.classList.contains('hidden'));
-    const trayVisible = await page.evaluate(() => !document.querySelector('.cash-tray-badge')?.classList.contains('hidden'));
+    await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'COLLECT 206' && !document.querySelector('.fbtn')?.classList.contains('hidden'));
+    await page.screenshot({ path: path.join(shots, '05-register-cash-small.png'), fullPage: true });
     await page.click('.fbtn');
     await page.waitForTimeout(250);
     const cash = await page.evaluate(before => ({ pile: window.__game.world.stations.get('register1').pile, gained: window.__game.coins - before }), cashBefore);
 
-    interaction = { pantry, returned, blender, cash: { ...cash, trayVisible } };
-    await page.screenshot({ path: path.join(shots, '05-interaction-small.png'), fullPage: true });
+    interaction = { pantry, returned, blender, cash: { ...cash, ...cashVisual } };
     await page.evaluate(() => window.__game.setMove(null));
   }
 
@@ -180,30 +248,41 @@ for (const [tag, width, height, dpr] of viewports) {
     title: document.querySelector('.meta-book-title')?.textContent || '',
     bodyWidth: document.body.scrollWidth, viewportWidth: window.innerWidth,
   }));
-  await page.screenshot({ path: path.join(shots, `03-book-${tag}.png`), fullPage: true });
+  await page.screenshot({ path: path.join(shots, `06-book-${tag}.png`), fullPage: true });
   await page.click('.meta-book-close');
 
   await page.evaluate(() => {
     const g = window.__game;
-    g.dayStats = { served: 42, lost: 1, earned: 1180, serviceFees: 9, serviceMisses: 2 }; g.shiftBestStreak = 14;
+    // Day 13's adaptive Saturday contract is Reach 10x (Day 6 was 9x); give it a clean win.
+    g.dayStats = { served: 42, lost: 0, earned: 1180, serviceFees: 0, serviceMisses: 0, bestStreak: 14 };
+    g.shiftBestStreak = 14;
     const d = g.dayState; d.t = 239.99; d.phase = 'closing'; d._ended = false;
   });
   await page.waitForFunction(() => !!document.querySelector('.sheet-root .card'), null, { timeout: 5000 });
-  await page.waitForFunction(() => !!document.querySelector('.meta-rating'), null, { timeout: 5000 });
+  await page.waitForFunction(() => !!document.querySelector('.meta-rating') && !!document.querySelector('.career-result') && !!document.querySelector('.career-summary'), null, { timeout: 5000 });
   await page.waitForTimeout(300);
   const meta = await page.evaluate(() => ({
     stars: document.querySelector('.meta-rating-stars')?.textContent || '', reward: !!document.querySelector('.meta-reward-btn'),
     repSummary: !!document.querySelector('.meta-rep-summary'), repTitle: document.querySelector('.meta-rep-summary .meta-kicker')?.textContent || '',
+    careerResult: document.querySelector('.career-result-score')?.textContent || '',
+    cupText: document.querySelector('.career-summary-cup')?.textContent || '',
+    nextChase: document.querySelector('.career-next-chase')?.textContent || '',
+    perfectText: [...document.querySelectorAll('.cbody .srow-sub')].map(e => e.textContent).find(t => t.startsWith('Service:')) || '',
     bodyWidth: document.body.scrollWidth, viewportWidth: window.innerWidth,
   }));
-  await page.screenshot({ path: path.join(shots, `04-summary-${tag}.png`), fullPage: true });
+  await page.screenshot({ path: path.join(shots, `07-summary-${tag}.png`), fullPage: true });
 
-  const overflow = busy.bodyWidth > busy.viewportWidth + 1 || book.bodyWidth > book.viewportWidth + 1 || meta.bodyWidth > meta.viewportWidth + 1;
-  const interactionBad = tag === 'small' && (!interaction || interaction.pantry.sack !== 'beans' || interaction.pantry.guide !== 'COFFEE' || !interaction.returned || (interaction.blender.machineFruit + interaction.blender.stock) <= 0 || interaction.cash.pile !== 0 || interaction.cash.gained !== 27 || !interaction.cash.trayVisible);
+  const overflow = journeyBefore.bodyWidth > journeyBefore.viewportWidth + 1 || busy.bodyWidth > busy.viewportWidth + 1 || book.bodyWidth > book.viewportWidth + 1 || meta.bodyWidth > meta.viewportWidth + 1;
+  const interactionBad = tag === 'small' && (!interaction || interaction.pantry.sack !== 'beans' || interaction.pantry.guide !== 'COFFEE' || !interaction.returned || (interaction.blender.machineFruit + interaction.blender.stock) <= 0 || interaction.cash.pile !== 0 || interaction.cash.gained !== 206 || !interaction.cash.modernVisible || !interaction.cash.modernText.includes('206') || !interaction.cash.legacyHidden);
   const buildBad = tag === 'small' && (!buildIntent || buildIntent.walkPaid !== 0 || buildIntent.earlyPaid !== 0 || !(buildIntent.heldPaid > 0));
   const pauseBad = tag === 'small' && (!pauseState || !pauseState.frozen || !pauseState.musicOff);
-  if (!info.platform || info.metaVersion !== 4 || !meta.stars || !meta.reward || !meta.repSummary || !busy.repLabel || !busy.petCount || book.cards !== 12 || book.found < 7 || overflow || interactionBad || buildBad || pauseBad || errors.length) failed = true;
-  report.push({ tag, ...info, buildIntent, pauseState, busy, book, interaction, ...meta, overflow, errors });
+  const journeyBad = journeyBefore.days !== 7 || journeyBefore.masteries !== 5 || !journeyBefore.renovation || journeyBefore.renoButtonDisabled;
+  const renovationBad = tag === 'small' && (!renovation || renovation.level !== 1 || renovation.spent !== 1800 || renovation.nextName !== 'Gallery Café');
+  const goalBad = goalState.day !== 13 || goalState.kind !== 'streak' || goalState.target !== 10 || goalState.previous !== 9 || goalState.rival !== true;
+  const summaryBad = meta.careerResult !== 'WON ✓' || !meta.cupText || !meta.nextChase || !meta.perfectText.includes('PERFECT');
+
+  if (!info.platform || info.metaVersion !== 4 || !meta.stars || !meta.reward || !meta.repSummary || !busy.repLabel || !busy.petCount || book.cards !== 12 || book.found < 7 || overflow || interactionBad || buildBad || pauseBad || journeyBad || renovationBad || goalBad || summaryBad || errors.length) failed = true;
+  report.push({ tag, ...info, buildIntent, pauseState, goalState, journeyBefore, renovation, busy, book, interaction, ...meta, overflow, errors });
   await ctx.close();
 }
 
