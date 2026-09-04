@@ -48,7 +48,7 @@ async function boot() {
   const responsive = createResponsivePolish(G);
   const shell = createPlayablesShell();
   installCertificationPolish();
-  const interactionCoach = createInteractionCoach();
+  const interactionCoach = createInteractionCoach(G, S);
   const cashTrays = createCashTrays(G.world, S.scene);
   const pauseOverlay = makePauseOverlay();
   platform.bindGame(G);
