@@ -99,20 +99,14 @@ function renderPantry(model, actions, onClose) {
   rows.appendChild(actionButton('sbtn buy', { html: iconSpan(sackIcon()) + '<span>Kibble</span>' }, !model.kibble, () => actions.pick('kibble')));
   el.appendChild(rows); return el;
 }
-function summaryRow(label, value, className = '') {
-  const row = document.createElement('div'); row.className = 'srow-sub' + (className ? ` ${className}` : ''); row.textContent = `${label}: ${value}`; return row;
+function summaryRow(label, value) {
+  const row = document.createElement('div'); row.className = 'srow-sub'; row.textContent = `${label}: ${value}`; return row;
 }
 function renderSummary(model, actions, onClose) {
-  const el = shell('summary', `Day ${model.day} complete`, onClose); const body = document.createElement('div'); body.className = 'cbody';
-  body.append(summaryRow('Earnings', fmt(model.earnings)), summaryRow('Served', model.served), summaryRow('Lost sales', model.lost));
-  if ((model.serviceFees | 0) > 0) body.append(summaryRow('Service recovery', `-${fmt(model.serviceFees)} coins`, 'summary-cost'));
-  if ((model.wasteFees | 0) > 0) body.append(summaryRow('Food waste', `-${fmt(model.wasteFees)} coins`, 'summary-cost'));
-  body.append(summaryRow('Café level', model.cafeLevel));
-  const goalLine = document.createElement('div'); goalLine.className = 'srow-label';
-  goalLine.textContent = model.goalMet ? `${model.goalText} — MET (+${fmt(model.goalReward)})` : `${model.goalText} — missed`; body.appendChild(goalLine);
-  body.append(summaryRow('Tomorrow', `${model.tomorrowText} (+${fmt(model.tomorrowReward)} coins)`));
-  // Career UI adds the real late-game Next Chase; this base row only appears while construction remains.
-  if (model.nextUnlock) body.append(summaryRow('Next unlock', `${model.nextUnlock.label} (${fmt(model.nextUnlock.price)})`));
+  const el = shell('summary', `Day ${model.day} ✓`, onClose); const body = document.createElement('div'); body.className = 'cbody';
+  body.append(summaryRow('Earnings', fmt(model.earnings)), summaryRow('Served', model.served));
+  const deductions = (model.serviceFees | 0) + (model.wasteFees | 0);
+  body.setAttribute('aria-label', `Earnings ${fmt(model.earnings)} coins. Served ${model.served}. Lost ${model.lost}. Deductions ${fmt(deductions)} coins.`);
   el.append(body, actionButton('sbtn continue', 'CONTINUE', false, () => actions.continue())); return el;
 }
 function renderEnd(model, actions, onClose) {
