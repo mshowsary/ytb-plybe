@@ -1,4 +1,4 @@
-// Owner movement, station interactions, carry guidance and explicit contextual actions.
+// Owner movement, station interactions, carry guidance and contextual actions.
 import { pushOut } from '../sim/collide.js';
 import {
   PRODUCTS, familyOf, playerSpeed, carryCap, buyUpgrade, hire as hireStaff,
@@ -19,21 +19,22 @@ const near = (a, b, r) => (a.x - b.x) ** 2 + (a.z - b.z) ** 2 < r * r;
 const dist2 = (a, b) => (a.x - b.x) ** 2 + (a.z - b.z) ** 2;
 const DWELL_SPEED = 0.6, DWELL_TIME = 0.25, DWELL_FACING = 0.3;
 const SHEET_CLOSE_RADIUS = 2.45;
+const AUTO_CASH_RADIUS = 1.2;
+const AUTO_CLEAN_RADIUS = 1.35;
 
 const FIRST_HINT = {
-  oven: 'Stand here to take finished food',
-  display: 'Stock only the matching shelf',
-  checkout: 'Serve here · collect payment from the cash tray',
-  pantry: 'Tap SUPPLIES to choose beans or kibble',
-  return: 'Tap RETURN ITEMS to empty your hands',
-  bush: 'Ripe garden: stand here to harvest fruit',
-  blender: 'Carry fruit here to make smoothies',
-  bowl: 'Carry kibble here to refill pet treats',
-  seat: 'Dirty table: tap CLEAN TABLE',
-  kiosk: 'Tap UPGRADES to open',
-  hire: 'Tap STAFF to open',
+  oven: 'Take food',
+  display: 'Stock shelf',
+  checkout: 'Serve here',
+  pantry: 'Supplies',
+  return: 'Return items',
+  bush: 'Pick fruit',
+  blender: 'Add fruit',
+  bowl: 'Add treats',
+  kiosk: 'Upgrades',
+  hire: 'Staff',
 };
-const FIRST_HINT_SECONDS = 4;
+const FIRST_HINT_SECONDS = 2;
 
 export function createStations(G, S, ctx) {
   const { area, world, hud, fx, audio, input, owner, P, sheets, hints, els } = ctx;
@@ -69,7 +70,7 @@ export function createStations(G, S, ctx) {
     else if (st.type === 'coffee') full = st.beans >= 20;
     else if (st.type === 'bowl') full = st.stock >= st.capacity;
     else if (st.type === 'blender') full = st.fruit >= 9;
-    if (full) guideCarry(message || `${destinationLabel(st)} full · take leftovers to RETURN`, 5, true);
+    if (full) guideCarry(message || `${destinationLabel(st)} → RETURN`, 3, true);
   }
 
   function noteFirstHint(type, active) {
@@ -142,8 +143,8 @@ export function createStations(G, S, ctx) {
     const held = heldState(owner.items, carry);
     if (held) {
       const dest = destinationFor(world, held, P);
-      const target = guideCarry(`Hands busy · ${heldLabel(held)}${dest ? ` → ${destinationLabel(dest)}` : ''}`, 5);
-      audio.play('angry'); hud.toast(target ? 'Finish what you are carrying first' : 'Empty your hands first');
+      const target = guideCarry(`${heldLabel(held)}${dest ? ` → ${destinationLabel(dest)}` : ''}`, 3);
+      audio.play('angry'); hud.toast(target ? 'Finish carrying first' : 'Hands full');
       return;
     }
     audio.play('tap');
@@ -156,8 +157,7 @@ export function createStations(G, S, ctx) {
           audio.play('pop');
           const heldNow = heldState(owner.items, carry);
           const target = destinationFor(world, heldNow, P);
-          hud.toast(kind === 'beans' ? 'Beans picked up' : 'Kibble picked up');
-          guideCarry(target ? `${heldLabel(heldNow)} → ${destinationLabel(target)}` : null, 5);
+          guideCarry(target ? `${destinationLabel(target)}` : null, 3);
         }
         sheets.close();
       },
@@ -176,14 +176,13 @@ export function createStations(G, S, ctx) {
     return true;
   }
 
-  // A register now has a physically separate payment tray. The existing 3D cash pile already
-  // lives at st.cash; this projected badge makes that spot readable on tiny screens too.
+  // Legacy cash labels are created for compatibility and removed by registerCash.js.
   const cashPads = new Map();
   for (const st of world.stations.values()) {
     if (st.type !== 'checkout') continue;
     const el = document.createElement('div');
     el.className = 'cash-tray-badge hidden';
-    el.style.cssText = 'position:absolute;transform:translate(-50%,-50%);min-height:32px;padding:5px 9px;box-sizing:border-box;border:2px solid #E0A800;border-radius:10px;background:#FFF6B0E8;color:#5B4314;font:900 11px/1 system-ui,sans-serif;box-shadow:0 3px 9px #0002;white-space:nowrap;pointer-events:none';
+    el.style.cssText = 'display:none';
     els.fx.appendChild(el);
     cashPads.set(st.id, { el, tmp: { sx: 0, sy: 0, visible: true }, last: -1 });
   }
@@ -200,13 +199,14 @@ export function createStations(G, S, ctx) {
   }
 
   function collectRegisterCash(st) {
-    if (!st || st.pile <= 0) return;
-    const amt = collectCash(world, st.id); if (amt <= 0) return;
+    if (!st || st.pile <= 0) return 0;
+    const amt = collectCash(world, st.id); if (amt <= 0) return 0;
     const cs = st.cash; hints.cash = 1;
     G.coins += amt; G.stats.lifetimeEarned = (G.stats.lifetimeEarned | 0) + amt;
     hud.setCoins(G.coins); audio.play('coin');
     fx.coinArc(cs.x, 0.3, cs.z, Math.min(10, 2 + (amt / 5 | 0)), () => hud.bump());
     fx.number(cs.x, 0.8, cs.z, '+' + amt);
+    return amt;
   }
 
   function triggerFloatAction() {
@@ -216,16 +216,11 @@ export function createStations(G, S, ctx) {
     if (a.kind === 'kiosk') openKiosk(st, 'player');
     else if (a.kind === 'hire') openKiosk(st, 'workers');
     else if (a.kind === 'pantry') openPantry(st);
-    else if (a.kind === 'collect') collectRegisterCash(st);
     else if (a.kind === 'return') {
       const held = heldState(owner.items, carry);
       if (!held) return;
       returnAll(carry); owner.clearItems(); audio.play('drop');
-      hud.toast(`Returned ${heldLabel(held)}`); clearGuide();
-    } else if (a.kind === 'clean') {
-      if (!st.dirty) return;
-      cleanSeat(world, st.id); hints.clean = 1; audio.play('clean');
-      fx.burst(st.x, 0.8, st.z, C.cream, 8); hud.toast('Table sparkling');
+      clearGuide();
     }
     floatAction = null; fbtn.classList.add('hidden');
   }
@@ -262,6 +257,7 @@ export function createStations(G, S, ctx) {
       stepMachines(world, dt, machineSpeedMult(G.machineLevels, 'coffee'));
       takeT -= dt; dropT -= dt;
       let actionCandidate = null;
+      cleanProg.clear();
 
       for (const st of world.stations.values()) {
         if (!st.active) continue;
@@ -282,28 +278,28 @@ export function createStations(G, S, ctx) {
             const current = held || heldState(owner.items, carry);
             if (current) {
               const target = destinationFor(world, current, P);
-              guideCarry(`${heldLabel(current)}${target ? ` → ${destinationLabel(target)}` : ''}`, 5);
+              guideCarry(`${heldLabel(current)}${target ? ` → ${destinationLabel(target)}` : ''}`, 3);
             }
           } else if (dwellOk && takeT <= 0 && canTakeItems(carry) && owner.items.length < carryCap(G.up) && st.stock > 0) {
             const first = owner.items.length === 0;
             (st.type === 'oven' ? takeFromOven : takeFromMachine)(world, st.id, 1);
             const im = itemFor(productKey); im.userData.product = productKey; owner.addItem(im);
             takeT = 0.35; hints.oven = 1; audio.play('pop');
-            if (first) guideCarry(null, 3);
+            if (first) guideCarry(null, 2.5);
           }
 
           if (st.type === 'coffee' && dwellOk && carry.sack === 'beans') {
             const used = refillBeans(world, st.id, carry.sackLeft);
             if (used > 0) {
               useSack(carry, used); hints.refillCoffee = 1; audio.play('pour'); fx.burst(st.x, 0.9, st.z, C.coral, 6);
-              maybeGuideLeftovers(st, 'Coffee stocked · return leftover beans');
+              maybeGuideLeftovers(st);
             }
           }
           if (st.type === 'blender' && dwellOk && carry.fruit > 0) {
             const added = stationAddFruit(world, st.id, carry.fruit);
             if (added > 0) {
               carry.fruit -= added; hints.blend = 1; audio.play('pour'); fx.burst(st.x, 0.9, st.z, C.plant, 6);
-              maybeGuideLeftovers(st, 'Blender full · keep or return leftover fruit');
+              maybeGuideLeftovers(st);
             }
           }
         }
@@ -316,10 +312,10 @@ export function createStations(G, S, ctx) {
           if (owner.items.length && familyOf(owner.items[0].userData.product) !== familyOf(st.product)) {
             if (atFront && held) {
               const target = destinationFor(world, held, P);
-              guideCarry(`Wrong shelf · ${heldLabel(held)}${target ? ` → ${destinationLabel(target)}` : ''}`, 5);
+              guideCarry(target ? `${destinationLabel(target)}` : null, 3);
             }
           } else if (owner.items.length && st.stock >= st.capacity) {
-            if (atFront) guideCarry(`${destinationLabel(st)} full · take leftovers to RETURN`, 5, true);
+            if (atFront) guideCarry('RETURN', 3, true);
           } else if (dwellOk && dropT <= 0 && owner.items.length && st.stock < st.capacity) {
             const m = owner.popItem(); const key = m.userData.product || st.product;
             putOnDisplay(world, st.id, key, 1); dropT = 0.15; hints.counter = 1; audio.play('drop');
@@ -333,16 +329,8 @@ export function createStations(G, S, ctx) {
           noteFirstHint('checkout', atFront);
           if (atFront) st.serving = 'owner';
 
-          const pad = cashPads.get(st.id);
-          if (pad) {
-            fx.project(st.cash.x, 0.18, st.cash.z, pad.tmp);
-            if (st.pile !== pad.last) { pad.last = st.pile; pad.el.textContent = `CASH TRAY · ${Math.round(st.pile)}`; }
-            pad.el.style.left = pad.tmp.sx + 'px'; pad.el.style.top = pad.tmp.sy + 'px';
-            pad.el.classList.toggle('hidden', !(st.pile > 0 && pad.tmp.visible));
-          }
-          if (st.pile > 0 && near(P, st.cash, 1.05) && !sheets.isOpen) {
-            actionCandidate = offerAction(actionCandidate, st, 'collect', `COLLECT ${Math.round(st.pile)}`, 8, st.cash);
-          }
+          // Cash is a flow chore, not a decision. Walking close to the tray collects it immediately.
+          if (st.pile > 0 && near(P, st.cash, AUTO_CASH_RADIUS) && !sheets.isOpen) collectRegisterCash(st);
         }
 
         if (st.type === 'pantry') {
@@ -354,7 +342,7 @@ export function createStations(G, S, ctx) {
         if (st.type === 'return') {
           const atFront = near(P, st.front, 1.05);
           noteFirstHint('return', atFront);
-          if (atFront && heldState(owner.items, carry) && !sheets.isOpen) actionCandidate = offerAction(actionCandidate, st, 'return', 'RETURN ITEMS', 6);
+          if (atFront && heldState(owner.items, carry) && !sheets.isOpen) actionCandidate = offerAction(actionCandidate, st, 'return', 'RETURN', 6);
         }
 
         if (st.type === 'bowl') {
@@ -364,7 +352,7 @@ export function createStations(G, S, ctx) {
             const used = refillBowl(world, st.id, carry.sackLeft);
             if (used > 0) {
               useSack(carry, used); hints.refillBowl = 1; audio.play('pour'); fx.burst(st.x, 0.5, st.z, C.pink, 6);
-              maybeGuideLeftovers(st, 'Treat bowl full · return leftover kibble');
+              maybeGuideLeftovers(st);
             }
           }
         }
@@ -377,15 +365,17 @@ export function createStations(G, S, ctx) {
             const got = harvestBush(world, st.id);
             if (got > 0) {
               carryAddFruit(carry, got, carryCap(G.up)); hints.harvest = 1; audio.play('pop'); fx.burst(st.x, 0.7, st.z, C.coral, 8);
-              if (first) guideCarry('Fresh fruit → BLENDER', 5);
+              if (first) guideCarry('BLENDER', 3);
             }
           }
         }
 
         if (st.type === 'seat') {
-          const dirtyNear = st.dirty && near(P, st.front, 1.35);
-          noteFirstHint('seat', dirtyNear);
-          if (dirtyNear && !sheets.isOpen) actionCandidate = offerAction(actionCandidate, st, 'clean', 'CLEAN TABLE', 5);
+          // Dirty tables are maintenance, so proximity itself is the interaction.
+          if (st.dirty && near(P, st.front, AUTO_CLEAN_RADIUS) && !sheets.isOpen) {
+            cleanSeat(world, st.id); hints.clean = 1; audio.play('clean');
+            fx.burst(st.x, 0.8, st.z, C.cream, 8);
+          }
         }
 
         if (st.type === 'kiosk' || st.type === 'hire') {
@@ -400,7 +390,7 @@ export function createStations(G, S, ctx) {
       floatAction = actionCandidate;
       if (floatAction && !sheets.isOpen) {
         const p = floatAction.point || floatAction.st;
-        fx.project(p.x, floatAction.kind === 'collect' ? 0.75 : 1.65, p.z, fbtnTmp);
+        fx.project(p.x, 1.65, p.z, fbtnTmp);
         fbtn.style.left = fbtnTmp.sx + 'px'; fbtn.style.top = fbtnTmp.sy + 'px';
         if (fbtn.textContent !== floatAction.label) fbtn.textContent = floatAction.label;
         fbtn.classList.toggle('hidden', !fbtnTmp.visible);
