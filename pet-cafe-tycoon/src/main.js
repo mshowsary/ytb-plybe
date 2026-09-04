@@ -6,6 +6,7 @@ import { createMachineJuice } from './systems/machineJuice.js';
 import { createResponsivePolish } from './ui/responsive.js';
 import { createPlayablesShell } from './ui/playablesShell.js';
 import { installCleanHud } from './ui/cleanHud.js';
+import { installCertificationPolish } from './ui/certificationPolish.js';
 import { createPauseMenu } from './ui/pauseMenu.js';
 import { createCashTrays } from './render/cashTrays.js';
 import { AREA1 } from '../data/area1.js';
@@ -45,6 +46,7 @@ async function boot() {
   const machineJuice = createMachineJuice(G.world, S.scene);
   const responsive = createResponsivePolish(G);
   const shell = createPlayablesShell();
+  installCertificationPolish();
   const cashTrays = createCashTrays(G.world, S.scene);
   const pauseOverlay = makePauseOverlay();
   platform.bindGame(G);
