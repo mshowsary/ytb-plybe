@@ -16,16 +16,19 @@ export function ensurePartyOrders(meta) {
   if (!Number.isFinite(p.completed) || p.completed < 0) p.completed = 0;
   if (!Number.isFinite(p.lastOfferDay) || p.lastOfferDay < 0) p.lastOfferDay = 0;
   if (p.active && typeof p.active === 'object') {
-    p.active = {
-      id: p.active.id | 0,
-      title: String(p.active.title || 'Pet Party Order'),
-      subtitle: String(p.active.subtitle || ''),
-      createdDay: p.active.createdDay | 0,
-      expiresDay: p.active.expiresDay | 0,
-      reward: Math.max(0, p.active.reward | 0),
-      claimed: !!p.active.claimed,
-      requirements: (p.active.requirements || []).map(r => ({ key: String(r.key), target: Math.max(1, r.target | 0), count: Math.max(0, r.count | 0) })),
-    };
+    // Sanitize in place. Gameplay/UI systems are allowed to retain the active-order reference;
+    // replacing it on every ensure() made an apparently-live order silently go stale after a sale.
+    const a = p.active;
+    a.id = a.id | 0;
+    a.title = String(a.title || 'Pet Party Order');
+    a.subtitle = String(a.subtitle || '');
+    a.createdDay = a.createdDay | 0;
+    a.expiresDay = a.expiresDay | 0;
+    a.reward = Math.max(0, a.reward | 0);
+    a.claimed = !!a.claimed;
+    a.requirements = (a.requirements || []).map(r => ({
+      key: String(r.key), target: Math.max(1, r.target | 0), count: Math.max(0, r.count | 0),
+    }));
   } else p.active = null;
   return p;
 }
@@ -39,7 +42,6 @@ export function availablePartyProducts(world) {
     if (FAMILY_KEYS.includes(fam)) set.add(fam);
   }
   for (const st of world.stations.values()) if (st.active && st.type === 'bowl') set.add('treat');
-  // The starter cookie loop always exists in a valid Area 1 world.
   if (!set.size) set.add('cookie');
   return FAMILY_KEYS.filter(k => set.has(k));
 }
@@ -50,7 +52,7 @@ function chooseRequirements(day, available) {
   const out = [];
   for (let i = 0; i < count; i++) {
     const key = available[(start + i) % available.length];
-    const target = 3 + ((day + i) % 3); // 3–5 real sales per requested family.
+    const target = 3 + ((day + i) % 3);
     out.push({ key, target, count: 0 });
   }
   return out;
@@ -60,8 +62,6 @@ function rewardFor(day, reqs) {
   return Math.min(320, Math.max(110, Math.round((70 + day * 8 + retail * 0.45) / 10) * 10));
 }
 
-// Offers begin on Day 3, last for two shifts, and are spaced at least three offer-days apart.
-// Missing one has no penalty; expiry simply clears it and the next opportunity comes later.
 export function maybeStartPartyOrder(meta, world, day) {
   const p = ensurePartyOrders(meta);
   if (p.active) return { started: false, active: p.active };
