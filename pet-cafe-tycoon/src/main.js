@@ -22,7 +22,7 @@ function makePauseOverlay() {
   el.innerHTML = '<div class="host-pause-card"><div class="host-pause-paw">🐾</div><strong>PAUSED</strong><span>Your café is waiting for you</span></div>';
   const style = document.createElement('style');
   style.textContent = `
-    .host-pause{position:absolute;inset:0;z-index:80;display:grid;place-items:center;pointer-events:none;background:#2b201f42;backdrop-filter:blur(2px)}
+    .host-pause{position:absolute;inset:0;z-index:80;display:grid;place-items:center;pointer-events:auto;touch-action:none;background:#2b201f42;backdrop-filter:blur(2px)}
     .host-pause.hidden{display:none}.host-pause-card{display:flex;flex-direction:column;align-items:center;gap:5px;min-width:180px;padding:18px 22px;border-radius:22px;background:#fff8efed;color:#3f332e;border:1px solid #fff;box-shadow:0 10px 35px #0003;font:800 13px/1.2 system-ui,sans-serif;text-align:center}
     .host-pause-card strong{font-size:22px;letter-spacing:.08em}.host-pause-card span{opacity:.68}.host-pause-paw{font-size:25px}
     @media(max-width:380px){.host-pause-card{min-width:150px;padding:14px 18px}.host-pause-card strong{font-size:19px}}
@@ -79,12 +79,24 @@ async function boot() {
     return paused;
   }
 
+  // Host pause means interactions are paused too, not merely the canvas. Capture-phase blocking
+  // prevents keyboard/programmatic DOM actions from reaching game controls while YouTube owns the
+  // paused state. Escape is never preventDefault'ed, preserving the platform/browser contract.
+  const blockHostInteraction = e => {
+    if (!platform.paused) return;
+    e.stopImmediatePropagation();
+  };
+  for (const type of ['pointerdown','pointerup','click','touchstart','touchend','keydown','keyup']) {
+    document.addEventListener(type, blockHostInteraction, true);
+  }
+
   function scheduleFrame() {
     if (!frameId && !platform.paused) frameId = requestAnimationFrame(frame);
   }
 
   platform.onPauseChange(hostPaused => {
     pauseOverlay.classList.toggle('hidden', !hostPaused);
+    document.body.classList.toggle('host-paused', hostPaused);
     applyPauseState();
     if (hostPaused) {
       // Certification requirement: no game-frame execution keeps ticking in the background.
@@ -125,6 +137,7 @@ async function boot() {
   }
 
   pauseOverlay.classList.toggle('hidden', !platform.paused);
+  document.body.classList.toggle('host-paused', platform.paused);
   applyPauseState();
   scheduleFrame();
 }
