@@ -43,7 +43,11 @@ for (const [tag, width, height, dpr] of viewports) {
 
   const info = await page.evaluate(() => {
     const r = window.__scene.renderer.info.render;
-    return { calls: r.calls, triangles: r.triangles, platform: !!window.__platform, metaVersion: window.__game.snapshot().v };
+    return {
+      calls: r.calls, triangles: r.triangles, platform: !!window.__platform,
+      metaVersion: window.__game.snapshot().v,
+      reliefRoot: !!document.querySelector('.relief-root'),
+    };
   });
   await page.screenshot({ path: path.join(shots, `01-boot-${tag}.png`), fullPage: true });
 
@@ -80,8 +84,7 @@ for (const [tag, width, height, dpr] of viewports) {
   }
 
   // Load a late-game shape with prior same-weekday history. Day 13 (Saturday) must become a
-  // streak rival against Day 6 instead of the legacy day-number formula. Enough rep/coins are
-  // present to exercise the first visible renovation from the real Journey UI.
+  // streak rival against Day 6 instead of the retired day-number goal formula.
   await page.evaluate(() => {
     const g = window.__game;
     const s = g.snapshot();
@@ -113,7 +116,7 @@ for (const [tag, width, height, dpr] of viewports) {
       },
     };
     s.dayState = { day: 13, t: 78, phase: 'rush', _ended: false };
-    s.dayStats = { served: 14, lost: 1, earned: 420, serviceFees: 0, serviceMisses: 0, bestStreak: 5 };
+    s.dayStats = { served: 14, lost: 1, earned: 420, serviceFees: 0, serviceMisses: 0, wasteFees: 0, bestStreak: 5 };
     g.restore(s);
     for (const [id, product] of [['dispCookie','cookie'], ['dispCupcake','cupcake'], ['barCoffee','coffee'], ['barSmoothie','smoothie']]) {
       const st = g.world.stations.get(id); if (st) { st.stock = 8; st.product = product; }
@@ -134,7 +137,6 @@ for (const [tag, width, height, dpr] of viewports) {
     text: document.querySelector('.goal')?.textContent || '',
   }));
 
-  // Journey is part of the late-game core now, so smoke it on every viewport.
   await page.click('.meta-reputation');
   await page.waitForFunction(() => !document.querySelector('.career-root')?.classList.contains('hidden'));
   const journeyBefore = await page.evaluate(() => ({
@@ -183,38 +185,53 @@ for (const [tag, width, height, dpr] of viewports) {
         const g = window.__game, st = g.world.stations.get(id2), p = st[point2] || st.front;
         g.setMove(0, 0); g.P.x = p.x; g.P.z = p.z; g.P.vx = 0; g.P.vz = 0;
       }, { id, point });
-      await page.waitForTimeout(550);
+      await page.waitForTimeout(650);
     };
+    const clearHands = async () => page.evaluate(() => {
+      const g = window.__game;
+      g.owner.clearItems(); g.carry.sack = null; g.carry.sackLeft = 0; g.carry.fruit = 0;
+    });
 
+    await clearHands();
     await placeAt('kiosk1');
-    await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'UPGRADES' && !document.querySelector('.fbtn')?.classList.contains('hidden'));
+    await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'UPGRADES' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
     await page.click('.fbtn');
     await page.waitForFunction(() => !!document.querySelector('.sheet-root .sheet'));
     await page.evaluate(() => { const g = window.__game; g.P.x = 0; g.P.z = 2.5; g.P.vx = 0; g.P.vz = 0; });
     await page.waitForFunction(() => document.querySelector('.sheet-root')?.classList.contains('hidden'), null, { timeout: 3000 });
 
+    // Important fixture invariant: Pantry is physically near Return. Empty hands first so the
+    // higher-priority RETURN action cannot correctly override SUPPLIES and make this test lie.
+    await clearHands();
     await placeAt('pantry1');
-    await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'SUPPLIES' && !document.querySelector('.fbtn')?.classList.contains('hidden'));
+    await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'SUPPLIES' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
     await page.click('.fbtn');
     await page.waitForFunction(() => document.querySelectorAll('.sheet .sbtn').length >= 2);
     await page.click('.sheet .sbtn');
     await page.waitForTimeout(600);
     const pantry = await page.evaluate(() => ({ sack: window.__game.carry.sack, guide: window.__game.contextGuide?.caption || '' }));
 
+    const supplyCoinsBefore = await page.evaluate(() => window.__game.coins);
     await placeAt('return1');
-    await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'RETURN ITEMS' && !document.querySelector('.fbtn')?.classList.contains('hidden'));
-    await page.click('.fbtn');
-    await page.waitForTimeout(250);
-    const returned = await page.evaluate(() => !window.__game.carry.sack);
+    await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'RETURN ITEMS' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
+    await page.click('.fbtn'); await page.waitForTimeout(250);
+    const supplyReturn = await page.evaluate(before => ({ empty: !window.__game.carry.sack, delta: window.__game.coins - before }), supplyCoinsBefore);
+
+    // Harvested fruit is genuine food waste at Return: small, wallet-capped handling fee.
+    const wasteBefore = await page.evaluate(() => { const g = window.__game; g.coins = 1000; g.carry.fruit = 2; return g.coins; });
+    await placeAt('return1');
+    await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'RETURN ITEMS' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
+    await page.click('.fbtn'); await page.waitForTimeout(250);
+    const wasteReturn = await page.evaluate(before => ({ fruit: window.__game.carry.fruit, spent: before - window.__game.coins, tracked: window.__game.dayStats.wasteFees | 0 }), wasteBefore);
 
     await page.evaluate(() => { const g = window.__game; g.carry.fruit = 2; const b = g.world.stations.get('blender1'); b.fruit = 0; b.stock = 0; });
-    await placeAt('blender1');
-    await page.waitForTimeout(650);
+    await placeAt('blender1'); await page.waitForTimeout(650);
     const blender = await page.evaluate(() => {
       const g = window.__game, b = g.world.stations.get('blender1');
       return { remaining: g.carry.fruit, machineFruit: b.fruit, stock: b.stock };
     });
 
+    await clearHands();
     const cashBefore = await page.evaluate(() => { const g = window.__game, st = g.world.stations.get('register1'); st.pile = 206; return g.coins; });
     await page.waitForFunction(() => {
       const el = document.querySelector('.register-money-badge');
@@ -230,13 +247,12 @@ for (const [tag, width, height, dpr] of viewports) {
       };
     });
     await placeAt('register1', 'cash');
-    await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'COLLECT 206' && !document.querySelector('.fbtn')?.classList.contains('hidden'));
+    await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'COLLECT 206' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
     await page.screenshot({ path: path.join(shots, '05-register-cash-small.png'), fullPage: true });
-    await page.click('.fbtn');
-    await page.waitForTimeout(250);
+    await page.click('.fbtn'); await page.waitForTimeout(250);
     const cash = await page.evaluate(before => ({ pile: window.__game.world.stations.get('register1').pile, gained: window.__game.coins - before }), cashBefore);
 
-    interaction = { pantry, returned, blender, cash: { ...cash, ...cashVisual } };
+    interaction = { pantry, supplyReturn, wasteReturn, blender, cash: { ...cash, ...cashVisual } };
     await page.evaluate(() => window.__game.setMove(null));
   }
 
@@ -253,8 +269,7 @@ for (const [tag, width, height, dpr] of viewports) {
 
   await page.evaluate(() => {
     const g = window.__game;
-    // Day 13's adaptive Saturday contract is Reach 10x (Day 6 was 9x); give it a clean win.
-    g.dayStats = { served: 42, lost: 0, earned: 1180, serviceFees: 0, serviceMisses: 0, bestStreak: 14 };
+    g.dayStats = { served: 42, lost: 0, earned: 1180, serviceFees: 0, serviceMisses: 0, wasteFees: 0, bestStreak: 14 };
     g.shiftBestStreak = 14;
     const d = g.dayState; d.t = 239.99; d.phase = 'closing'; d._ended = false;
   });
@@ -273,7 +288,7 @@ for (const [tag, width, height, dpr] of viewports) {
   await page.screenshot({ path: path.join(shots, `07-summary-${tag}.png`), fullPage: true });
 
   const overflow = journeyBefore.bodyWidth > journeyBefore.viewportWidth + 1 || busy.bodyWidth > busy.viewportWidth + 1 || book.bodyWidth > book.viewportWidth + 1 || meta.bodyWidth > meta.viewportWidth + 1;
-  const interactionBad = tag === 'small' && (!interaction || interaction.pantry.sack !== 'beans' || interaction.pantry.guide !== 'COFFEE' || !interaction.returned || (interaction.blender.machineFruit + interaction.blender.stock) <= 0 || interaction.cash.pile !== 0 || interaction.cash.gained !== 206 || !interaction.cash.modernVisible || !interaction.cash.modernText.includes('206') || !interaction.cash.legacyHidden);
+  const interactionBad = tag === 'small' && (!interaction || interaction.pantry.sack !== 'beans' || interaction.pantry.guide !== 'COFFEE' || !interaction.supplyReturn.empty || interaction.supplyReturn.delta !== 0 || interaction.wasteReturn.fruit !== 0 || interaction.wasteReturn.spent <= 0 || interaction.wasteReturn.tracked <= 0 || (interaction.blender.machineFruit + interaction.blender.stock) <= 0 || interaction.cash.pile !== 0 || interaction.cash.gained !== 206 || !interaction.cash.modernVisible || !interaction.cash.modernText.includes('206') || !interaction.cash.legacyHidden);
   const buildBad = tag === 'small' && (!buildIntent || buildIntent.walkPaid !== 0 || buildIntent.earlyPaid !== 0 || !(buildIntent.heldPaid > 0));
   const pauseBad = tag === 'small' && (!pauseState || !pauseState.frozen || !pauseState.musicOff);
   const journeyBad = journeyBefore.days !== 7 || journeyBefore.masteries !== 5 || !journeyBefore.renovation || journeyBefore.renoButtonDisabled;
@@ -281,7 +296,7 @@ for (const [tag, width, height, dpr] of viewports) {
   const goalBad = goalState.day !== 13 || goalState.kind !== 'streak' || goalState.target !== 10 || goalState.previous !== 9 || goalState.rival !== true;
   const summaryBad = meta.careerResult !== 'WON ✓' || !meta.cupText || !meta.nextChase || !meta.perfectText.includes('PERFECT');
 
-  if (!info.platform || info.metaVersion !== 4 || !meta.stars || !meta.reward || !meta.repSummary || !busy.repLabel || !busy.petCount || book.cards !== 12 || book.found < 7 || overflow || interactionBad || buildBad || pauseBad || journeyBad || renovationBad || goalBad || summaryBad || errors.length) failed = true;
+  if (!info.platform || !info.reliefRoot || info.metaVersion !== 4 || !meta.stars || !meta.reward || !meta.repSummary || !busy.repLabel || !busy.petCount || book.cards !== 12 || book.found < 7 || overflow || interactionBad || buildBad || pauseBad || journeyBad || renovationBad || goalBad || summaryBad || errors.length) failed = true;
   report.push({ tag, ...info, buildIntent, pauseState, goalState, journeyBefore, renovation, busy, book, interaction, ...meta, overflow, errors });
   await ctx.close();
 }
