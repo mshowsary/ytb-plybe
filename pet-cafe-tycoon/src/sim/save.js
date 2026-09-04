@@ -4,6 +4,7 @@ import { ensureReputation } from './reputation.js';
 import { ensurePetBook } from './petBook.js';
 import { ensureCareer, chooseCareerGoal } from './career.js';
 import { ensurePartyOrders } from './partyOrders.js';
+import { restoreRushCrewBoost } from './rushCrew.js';
 
 export function applySave(state, save) {
   if (!save || typeof save !== 'object') return;
@@ -62,6 +63,16 @@ export function applySave(state, save) {
 
   state.dayState = (save.dayState && typeof save.dayState === 'object') ? { ...save.dayState } : createDay();
   state.stars = (save.stars && typeof save.stars === 'object') ? { ...save.stars } : {};
+
+  // A completed rewarded Rush Crew must survive a legitimate reload DURING that same rush, or the
+  // player could lose the reward while its once-per-day claim remains consumed. Stale/malformed
+  // boosts are never restored: a different day/phase automatically drops them.
+  if (!state.boosts || typeof state.boosts !== 'object') state.boosts = {};
+  const savedBoosts = (save.boosts && typeof save.boosts === 'object') ? save.boosts : {};
+  const rushCrew = restoreRushCrewBoost(savedBoosts.rushCrew, state.dayState);
+  if (rushCrew) state.boosts.rushCrew = rushCrew;
+  else delete state.boosts.rushCrew;
+
   // Regenerate the live adaptive contract so old saves cannot preserve retired Serve-110 style goals.
   state.goal = chooseCareerGoal(state.dayState.day, state.meta);
   state.dayStats = (save.dayStats && typeof save.dayStats === 'object')
