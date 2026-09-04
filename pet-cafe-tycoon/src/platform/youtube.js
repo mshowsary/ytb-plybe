@@ -41,6 +41,7 @@ export function createYouTubePlatform(host = globalThis) {
   let interstitialBusy = false;
   let lastAdAt = 0;
   let lastScore = -1;
+  const pauseListeners = new Set();
 
   const P = {
     inPlayables: !!yt,
@@ -48,6 +49,21 @@ export function createYouTubePlatform(host = globalThis) {
     interstitialAvailable: !!(yt && yt.ads && typeof yt.ads.requestInterstitialAd === 'function'),
     language: 'en',
     get paused() { return paused; },
+  };
+
+  function setHostPaused(next) {
+    const value = !!next;
+    if (value === paused) return;
+    paused = value;
+    for (const fn of pauseListeners) {
+      try { fn(paused); } catch (_) {}
+    }
+  }
+
+  P.onPauseChange = fn => {
+    if (typeof fn !== 'function') return () => {};
+    pauseListeners.add(fn);
+    return () => pauseListeners.delete(fn);
   };
 
   P.firstFrameReady = () => {
@@ -110,11 +126,12 @@ export function createYouTubePlatform(host = globalThis) {
 
     try {
       yt.system.onPause(() => {
-        paused = true;
+        // Save first while state is still coherent, then notify the frame owner to stop scheduling.
         if (game && game.snapshot) P.save(game.snapshot());
+        setHostPaused(true);
       });
     } catch (_) {}
-    try { yt.system.onResume(() => { paused = false; }); } catch (_) {}
+    try { yt.system.onResume(() => { setHostPaused(false); }); } catch (_) {}
     try {
       const lang = yt.system.getLanguage && yt.system.getLanguage();
       if (lang && typeof lang.then === 'function') {
