@@ -1,17 +1,27 @@
-// Long-term progression for Pet Cafe: adaptive weekly rivals, weekly cups and recipe mastery.
-// Pure simulation helpers only — safe to exercise from node:test and the headless economy bot.
+// Long-term progression for Pet Cafe: adaptive weekly rivals, weekly cups, recipe mastery and
+// visible late-game renovations. Pure simulation helpers only — safe in node:test/headless bot.
 
 export const WEEK_LENGTH = 7;
 export const WEEKDAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 export const LEGENDARY_REPUTATION = 220;
 
 export const MASTERY = {
-  cookie:   { label: 'Bakery',   thresholds: [0, 25, 75, 175, 350] },
-  cupcake:  { label: 'Cupcakes', thresholds: [0, 25, 75, 175, 350] },
-  coffee:   { label: 'Coffee',   thresholds: [0, 30, 90, 210, 420] },
-  smoothie: { label: 'Smoothies',thresholds: [0, 25, 75, 175, 350] },
+  cookie:   { label: 'Bakery',    thresholds: [0, 25, 75, 175, 350] },
+  cupcake:  { label: 'Cupcakes',  thresholds: [0, 25, 75, 175, 350] },
+  coffee:   { label: 'Coffee',    thresholds: [0, 30, 90, 210, 420] },
+  smoothie: { label: 'Smoothies', thresholds: [0, 25, 75, 175, 350] },
   treat:    { label: 'Pet Treats',thresholds: [0, 35, 110, 250, 500] },
 };
+
+// These begin after the core build chain is normally winding down. They consume late-game coins
+// and change the room itself; rep gates stop a rich early player from skipping the career journey.
+export const RENOVATIONS = [
+  { level: 1, name: 'Greenhouse Glow', cost: 1800, rep: 30, desc: 'Hanging greenery and warm window lights' },
+  { level: 2, name: 'Gallery Café', cost: 3600, rep: 70, desc: 'Collector wall, art ledges and premium trim' },
+  { level: 3, name: 'Pet Palace', cost: 6500, rep: 100, desc: 'Signature pet lounge décor and service accents' },
+  { level: 4, name: 'Grand Café', cost: 10500, rep: 140, desc: 'Gold canopy lights and trophy presentation' },
+  { level: 5, name: 'Legendary Finish', cost: 16000, rep: 185, desc: 'A landmark entrance and star-lit final makeover' },
+];
 
 const FAMILY = { brownie: 'cookie', latte: 'coffee' };
 export const masteryFamily = key => FAMILY[key] || key;
@@ -29,6 +39,7 @@ export function ensureCareer(meta) {
   c.contractStreak = Math.max(0, c.contractStreak | 0);
   c.bestContractStreak = Math.max(c.contractStreak, c.bestContractStreak | 0);
   c.bestWeekPoints = Math.max(0, c.bestWeekPoints | 0);
+  c.renovationLevel = Math.max(0, Math.min(RENOVATIONS.length, c.renovationLevel | 0));
   return c;
 }
 
@@ -146,6 +157,28 @@ export function masteryProgress(meta, product) {
 }
 
 export function allMasteryProgress(meta) { return Object.keys(MASTERY).map(k => masteryProgress(meta, k)); }
+
+export function renovationState(meta, coins = 0) {
+  const c = ensureCareer(meta || {});
+  const level = c.renovationLevel | 0;
+  const next = RENOVATIONS[level] || null;
+  return {
+    level, maxLevel: RENOVATIONS.length, next,
+    complete: !next,
+    repReady: !next || ((meta && meta.reputation) | 0) >= next.rep,
+    coinReady: !next || (coins | 0) >= next.cost,
+  };
+}
+
+export function buyRenovation(meta, coins) {
+  const c = ensureCareer(meta || {});
+  const state = renovationState(meta, coins);
+  if (!state.next) return { ok: false, reason: 'max', coins, level: c.renovationLevel };
+  if (!state.repReady) return { ok: false, reason: 'reputation', requiredRep: state.next.rep, coins, level: c.renovationLevel };
+  if (!state.coinReady) return { ok: false, reason: 'coins', cost: state.next.cost, coins, level: c.renovationLevel };
+  c.renovationLevel++;
+  return { ok: true, cost: state.next.cost, coins: (coins | 0) - state.next.cost, level: c.renovationLevel, renovation: state.next };
+}
 
 // Record all items in one paid order. Returns tier-ups so presentation can celebrate only the
 // exact mastery milestones crossed by this payment.
