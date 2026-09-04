@@ -5,6 +5,12 @@ export function installCertificationPolish() {
   if (document.getElementById(ID)) return;
   const s = document.createElement('style'); s.id = ID;
   s.textContent = `
+    /* Gameplay feedback must never cross a modal/sheet. A toast can still be announced again by
+       the next gameplay event after the player closes the surface. */
+    body:has(.career-root:not(.hidden)) .meta-toast,
+    body:has(.meta-book-root:not(.hidden)) .meta-toast,
+    body:has(.pause-root:not(.hidden)) .meta-toast,
+    body:has(.sheet-root:not(.hidden)) .meta-toast{opacity:0!important;transform:translate(-50%,10px)!important}
     @media(max-width:600px),(max-height:520px){
       body.playables-compact button,
       body.playables-compact [role="button"]{touch-action:manipulation}
