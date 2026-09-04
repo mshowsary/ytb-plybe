@@ -19,7 +19,13 @@ export function createRenovationUI() {
   btn.addEventListener('click', async () => {
     if (busy || !model || !model.onBuy || !model.next || !model.repReady || !model.coinReady) return;
     busy = true; btn.disabled = true;
-    try { await model.onBuy(); } finally { busy = false; }
+    try { await model.onBuy(); }
+    finally {
+      busy = false;
+      // onBuy synchronously refreshes the model to the next renovation. Re-render once the
+      // transient busy lock is gone so the next button immediately reflects its real gates/cost.
+      if (model) setModel(model);
+    }
   });
 
   function setModel(next) {
