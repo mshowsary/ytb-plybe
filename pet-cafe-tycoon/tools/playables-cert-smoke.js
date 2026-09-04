@@ -168,6 +168,41 @@ for (const [tag,width,height] of cases) {
   if (!muted.muted) throw new Error(`${tag}: host mute not respected`);
   await page.evaluate(() => window.__yt.audioCb(true));
 
+  // Certification-sized gameplay must stay prose-light and flow chores must be proximity driven.
+  const cashBefore = await page.evaluate(() => {
+    const g = window.__game;
+    g.intro.step = 5; g.intro.active = false; g.intro.target = null; g.setMove(0,0);
+    const st = g.world.stations.get('register1'); st.pile = 125;
+    g.P.x = st.cash.x; g.P.z = st.cash.z; g.P.vx = 0; g.P.vz = 0;
+    return g.coins;
+  });
+  await page.waitForFunction(() => window.__game.world.stations.get('register1').pile === 0, null, { timeout:3000 });
+  const flowCash = await page.evaluate(before => ({ pile:window.__game.world.stations.get('register1').pile, gained:window.__game.coins-before }), cashBefore);
+  if (flowCash.pile !== 0 || flowCash.gained !== 125) throw new Error(`${tag}: proximity cash failed ${JSON.stringify(flowCash)}`);
+
+  await page.evaluate(() => {
+    const g = window.__game, st = g.world.stations.get('seat1');
+    st.active = true; st.dirty = true;
+    g.P.x = st.front.x; g.P.z = st.front.z; g.P.vx = 0; g.P.vz = 0;
+  });
+  await page.waitForFunction(() => window.__game.world.stations.get('seat1').dirty === false, null, { timeout:3000 });
+  const flowUi = await page.evaluate(() => {
+    const visible = sel => {
+      const el = document.querySelector(sel); if (!el) return false;
+      const cs = getComputedStyle(el); return cs.display !== 'none' && cs.visibility !== 'hidden' && Number(cs.opacity) !== 0 && !el.classList.contains('hidden');
+    };
+    const f = document.querySelector('.fbtn');
+    return {
+      dirty:window.__game.world.stations.get('seat1').dirty,
+      collectOrClean:/^(COLLECT|CLEAN TABLE)/.test(f?.textContent || '') && !f?.classList.contains('hidden'),
+      cashLabel:!!document.querySelector('.register-money-badge'),
+      legacyCashLabel:!!document.querySelector('.cash-tray-badge'),
+      hint:visible('#hint'), hands:visible('#handsFull'), goal:visible('#goalPill'),
+    };
+  });
+  if (flowUi.dirty || flowUi.collectOrClean || flowUi.cashLabel || flowUi.legacyCashLabel || flowUi.hint || flowUi.hands || flowUi.goal) throw new Error(`${tag}: prose/auto-flow regression ${JSON.stringify(flowUi)}`);
+  await page.screenshot({ path:path.join(shots, `02b-${tag}-clean-gameplay.png`) });
+
   // Deep menus may scroll vertically but must remain inside the tiny viewport with tappable controls.
   await page.click('.meta-reputation');
   await page.waitForFunction(() => !document.querySelector('.career-root').classList.contains('hidden'));
@@ -192,7 +227,7 @@ for (const [tag,width,height] of cases) {
   if (stateAfterResize.day !== marker.day || stateAfterResize.coins !== marker.coins) throw new Error(`${tag}: game state changed on resize`);
 
   if (errors.length) throw new Error(`${tag}: browser errors: ${errors.join(' | ')}`);
-  report.push({ tag, boot, bootTargets, userPause, hostPause, journey:journey.chosen, book:book.chosen, resized:resized.viewport });
+  report.push({ tag, boot, bootTargets, userPause, hostPause, flowCash, flowUi, journey:journey.chosen, book:book.chosen, resized:resized.viewport });
   await ctx.close();
 }
 
