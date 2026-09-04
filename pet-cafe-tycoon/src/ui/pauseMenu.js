@@ -6,15 +6,24 @@ function installStyle() {
   s.textContent = `
     .pause-btn{position:fixed;right:calc(12px + env(safe-area-inset-right,0px));top:calc(12px + env(safe-area-inset-top,0px));z-index:24;width:48px;height:48px;border:0;border-radius:16px;background:#fffdf8ed;color:#3b2e2a;box-shadow:0 4px 0 #0001,0 8px 18px #0002;font:900 19px/1 system-ui,sans-serif;display:grid;place-items:center;cursor:pointer;pointer-events:auto}
     .pause-btn:focus-visible,.pause-action:focus-visible,.pause-toggle:focus-visible{outline:3px solid #8b7cf6;outline-offset:2px}
-    .pause-root{position:fixed;inset:0;z-index:75;display:grid;place-items:center;padding:16px max(16px,env(safe-area-inset-right,0px)) max(16px,env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));box-sizing:border-box;background:#251d1a66;backdrop-filter:blur(5px)}
-    .pause-root.hidden{display:none}.pause-card{width:min(390px,100%);max-height:min(560px,90vh);overflow:auto;box-sizing:border-box;border-radius:26px;background:#fff4e6;color:#3b2e2a;padding:22px;box-shadow:0 20px 60px #0005;font-family:system-ui,sans-serif}
-    .pause-head{display:flex;align-items:center;gap:12px;margin-bottom:18px}.pause-paw{font-size:28px}.pause-title{font:900 25px/1 system-ui,sans-serif}.pause-sub{font:700 12px/1.25 system-ui,sans-serif;opacity:.58;margin-top:4px}
-    .pause-row{display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:64px;padding:10px 12px;box-sizing:border-box;border-radius:17px;background:#ffffffa8;margin-bottom:10px}.pause-copy{min-width:0}.pause-label{font:900 15px/1.1 system-ui,sans-serif}.pause-desc{font:700 11px/1.25 system-ui,sans-serif;opacity:.58;margin-top:4px}
-    .pause-toggle{flex:none;min-width:78px;min-height:44px;border:0;border-radius:999px;padding:0 12px;background:#d9d3cd;color:#615550;font:900 12px/1 system-ui,sans-serif;cursor:pointer}.pause-toggle.on{background:#8b7cf6;color:#fff}.pause-toggle.host{opacity:.5;cursor:default}
-    .pause-actions{display:grid;gap:9px;margin-top:16px}.pause-action{min-height:52px;border:0;border-radius:16px;background:#ff8a80;color:#3b2e2a;font:900 15px/1 system-ui,sans-serif;cursor:pointer}.pause-action.secondary{background:#ffffffaa}.pause-note{margin-top:12px;font:700 10px/1.35 system-ui,sans-serif;opacity:.5;text-align:center}
+    .pause-root{position:fixed;inset:0;z-index:75;display:grid;place-items:center;padding:16px max(16px,env(safe-area-inset-right,0px)) max(16px,env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));box-sizing:border-box;background:#251d1a66;backdrop-filter:blur(5px);overflow:hidden}
+    .pause-root.hidden{display:none}.pause-card{width:min(390px,100%);max-height:min(560px,90vh);overflow:hidden;box-sizing:border-box;border-radius:26px;background:#fff4e6;color:#3b2e2a;padding:22px;box-shadow:0 20px 60px #0005;font-family:system-ui,sans-serif}
+    .pause-head{display:flex;align-items:center;gap:12px;margin-bottom:16px}.pause-paw{font-size:27px}.pause-title{font:900 24px/1 system-ui,sans-serif}.pause-sub{display:none}
+    .pause-settings{display:grid;gap:9px}.pause-row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:58px;padding:7px 10px;box-sizing:border-box;border-radius:16px;background:#ffffffa8}.pause-copy{min-width:0}.pause-label{font:900 14px/1.1 system-ui,sans-serif}.pause-desc{display:none}.pause-toggle{flex:none;min-width:72px;min-height:48px;border:0;border-radius:999px;padding:0 11px;background:#d9d3cd;color:#615550;font:900 12px/1 system-ui,sans-serif;cursor:pointer}.pause-toggle.on{background:#8b7cf6;color:#fff}.pause-toggle.host{opacity:.5;cursor:default}
+    .pause-actions{display:grid;gap:8px;margin-top:12px}.pause-action{display:block;width:100%;box-sizing:border-box;min-height:52px;border:0;border-radius:16px;background:#ff8a80;color:#3b2e2a;font:900 15px/1 system-ui,sans-serif;cursor:pointer}.pause-action.secondary{background:#ffffffaa}.pause-note{display:none}
     body.meta-summary-open .pause-btn{opacity:0;pointer-events:none}
-    @media(max-width:380px){.pause-btn{right:calc(8px + env(safe-area-inset-right,0px));top:calc(8px + env(safe-area-inset-top,0px))}.pause-card{padding:17px;border-radius:22px}.pause-title{font-size:21px}.pause-row{min-height:58px}.pause-action{min-height:48px}}
-    @media(orientation:landscape) and (max-height:520px){.pause-card{max-height:92vh;padding:15px}.pause-head{margin-bottom:10px}.pause-row{min-height:52px;margin-bottom:7px;padding:7px 10px}.pause-actions{margin-top:10px}.pause-note{display:none}}
+    @media(max-width:380px){.pause-btn{right:calc(8px + env(safe-area-inset-right,0px));top:calc(8px + env(safe-area-inset-top,0px))}.pause-card{padding:16px;border-radius:22px}.pause-title{font-size:21px}.pause-row{min-height:56px}.pause-action{min-height:48px}}
+    /* Publisher worst-case landscape: keep every interactive target simultaneously on-screen.
+       Two settings sit side-by-side; labels and 48px controls remain readable/tappable. */
+    @media(orientation:landscape) and (max-height:240px){
+      .pause-root{padding:4px!important}
+      .pause-card{width:min(390px,calc(100vw - 8px));max-width:calc(100vw - 8px);max-height:calc(100vh - 8px);padding:8px 10px;border-radius:18px;overflow:hidden}
+      .pause-head{height:32px;margin:0 0 6px;gap:6px}.pause-paw{display:none}.pause-title{font-size:18px}
+      .pause-settings{grid-template-columns:1fr 1fr;gap:6px}
+      .pause-row{min-width:0;height:48px;min-height:48px;margin:0;padding:0 6px;border-radius:12px;gap:4px}
+      .pause-label{font-size:11px;white-space:nowrap}.pause-toggle{height:48px;min-height:48px;min-width:52px;padding:0 7px;font-size:10px}
+      .pause-actions{margin-top:6px;gap:0}.pause-action{width:100%;height:48px;min-height:48px;border-radius:12px;font-size:13px}
+    }
   `;
   document.head.appendChild(s);
 }
@@ -35,11 +44,12 @@ export function createPauseMenu(G, platform) {
   const root = document.createElement('div'); root.className = 'pause-root hidden'; root.setAttribute('aria-hidden', 'true');
   root.innerHTML = `
     <div class="pause-card" role="dialog" aria-modal="true" aria-labelledby="pauseTitle">
-      <div class="pause-head"><div class="pause-paw">🐾</div><div><div class="pause-title" id="pauseTitle">Café paused</div><div class="pause-sub">Take a break. Nothing in the café moves while this menu is open.</div></div></div>
-      <div class="pause-row"><div class="pause-copy"><div class="pause-label">Music</div><div class="pause-desc">Cozy adaptive café soundtrack</div></div><button type="button" class="pause-toggle" data-setting="music"></button></div>
-      <div class="pause-row"><div class="pause-copy"><div class="pause-label">Sound effects</div><div class="pause-desc">Coins, machines, pets and interaction cues</div></div><button type="button" class="pause-toggle" data-setting="sfx"></button></div>
+      <div class="pause-head"><div class="pause-paw">🐾</div><div><div class="pause-title" id="pauseTitle">Café paused</div></div></div>
+      <div class="pause-settings">
+        <div class="pause-row"><div class="pause-copy"><div class="pause-label">Music</div></div><button type="button" class="pause-toggle" data-setting="music"></button></div>
+        <div class="pause-row"><div class="pause-copy"><div class="pause-label">SFX</div></div><button type="button" class="pause-toggle" data-setting="sfx"></button></div>
+      </div>
       <div class="pause-actions"><button type="button" class="pause-action" data-action="resume">RESUME</button></div>
-      <div class="pause-note">YouTube's own mute setting always takes priority over these preferences.</div>
     </div>`;
   document.body.appendChild(root);
 
