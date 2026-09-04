@@ -93,6 +93,23 @@ export function installCertificationPolish() {
       body.playables-tiny .party-order-btn{left:calc(15px + env(safe-area-inset-left,0px) + 2*(100vw - 20px)/3)!important;right:auto!important;font-size:8px!important}
       body.playables-tiny .meta-paw{font-size:13px!important}
       body.playables-tiny .party-order-box{font-size:12px!important}
+      /* A normal celebration is intentionally large on phones. At 183px that treatment competes
+         with the entire permanent HUD. Keep the same message/colour, but turn it into a compact
+         non-interactive status pill below the three progression chips. */
+      body.playables-tiny #banner{
+        top:calc(160px + env(safe-area-inset-top,0px))!important;
+        max-width:calc(100vw - 10px)!important;
+        min-height:30px!important;
+        padding:6px 9px!important;
+        border-radius:12px!important;
+        font-size:10px!important;
+        line-height:1.05!important;
+        letter-spacing:.02em!important;
+        text-align:center!important;
+        white-space:normal!important;
+        justify-content:center!important;
+        box-shadow:0 4px 12px #0003!important
+      }
     }
     /* 418x218 is a publisher stress viewport, not a normal phone layout. Keep every actionable
        Journey control visible at once: rank, current week and renovation are the three actionable
