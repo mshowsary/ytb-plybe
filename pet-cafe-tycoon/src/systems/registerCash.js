@@ -1,0 +1,114 @@
+// Countertop register-cash presentation. This supersedes the legacy floor cashPile mesh without
+// changing the simulation's st.pile or collection rules.
+import * as THREE from 'three';
+
+const BILL_MAX = 24;
+const COIN_MAX = 12;
+
+function makeRegisterStack(st) {
+  const group = new THREE.Group();
+  group.position.set(st.x, 1.115, st.z);
+  group.rotation.y = st.rot || 0;
+  group.visible = false;
+
+  const tray = new THREE.Mesh(
+    new THREE.BoxGeometry(0.72, 0.045, 0.46),
+    new THREE.MeshToonMaterial({ color: new THREE.Color('#D3A348') }),
+  );
+  tray.position.set(-0.38, 0, 0.04); tray.castShadow = true; tray.receiveShadow = true; group.add(tray);
+  const trayInset = new THREE.Mesh(
+    new THREE.BoxGeometry(0.62, 0.025, 0.36),
+    new THREE.MeshToonMaterial({ color: new THREE.Color('#44342C') }),
+  );
+  trayInset.position.set(-0.38, 0.03, 0.04); trayInset.receiveShadow = true; group.add(trayInset);
+
+  const billGeo = new THREE.BoxGeometry(0.27, 0.018, 0.14);
+  const billMat = new THREE.MeshToonMaterial({ color: new THREE.Color('#78C997') });
+  const bills = new THREE.InstancedMesh(billGeo, billMat, BILL_MAX); bills.castShadow = true; bills.count = 0; group.add(bills);
+
+  const coinGeo = new THREE.CylinderGeometry(0.055, 0.055, 0.018, 12);
+  const coinMat = new THREE.MeshToonMaterial({ color: new THREE.Color('#FFD34E') });
+  const coins = new THREE.InstancedMesh(coinGeo, coinMat, COIN_MAX); coins.castShadow = true; coins.count = 0; group.add(coins);
+
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const p = new THREE.Vector3();
+  const sc = new THREE.Vector3(1, 1, 1);
+  const e = new THREE.Euler();
+  let lastAmount = -1;
+
+  function setAmount(amount) {
+    amount = Math.max(0, Math.round(amount || 0));
+    if (amount === lastAmount) return false;
+    const grew = amount > lastAmount && lastAmount >= 0;
+    lastAmount = amount;
+    group.visible = amount > 0;
+    if (!amount) { bills.count = 0; coins.count = 0; return grew; }
+
+    // Logarithmic visual growth: 100 and 4,000 coins both remain a believable compact till stack,
+    // while the badge carries the exact number. The money grows UP, never outward into a carpet.
+    const billCount = Math.min(BILL_MAX, Math.max(2, Math.ceil(Math.log2(amount + 1) * 2.25)));
+    const coinCount = Math.min(COIN_MAX, Math.max(1, Math.ceil(Math.log10(amount + 1) * 2.4)));
+    for (let i = 0; i < billCount; i++) {
+      const stack = i % 3;
+      const layer = Math.floor(i / 3);
+      p.set(-0.59 + stack * 0.21, 0.065 + layer * 0.019, -0.005 + (stack & 1) * 0.045);
+      e.set(0, ((i * 37) % 9 - 4) * 0.018, 0); q.setFromEuler(e); m.compose(p, q, sc); bills.setMatrixAt(i, m);
+    }
+    bills.count = billCount; bills.instanceMatrix.needsUpdate = true;
+    for (let i = 0; i < coinCount; i++) {
+      const col = i % 3, layer = Math.floor(i / 3);
+      p.set(-0.18 + col * 0.10, 0.07 + layer * 0.02, 0.11 - (col & 1) * 0.08);
+      e.set(Math.PI / 2, 0, 0); q.setFromEuler(e); m.compose(p, q, sc); coins.setMatrixAt(i, m);
+    }
+    coins.count = coinCount; coins.instanceMatrix.needsUpdate = true;
+    return grew;
+  }
+
+  return { group, setAmount, lastPulse: 0 };
+}
+
+export function createRegisterCash(G, S, ctx) {
+  const { world, scene, vis, fx, els } = ctx;
+  const records = new Map();
+  // The old visuals system still owns a legacy floor pile for compatibility; disable it here.
+  for (const st of world.stations.values()) {
+    if (st.type !== 'checkout') continue;
+    const legacy = vis.get(st.id); if (legacy && legacy.pile) legacy.pile.visible = false;
+    const rec = makeRegisterStack(st); scene.add(rec.group);
+    const label = document.createElement('div');
+    label.className = 'register-money-badge hidden';
+    label.style.cssText = 'position:absolute;transform:translate(-50%,-100%);padding:5px 9px;border-radius:10px;background:#FFF6D6F2;border:1.5px solid #D6A83D;color:#5B4314;font:900 11px/1 system-ui,sans-serif;box-shadow:0 4px 12px #0002;pointer-events:none;white-space:nowrap';
+    els.fx.appendChild(label);
+    records.set(st.id, { ...rec, label, project: { sx: 0, sy: 0, visible: true }, amount: -1, st });
+  }
+  // Hide the legacy floor labels created by systems/stations.js; exact amount now lives above the till.
+  for (const el of els.fx.querySelectorAll('.cash-tray-badge')) el.style.display = 'none';
+
+  return {
+    syncAll() {
+      for (const rec of records.values()) rec.amount = -1;
+    },
+    update(dt) {
+      for (const rec of records.values()) {
+        const st = rec.st;
+        rec.group.visible = st.active && st.pile > 0;
+        if (st.pile !== rec.amount) {
+          const grew = rec.setAmount(st.pile); rec.amount = st.pile;
+          rec.label.textContent = `CASH · ${Math.round(st.pile).toLocaleString('en-US')}`;
+          if (grew && st.pile > 0) rec.lastPulse = 0.22;
+        }
+        if (!st.active || st.pile <= 0) { rec.label.classList.add('hidden'); continue; }
+        // Register-top label: project a point just above the countertop stack, never the floor collection spot.
+        fx.project(st.x - Math.cos(st.rot || 0) * 0.35, 1.68, st.z + Math.sin(st.rot || 0) * 0.35, rec.project);
+        rec.label.style.left = rec.project.sx + 'px'; rec.label.style.top = rec.project.sy + 'px';
+        rec.label.classList.toggle('hidden', !rec.project.visible);
+        if (rec.lastPulse > 0) {
+          rec.lastPulse = Math.max(0, rec.lastPulse - dt);
+          const s = 1 + Math.sin((0.22 - rec.lastPulse) * 24) * rec.lastPulse * 0.22;
+          rec.group.scale.setScalar(s);
+        } else rec.group.scale.setScalar(1);
+      }
+    },
+  };
+}
