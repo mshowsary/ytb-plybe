@@ -1,4 +1,4 @@
-// Pure transient worker tuning for future contextual Rush Help.
+// Pure transient worker tuning for contextual Rush Help.
 //
 // Important balance contract: rewarded Rush Crew never invents an ad-only super-stat. It borrows
 // exactly ONE existing worker-upgrade tier for the current rush, so permanent upgrades retain the
@@ -16,6 +16,22 @@ export function rushCrewActive(boosts, dayState) {
     b && RUSH_CREW_ROLES.includes(b.role) && dayState && dayState.phase === 'rush' &&
     (b.day | 0) === (dayState.day | 0)
   );
+}
+
+export function restoreRushCrewBoost(raw, dayState) {
+  const b = raw && typeof raw === 'object' ? makeRushCrewBoost(raw.role, raw.day) : null;
+  return b && rushCrewActive({ rushCrew: b }, dayState) ? b : null;
+}
+
+export function rushCrewHasBenefit(levels, role) {
+  const L = levels || {};
+  if (role === 'runner') {
+    const r = L.runner || {};
+    return (r.speed | 0) < 3 || (r.carry | 0) < 3;
+  }
+  if (role === 'cashier') return (((L.cashier || {}).speed) | 0) < 3;
+  if (role === 'cleaner') return (((L.cleaner || {}).speed) | 0) < 3;
+  return false;
 }
 
 function tier(n) { return Math.max(0, Math.min(3, n | 0)); }
