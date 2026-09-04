@@ -39,22 +39,30 @@ await page.route('https://www.youtube.com/game_api/v1', route => route.fulfill({
 await page.goto('http://127.0.0.1:4179/', { waitUntil:'domcontentloaded' });
 await page.waitForFunction(() => window.__game && window.__ready && document.getElementById('loading').classList.contains('hidden'), null, { timeout:30000 });
 
+// Restore a coherent Day-4 café rather than toggling individual station.active flags. That makes
+// world.displays, station footprints and the navigation grid agree with the fixture exactly as they
+// would after real purchases through the zone chain.
 await page.evaluate(() => {
-  const G = window.__game;
-  G.intro.step = 5; G.intro.active = false;
-  G.dayState.day = 4; G.dayState.t = 72; G.dayState.phase = 'rush';
-  G.coins = 5000;
-  G.staff.runner = 1;
-  G.staffLevels.runner.speed = 0; G.staffLevels.runner.carry = 0;
-  G.meta.rewardedDays['relief:4'] = 0;
-  const oven = G.world.stations.get('oven1');
-  const display = G.world.stations.get('dispCookie');
-  const secondDisplay = G.world.stations.get('dispCupcake');
-  if (oven) oven.stock = 12;
-  if (display) display.stock = 0;
-  // The second low display is classifier evidence only; it keeps the single genuine waiting guest
-  // from needing to reach the last four seconds of patience before the deterministic offer appears.
-  if (secondDisplay) { secondDisplay.active = true; secondDisplay.stock = 0; }
+  const G = window.__game, s = G.snapshot();
+  s.coins = 5000;
+  s.builds.a1 = ['z_seats1','z_oven2','z_register2','z_hire'];
+  s.partial = {};
+  s.staff = { runner:1, cashier:0, cleaner:0 };
+  s.staffLevels = { runner:{ speed:0, carry:0 }, cashier:{ speed:0 }, cleaner:{ speed:0 } };
+  s.intro = { step:5, active:false, target:null };
+  s.dayState = { day:4, t:72, phase:'rush', _ended:false };
+  s.dayStats = { served:0, lost:0, earned:0, serviceFees:0, serviceMisses:0, wasteFees:0, bestStreak:0 };
+  s.meta.rewardedDays = { ...(s.meta.rewardedDays || {}), 'relief:4':0 };
+  G.restore(s);
+
+  const oven1 = G.world.stations.get('oven1');
+  const oven2 = G.world.stations.get('oven2');
+  const cookie = G.world.stations.get('dispCookie');
+  const cupcake = G.world.stations.get('dispCupcake');
+  if (oven1) oven1.stock = 12;      // cookie is the only genuinely available wish product
+  if (oven2) oven2.stock = 0;
+  if (cookie) cookie.stock = 0;
+  if (cupcake) cupcake.stock = 0;   // second real low display gives stable stock-pressure evidence
 });
 
 await page.waitForFunction(() => window.__game.staffList.some(s => s.kind === 'runner'), null, { timeout:5000 });
@@ -67,8 +75,9 @@ await page.evaluate(() => {
 // a fake customer record because that would bypass the customer/nav system this feature responds to.
 await page.waitForFunction(() => window.__game.customers.some(c => !c.done && c.state === 'queue' && c.mood === 'wait'), null, { timeout:22000 });
 await page.waitForFunction(() => {
+  const root = document.querySelector('.relief-root');
   const el = document.querySelector('.relief-pill');
-  return el && !el.classList.contains('hidden') && /Rush Runner/i.test(el.textContent || '');
+  return root && !root.classList.contains('hidden') && el && !el.classList.contains('hidden') && /Rush Runner/i.test(el.textContent || '');
 }, null, { timeout:9000 });
 
 const pillGeometry = await page.evaluate(() => {
