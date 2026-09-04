@@ -5,6 +5,7 @@ import { createYouTubePlatform } from './platform/youtube.js';
 import { createMachineJuice } from './systems/machineJuice.js';
 import { createResponsivePolish } from './ui/responsive.js';
 import { createPlayablesShell } from './ui/playablesShell.js';
+import { installCleanHud } from './ui/cleanHud.js';
 import { createPauseMenu } from './ui/pauseMenu.js';
 import { createCashTrays } from './render/cashTrays.js';
 import { AREA1 } from '../data/area1.js';
@@ -33,6 +34,7 @@ function makePauseOverlay() {
 requestAnimationFrame(() => requestAnimationFrame(boot));
 
 async function boot() {
+  installCleanHud();
   const S = createScene($('c'));
   const G = createGame(
     S,
