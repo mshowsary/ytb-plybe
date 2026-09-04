@@ -163,8 +163,9 @@ for (const [tag,width,height,dpr] of cases) {
     viewport:document.body.dataset.viewport, compact:document.body.classList.contains('playables-compact')
   }));
 
-  const goalBad=goal.day!==13||goal.kind!=='streak'||goal.target!==10||goal.previous!==9||goal.rival!==true;
-  const cleanBad=(width<=600||height<=520) ? goal.visible || ui.chalkVisible!==0 : !goal.visible || !goal.text;
+  // Goal mechanics stay tested in full, but their sentence is intentionally hidden on every clean-HUD size.
+  const goalBad=goal.day!==13||goal.kind!=='streak'||goal.target!==10||goal.previous!==9||goal.rival!==true||!goal.text;
+  const cleanBad=goal.visible||ui.chalkVisible!==0;
   const smallBad=tag==='small'&&(
     !smallChecks||!smallChecks.pauseFrozen||!smallChecks.musicIndependent||smallChecks.walkPaid!==0||smallChecks.earlyPaid!==0||!(smallChecks.heldPaid>0)||
     !renovation||renovation.level!==1||renovation.spent!==1800||renovation.next!=='Gallery Café'||
