@@ -7,6 +7,7 @@ import { createResponsivePolish } from './ui/responsive.js';
 import { createPlayablesShell } from './ui/playablesShell.js';
 import { installCleanHud } from './ui/cleanHud.js';
 import { installCertificationPolish } from './ui/certificationPolish.js';
+import { createInteractionCoach } from './ui/interactionCoach.js';
 import { createPauseMenu } from './ui/pauseMenu.js';
 import { createCashTrays } from './render/cashTrays.js';
 import { AREA1 } from '../data/area1.js';
@@ -47,6 +48,7 @@ async function boot() {
   const responsive = createResponsivePolish(G);
   const shell = createPlayablesShell();
   installCertificationPolish();
+  const interactionCoach = createInteractionCoach();
   const cashTrays = createCashTrays(G.world, S.scene);
   const pauseOverlay = makePauseOverlay();
   platform.bindGame(G);
@@ -63,6 +65,7 @@ async function boot() {
   window.__platform = platform;
   window.__pauseMenu = pauseMenu;
   window.__playablesShell = shell;
+  window.__interactionCoach = interactionCoach;
 
   S.render();
   platform.firstFrameReady();
@@ -120,13 +123,14 @@ async function boot() {
       cashTrays.update(dt);
       responsive.update();
       shell.update();
+      interactionCoach.update(dt);
       G.audio.setMusicPhase(G.dayState.phase);
       G.audio.musicUpdate(dt);
       const rep = (G.meta && G.meta.reputation) | 0;
       if (rep !== lastRep) { lastRep = rep; platform.sendScore(rep); }
       if (S.noteFrame) S.noteFrame(dt);
       S.render();
-    }
+    } else interactionCoach.hide();
 
     if (first) {
       first = false;
