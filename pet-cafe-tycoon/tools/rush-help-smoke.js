@@ -89,12 +89,18 @@ await page.evaluate(() => {
   c.x = q.x; c.z = q.z;
   m.x = q.x; m.z = q.z; m.tx = q.x; m.tz = q.z; m.hasTarget = false; m.n = 0; m.k = 0; m.vx = 0; m.vz = 0; m.mask = 0;
   m.stall = 0; m.blockedT = 0; m.bestD = Infinity; m._winD = Infinity; m.gridVersion = G.world.grid.version; m._planMask = 0;
+  window.__rushFixtureStart = G.time;
 });
 await page.waitForFunction(() => window.__game.customers.some(c => !c.done && c.state === 'queue' && c.slot === 0 && c.mood === 'wait'), null, { timeout:3000 });
 
-// The controller deliberately requires 5 seconds of sustained evidence. Give it one extra polling
-// interval, then fail with a full live-state dump instead of an opaque waitForFunction timeout.
-await page.waitForTimeout(6200);
+// The controller deliberately requires five SIMULATION seconds of sustained evidence. Headless
+// WebGL can run below real time on CI, so wall-clock sleeps are the wrong clock here. Wait until the
+// exact clock economyExperience advances has moved six seconds, leaving one full polling interval
+// beyond the production threshold while keeping the fixture safely inside Rush.
+await page.waitForFunction(() => {
+  const G = window.__game;
+  return G && Number.isFinite(window.__rushFixtureStart) && G.time - window.__rushFixtureStart >= 6;
+}, null, { timeout:18000 });
 const surfaceState = await page.evaluate(() => {
   const G = window.__game;
   const root = document.querySelector('.relief-root');
@@ -107,6 +113,7 @@ const surfaceState = await page.evaluate(() => {
   return {
     day:{ day:G.dayState.day, phase:G.dayState.phase, t:G.dayState.t },
     time:G.time,
+    fixtureElapsed:G.time - window.__rushFixtureStart,
     claim:G.meta.rewardedDays['relief:4'] || 0,
     staff:{ ...G.staff },
     runnerLevels:{ ...G.staffLevels.runner },
