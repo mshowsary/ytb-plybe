@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  makeRushCrewBoost, rushCrewActive, staffLevelsWithRushCrew,
+  makeRushCrewBoost, rushCrewActive, restoreRushCrewBoost, rushCrewHasBenefit,
+  staffLevelsWithRushCrew,
 } from '../src/sim/rushCrew.js';
 
 const base = () => ({
@@ -23,6 +24,24 @@ test('rush crew is scoped to the matching day and Rush phase', () => {
   assert.equal(rushCrewActive(boosts, { day: 5, phase: 'rush' }), true);
   assert.equal(rushCrewActive(boosts, { day: 5, phase: 'morning' }), false);
   assert.equal(rushCrewActive(boosts, { day: 6, phase: 'rush' }), false);
+});
+
+test('saved rush crew restores only into the exact same active rush', () => {
+  const raw = { role: 'runner', day: 5 };
+  assert.deepEqual(restoreRushCrewBoost(raw, { day: 5, phase: 'rush' }), raw);
+  assert.equal(restoreRushCrewBoost(raw, { day: 5, phase: 'afternoon' }), null);
+  assert.equal(restoreRushCrewBoost(raw, { day: 6, phase: 'rush' }), null);
+  assert.equal(restoreRushCrewBoost({ role: 'owner', day: 5 }, { day: 5, phase: 'rush' }), null);
+});
+
+test('rush crew is never offered for a role already at its permanent ceiling', () => {
+  assert.equal(rushCrewHasBenefit(base(), 'runner'), true);
+  assert.equal(rushCrewHasBenefit(base(), 'cashier'), true);
+  assert.equal(rushCrewHasBenefit(base(), 'cleaner'), true);
+  const maxed = { runner: { speed: 3, carry: 3 }, cashier: { speed: 3 }, cleaner: { speed: 3 } };
+  assert.equal(rushCrewHasBenefit(maxed, 'runner'), false);
+  assert.equal(rushCrewHasBenefit(maxed, 'cashier'), false);
+  assert.equal(rushCrewHasBenefit(maxed, 'cleaner'), false);
 });
 
 test('inactive rush crew returns the permanent level object unchanged', () => {
