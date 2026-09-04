@@ -44,7 +44,7 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
       - name: Browser visual smoke
-        run: node tools/production-smoke.js
+        run: node tools/production-smoke-v2.js
       - name: YouTube publisher certification smoke
         run: node tools/playables-cert-smoke.js
       - name: Upload production QA
