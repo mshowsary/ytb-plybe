@@ -1,37 +1,155 @@
-// src/sim/save.js — pure save/restore helper shared by game.js's G.restore and its own tests
-// (T2). Handles only the flat G-shaped fields (coins/upgrades/staff/stats/settings); world
-// built/partial/active reconstruction stays in createWorld(area, save) / world.js, which already
-// understands the { built, partial } save shape on its own.
-import { createDay } from './day.js';
-import { chooseGoal } from './economy.js';
-export function applySave(state, save) {
-  if (!save || typeof save !== 'object') return;
-  state.coins = save.coins | 0;
-  Object.assign(state.up, save.upgrades);
-  Object.assign(state.staff, save.staff);
-  Object.assign(state.stats, save.stats);
-  Object.assign(state.settings, save.settings);
-  // M3 T5 fix round 1: worker Speed/Carry and machine Oven/Coffee-speed/Display-capacity tiers —
-  // an M2 save has neither field, so every level defaults to 0 (not undefined, which upgradeCost/
-  // workerSpeedMult etc. already treat as 0 via `| 0`, but a live G.staffLevels object needs real
-  // numbers for the UI's tier-dot rendering to work).
-  const sl = (save.staffLevels && typeof save.staffLevels === 'object') ? save.staffLevels : {};
+// Pure save/restore helper shared by game.js and node tests.
+import { ensureReputation } from './reputation.js';
+import { ensurePetBook } from './petBook.js';
+import { ensureCareer, chooseCareerGoal } from './career.js';
+import { ensurePartyOrders } from './partyOrders.js';
+import {
+  CURRENT_SAVE_VERSION, SAVE_LIMITS, validateAndMigrateSave as validateCoreSave,
+} from './saveSchema.js';
+import { normalizeStationState } from './stationState.js';
+import { normalizeOwnerState } from './ownerState.js';
+import { normalizeStaffState } from './staffState.js';
+import { normalizeTemporaryHelp } from './temporaryHelp.js';
+
+export { CURRENT_SAVE_VERSION, SAVE_LIMITS } from './saveSchema.js';
+export { STATION_STATE_VERSION } from './stationState.js';
+export { OWNER_STATE_VERSION } from './ownerState.js';
+export { STAFF_STATE_VERSION } from './staffState.js';
+export { TEMPORARY_HELP_VERSION } from './temporaryHelp.js';
+
+// Tasks 10–12 extend the certified root-v4 schema through versioned nested payloads. Keeping these
+// wrappers here means the YouTube load gate and applySave canonicalize every extension before cloud
+// writes unlock, without destabilizing the historical root migration contract.
+export function validateAndMigrateSave(raw, area = null) {
+  const result = validateCoreSave(raw, area);
+  if (!result.ok) return result;
+  const areaId = area && typeof area.id === 'string' ? area.id : 'a1';
+  const builtSet = new Set(result.data.builds && result.data.builds[areaId] || []);
+  const station = normalizeStationState(
+    raw && raw.stationState,
+    area,
+    builtSet,
+    result.data.stars,
+    SAVE_LIMITS.maxCoins,
+  );
+  if (!station.ok) return { ok: false, reason: `stationState:${station.reason}` };
+  result.data.stationState = station.data;
+
+  const owner = normalizeOwnerState(raw && raw.ownerState, area, result.data.upgrades);
+  if (!owner.ok) return { ok: false, reason: `ownerState:${owner.reason}` };
+  result.data.ownerState = owner.data;
+
+  const staffState = normalizeStaffState(raw && raw.staffState, area, builtSet, result.data.staff);
+  if (!staffState.ok) return { ok: false, reason: `staffState:${staffState.reason}` };
+  result.data.staffState = staffState.data;
+
+  const help = normalizeTemporaryHelp(raw && raw.temporaryHelp, result.data.boosts, result.data.dayState);
+  if (!help.ok) return { ok: false, reason: `temporaryHelp:${help.reason}` };
+  result.data.temporaryHelp = help.data;
+  return result;
+}
+
+export function normalizeSave(raw, area = null) {
+  const result = validateAndMigrateSave(raw, area);
+  return result.ok ? result.data : null;
+}
+
+export function applySave(state, save, area = state && state.world && state.world.area) {
+  if (!state || typeof state !== 'object') return null;
+  const canonical = normalizeSave(save, area);
+  if (!canonical) return null;
+
+  state.coins = canonical.coins;
+  if (!state.up || typeof state.up !== 'object') state.up = {};
+  Object.assign(state.up, canonical.upgrades);
+  if (!state.staff || typeof state.staff !== 'object') state.staff = {};
+  Object.assign(state.staff, canonical.staff);
+  if (!state.stats || typeof state.stats !== 'object') state.stats = {};
+  Object.assign(state.stats, canonical.stats);
+  if (!state.settings || typeof state.settings !== 'object') state.settings = {};
+  Object.assign(state.settings, canonical.settings);
+
   state.staffLevels = {
-    runner: { speed: (sl.runner && sl.runner.speed) | 0, carry: (sl.runner && sl.runner.carry) | 0 },
-    cashier: { speed: (sl.cashier && sl.cashier.speed) | 0 },
-    cleaner: { speed: (sl.cleaner && sl.cleaner.speed) | 0 },
+    runner: { ...canonical.staffLevels.runner },
+    cashier: { ...canonical.staffLevels.cashier },
+    cleaner: { ...canonical.staffLevels.cleaner },
   };
-  const ml = (save.machineLevels && typeof save.machineLevels === 'object') ? save.machineLevels : {};
-  state.machineLevels = { oven: ml.oven | 0, coffee: ml.coffee | 0, display: ml.display | 0 };
-  // Loop v2 Task 2: the intro's own progress (src/systems/intro.js). An M3 save (no `intro` field
-  // at all) restores to `{}` — intro.js's own `step === undefined` check then replays it from step
-  // 0, same as a genuinely fresh game.
-  state.intro = (save.intro && typeof save.intro === 'object') ? { ...save.intro } : {};
-  // Loop v2 Task 3: the day clock, station stars, and today's goal/running stats. A pre-Task-3 save
-  // (no `dayState` field at all) restores to a fresh day 1 — createDay()'s own shape — rather than
-  // crashing on a missing field, same fallback pattern every other field on this page uses.
-  state.dayState = (save.dayState && typeof save.dayState === 'object') ? { ...save.dayState } : createDay();
-  state.stars = (save.stars && typeof save.stars === 'object') ? { ...save.stars } : {};
-  state.goal = (save.goal && typeof save.goal === 'object') ? { ...save.goal } : chooseGoal(state.dayState.day);
-  state.dayStats = (save.dayStats && typeof save.dayStats === 'object') ? { ...save.dayStats } : { served: 0, lost: 0, earned: 0 };
+  state.machineLevels = { ...canonical.machineLevels };
+  state.intro = { ...canonical.intro };
+  state.staffState = {
+    v: canonical.staffState.v,
+    runnerAssignments: [...canonical.staffState.runnerAssignments],
+  };
+
+  const meta = canonical.meta;
+  state.meta = {
+    completedDays: meta.completedDays,
+    rewardedDays: { ...meta.rewardedDays },
+    reputation: meta.reputation,
+    perfectShifts: meta.perfectShifts,
+    bestServiceStreak: meta.bestServiceStreak,
+    shiftRatings: { ...meta.shiftRatings },
+    petBook: { ...meta.petBook },
+    petFriendship: { ...meta.petFriendship },
+    petDiscoveries: meta.petDiscoveries,
+    settlement: meta.settlement ? {
+      ...meta.settlement,
+      goal: { ...meta.settlement.goal },
+      stats: { ...meta.settlement.stats },
+      rewards: { ...meta.settlement.rewards },
+      reputation: { ...meta.settlement.reputation },
+      cup: meta.settlement.cup ? { ...meta.settlement.cup } : null,
+    } : null,
+    career: {
+      history: structuredCloneSafe(meta.career.history),
+      weeklyCups: structuredCloneSafe(meta.career.weeklyCups),
+      trophies: { ...meta.career.trophies },
+      recipeSales: { ...meta.career.recipeSales },
+      contractStreak: meta.career.contractStreak,
+      bestContractStreak: meta.career.bestContractStreak,
+      bestWeekPoints: meta.career.bestWeekPoints,
+      renovationLevel: meta.career.renovationLevel,
+    },
+    partyOrders: {
+      nextId: meta.partyOrders.nextId,
+      completed: meta.partyOrders.completed,
+      lastOfferDay: meta.partyOrders.lastOfferDay,
+      active: meta.partyOrders.active ? {
+        ...meta.partyOrders.active,
+        requirements: meta.partyOrders.active.requirements.map(r => ({ ...r })),
+      } : null,
+    },
+  };
+  ensureReputation(state.meta);
+  ensurePetBook(state.meta);
+  ensureCareer(state.meta);
+  ensurePartyOrders(state.meta);
+
+  state.dayState = { ...canonical.dayState };
+  state.stars = { ...canonical.stars };
+
+  // Task 12 owns one canonical temporary-help record. Active Crew/Break instances are restored only
+  // into their legitimate rush; Roomba is consumed later by systems/petMess after that runtime is
+  // constructed; pending earned entitlement remains available for the next useful moment.
+  if (!state.boosts || typeof state.boosts !== 'object') state.boosts = {};
+  if (canonical.temporaryHelp.rushCrew) state.boosts.rushCrew = { ...canonical.temporaryHelp.rushCrew };
+  else delete state.boosts.rushCrew;
+  if (canonical.temporaryHelp.petPlayBreak) state.boosts.petPlayBreak = { ...canonical.temporaryHelp.petPlayBreak, recipientIds: [], needsRecipients: true };
+  else delete state.boosts.petPlayBreak;
+  state.temporaryHelp = {
+    v: canonical.temporaryHelp.v,
+    roomba: canonical.temporaryHelp.roomba ? { ...canonical.temporaryHelp.roomba } : null,
+    pending: canonical.temporaryHelp.pending ? { ...canonical.temporaryHelp.pending } : null,
+  };
+
+  // Regenerate the live adaptive contract so old saves cannot preserve retired Serve-110 style goals.
+  state.goal = chooseCareerGoal(state.dayState.day, state.meta);
+  state.dayStats = { ...canonical.dayStats };
+  return canonical;
+}
+
+function structuredCloneSafe(value) {
+  const out = {};
+  for (const [k, v] of Object.entries(value || {})) out[k] = (v && typeof v === 'object') ? { ...v } : v;
+  return out;
 }

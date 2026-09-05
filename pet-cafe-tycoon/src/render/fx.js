@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { heartGeo } from './pets.js';
 import { emissiveMaterial } from './palette.js';
+import { presentationScheduler } from '../core/presentationScheduler.js';
 const _v = new THREE.Vector3(), _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3(), _c = new THREE.Color();
 export function createFx(scene, camera, layer, walletEl) {
   const MAXP = 300; const parts = [];
@@ -18,8 +19,8 @@ export function createFx(scene, camera, layer, walletEl) {
   F.coinArc = (x, y, z, n = 6, onArrive) => { F.project(x, y, z, tmp); const r = walletEl.getBoundingClientRect(); const tx = r.left + 24, ty = r.top + r.height / 2; let first = true;
     for (let i = 0; i < Math.min(n, 12); i++) { const d = document.createElement('div'); d.className = 'fcoin';
       const sx = tmp.sx + (Math.random() - 0.5) * 40, sy = tmp.sy + (Math.random() - 0.5) * 40; d.style.left = sx + 'px'; d.style.top = sy + 'px'; layer.appendChild(d);
-      setTimeout(() => { d.style.transition = 'left .55s cubic-bezier(.3,-.3,.6,1), top .55s cubic-bezier(.4,.2,.2,1), transform .55s'; d.style.left = tx + 'px'; d.style.top = ty + 'px'; d.style.transform = 'translate(-50%,-50%) scale(.6)'; }, 20 + i * 40);
-      setTimeout(() => { d.remove(); if (first && onArrive) { first = false; onArrive(); } }, 600 + i * 40); } };
+      presentationScheduler.schedule(() => { d.style.transition = 'left .55s cubic-bezier(.3,-.3,.6,1), top .55s cubic-bezier(.4,.2,.2,1), transform .55s'; d.style.left = tx + 'px'; d.style.top = ty + 'px'; d.style.transform = 'translate(-50%,-50%) scale(.6)'; }, 20 + i * 40);
+      presentationScheduler.schedule(() => { d.remove(); if (first && onArrive) { first = false; onArrive(); } }, 600 + i * 40); } };
   // M3 T5: a green cash bill flying FROM the wallet TO a build outline while it's being paid off
   // (opposite direction of coinArc, which flies coins TO the wallet on a sale) — zones.js calls
   // this at most once per BILL_INTERVAL while genuinely spending on an active zone.
@@ -29,14 +30,14 @@ export function createFx(scene, camera, layer, walletEl) {
     const r = walletEl.getBoundingClientRect(); const sx = r.left + 24, sy = r.top + r.height / 2;
     const d = document.createElement('div'); d.className = 'fbill';
     d.style.left = sx + 'px'; d.style.top = sy + 'px'; d.style.opacity = '1'; layer.appendChild(d);
-    requestAnimationFrame(() => {
+    presentationScheduler.afterFrames(() => {
       d.style.transition = 'left .5s cubic-bezier(.3,-.2,.5,1), top .5s cubic-bezier(.4,.1,.3,1), transform .5s, opacity .5s';
       d.style.left = tmp.sx + 'px'; d.style.top = tmp.sy + 'px';
       d.style.transform = 'translate(-50%,-50%) scale(.7) rotate(18deg)'; d.style.opacity = '0.3';
-    });
-    setTimeout(() => d.remove(), 550);
+    }, 1);
+    presentationScheduler.schedule(() => d.remove(), 550);
   };
-  F.number = (x, y, z, text, cls) => { F.project(x, y, z, tmp); if (!tmp.visible) return; const d = document.createElement('div'); d.className = cls ? 'fnum ' + cls : 'fnum'; d.textContent = text; d.style.left = tmp.sx + 'px'; d.style.top = tmp.sy + 'px'; layer.appendChild(d); setTimeout(() => d.remove(), 950); };
+  F.number = (x, y, z, text, cls) => { F.project(x, y, z, tmp); if (!tmp.visible) return; const d = document.createElement('div'); d.className = cls ? 'fnum ' + cls : 'fnum'; d.textContent = text; d.style.left = tmp.sx + 'px'; d.style.top = tmp.sy + 'px'; layer.appendChild(d); presentationScheduler.schedule(() => d.remove(), 950); };
   F.update = dt => {
     let k = 0;
     for (let i = parts.length - 1; i >= 0; i--) { const p = parts[i]; p.life -= dt; if (p.life <= 0) { parts.splice(i, 1); continue; }

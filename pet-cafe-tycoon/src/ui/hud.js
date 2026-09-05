@@ -1,4 +1,6 @@
 // src/ui/hud.js
+import { presentationScheduler } from '../core/presentationScheduler.js';
+
 export function createHud() {
   const $ = id => document.getElementById(id);
   const hud = $('hud'), num = $('walletNum'), wallet = $('wallet'), hint = $('hint'), crowd = $('crowd'), crowdNum = $('crowdNum');
@@ -10,7 +12,12 @@ export function createHud() {
   const handsFullEl = document.createElement('div'); handsFullEl.className = 'pill hidden'; handsFullEl.id = 'handsFull'; hud.appendChild(handsFullEl);
   H.setHandsFull = text => { if (!text) { handsFullEl.classList.add('hidden'); return; } if (handsFullEl.textContent !== text) handsFullEl.textContent = text; handsFullEl.classList.remove('hidden'); };
   H.setCoins = n => { from = shown; target = n; t0 = performance.now(); };
-  H.bump = () => { wallet.style.transform = 'scale(1.12)'; setTimeout(() => wallet.style.transform = '', 120); };
+  let bumpT = null;
+  H.bump = () => {
+    if (bumpT) presentationScheduler.cancel(bumpT);
+    wallet.style.transform = 'scale(1.12)';
+    bumpT = presentationScheduler.schedule(() => { wallet.style.transform = ''; bumpT = null; }, 120);
+  };
   H.hint = text => { if (!text) { hint.classList.add('hidden'); return; } if (hint.textContent !== text) hint.textContent = text; hint.classList.remove('hidden'); };
   let lastN = -1, lastMax = -1, lastUrgent = null;
   // M3 T5: the crowd pill turns coral with a '!' badge while any customer's patience is under 4s.
@@ -51,14 +58,14 @@ export function createHud() {
   const bannerEl = document.createElement('div'); bannerEl.className = 'pill hidden'; bannerEl.id = 'banner'; hud.appendChild(bannerEl);
   let bannerT = null;
   H.banner = (text, ms = 2500) => {
-    if (bannerT) clearTimeout(bannerT);
+    if (bannerT) presentationScheduler.cancel(bannerT);
     bannerEl.textContent = text;
     bannerEl.classList.remove('hidden');
     void bannerEl.offsetWidth;
     bannerEl.classList.add('show');
-    bannerT = setTimeout(() => {
+    bannerT = presentationScheduler.schedule(() => {
       bannerEl.classList.remove('show');
-      bannerT = setTimeout(() => { bannerEl.classList.add('hidden'); bannerT = null; }, 400);
+      bannerT = presentationScheduler.schedule(() => { bannerEl.classList.add('hidden'); bannerT = null; }, 400);
     }, ms);
   };
   H.show = () => hud.classList.remove('hidden');
@@ -67,20 +74,21 @@ export function createHud() {
   H.update = () => { const k = Math.min(1, (performance.now() - t0) / 350); if (k < 1) { shown = from + (target - from) * (1 - Math.pow(1 - k, 3)); num.textContent = fmt(shown); } };
   wallet.style.transition = 'transform .12s';
 
-  // toast: a fading pill above the hint, shown for ~1.5 s; at most one pending while one is showing
+  // toast: a fading pill above the hint, shown for ~1.5 s; at most one pending while one is showing.
+  // Remaining display time is preserved across both host and user pauses.
   const toastEl = document.createElement('div'); toastEl.className = 'toast hidden'; hud.appendChild(toastEl);
-  let toastBusy = false, toastPending = null;
+  let toastBusy = false, toastPending = null, toastT = null;
   function runToast(text) {
     toastBusy = true;
     toastEl.textContent = text;
     toastEl.classList.remove('hidden');
     void toastEl.offsetWidth; // restart the transition
     toastEl.classList.add('show');
-    setTimeout(() => {
+    toastT = presentationScheduler.schedule(() => {
       toastEl.classList.remove('show');
-      setTimeout(() => {
+      toastT = presentationScheduler.schedule(() => {
         toastEl.classList.add('hidden');
-        toastBusy = false;
+        toastBusy = false; toastT = null;
         if (toastPending !== null) { const next = toastPending; toastPending = null; runToast(next); }
       }, 200);
     }, 1300);

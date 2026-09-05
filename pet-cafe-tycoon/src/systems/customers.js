@@ -1,21 +1,23 @@
-// src/systems/customers.js — spawns humans-with-pets, steps the sim, renders the pair
-// (human + pet + leash) and reacts to sim events (took/pay/angry/seated/wish/patience/lost/
-// processed). The human shows the 'wait'/'angry' mood bubble plus a DOM wish bubble (a 44x44
-// product-icon bubble, 80px wide with a treat icon alongside) and a 44x6 patience bar above its
-// head (green/amber/coral by remaining %, shaking under 25%); the pet keeps its own heart burst
-// (via fx.hearts) for seated.
+// Customer render/system layer: human + named pet visitor, wish UI and pet delight moments.
 import { spawnInterval, maxCustomers, cafeLevel } from '../sim/economy.js';
 import { spawnMult, capBonus } from '../sim/day.js';
 import { stepCustomers, createCustomer, SPECIES, PATIENCE } from '../sim/customers.js';
+import { serviceRecoveryCost, SERVICE_LABEL, dirtyTablesBlockingSeats } from '../sim/serviceQuality.js';
+import { PET_VARIANT_WEIGHTS, petProfile } from '../sim/petBook.js';
 import { seatById } from '../sim/world.js';
 import { createHuman } from '../render/human.js';
 import { createPet } from '../render/pets.js';
 import { createLeash } from '../render/leash.js';
 import { itemFor } from '../render/props.js';
 import { makeRng } from '../core/rng.js';
+import { cappedVisualStep } from '../core/visualMotion.js';
 import { iconFor, treatIcon } from '../ui/icons.js';
+import { createPetMoment } from '../ui/petMoments.js';
 
 const SPAWN_SEED = 20260902;
+// Sim customers normally walk at 2.2 m/s. 2.8 leaves normal movement untouched while absorbing
+// any re-plan/rescue discontinuity into a short catch-up instead of exposing it as a visible warp.
+const GUEST_VISUAL_MAX_SPEED = 2.8;
 
 function makeBubble(els) {
   const wrap = document.createElement('div'); wrap.className = 'wish hidden';
@@ -29,65 +31,100 @@ function makeBubble(els) {
   return { wrap, icon1, icon2, bar, fill };
 }
 function removeBubble(b) { b.wrap.remove(); b.bar.remove(); }
+function petSound(species) { return species === 'dog' ? 'petDog' : species === 'bunny' ? 'petBunny' : 'petCat'; }
 
 export function createCustomers(G, S, ctx) {
   const { area, world, scene, hud, fx, els } = ctx;
   const price = ctx.price;
   const rng = makeRng(SPAWN_SEED);
-  const rec = new Map(); // customer id -> { human, pet, leash, px, pz, eating, bub }
-  let spawnT = 2, seq = 1, speciesIdx = 0;
+  const rec = new Map();
+  let spawnT = 2, seq = 1, speciesIdx = 0, penaltyToastCd = 0;
   let cachedBuiltSize = -1, interval = 4, maxC = 6;
   const tmpProj = { sx: 0, sy: 0, visible: true };
 
-  function spawn() {
-    const species = SPECIES[speciesIdx++ % SPECIES.length];
-    const variant = { shirt: rng.i(0, 4), hair: rng.i(0, 3), skin: rng.i(0, 2) };
-    const c = createCustomer(seq++, species, variant, area);
-    G.customers.push(c);
-    const human = createHuman(variant, 'customer'); scene.add(human.group);
-    const pet = createPet(species); scene.add(pet.group);
-    const leash = createLeash(scene); leash.attach(human.hand, pet.neck);
-    const bub = makeBubble(els);
-    rec.set(c.id, { human, pet, leash, px: c.x, pz: c.z, eating: false, bub });
+  function applyServicePenalty(reason, r) {
+    const fee = serviceRecoveryCost(reason, G.coins);
+    G.dayStats.serviceMisses = (G.dayStats.serviceMisses | 0) + 1;
+    if (fee <= 0) return;
+    G.coins -= fee;
+    G.dayStats.serviceFees = (G.dayStats.serviceFees | 0) + fee;
+    G.stats.serviceFees = (G.stats.serviceFees | 0) + fee;
+    hud.setCoins(G.coins); ctx.audio.play('penalty');
+    if (r) fx.number(r.human.group.position.x, r.human.height + 0.62, r.human.group.position.z, `-${fee}`, 'lost');
+    if (penaltyToastCd <= 0) {
+      penaltyToastCd = 1.8;
+      hud.toast(`${SERVICE_LABEL[reason] || 'Service miss'} · recovery -${fee}`);
+    }
   }
 
-  // C2: called from G.restore to clear every render record (mesh + leash) before the world's
-  // built/active set is rebuilt from a save, so restore never leaves stale customer meshes on stage.
+  function spawn() {
+    const species = SPECIES[speciesIdx++ % SPECIES.length];
+    const petVariant = rng.pick(PET_VARIANT_WEIGHTS);
+    const profile = petProfile(species, petVariant);
+    const variant = { shirt: rng.i(0, 4), hair: rng.i(0, 3), skin: rng.i(0, 2) };
+    const c = createCustomer(seq++, species, variant, area);
+    c.petVariant = petVariant;
+    G.customers.push(c);
+    const human = createHuman(variant, 'customer'); human.group.position.set(c.x, 0, c.z); scene.add(human.group);
+    const pet = createPet(species, petVariant); pet.group.position.set(c.x + 0.45, 0, c.z - 0.9); scene.add(pet.group);
+    const leash = createLeash(scene); leash.attach(human.hand, pet.neck);
+    const bub = makeBubble(els);
+    const identity = createPetMoment(els, profile, c.id);
+    if (profile.rarity === 'rare' || profile.rarity === 'epic') identity.announce(`${profile.rarity.toUpperCase()} VISITOR`, 2.8);
+    rec.set(c.id, {
+      human, pet, leash, identity, profile,
+      px: c.x, pz: c.z, eating: false, bub,
+      lastState: c.state, petHappyT: 0, petBreakActive: false, treatCelebrated: false, tablePenalty: false,
+    });
+    if (ctx.discoverPet) ctx.discoverPet(species, petVariant);
+  }
+
   function teardown() {
-    for (const r of rec.values()) { scene.remove(r.human.group); scene.remove(r.pet.group); r.leash.detach(); removeBubble(r.bub); }
+    for (const r of rec.values()) {
+      scene.remove(r.human.group); scene.remove(r.pet.group); r.leash.detach(); removeBubble(r.bub); r.identity.remove();
+    }
     rec.clear();
   }
 
   return {
     teardown,
     update(dt) {
-      if (world.built.size !== cachedBuiltSize) { cachedBuiltSize = world.built.size; interval = spawnInterval(world.built); maxC = maxCustomers(world.built); }
-      // Loop v2 Task 3: the day clock's phase multiplier/cap bonus (design section 5) and the
-      // café-level base-cap bonus (design section 6, +1 per 5 total stars, up to 3) ride on top of
-      // the built-zone base formulas above. spawnMult is 0 during closing — guard the divide.
+      penaltyToastCd = Math.max(0, penaltyToastCd - dt);
+      if (world.built.size !== cachedBuiltSize) {
+        cachedBuiltSize = world.built.size;
+        interval = spawnInterval(world.built); maxC = maxCustomers(world.built);
+      }
       const d = G.dayState;
       const mult = d ? spawnMult(d) : 1;
       const effMaxC = maxC + (d ? capBonus(d) : 0) + Math.min(3, Math.floor(cafeLevel(G) / 5));
-      // Loop v2 Task 2: the intro (src/systems/intro.js) locks spawns to 2 through its bake/stock/
-      // serve steps (0-2) so the café stays calm enough to actually demonstrate them; the cap lifts
-      // back to normal from step 3 (collect) on.
       const introCap = G.intro && G.intro.active && (G.intro.step | 0) < 3;
       const cap = introCap ? Math.min(effMaxC, 2) : effMaxC;
-      // Bug found via tools/bot.js's first day-by-day run: resetting spawnT to Infinity during
-      // closing (mult 0) and then subtracting dt every frame leaves it AT Infinity forever
-      // (Infinity - dt === Infinity) — spawns never resumed on day 2. Only run the countdown while
-      // spawning is actually possible this phase; closing just pauses it in place.
       if (mult > 0) {
         spawnT -= dt;
         if (spawnT <= 0 && G.customers.length < cap) { spawnT = interval / mult; spawn(); }
       }
 
       stepCustomers(G.customers, world, price, dt);
-      // M3 T2: customers now walk the grid (src/sim/nav.js + mover.js) — no push-out here, the
-      // sim already resolves their positions each step.
+
+      for (const c of G.customers) {
+        const r = rec.get(c.id); if (!r) continue;
+        if (!r.treatCelebrated && r.lastState === 'atBowl' && c.state !== 'atBowl' && (c.order || []).includes('treat')) {
+          r.treatCelebrated = true; r.petHappyT = 1.7; r.pet.setMood('happy');
+          r.identity.announce('LOVES THE TREAT ♥', 2.5);
+          fx.hearts(r.pet.group.position.x, r.pet.height + 0.25, r.pet.group.position.z);
+          ctx.audio.play(petSound(c.species));
+        }
+        if (!r.tablePenalty && r.lastState === 'atRegister' && c.state === 'leave' && c.paid && dirtyTablesBlockingSeats(world)) {
+          r.tablePenalty = true;
+          applyServicePenalty('table', r);
+          r.identity.announce('WANTED A CLEAN TABLE', 2.2);
+        }
+      }
 
       for (const e of world.events) {
-        const r = rec.get(e.id); if (!r) continue;
+        const r = rec.get(e.id);
+        if (e.type === 'lost') applyServicePenalty(e.reason, r || null);
+        if (!r) continue;
         if (e.type === 'took') { r.pet.carry(itemFor(e.product)); r.human.setMood('none'); }
         else if (e.type === 'pay') { G.stats.served = (G.stats.served | 0) + 1; }
         else if (e.type === 'angry') { r.human.setMood('angry'); ctx.audio.play('angry'); }
@@ -119,38 +156,87 @@ export function createCustomers(G, S, ctx) {
           const seat = seatById(world, e.seatId);
           const c = G.customers.find(cc => cc.id === e.id);
           r.human.group.position.set(seat.pair.human.x, 0, seat.pair.human.z);
-          if (c) r.human.group.rotation.y = c.rot; // I6: sim already computed the facing toward the table
+          r.px = seat.pair.human.x; r.pz = seat.pair.human.z;
+          if (c) r.human.group.rotation.y = c.rot;
           r.human.sit(); r.human.setMood('none');
           r.bub.wrap.classList.add('hidden'); r.bub.bar.classList.add('hidden');
           r.pet.group.position.set(seat.pair.pet.x, 0, seat.pair.pet.z);
-          r.pet.sit(); r.eating = true;
+          r.pet.sit(); r.eating = true; r.identity.setSeated(true); r.identity.announce('RELAXING', 1.5);
           fx.hearts(seat.pair.pet.x, r.pet.height + 0.3, seat.pair.pet.z);
         }
       }
 
       for (let i = G.customers.length - 1; i >= 0; i--) {
         const c = G.customers[i]; const r = rec.get(c.id);
-        if (c.done) { scene.remove(r.human.group); scene.remove(r.pet.group); r.leash.detach(); removeBubble(r.bub); rec.delete(c.id); G.customers.splice(i, 1); continue; }
-        if (r.eating && c.state !== 'eating') { r.pet.stand(); r.human.stand(); r.eating = false; }
-        if (r.eating) { r.pet.update(dt, false, 0); }
-        else {
-          const vx = (c.x - r.px) / dt, vz = (c.z - r.pz) / dt;
-          r.human.group.position.set(c.x, 0, c.z); r.human.update(dt, vx, vz);
-          r.pet.followTarget(c.x, c.z, c.rot, dt);
-          r.px = c.x; r.pz = c.z;
+        if (!r) continue;
+        if (c.done) {
+          scene.remove(r.human.group); scene.remove(r.pet.group); r.leash.detach(); removeBubble(r.bub); r.identity.remove();
+          rec.delete(c.id); G.customers.splice(i, 1); continue;
+        }
+
+        // Pet Play Break is a simulation-side patience hold, but players need to SEE which pets got
+        // the reward. `_petBreakFloor` is written only for the two selected recipients and cleared
+        // by the post-sim controller when the reward expires. This branch changes render state only:
+        // happy bubble + identity highlight + a small bounce/wiggle; no customer or mover coordinate
+        // is touched, so navigation, queue ownership and service timing stay identical.
+        const petBreakNow = Number.isFinite(c._petBreakFloor);
+        if (petBreakNow && !r.petBreakActive) {
+          r.petBreakActive = true;
+          r.identity.setPlayBreak(true);
+          r.pet.setMood('happy');
+          fx.hearts(r.pet.group.position.x, r.pet.height + 0.25, r.pet.group.position.z);
+        } else if (!petBreakNow && r.petBreakActive) {
+          r.petBreakActive = false;
+          r.identity.setPlayBreak(false);
+          r.pet.group.rotation.z = 0;
+          if (r.petHappyT <= 0) r.pet.setMood('none');
+        }
+
+        if (r.petHappyT > 0) {
+          r.petHappyT = Math.max(0, r.petHappyT - dt);
+          if (r.petHappyT === 0 && !r.petBreakActive) r.pet.setMood('none');
+        }
+        if (r.eating && c.state !== 'eating') {
+          r.pet.stand(); r.human.stand(); r.eating = false; r.identity.setSeated(false);
+          // Resume from the real seated render position, not the sim's potentially already-moving coordinate.
+          r.px = r.human.group.position.x; r.pz = r.human.group.position.z;
+        }
+        if (r.eating) {
+          r.pet.update(dt, false, 0);
+        } else {
+          const step = cappedVisualStep(r.px, r.pz, c.x, c.z, GUEST_VISUAL_MAX_SPEED, dt);
+          const safeDt = Math.max(dt, 1e-4);
+          const vx = (step.x - r.px) / safeDt, vz = (step.z - r.pz) / safeDt;
+          r.px = step.x; r.pz = step.z;
+          r.human.group.position.set(r.px, 0, r.pz); r.human.update(dt, vx, vz);
+          // Follow the visible human. A hidden sim recovery can no longer yank the pet ahead of its owner.
+          r.pet.followTarget(r.px, r.pz, c.rot, dt);
           if (c.state === 'queue' || c.state === 'atBowl' || c.state === 'atRegister') r.human.setMood(c.mood === 'wait' ? 'wait' : 'none');
         }
-        r.leash.update(); // I1: leashes were built once and never repositioned
-        // M3 T3: keep the wish bubble + patience bar pinned above the head every frame (their
-        // content only updates on the throttled wish/patience events above).
-        if (c.state === 'leave' || c.done) { r.bub.wrap.classList.add('hidden'); r.bub.bar.classList.add('hidden'); }
-        else if (!r.eating) {
-          fx.project(c.x, r.human.height + 0.55, c.z, tmpProj);
+
+        if (r.petBreakActive) {
+          const pulse = (G.time + (c.id | 0) * 0.17) * 7;
+          r.pet.setMood('happy');
+          r.pet.group.position.y += 0.035 + Math.abs(Math.sin(pulse)) * 0.08;
+          r.pet.group.rotation.z = Math.sin(pulse * 0.67) * 0.075;
+        } else if (Math.abs(r.pet.group.rotation.z) > 0.001) {
+          r.pet.group.rotation.z *= Math.max(0, 1 - dt * 12);
+        }
+        r.leash.update();
+
+        if (c.state === 'leave' || c.done) {
+          r.bub.wrap.classList.add('hidden'); r.bub.bar.classList.add('hidden');
+        } else if (!r.eating) {
+          fx.project(r.px, r.human.height + 0.55, r.pz, tmpProj);
           r.bub.wrap.style.left = tmpProj.sx + 'px'; r.bub.wrap.style.top = tmpProj.sy + 'px';
           r.bub.bar.style.left = tmpProj.sx + 'px'; r.bub.bar.style.top = (tmpProj.sy + 6) + 'px';
         }
+
+        const pp = r.pet.group.position;
+        r.identity.update(dt, fx, pp.x, r.pet.height + 0.42, pp.z);
+        r.lastState = c.state;
       }
-      // M3 T5: the crowd pill goes coral+'!' while any customer's patience is under 4s.
+
       let urgent = false;
       for (const c of G.customers) if (!c.done && c.patience < 4) { urgent = true; break; }
       hud.setCrowd(G.customers.length, effMaxC, urgent);

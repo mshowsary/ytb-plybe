@@ -1,0 +1,346 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createYouTubePlatform, LOAD_STATUS } from '../src/platform/youtube.js';
+
+function playableHost(loadData, saveData = async () => {}) {
+  return {
+    ytgame: {
+      IN_PLAYABLES_ENV: true,
+      game: { loadData, saveData },
+    },
+  };
+}
+
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
+
+test('local preview persists state in-memory and grants the dev reward path', async () => {
+  const p = createYouTubePlatform({});
+  assert.equal(p.inPlayables, false);
+  assert.deepEqual(await p.load(), { status: LOAD_STATUS.EMPTY });
+  assert.equal(await p.save({ coins: 123, meta: { completedDays: 2 } }), true);
+  assert.deepEqual(await p.load(), {
+    status: LOAD_STATUS.LOADED,
+    data: { coins: 123, meta: { completedDays: 2 } },
+  });
+  assert.equal(await p.requestRewardedAd(), true);
+  assert.equal(await p.sendScore(12), false);
+});
+
+test('Playables bridge wires lifecycle, audio, pause save, engagement and ads', async () => {
+  let first = 0, ready = 0, saved = null, audioCb = null, pauseCb = null, resumeCb = null;
+  const scores = [];
+  const host = {
+    ytgame: {
+      IN_PLAYABLES_ENV: true,
+      game: {
+        firstFrameReady: () => first++,
+        gameReady: () => ready++,
+        loadData: async () => JSON.stringify({ coins: 42 }),
+        saveData: async raw => { saved = raw; },
+      },
+      system: {
+        isAudioEnabled: () => false,
+        onAudioEnabledChange: cb => { audioCb = cb; },
+        onPause: cb => { pauseCb = cb; },
+        onResume: cb => { resumeCb = cb; },
+        getLanguage: () => 'fr',
+      },
+      engagement: {
+        sendScore: model => scores.push(model.value),
+      },
+      ads: {
+        requestRewardedAd: async id => id === 'pet-cafe-day-bonus-coins',
+        requestInterstitialAd: async () => {},
+      },
+    },
+  };
+
+  const p = createYouTubePlatform(host);
+  p.firstFrameReady(); p.firstFrameReady();
+  p.gameReady(); p.gameReady();
+  assert.equal(first, 1); assert.equal(ready, 1);
+  assert.deepEqual(await p.load(), { status: LOAD_STATUS.LOADED, data: { coins: 42 } });
+  assert.equal(p.saveProtected, false);
+
+  const mute = [];
+  let snapshots = 0;
+  p.bindGame({ audio: { setHostMute: v => mute.push(v) }, snapshot: () => ({ n: ++snapshots }) });
+  assert.deepEqual(mute, [true]);
+  audioCb(true); assert.deepEqual(mute, [true, false]);
+
+  pauseCb();
+  assert.equal(p.paused, true);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(saved, JSON.stringify({ n: 1 }));
+  resumeCb(); assert.equal(p.paused, false);
+  assert.equal(p.language, 'fr');
+
+  assert.equal(await p.sendScore(9.8), true);
+  assert.equal(await p.sendScore(9.2), false); // floors to same acknowledged value
+  assert.equal(await p.sendScore(12), true);
+  assert.deepEqual(scores, [9, 12]);
+  assert.equal(await p.requestRewardedAd('pet-cafe-day-bonus-coins'), true);
+});
+
+test('true empty cloud data is distinct and unlocks writes', async () => {
+  const writes = [];
+  const p = createYouTubePlatform(playableHost(async () => '', async raw => writes.push(raw)));
+  assert.deepEqual(await p.load(), { status: LOAD_STATUS.EMPTY });
+  assert.equal(p.saveProtected, false);
+  assert.equal(await p.save({ fresh: true }), true);
+  assert.deepEqual(writes, [JSON.stringify({ fresh: true })]);
+});
+
+test('slow cloud success stays write-protected after timeout and is retained', async () => {
+  const load = deferred();
+  const writes = [];
+  const p = createYouTubePlatform(
+    playableHost(() => load.promise, async raw => writes.push(raw)),
+    { loadTimeoutMs: 5 },
+  );
+
+  assert.deepEqual(await p.load(), { status: LOAD_STATUS.PENDING });
+  assert.equal(p.saveProtected, true);
+  assert.equal(await p.save({ coins: 1 }), false);
+  assert.deepEqual(writes, []);
+
+  load.resolve(JSON.stringify({ coins: 900, day: 7 }));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.deepEqual(p.loadOutcome, {
+    status: LOAD_STATUS.LOADED,
+    data: { coins: 900, day: 7 },
+  });
+
+  // A late success is not permission for the already-running fresh state to save over it.
+  assert.equal(p.saveProtected, true);
+  assert.equal(await p.save({ coins: 2 }), false);
+  assert.deepEqual(writes, []);
+
+  // A later explicit load receives the retained authoritative save and opens the write gate.
+  assert.deepEqual(await p.load(), {
+    status: LOAD_STATUS.LOADED,
+    data: { coins: 900, day: 7 },
+  });
+  assert.equal(p.saveProtected, false);
+  assert.equal(await p.save({ coins: 901, day: 7 }), true);
+  assert.deepEqual(writes, [JSON.stringify({ coins: 901, day: 7 })]);
+});
+
+test('load rejection is distinct and cannot become a writable new-player session', async () => {
+  let writes = 0;
+  const p = createYouTubePlatform(playableHost(
+    async () => { throw new Error('load unavailable'); },
+    async () => { writes++; },
+  ));
+
+  assert.deepEqual(await p.load(), { status: LOAD_STATUS.ERROR });
+  assert.equal(p.saveProtected, true);
+  assert.equal(await p.save({ coins: 5 }), false);
+  assert.equal(writes, 0);
+});
+
+test('malformed or unusable cloud data is invalid and remains write-protected', async () => {
+  for (const raw of ['{bad json', 'null', '123', '[]']) {
+    let writes = 0;
+    const p = createYouTubePlatform(playableHost(
+      async () => raw,
+      async () => { writes++; },
+    ));
+    assert.deepEqual(await p.load(), { status: LOAD_STATUS.INVALID });
+    assert.equal(p.saveProtected, true);
+    assert.equal(await p.save({ coins: 5 }), false);
+    assert.equal(writes, 0);
+  }
+});
+
+test('retryLoad starts one fresh SDK request after rejection and authorizes only its success', async () => {
+  let loads = 0;
+  const writes = [];
+  const p = createYouTubePlatform(playableHost(
+    async () => {
+      loads++;
+      if (loads === 1) throw new Error('temporary cloud outage');
+      return JSON.stringify({ coins: 77 });
+    },
+    async raw => writes.push(raw),
+  ));
+
+  assert.deepEqual(await p.load(), { status: LOAD_STATUS.ERROR });
+  assert.equal(loads, 1);
+  assert.equal(p.saveProtected, true);
+  assert.equal(await p.save({ coins: 1 }), false);
+
+  assert.deepEqual(await p.retryLoad(), {
+    status: LOAD_STATUS.LOADED,
+    data: { coins: 77 },
+  });
+  assert.equal(loads, 2);
+  assert.equal(p.saveProtected, false);
+  assert.equal(await p.save({ coins: 78 }), true);
+  assert.deepEqual(writes, [JSON.stringify({ coins: 78 })]);
+});
+
+test('retryLoad can recover from invalid data without auto-resetting the first result', async () => {
+  let loads = 0;
+  let writes = 0;
+  const p = createYouTubePlatform(playableHost(
+    async () => (++loads === 1 ? '{bad json' : ''),
+    async () => { writes++; },
+  ));
+
+  assert.deepEqual(await p.load(), { status: LOAD_STATUS.INVALID });
+  assert.equal(p.saveProtected, true);
+  assert.equal(await p.save({ fresh: true }), false);
+  assert.equal(writes, 0);
+
+  assert.deepEqual(await p.retryLoad(), { status: LOAD_STATUS.EMPTY });
+  assert.equal(loads, 2);
+  assert.equal(p.saveProtected, false);
+  assert.equal(await p.save({ fresh: true }), true);
+  assert.equal(writes, 1);
+});
+
+test('retryLoad waits on an unresolved official request instead of racing a second loadData', async () => {
+  const slow = deferred();
+  let loads = 0;
+  const p = createYouTubePlatform(
+    playableHost(() => { loads++; return slow.promise; }),
+    { loadTimeoutMs: 5 },
+  );
+
+  assert.deepEqual(await p.load(), { status: LOAD_STATUS.PENDING });
+  assert.equal(loads, 1);
+  assert.equal(p.saveProtected, true);
+
+  const retry = p.retryLoad();
+  await new Promise(resolve => setTimeout(resolve, 1));
+  assert.equal(loads, 1);
+  slow.resolve(JSON.stringify({ coins: 44 }));
+
+  assert.deepEqual(await retry, {
+    status: LOAD_STATUS.LOADED,
+    data: { coins: 44 },
+  });
+  assert.equal(loads, 1);
+  assert.equal(p.saveProtected, false);
+});
+
+test('transient SDK write failure retries the same immutable snapshot', async () => {
+  const writes = [];
+  const p = createYouTubePlatform(
+    playableHost(
+      async () => JSON.stringify({ coins: 10 }),
+      async raw => {
+        writes.push(raw);
+        if (writes.length === 1) throw new Error('temporary save failure');
+      },
+    ),
+    { saveRetryLimit: 2, saveRetryDelayMs: 0 },
+  );
+  assert.equal((await p.load()).status, LOAD_STATUS.LOADED);
+
+  const snapshot = { coins: 11, meta: { day: 3 } };
+  const saved = p.save(snapshot);
+  snapshot.coins = 999;
+  snapshot.meta.day = 99;
+
+  assert.equal(await saved, true);
+  assert.deepEqual(writes, [
+    JSON.stringify({ coins: 11, meta: { day: 3 } }),
+    JSON.stringify({ coins: 11, meta: { day: 3 } }),
+  ]);
+  assert.equal(p.saveDirty, false);
+});
+
+test('overlapping saves coalesce toward the newest immutable snapshot', async () => {
+  const firstAttempt = deferred();
+  const writes = [];
+  const p = createYouTubePlatform(
+    playableHost(
+      async () => JSON.stringify({ coins: 10 }),
+      raw => {
+        writes.push(raw);
+        return writes.length === 1 ? firstAttempt.promise : Promise.resolve();
+      },
+    ),
+    { saveRetryLimit: 2, saveRetryDelayMs: 0 },
+  );
+  await p.load();
+
+  const first = { coins: 20 };
+  const firstSave = p.save(first);
+  first.coins = 2000;
+
+  const second = { coins: 30 };
+  const secondSave = p.save(second);
+  second.coins = 3000;
+
+  firstAttempt.reject(new Error('first write lost'));
+  assert.equal(await firstSave, true);
+  assert.equal(await secondSave, true);
+  assert.deepEqual(writes, [JSON.stringify({ coins: 20 }), JSON.stringify({ coins: 30 })]);
+  assert.equal(p.saveDirty, false);
+});
+
+test('bounded write failure returns false and retains dirty state for a later save', async () => {
+  let failing = true;
+  const writes = [];
+  const p = createYouTubePlatform(
+    playableHost(
+      async () => JSON.stringify({ coins: 10 }),
+      async raw => {
+        writes.push(raw);
+        if (failing) throw new Error('save rejected');
+      },
+    ),
+    { saveRetryLimit: 1, saveRetryDelayMs: 0 },
+  );
+  await p.load();
+
+  assert.equal(await p.save({ coins: 11 }), false);
+  assert.equal(writes.length, 2); // initial attempt + one bounded retry
+  assert.equal(p.saveDirty, true);
+
+  failing = false;
+  assert.equal(await p.save({ coins: 12 }), true);
+  assert.equal(writes.at(-1), JSON.stringify({ coins: 12 }));
+  assert.equal(p.saveDirty, false);
+});
+
+test('serialization failure is reported without calling the SDK or discarding progress state', async () => {
+  let writes = 0;
+  const p = createYouTubePlatform(playableHost(
+    async () => JSON.stringify({ coins: 10 }),
+    async () => { writes++; },
+  ));
+  await p.load();
+
+  const circular = { coins: 11 };
+  circular.self = circular;
+  assert.equal(await p.save(circular), false);
+  assert.equal(writes, 0);
+  assert.equal(p.saveDirty, false);
+});
+
+test('rejected score is not acknowledged and can be retried without an unhandled rejection', async () => {
+  let rejectScore = true;
+  const scores = [];
+  const host = playableHost(async () => '');
+  host.ytgame.engagement = {
+    sendScore: async model => {
+      scores.push(model.value);
+      if (rejectScore) throw new Error('score unavailable');
+    },
+  };
+
+  const p = createYouTubePlatform(host);
+  assert.equal(await p.sendScore(7), false);
+  rejectScore = false;
+  assert.equal(await p.sendScore(7), true); // failure did not poison duplicate suppression
+  assert.equal(await p.sendScore(7), false); // successful acknowledgement now suppresses duplicate
+  assert.deepEqual(scores, [7, 7]);
+});

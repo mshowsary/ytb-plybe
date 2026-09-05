@@ -29,22 +29,27 @@ test('createWorld(AREA1, save) with 3 built zones + partial: active set, boxes.l
   assert.deepEqual(w2.partial, w1.partial);
 });
 
-test('applySave: coins/upgrades/staff/stats/settings are copied onto the state', () => {
+test('applySave: legacy flat state is migrated onto canonical known fields', () => {
   const state = { coins: 0, up: { speed: 0, carry: 0, income: 0 }, staff: { runner: 0, cashier: 0 }, stats: { served: 0, lifetimeEarned: 0 }, settings: { sfx: true } };
   const save = { coins: 555, upgrades: { speed: 2, carry: 1, income: 0 }, staff: { runner: 1, cashier: 1 }, stats: { served: 12, lifetimeEarned: 4000 }, settings: { sfx: false } };
-  applySave(state, save);
+  const canonical = applySave(state, save, AREA1);
+  assert.ok(canonical);
   assert.equal(state.coins, 555);
   assert.deepEqual(state.up, { speed: 2, carry: 1, income: 0 });
-  assert.deepEqual(state.staff, { runner: 1, cashier: 1 });
-  assert.deepEqual(state.stats, { served: 12, lifetimeEarned: 4000 });
-  assert.deepEqual(state.settings, { sfx: false });
+  assert.deepEqual(state.staff, { runner: 1, cashier: 1, cleaner: 0, barista: 0 });
+  assert.deepEqual(state.stats, {
+    served: 12, lifetimeEarned: 4000, serviceFees: 0, wasteFees: 0,
+    rewardedReliefCoins: 0, partyOrderCoins: 0,
+  });
+  assert.deepEqual(state.settings, { sfx: false, music: true });
+  assert.equal(canonical.v, 4);
 });
 
 test('applySave: a falsy or non-object save is a no-op', () => {
   const state = { coins: 10, up: { speed: 1 }, staff: { runner: 2 }, stats: { served: 3 }, settings: { sfx: false } };
-  applySave(state, null);
+  assert.equal(applySave(state, null, AREA1), null);
   assert.equal(state.coins, 10); assert.deepEqual(state.up, { speed: 1 });
-  applySave(state, undefined);
+  assert.equal(applySave(state, undefined, AREA1), null);
   assert.equal(state.coins, 10);
 });
 
@@ -57,14 +62,14 @@ test('applySave: staffLevels and machineLevels round-trip', () => {
     staffLevels: { runner: { speed: 2, carry: 3 }, cashier: { speed: 1 }, cleaner: { speed: 1 } },
     machineLevels: { oven: 2, coffee: 1, display: 3 },
   };
-  applySave(state, save);
+  applySave(state, save, AREA1);
   assert.deepEqual(state.staffLevels, { runner: { speed: 2, carry: 3 }, cashier: { speed: 1 }, cleaner: { speed: 1 } });
   assert.deepEqual(state.machineLevels, { oven: 2, coffee: 1, display: 3 });
 });
 test('applySave: a save without staffLevels/machineLevels (an M2 save) defaults every level to 0', () => {
   const state = { coins: 0, up: {}, staff: {}, stats: {}, settings: {} };
   const save = { coins: 100, upgrades: {}, staff: {}, stats: {}, settings: {} }; // no levels fields at all
-  applySave(state, save);
+  applySave(state, save, AREA1);
   assert.deepEqual(state.staffLevels, { runner: { speed: 0, carry: 0 }, cashier: { speed: 0 }, cleaner: { speed: 0 } });
   assert.deepEqual(state.machineLevels, { oven: 0, coffee: 0, display: 0 });
 });

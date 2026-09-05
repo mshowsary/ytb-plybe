@@ -13,6 +13,9 @@
     "test": "node --test test/**/*.test.js",
     "shot": "node tools/shot.js",
     "bot": "node tools/bot.js",
+    "barista:sweep": "node tools/barista-price-sweep.js",
+    "barista:robust": "node tools/barista-price-robustness.js",
+    "barista:policy": "node tools/barista-policy-robustness.js",
     "strip": "node tools/strip.js"
   },
   "keywords": [],

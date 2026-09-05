@@ -1,0 +1,121 @@
+name: Pet Cafe Production
+
+on:
+  push:
+    branches: [chatgpt/pet-cafe-production]
+    paths:
+      - 'pet-cafe-tycoon/**'
+      - '.github/workflows/pet-cafe-production.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: pet-cafe-production
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test-build-visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: pet-cafe-tycoon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: pet-cafe-tycoon/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Unit and simulation tests
+        run: npm test
+      - name: Economy pacing bot
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p reports-production
+          npm run bot | tee reports-production/bot-report.txt
+      - name: Barista economy A/B
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p reports-production
+          node tools/barista-economy-bot.js | tee reports-production/barista-economy-report.txt
+      - name: Barista price/timing sensitivity
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p reports-production
+          npm run barista:sweep | tee reports-production/barista-price-sweep-report.txt
+      - name: Barista multi-seed robustness
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p reports-production
+          npm run barista:robust | tee reports-production/barista-price-robustness-report.txt
+      - name: Barista staffing-order robustness
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p reports-production
+          npm run barista:policy | tee reports-production/barista-policy-robustness-report.txt
+      - name: Staff overhead what-if
+        run: node tools/payroll-whatif.js
+      - name: Production build
+        run: npm run build
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Shift transition characterization
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p reports-production
+          node tools/shift-transition-regression.js | tee reports-production/shift-transition-regression.txt
+      - name: Rewarded Rush Help smoke
+        run: node tools/rush-help-smoke.js
+      - name: Rewarded Pet Play Break smoke
+        run: node tools/pet-play-break-smoke.js
+      - name: Pet Play Break visual feedback smoke
+        run: node tools/pet-play-break-visual-smoke.js
+      - name: Pet friendship persistence and book smoke
+        run: node tools/pet-friendship-smoke.js
+      - name: Pet pawprint and Roomba smoke
+        run: node tools/pet-mess-smoke.js
+      - name: Barista live worker smoke
+        run: node tools/barista-smoke.js
+      - name: Browser visual smoke
+        run: node tools/production-smoke-v2.js
+      - name: Recoverable boot smoke
+        run: node tools/boot-recovery-smoke.js
+      - name: Material checkpoint smoke
+        run: node tools/material-checkpoint-smoke.js
+      - name: Save schema migration smoke
+        run: node tools/save-schema-smoke.js
+      - name: Station cash and stock persistence smoke
+        run: node tools/station-persistence-smoke.js
+      - name: Owner and carry persistence smoke
+        run: node tools/owner-persistence-smoke.js
+      - name: Temporary help persistence smoke
+        run: node tools/temporary-help-persistence-smoke.js
+      - name: Gate A host-pause lifecycle smoke
+        run: node tools/gate-a-lifecycle-smoke.js
+      - name: Ultra-narrow 183px HUD smoke
+        run: node tools/ultra-narrow-smoke.js
+      - name: First-use interaction coach smoke
+        run: node tools/interaction-coach-smoke.js
+      - name: YouTube publisher certification smoke
+        run: node tools/playables-cert-smoke.js
+      - name: Upload production QA
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pet-cafe-production-shots
+          path: |
+            pet-cafe-tycoon/shots-production
+            pet-cafe-tycoon/reports-production
+          if-no-files-found: warn
+          retention-days: 14
