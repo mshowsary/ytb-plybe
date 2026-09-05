@@ -1,62 +1,73 @@
 // Pure save/restore helper shared by game.js and node tests.
-import { createDay } from './day.js';
 import { ensureReputation } from './reputation.js';
 import { ensurePetBook } from './petBook.js';
 import { ensureCareer, chooseCareerGoal } from './career.js';
 import { ensurePartyOrders } from './partyOrders.js';
 import { restoreRushCrewBoost } from './rushCrew.js';
 import { restorePetPlayBreakBoost } from './petPlayBreak.js';
-import { restoreSettlement } from './settlement.js';
+import { normalizeSave } from './saveSchema.js';
 
-export function applySave(state, save) {
-  if (!save || typeof save !== 'object') return;
-  state.coins = save.coins | 0;
-  Object.assign(state.up, save.upgrades);
-  Object.assign(state.staff, save.staff);
-  Object.assign(state.stats, save.stats);
-  Object.assign(state.settings, save.settings);
+export { CURRENT_SAVE_VERSION, SAVE_LIMITS, validateAndMigrateSave, normalizeSave } from './saveSchema.js';
 
-  const sl = (save.staffLevels && typeof save.staffLevels === 'object') ? save.staffLevels : {};
+export function applySave(state, save, area = state && state.world && state.world.area) {
+  if (!state || typeof state !== 'object') return null;
+  const canonical = normalizeSave(save, area);
+  if (!canonical) return null;
+
+  state.coins = canonical.coins;
+  if (!state.up || typeof state.up !== 'object') state.up = {};
+  Object.assign(state.up, canonical.upgrades);
+  if (!state.staff || typeof state.staff !== 'object') state.staff = {};
+  Object.assign(state.staff, canonical.staff);
+  if (!state.stats || typeof state.stats !== 'object') state.stats = {};
+  Object.assign(state.stats, canonical.stats);
+  if (!state.settings || typeof state.settings !== 'object') state.settings = {};
+  Object.assign(state.settings, canonical.settings);
+
   state.staffLevels = {
-    runner: { speed: (sl.runner && sl.runner.speed) | 0, carry: (sl.runner && sl.runner.carry) | 0 },
-    cashier: { speed: (sl.cashier && sl.cashier.speed) | 0 },
-    cleaner: { speed: (sl.cleaner && sl.cleaner.speed) | 0 },
+    runner: { ...canonical.staffLevels.runner },
+    cashier: { ...canonical.staffLevels.cashier },
+    cleaner: { ...canonical.staffLevels.cleaner },
   };
-  const ml = (save.machineLevels && typeof save.machineLevels === 'object') ? save.machineLevels : {};
-  state.machineLevels = { oven: ml.oven | 0, coffee: ml.coffee | 0, display: ml.display | 0 };
-  state.intro = (save.intro && typeof save.intro === 'object') ? { ...save.intro } : {};
+  state.machineLevels = { ...canonical.machineLevels };
+  state.intro = { ...canonical.intro };
 
-  const meta = (save.meta && typeof save.meta === 'object') ? save.meta : {};
-  const savedCareer = (meta.career && typeof meta.career === 'object') ? meta.career : {};
-  const savedParty = (meta.partyOrders && typeof meta.partyOrders === 'object') ? meta.partyOrders : {};
+  const meta = canonical.meta;
   state.meta = {
-    completedDays: meta.completedDays | 0,
-    rewardedDays: (meta.rewardedDays && typeof meta.rewardedDays === 'object') ? { ...meta.rewardedDays } : {},
-    reputation: meta.reputation | 0,
-    perfectShifts: meta.perfectShifts | 0,
-    bestServiceStreak: meta.bestServiceStreak | 0,
-    shiftRatings: (meta.shiftRatings && typeof meta.shiftRatings === 'object') ? { ...meta.shiftRatings } : {},
-    petBook: (meta.petBook && typeof meta.petBook === 'object') ? { ...meta.petBook } : {},
-    petFriendship: (meta.petFriendship && typeof meta.petFriendship === 'object') ? { ...meta.petFriendship } : {},
-    petDiscoveries: meta.petDiscoveries | 0,
-    settlement: restoreSettlement(meta.settlement),
+    completedDays: meta.completedDays,
+    rewardedDays: { ...meta.rewardedDays },
+    reputation: meta.reputation,
+    perfectShifts: meta.perfectShifts,
+    bestServiceStreak: meta.bestServiceStreak,
+    shiftRatings: { ...meta.shiftRatings },
+    petBook: { ...meta.petBook },
+    petFriendship: { ...meta.petFriendship },
+    petDiscoveries: meta.petDiscoveries,
+    settlement: meta.settlement ? {
+      ...meta.settlement,
+      goal: { ...meta.settlement.goal },
+      stats: { ...meta.settlement.stats },
+      rewards: { ...meta.settlement.rewards },
+      reputation: { ...meta.settlement.reputation },
+      cup: meta.settlement.cup ? { ...meta.settlement.cup } : null,
+    } : null,
     career: {
-      history: (savedCareer.history && typeof savedCareer.history === 'object') ? structuredCloneSafe(savedCareer.history) : {},
-      weeklyCups: (savedCareer.weeklyCups && typeof savedCareer.weeklyCups === 'object') ? structuredCloneSafe(savedCareer.weeklyCups) : {},
-      trophies: (savedCareer.trophies && typeof savedCareer.trophies === 'object') ? { ...savedCareer.trophies } : { bronze: 0, silver: 0, gold: 0 },
-      recipeSales: (savedCareer.recipeSales && typeof savedCareer.recipeSales === 'object') ? { ...savedCareer.recipeSales } : {},
-      contractStreak: savedCareer.contractStreak | 0,
-      bestContractStreak: savedCareer.bestContractStreak | 0,
-      bestWeekPoints: savedCareer.bestWeekPoints | 0,
-      renovationLevel: savedCareer.renovationLevel | 0,
+      history: structuredCloneSafe(meta.career.history),
+      weeklyCups: structuredCloneSafe(meta.career.weeklyCups),
+      trophies: { ...meta.career.trophies },
+      recipeSales: { ...meta.career.recipeSales },
+      contractStreak: meta.career.contractStreak,
+      bestContractStreak: meta.career.bestContractStreak,
+      bestWeekPoints: meta.career.bestWeekPoints,
+      renovationLevel: meta.career.renovationLevel,
     },
     partyOrders: {
-      nextId: savedParty.nextId | 0,
-      completed: savedParty.completed | 0,
-      lastOfferDay: savedParty.lastOfferDay | 0,
-      active: savedParty.active && typeof savedParty.active === 'object' ? {
-        ...savedParty.active,
-        requirements: Array.isArray(savedParty.active.requirements) ? savedParty.active.requirements.map(r => ({ ...r })) : [],
+      nextId: meta.partyOrders.nextId,
+      completed: meta.partyOrders.completed,
+      lastOfferDay: meta.partyOrders.lastOfferDay,
+      active: meta.partyOrders.active ? {
+        ...meta.partyOrders.active,
+        requirements: meta.partyOrders.active.requirements.map(r => ({ ...r })),
       } : null,
     },
   };
@@ -65,8 +76,8 @@ export function applySave(state, save) {
   ensureCareer(state.meta);
   ensurePartyOrders(state.meta);
 
-  state.dayState = (save.dayState && typeof save.dayState === 'object') ? { ...save.dayState } : createDay();
-  state.stars = (save.stars && typeof save.stars === 'object') ? { ...save.stars } : {};
+  state.dayState = { ...canonical.dayState };
+  state.stars = { ...canonical.stars };
 
   // Rewarded Rush Help must survive a legitimate reload DURING that same rush, or the player can
   // lose the benefit while its once-per-day claim remains consumed. Stale/malformed boosts are
@@ -74,19 +85,17 @@ export function applySave(state, save) {
   // restores without recipient ids because live customers are not persisted; its runtime reattaches
   // the remaining break to the next two genuinely stressed guests after reload.
   if (!state.boosts || typeof state.boosts !== 'object') state.boosts = {};
-  const savedBoosts = (save.boosts && typeof save.boosts === 'object') ? save.boosts : {};
-  const rushCrew = restoreRushCrewBoost(savedBoosts.rushCrew, state.dayState);
+  const rushCrew = restoreRushCrewBoost(canonical.boosts.rushCrew, state.dayState);
   if (rushCrew) state.boosts.rushCrew = rushCrew;
   else delete state.boosts.rushCrew;
-  const petPlayBreak = restorePetPlayBreakBoost(savedBoosts.petPlayBreak, state.dayState);
+  const petPlayBreak = restorePetPlayBreakBoost(canonical.boosts.petPlayBreak, state.dayState);
   if (petPlayBreak) state.boosts.petPlayBreak = petPlayBreak;
   else delete state.boosts.petPlayBreak;
 
   // Regenerate the live adaptive contract so old saves cannot preserve retired Serve-110 style goals.
   state.goal = chooseCareerGoal(state.dayState.day, state.meta);
-  state.dayStats = (save.dayStats && typeof save.dayStats === 'object')
-    ? { serviceFees: 0, serviceMisses: 0, wasteFees: 0, bestStreak: 0, ...save.dayStats }
-    : { served: 0, lost: 0, earned: 0, serviceFees: 0, serviceMisses: 0, wasteFees: 0, bestStreak: 0 };
+  state.dayStats = { ...canonical.dayStats };
+  return canonical;
 }
 
 function structuredCloneSafe(value) {
