@@ -265,6 +265,9 @@ export function createGame(S, area, els, platform = null) {
     for (const k of Object.keys(world.partial)) delete world.partial[k]; Object.assign(world.partial, save.partial || {});
     for (const st of world.stations.values()) st.active = !st.builtBy || world.built.has(st.builtBy); refreshActive(world);
     visuals.syncAll(); registerCash.syncAll(); zones.syncAll(); hud.setCoins(G.coins); syncReputationPresentation(); syncPetBookPresentation(); syncCareerPresentation(); partyOrders.sync(true);
+    // A terminal save is already settled. Reopen that committed report as presentation only; the
+    // settlement transaction itself is idempotent and cannot award coins/reputation/cups twice.
+    if (G.dayState._ended) openDaySummary();
   };
 
   return G;

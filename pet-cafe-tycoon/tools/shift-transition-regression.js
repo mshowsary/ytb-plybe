@@ -1,8 +1,8 @@
-// Task 03 hard gate for the end-of-shift transition contract.
+// Task 04 hard gate for the complete end-of-shift transition + reload contract.
 //
 // Continue, Escape, backdrop, close and rapid double input must all converge on exactly one guarded
-// terminal -> next-morning mutation. Reload reopening remains report-only until Task 04; settlement
-// idempotence itself is already covered by the Task 02 unit tests.
+// terminal -> next-morning mutation. A persisted settled terminal shift must reopen display-only,
+// preserve the committed settlement, then use the same guarded transition after Continue.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -88,9 +88,13 @@ const actions = {
   continue: page => page.click('.sheet-root .continue'),
   escape: page => page.keyboard.press('Escape'),
   backdrop: page => page.evaluate(() => document.querySelector('.sheet-root .backdrop')?.click()),
-  // Target the active summary card specifically. A sheet-root can briefly retain another translated
-  // close affordance during animation; the hard gate must exercise the summary's own dismiss action.
-  close: page => page.evaluate(() => document.querySelector('.sheet-root .card .sclose')?.click()),
+  // Dispatch the active summary's real close handler directly so this gate tests transition semantics
+  // rather than animation hit-testing. Missing the affordance is itself a hard regression.
+  close: page => page.evaluate(() => {
+    const b = document.querySelector('.sheet-root .card .sclose');
+    if (!b) throw new Error('active summary close affordance missing');
+    b.click();
+  }),
   doubleContinue: page => page.evaluate(() => { const b = document.querySelector('.sheet-root .continue'); b?.click(); b?.click(); }),
 };
 
@@ -110,8 +114,6 @@ for (const name of Object.keys(actions)) {
   } finally { await ctx.close(); }
 }
 
-// Task 04 will promote this final case to a release gate: a persisted settled terminal shift should
-// reopen its display-only result without another award, then Continue should use the same transition.
 const first = await makePage();
 let reloadCase;
 try {
@@ -139,25 +141,25 @@ try {
 } finally { await first.ctx.close(); }
 
 const hardGateRegressions = cases.filter(c => !c.passes).map(c => c.name);
+if (!reloadCase.passes) hardGateRegressions.push('reloadSummary');
 const report = {
-  contract: 'Continue/Escape/backdrop/close/rapid-double converge on exactly one transition; settled reload reopening is the remaining Task 04 contract.',
+  contract: 'All live summary exits converge on exactly one transition; settled reload reopens display-only without another award and continues through the same transition.',
   task03HardGate: true,
+  task04HardGate: true,
   cases,
   hardGateRegressions,
   reloadCase,
-  reloadPendingTask04: !reloadCase.passes,
   harnessErrors,
 };
 fs.writeFileSync(path.join(reports, 'shift-transition-regression.json'), JSON.stringify(report, null, 2));
 
-console.log('Pet Café — SHIFT TRANSITION HARD GATE (Task 03)');
+console.log('Pet Café — SHIFT TRANSITION + RELOAD HARD GATE (Task 04)');
 for (const c of cases) {
   const failed = Object.entries(c.contract).filter(([, ok]) => !ok).map(([k]) => k);
   console.log(`${c.name.padEnd(14)} ${c.passes ? 'PASS' : 'FAIL'}${failed.length ? ' — ' + failed.join(', ') : ''}`);
 }
-console.log(`reloadSummary  ${reloadCase.passes ? 'PASS EARLY' : 'TASK 04 PENDING'} — preserved=${reloadCase.preservedSettlement} reopened=${reloadCase.reopenedSummary}`);
-console.log(`Task 03 hard regressions: ${hardGateRegressions.length ? hardGateRegressions.join(', ') : 'none'}`);
-console.log('NOTE: Task 03 now hard-gates every live dismissal route. Reload reopening remains report-only until Task 04.');
+console.log(`reloadSummary  ${reloadCase.passes ? 'PASS' : 'FAIL'} — preserved=${reloadCase.preservedSettlement} reopened=${reloadCase.reopenedSummary}`);
+console.log(`Task 04 hard regressions: ${hardGateRegressions.length ? hardGateRegressions.join(', ') : 'none'}`);
 console.log('SHIFT_TRANSITION_JSON ' + JSON.stringify(report));
 
 await browser.close(); await new Promise(resolve => server.close(resolve));
