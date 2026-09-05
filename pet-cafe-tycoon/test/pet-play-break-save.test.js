@@ -12,7 +12,7 @@ function target() {
 }
 function saveFor(phase, day = 4) {
   // Persist a timestamp that actually belongs to the phase under test. Task 09 deliberately derives
-  // phase from time so a contradictory JSON label cannot resurrect a rush-only reward.
+  // phase from time so a contradictory JSON label cannot resurrect a day-scoped reward.
   const t = phase === 'rush' ? 110 : 150;
   return {
     coins:10,
@@ -24,13 +24,16 @@ function saveFor(phase, day = 4) {
   };
 }
 
-test('applySave restores Pet Play Break only into the exact same active rush', () => {
+test('applySave preserves the promised Pet Play Break duration through same-day phase change', () => {
   const active = target(); applySave(active, saveFor('rush'));
   assert.deepEqual(active.boosts.petPlayBreak, { day:4, remaining:8.25, slots:2, recipientIds:[], needsRecipients:true });
 
+  // The ad promised seconds of protection, not "until Rush ends". A host pause/reload after the
+  // phase boundary must therefore keep the unused seconds available on the same day.
   const afternoon = target(); applySave(afternoon, saveFor('afternoon'));
-  assert.equal(afternoon.boosts.petPlayBreak, undefined);
+  assert.deepEqual(afternoon.boosts.petPlayBreak, { day:4, remaining:8.25, slots:2, recipientIds:[], needsRecipients:true });
 
+  // Day-scoped state still expires safely once the calendar day advances.
   const laterDay = target(); applySave(laterDay, saveFor('rush', 5));
   assert.equal(laterDay.boosts.petPlayBreak, undefined);
 });
