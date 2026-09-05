@@ -5,14 +5,15 @@ import { salePrice, cafeLevel } from './sim/economy.js';
 import { reliefClaimKey } from './sim/relief.js';
 import { ensurePartyOrders, clonePartyOrders, partyOrderProgress } from './sim/partyOrders.js';
 import { createDay, stepDay, nextDay, phaseFrac, isWeekend, isHoliday, tipMult } from './sim/day.js';
-import { ensureReputation, recordShift, reputationLevel, reputationProgress, reputationTitle, REPUTATION_TITLES } from './sim/reputation.js';
+import { ensureReputation, reputationLevel, reputationProgress, reputationTitle, REPUTATION_TITLES } from './sim/reputation.js';
 import { ensurePetBook, discoverPet, petBookProgress, allPetCards } from './sim/petBook.js';
 import {
-  ensureCareer, chooseCareerGoal, careerGoalLabel, careerGoalProgress, careerGoalMet,
-  recordRecipeOrder, masteryMultiplier, allMasteryProgress, recordCareerShift,
-  weeklyCupState, awardWeeklyCup, weekdayIndex, renovationState, buyRenovation,
+  ensureCareer, chooseCareerGoal, careerGoalLabel, careerGoalProgress,
+  recordRecipeOrder, masteryMultiplier, allMasteryProgress,
+  weeklyCupState, weekdayIndex, renovationState, buyRenovation,
   LEGENDARY_REPUTATION,
 } from './sim/career.js';
+import { settleShift, cloneSettlement } from './sim/settlement.js';
 import { createCarry } from './sim/carry.js';
 import { createInput } from './core/input.js';
 import { buildStatic } from './render/props.js';
@@ -53,7 +54,7 @@ export function createGame(S, area, els, platform = null) {
     settings: { sfx: true, music: true },
     meta: {
       rewardedDays: {}, completedDays: 0, reputation: 0, perfectShifts: 0,
-      bestServiceStreak: 0, shiftRatings: {}, petBook: {}, petDiscoveries: 0, career: {}, partyOrders: {},
+      bestServiceStreak: 0, shiftRatings: {}, petBook: {}, petDiscoveries: 0, settlement: null, career: {}, partyOrders: {},
     },
     serviceStreak: { count: 0, t: 0 }, shiftBestStreak: 0,
     customers: [], staffList: [], time: 0, state: 'play', carry: createCarry(),
@@ -152,23 +153,21 @@ export function createGame(S, area, els, platform = null) {
 
   function openDaySummary() {
     for (const st of world.stations.values()) if (st.type === 'seat' && st.dirty) cleanSeat(world, st.id);
-    const completedDay = G.dayState.day; G.meta.completedDays = Math.max(G.meta.completedDays | 0, completedDay);
-    const goal = G.goal, goalProgressNow = careerGoalProgress(goal, G.dayStats), met = careerGoalMet(goal, G.dayStats);
-    if (met) { G.coins += goal.reward; hud.setCoins(G.coins); }
-    const outcomes = Math.max(1, G.dayStats.served + G.dayStats.lost), lostRate = G.dayStats.lost / outcomes;
-    const rating = lostRate <= 0.06 && (met || G.shiftBestStreak >= 8) ? 3 : lostRate <= 0.16 ? 2 : 1;
-    const repResult = recordShift(G.meta, completedDay, rating, G.shiftBestStreak); recordCareerShift(G.meta, completedDay, G.dayStats, rating, met);
-    const cupAward = awardWeeklyCup(G.meta, completedDay); if (cupAward.awarded) { G.coins += cupAward.reward; hud.setCoins(G.coins); hud.bump(); audio.play('chime'); }
+    const { settlement, fresh } = settleShift(G);
+    const completedDay = settlement.day, goal = settlement.goal, goalProgressNow = goal.progress, met = goal.met;
+    const rating = settlement.rating, repResult = settlement.reputation, cupAward = settlement.cup;
+    hud.setCoins(G.coins);
+    if (fresh && cupAward && cupAward.awarded) { hud.bump(); audio.play('chime'); }
     const repProgress = reputationProgress(G.meta), repLevel = reputationLevel(G.meta); syncReputationPresentation(); syncCareerPresentation();
     const remaining = world.area.zones.filter(z => !world.built.has(z.id)).sort((a, b) => a.price - b.price); const nextUnlock = remaining.length ? { label: remaining[0].label, price: remaining[0].price } : null;
     const tomorrow = chooseCareerGoal(completedDay + 1, G.meta);
     sheets.open('summary', {
-      day: completedDay, earnings: G.dayStats.earned, served: G.dayStats.served, lost: G.dayStats.lost,
-      serviceFees: G.dayStats.serviceFees | 0, serviceMisses: G.dayStats.serviceMisses | 0, wasteFees: G.dayStats.wasteFees | 0, cafeLevel: cafeLevel(G),
+      day: completedDay, earnings: settlement.stats.earned, served: settlement.stats.served, lost: settlement.stats.lost,
+      serviceFees: settlement.stats.serviceFees, serviceMisses: settlement.stats.serviceMisses, wasteFees: settlement.stats.wasteFees, cafeLevel: cafeLevel(G),
       goalText: careerGoalLabel(goal), goalMet: met, goalReward: goal.reward, tomorrowText: careerGoalLabel(tomorrow), tomorrowReward: tomorrow.reward, nextUnlock,
     }, { continue: continueDay });
 
-    const rewardAmount = met ? goal.reward : Math.max(25, Math.min(250, Math.round(G.dayStats.earned * 0.15)));
+    const rewardAmount = met ? goal.reward : Math.max(25, Math.min(250, Math.round(settlement.stats.earned * 0.15)));
     const rewardClaimed = !!G.meta.rewardedDays[completedDay], reliefClaimed = !!G.meta.rewardedDays[reliefClaimKey(completedDay)];
     const rewardVisible = !reliefClaimed && !!platform && (platform.rewardedAvailable || !platform.inPlayables);
     metaUI.decorateSummary({
@@ -197,7 +196,7 @@ export function createGame(S, area, els, platform = null) {
             ? `Reach ${REPUTATION_TITLES[repLevel + 1]} · ${repProgress.needed - repProgress.current} REP to go`
             : closestMastery ? `Master ${closestMastery.label} · ${closestMastery.current}/${closestMastery.needed}` : 'Defend Gold Cups and beat your weekly records';
     careerUI.decorateSummary({
-      week: weeklyCupState(G.meta, completedDay), cupAward, contractStreak: career.contractStreak | 0, lost: G.dayStats.lost | 0, nextUnlock,
+      week: weeklyCupState(G.meta, completedDay), cupAward, contractStreak: career.contractStreak | 0, lost: settlement.stats.lost, nextUnlock,
       contract: { kind: goal.kind, label: careerGoalLabel(goal), target: goal.target, progress: goalProgressNow, previous: goal.previous, rival: !!goal.rival, met, reward: goal.reward }, nextChase,
     });
     if (platform) platform.save(G.snapshot());
@@ -222,6 +221,7 @@ export function createGame(S, area, els, platform = null) {
     meta: {
       completedDays: G.meta.completedDays | 0, rewardedDays: { ...G.meta.rewardedDays }, reputation: G.meta.reputation | 0, perfectShifts: G.meta.perfectShifts | 0,
       bestServiceStreak: G.meta.bestServiceStreak | 0, shiftRatings: { ...G.meta.shiftRatings }, petBook: { ...G.meta.petBook }, petDiscoveries: G.meta.petDiscoveries | 0,
+      settlement: cloneSettlement(G.meta.settlement),
       career: {
         history: Object.fromEntries(Object.entries(G.meta.career.history || {}).map(([k, v]) => [k, { ...v }])), weeklyCups: Object.fromEntries(Object.entries(G.meta.career.weeklyCups || {}).map(([k, v]) => [k, { ...v }])),
         trophies: { ...G.meta.career.trophies }, recipeSales: { ...G.meta.career.recipeSales }, contractStreak: G.meta.career.contractStreak | 0,

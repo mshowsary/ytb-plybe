@@ -6,6 +6,7 @@ import { ensureCareer, chooseCareerGoal } from './career.js';
 import { ensurePartyOrders } from './partyOrders.js';
 import { restoreRushCrewBoost } from './rushCrew.js';
 import { restorePetPlayBreakBoost } from './petPlayBreak.js';
+import { restoreSettlement } from './settlement.js';
 
 export function applySave(state, save) {
   if (!save || typeof save !== 'object') return;
@@ -38,6 +39,7 @@ export function applySave(state, save) {
     petBook: (meta.petBook && typeof meta.petBook === 'object') ? { ...meta.petBook } : {},
     petFriendship: (meta.petFriendship && typeof meta.petFriendship === 'object') ? { ...meta.petFriendship } : {},
     petDiscoveries: meta.petDiscoveries | 0,
+    settlement: restoreSettlement(meta.settlement),
     career: {
       history: (savedCareer.history && typeof savedCareer.history === 'object') ? structuredCloneSafe(savedCareer.history) : {},
       weeklyCups: (savedCareer.weeklyCups && typeof savedCareer.weeklyCups === 'object') ? structuredCloneSafe(savedCareer.weeklyCups) : {},
