@@ -184,7 +184,7 @@ const awarded = await page.evaluate(() => {
   return {
     rewardIds:[...window.__rewardIds],
     boost:{ day:b.day, remaining:b.remaining, slots:b.slots, recipientIds:[...b.recipientIds] },
-    savedBoost:save.boosts && save.boosts.petPlayBreak ? {...save.boosts.petPlayBreak} : null,
+    savedBoost:save.temporaryHelp && save.temporaryHelp.petPlayBreak ? {...save.temporaryHelp.petPlayBreak} : null,
     claim:G.meta.rewardedDays['relief:8'],
     patience:Object.fromEntries(G.customers.filter(c => eligibleIds.has(c.id)).map(c => [c.id, c.patience])),
   };
@@ -219,7 +219,7 @@ if (!held.some(x => !x.selected && x.after < x.before - 1)) throw new Error(`uns
 // Round-trip through the game's real save/restore. Customers are intentionally not persisted, so
 // the benefit must remain as unassigned remaining time rather than disappearing with stale ids.
 const restored = await page.evaluate(() => {
-  const G = window.__game, save = G.snapshot(), before = save.boosts.petPlayBreak.remaining;
+  const G = window.__game, save = G.snapshot(), before = save.temporaryHelp.petPlayBreak.remaining;
   G.restore(save);
   const b = G.boosts.petPlayBreak;
   return { customerCount:G.customers.length, before, boost:b ? { day:b.day, remaining:b.remaining, slots:b.slots, needsRecipients:b.needsRecipients, recipientIds:[...(b.recipientIds || [])] } : null };
@@ -228,13 +228,33 @@ if (restored.customerCount !== 0 || !restored.boost || !restored.boost.needsReci
   throw new Error(`Pet Play Break did not restore as unassigned remaining benefit: ${JSON.stringify(restored)}`);
 }
 
+// The promise is fifteen active-simulation seconds, not "until Rush ends". With no restored
+// customers the reward must wait rather than burn, and a same-day Rush→Afternoon boundary must not
+// silently delete it. This catches exactly the class of loss Task 12 is meant to prevent.
 await page.evaluate(() => { window.__game.dayState.phase = 'afternoon'; window.__game.dayState.t = 151; });
+await page.waitForTimeout(160);
+const phaseBoundary = await page.evaluate(() => {
+  const G = window.__game, b = G.boosts.petPlayBreak, save = G.snapshot();
+  return {
+    live:b ? { day:b.day, remaining:b.remaining, slots:b.slots, needsRecipients:b.needsRecipients } : null,
+    saved:save.temporaryHelp && save.temporaryHelp.petPlayBreak ? { ...save.temporaryHelp.petPlayBreak } : null,
+  };
+});
+if (!phaseBoundary.live || !phaseBoundary.saved || phaseBoundary.live.day !== 8 || phaseBoundary.saved.day !== 8 ||
+    !(phaseBoundary.live.remaining > 0) || Math.abs(phaseBoundary.live.remaining - restored.before) > 0.05 ||
+    Math.abs(phaseBoundary.saved.remaining - restored.before) > 0.05) {
+  throw new Error(`Pet Play Break was lost at same-day phase boundary: ${JSON.stringify({ restored, phaseBoundary })}`);
+}
+
+// A different day is a genuine expiry boundary: temporary help must not become permanent or leak
+// into a future shift after its promised session window.
+await page.evaluate(() => { window.__game.dayState.day = 9; window.__game.dayState.phase = 'morning'; window.__game.dayState.t = 0; });
 await page.waitForFunction(() => !window.__game.boosts.petPlayBreak, null, { timeout:3000 });
 const expired = await page.evaluate(() => {
   const save = window.__game.snapshot();
-  return { live:window.__game.boosts.petPlayBreak || null, saved:save.boosts && save.boosts.petPlayBreak || null };
+  return { live:window.__game.boosts.petPlayBreak || null, saved:save.temporaryHelp && save.temporaryHelp.petPlayBreak || null };
 });
-if (expired.live || expired.saved) throw new Error(`Pet Play Break leaked beyond Rush: ${JSON.stringify(expired)}`);
+if (expired.live || expired.saved) throw new Error(`Pet Play Break leaked into a future day: ${JSON.stringify(expired)}`);
 
-console.log(JSON.stringify({ fixture, surfaceState, pillGeometry, cardGeometry, awarded, held, restored, expired }, null, 2));
+console.log(JSON.stringify({ fixture, surfaceState, pillGeometry, cardGeometry, awarded, held, restored, phaseBoundary, expired }, null, 2));
 await ctx.close(); await browser.close(); await new Promise(resolve => server.close(resolve));

@@ -171,7 +171,7 @@ const awarded = await page.evaluate(() => {
   return {
     rewardIds:[...window.__rewardIds],
     boost:{...G.boosts.rushCrew},
-    savedBoost:snap.boosts && snap.boosts.rushCrew ? {...snap.boosts.rushCrew} : null,
+    savedBoost:snap.temporaryHelp && snap.temporaryHelp.rushCrew ? {...snap.temporaryHelp.rushCrew} : null,
     claim:G.meta.rewardedDays['relief:4'],
     permanent:{...G.staffLevels.runner},
   };
@@ -190,7 +190,7 @@ await page.evaluate(() => { window.__game.dayState.phase = 'afternoon'; window._
 await page.waitForFunction(() => !window.__game.boosts.rushCrew, null, { timeout:3000 });
 const expired = await page.evaluate(() => {
   const snap = window.__game.snapshot();
-  return { live:window.__game.boosts.rushCrew || null, saved:snap.boosts && snap.boosts.rushCrew || null };
+  return { live:window.__game.boosts.rushCrew || null, saved:snap.temporaryHelp && snap.temporaryHelp.rushCrew || null };
 });
 if (expired.live || expired.saved) throw new Error(`Rush Crew leaked beyond rush: ${JSON.stringify(expired)}`);
 
