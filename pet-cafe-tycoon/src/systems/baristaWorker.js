@@ -13,6 +13,12 @@ import { toonMaterial } from '../render/palette.js';
 
 const VARIANT = { shirt: '#72C9B8', hair: 1, skin: 1 };
 const FALLBACK_SPAWN = { x: 0.5, z: -3.3 };
+// Busy station fronts can leave a mover orbiting a few centimetres outside mover.js's exact
+// 0.05m arrival epsilon. Generic Runner/Cleaner paths already use a station-side fallback for
+// this reason. Keep the Barista equally strict: 0.14m is still well inside the interaction/front
+// spot and cannot ever turn a remote station into an instant action.
+const STATION_ARRIVE_EPS = 0.14;
+const IDLE_ARRIVE_EPS = 0.35;
 
 function carriedDrinkMesh(key) {
   if (key === 'coffee' || key === 'latte') {
@@ -59,13 +65,25 @@ export function createBaristaWorker(G, scene) {
   function moveTo(point, dt) {
     if (!point || !s) return false;
     const m = s.mover;
-    if (!m.hasTarget || Math.hypot(m.tx - point.x, m.tz - point.z) > 0.08) setTarget(m, point.x, point.z, world.grid);
+    // Mirror sim/staff.js's proven walkTo contract instead of re-arming an idle mover every frame.
+    // Re-plan only when the commanded point actually changes. If mover.js reaches its exact epsilon,
+    // honor that immediately; if local avoidance leaves us just outside it at a station front, the
+    // tiny station tolerance ends the orbit. An idle mover can only count as arrived inside the
+    // broader waypoint capture radius; otherwise it is explicitly re-planned from its real position.
+    if (m.tx !== point.x || m.tz !== point.z) setTarget(m, point.x, point.z, world.grid);
     const movers = world._movers || [];
     movers.push(m);
-    const arrived = stepMover(m, world.grid, movers, dt);
+    const justArrived = stepMover(m, world.grid, movers, dt);
     movers.pop();
     s.x = m.x; s.z = m.z;
-    return arrived;
+    if (justArrived) return true;
+    const distance = Math.hypot(point.x - s.x, point.z - s.z);
+    if (distance < STATION_ARRIVE_EPS) { m.hasTarget = false; return true; }
+    if (!m.hasTarget) {
+      if (distance < IDLE_ARRIVE_EPS) return true;
+      setTarget(m, point.x, point.z, world.grid);
+    }
+    return false;
   }
   function syncCarryRender() {
     if (!s || !human) return;
@@ -156,6 +174,16 @@ export function createBaristaWorker(G, scene) {
     },
     get active() { return !!s; },
     get state() { return s && s.state; },
+    // Read-only diagnostics used by the browser acceptance gate. Keeping this on the worker API
+    // avoids leaking mutable sim records while still making navigation regressions actionable.
+    get debug() {
+      if (!s) return null;
+      const m = s.mover;
+      return {
+        x:s.x, z:s.z, state:s.state, job:s.job && { ...s.job }, items:[...s.items],
+        mover:{ x:m.x, z:m.z, tx:m.tx, tz:m.tz, hasTarget:m.hasTarget, n:m.n, k:m.k, blockedT:m.blockedT, replans:m.replans, teleports:m.teleports },
+      };
+    },
     destroy() { teardown(); if (G.restore !== baseRestore) G.restore = baseRestore; },
   };
   G.baristaWorker = api;
