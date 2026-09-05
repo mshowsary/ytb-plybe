@@ -34,12 +34,20 @@ function roombaMesh() {
 }
 
 export function createPetMess(G, scene) {
-  if (!G || !G.world || !scene) return { update() {}, sweep() { return 0; }, get count() { return 0; }, get roombaActive() { return false; }, destroy() {} };
+  if (!G || !G.world || !scene) return { update() {}, sweep() { return 0; }, get count() { return 0; }, get roombaActive() { return false; }, get roombaRemaining() { return 0; }, destroy() {} };
   const spots = [];
   const roomba = roombaMesh(); scene.add(roomba);
   const events = G.world.events;
   const nativePush = events.push;
   let lastSpawnAt = -Infinity, day = (G.dayState && G.dayState.day) | 0, suppressUntil = -Infinity;
+
+  // G.restore happens before this system is constructed. Task 12 therefore parks canonical Roomba
+  // state on G.temporaryHelp and converts remaining seconds into the active-simulation clock here.
+  const restoredRoomba = G.temporaryHelp && G.temporaryHelp.roomba;
+  if (restoredRoomba && restoredRoomba.day === day && G.dayState && G.dayState.phase === 'rush' && restoredRoomba.remaining > 0) {
+    suppressUntil = (Number(G.time) || 0) + Math.min(ROOMBA_SWEEP_SECONDS, restoredRoomba.remaining);
+  }
+  if (G.temporaryHelp) G.temporaryHelp.roomba = null;
 
   function removeAt(index) {
     const spot = spots[index]; if (!spot) return;
@@ -57,9 +65,6 @@ export function createPetMess(G, scene) {
   function spawnFromSeat(event) {
     const now = Number(G.time) || 0;
     const currentDay = (G.dayState && G.dayState.day) | 0;
-    // A restore can replace dayState between animation frames. Synchronize here BEFORE handling
-    // the first new seated event so valid pawprints created in that restored day are never cleared
-    // one frame later by update() merely catching up to the already-restored day number.
     syncDay(currentDay);
     if (now < suppressUntil) return;
     if (!shouldSpawnPetMess(currentDay, event.id, spots.length, now - lastSpawnAt)) return;
@@ -99,7 +104,6 @@ export function createPetMess(G, scene) {
       roomba.visible = active;
       if (active) {
         const t = Number(G.time) || 0;
-        // A small visible sweep lane through the service floor. It never participates in collision.
         roomba.position.set(-2.2 + Math.sin(t * 0.8) * 4.6, 0.01, 3.8 + Math.sin(t * 1.35) * 0.7);
         roomba.rotation.y = Math.cos(t * 0.8) > 0 ? Math.PI / 2 : -Math.PI / 2;
       }
@@ -113,6 +117,7 @@ export function createPetMess(G, scene) {
     },
     get count() { return spots.length; },
     get roombaActive() { return (Number(G.time) || 0) < suppressUntil; },
+    get roombaRemaining() { return Math.max(0, suppressUntil - (Number(G.time) || 0)); },
     destroy() {
       if (events.push === observedPush) events.push = nativePush;
       clearAll(); scene.remove(roomba);
