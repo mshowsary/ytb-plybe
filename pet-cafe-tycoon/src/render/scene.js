@@ -2,6 +2,7 @@
 // No EffectComposer: it instantiates three's Timer, whose visibilitychange listener the build guard forbids.
 import * as THREE from 'three';
 import { damp, lerp } from '../core/tween.js';
+import { presentationScheduler } from '../core/presentationScheduler.js';
 
 const YAW = 35 * Math.PI / 180, PITCH = 52 * Math.PI / 180, FOV = 40;
 
@@ -98,6 +99,20 @@ export function createScene(canvas) {
     renderer.shadowMap.enabled = q !== 'low';
     if (q === 'low') applyRenderScale(0.72); else if (q === 'high') applyRenderScale(1);
   };
-  addEventListener('resize', S.resize); S.resize();
+
+  // Resize can fire while YouTube is host-paused (orientation/window chrome changes are common on
+  // mobile). Do not mutate renderer/camera/shadow resources during that paused interval. Coalesce
+  // any number of resize events into one resize using the latest viewport immediately after resume.
+  let resizeQueued = false;
+  const onResize = () => {
+    if (!presentationScheduler.paused) { S.resize(); return; }
+    if (resizeQueued) return;
+    resizeQueued = true;
+    presentationScheduler.whenResumed().then(() => {
+      resizeQueued = false;
+      S.resize();
+    });
+  };
+  addEventListener('resize', onResize); S.resize();
   return S;
 }
