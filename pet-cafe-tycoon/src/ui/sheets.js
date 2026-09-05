@@ -134,16 +134,20 @@ export function createSheets(root = document.body) {
     if (typeof dismiss === 'function') { dismiss(source); return; }
     close();
   };
-  // Summary presentation deliberately locks generic background input. Listen at window-capture so
-  // Escape/backdrop still reach the sheet's explicit dismiss contract before that lock can swallow them.
+  const hasExplicitDismiss = () => !!current && typeof current.actions?.dismiss === 'function';
+  // Summary presentation deliberately locks generic background input in meta.js. Intercept only
+  // explicit-dismiss sheets at window capture, before that lock, while keeping ordinary sheet/modal
+  // Escape ordering exactly as it was before the transition repair.
   window.addEventListener('click', e => {
-    if (!current || e.target !== backdrop) return;
+    if (!hasExplicitDismiss() || e.target !== backdrop) return;
     requestClose('backdrop'); e.preventDefault(); e.stopImmediatePropagation();
   }, true);
   window.addEventListener('keydown', e => {
-    if (e.key !== 'Escape' || !current) return;
+    if (e.key !== 'Escape' || !hasExplicitDismiss()) return;
     requestClose('escape'); e.preventDefault(); e.stopImmediatePropagation();
   }, true);
+  backdrop.addEventListener('click', () => requestClose('backdrop'));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && current) requestClose('escape'); });
   const open = (kind, model, actions) => {
     if (current) { current.el.remove(); current = null; }
     const el = build(kind, model, actions, requestClose); wrap.appendChild(el); wrap.classList.remove('hidden'); current = { kind, el, actions };
