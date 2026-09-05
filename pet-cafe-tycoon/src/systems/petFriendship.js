@@ -98,11 +98,12 @@ export function installPetFriendship(G, platform = null) {
   // meta.js owns opening/rebuilding the book. This listener is installed later, so rendering on the
   // next frame decorates the fresh cards without making either UI module depend on the other.
   const bookButton = document.querySelector('.meta-pawbook');
-  if (bookButton) bookButton.addEventListener('click', () => requestAnimationFrame(renderBook));
+  const onBookOpen = () => requestAnimationFrame(renderBook);
+  if (bookButton) bookButton.addEventListener('click', onBookOpen);
 
   // Observe successful checkout events at their source. The original Array#push still receives the
   // exact same events in the exact same order; friendship is therefore presentation/meta-only.
-  events.push = function friendshipObservedPush(...items) {
+  const observedPush = function friendshipObservedPush(...items) {
     for (const event of items) {
       if (!event || event.type !== 'pay') continue;
       const customer = G.customers.find(c => c && c.id === event.id);
@@ -121,12 +122,14 @@ export function installPetFriendship(G, platform = null) {
     }
     return nativePush.apply(this, items);
   };
+  events.push = observedPush;
 
   return {
     refresh: renderBook,
     get lastPromotionKey() { return lastPromotionKey; },
     destroy() {
-      if (events.push === this) events.push = nativePush;
+      if (events.push === observedPush) events.push = nativePush;
+      if (bookButton) bookButton.removeEventListener('click', onBookOpen);
     },
   };
 }
