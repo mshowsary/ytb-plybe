@@ -11,12 +11,15 @@ function target() {
   };
 }
 function saveFor(phase, day = 4) {
+  // Persist a timestamp that actually belongs to the phase under test. Task 09 deliberately derives
+  // phase from time so a contradictory JSON label cannot resurrect a rush-only reward.
+  const t = phase === 'rush' ? 110 : 150;
   return {
     coins:10,
     upgrades:{ speed:0, carry:0, income:0 },
     staff:{ runner:0, cashier:0, cleaner:0 },
     stats:{}, settings:{}, staffLevels:{}, machineLevels:{}, meta:{}, intro:{}, stars:{}, dayStats:{},
-    dayState:{ day, phase, t:110 },
+    dayState:{ day, phase, t },
     boosts:{ petPlayBreak:{ day:4, remaining:8.25, slots:2 } },
   };
 }
