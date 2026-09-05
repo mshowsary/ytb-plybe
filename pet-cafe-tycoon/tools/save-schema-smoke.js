@@ -121,7 +121,13 @@ try {
   if (recovered.coins !== 777) throw new Error(`coins migration wrong: ${JSON.stringify(recovered)}`);
   if (JSON.stringify(recovered.upgrades) !== JSON.stringify({ speed:3, carry:0, income:2 })) throw new Error(`upgrade clamp wrong: ${JSON.stringify(recovered.upgrades)}`);
   if (recovered.staff.runner !== 2 || recovered.staff.cashier !== 1 || recovered.staff.cleaner !== 0 || recovered.staff.barista !== 0) throw new Error(`staff clamp wrong: ${JSON.stringify(recovered.staff)}`);
-  if (recovered.dayState.day !== 3 || recovered.dayState.t !== 70 || recovered.dayState.phase !== 'rush' || recovered.dayState._ended) throw new Error(`day migration wrong: ${JSON.stringify(recovered.dayState)}`);
+  // The migration target is exactly t=70, but once gameReady fires the live simulation is running.
+  // Accept only a small forward drift so this still catches bad migration/backward time while avoiding
+  // a race against the first few animation frames.
+  const timeDrift = recovered.dayState.t - 70;
+  if (recovered.dayState.day !== 3 || !Number.isFinite(timeDrift) || timeDrift < 0 || timeDrift >= 1 || recovered.dayState.phase !== 'rush' || recovered.dayState._ended) {
+    throw new Error(`day migration wrong: ${JSON.stringify({ ...recovered.dayState, timeDrift })}`);
+  }
   if (JSON.stringify(recovered.built) !== JSON.stringify(expectedBuilt)) throw new Error(`build dependency validation wrong: ${JSON.stringify(recovered.built)}`);
   if (JSON.stringify(recovered.partial) !== JSON.stringify({ z_hire:200 })) throw new Error(`partial validation wrong: ${JSON.stringify(recovered.partial)}`);
   if (JSON.stringify(recovered.stars) !== JSON.stringify({ oven1:3 })) throw new Error(`star validation wrong: ${JSON.stringify(recovered.stars)}`);
