@@ -93,13 +93,16 @@ test('applySave restores rewarded Rush Crew only into that exact same active rus
     };
   }
   function saveFor(phase, day = 4) {
+    // Task 09 treats bounded time as authoritative and derives phase from it. Keep the fixture
+    // internally possible so this test exercises boost scoping rather than contradictory JSON.
+    const t = phase === 'rush' ? 100 : 150;
     return {
       coins: 10,
       upgrades: { speed: 0, carry: 0, income: 0 },
       staff: { runner: 1, cashier: 0, cleaner: 0 },
       stats: {}, settings: {},
       staffLevels: levels(), machineLevels: {}, meta: {}, intro: {}, stars: {}, dayStats: {},
-      dayState: { day, phase, t: 100 },
+      dayState: { day, phase, t },
       boosts: { rushCrew: { role: 'runner', day: 4 } },
     };
   }
