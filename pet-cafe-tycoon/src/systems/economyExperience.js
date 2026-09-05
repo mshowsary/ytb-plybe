@@ -218,7 +218,10 @@ export function createEconomyExperience(G, S, ctx, platform) {
     const help = ensureHelpState(), pending = help.pending, d = G.dayState;
     if (!pending || !d) return false;
     const day = d.day | 0, earnedDay = pending.earnedDay | 0;
-    if (day < earnedDay || day > earnedDay + 1) { help.pending = null; return false; }
+    // A completed rewarded ad is already paid for by the player. Do not silently expire that
+    // entitlement just because the next useful rush arrives several days later. Only impossible
+    // future-earned state is corrupt; otherwise keep the promise pending until it can be delivered.
+    if (day < earnedDay) { help.pending = null; return false; }
     if (d.phase !== 'rush') return false;
 
     if (pending.kind === 'crew') {
