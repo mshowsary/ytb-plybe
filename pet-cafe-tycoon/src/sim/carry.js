@@ -1,26 +1,28 @@
-// src/sim/carry.js — pure carry-slot helper shared by the owner and any staff member who can
-// pick things up. A carrier holds EITHER product items (tracked by the caller's own count/array —
-// owner.items for the owner, s.items for a runner — unchanged by this module) OR one supply sack
-// (`sack: 'beans' | 'kibble'`, `sackLeft` counting down from 20) OR harvested `fruit` — never a
-// mix. This module owns just the sack/fruit half of that exclusivity; callers gate "may I pick up
-// a product item" on canTakeItems(c) before touching their own items array/count, and gate "may I
-// take a sack / harvest fruit" on isEmpty(c) (their own item count must also be 0 — canTakeItems
-// doesn't know about it, since it's tracked outside this module).
+// src/sim/carry.js — pure carry-slot helper shared by the owner and staff.
+// A carrier holds EITHER product items, one supply portion, OR harvested fruit — never a mix.
 export function createCarry() {
   return { sack: null, sackLeft: 0, fruit: 0 };
 }
 export function isEmpty(c) { return c.sack == null && c.fruit === 0; }
 export function canTakeItems(c) { return c.sack == null && c.fruit === 0; }
+
+// Beans remain a reusable 20-unit bag because the espresso machine can need several top-ups.
+// Kibble is a single 10-unit refill portion: after any successful bowl refill the remaining scoop
+// is consumed/put away automatically. This removes the pointless "fill bowl, then walk leftovers
+// to RETURN" chore while keeping carry exclusivity and the Pantry interaction intact.
+export const SUPPLY_PORTIONS = Object.freeze({ beans: 20, kibble: 10 });
 export function takeSack(c, kind) {
   if (!isEmpty(c)) return false;
-  c.sack = kind; c.sackLeft = 20;
+  c.sack = kind;
+  c.sackLeft = SUPPLY_PORTIONS[kind] || 20;
   return true;
 }
 export function useSack(c, n) {
   if (!c.sack) return 0;
+  const kind = c.sack;
   const used = Math.max(0, Math.min(n, c.sackLeft));
   c.sackLeft -= used;
-  if (c.sackLeft <= 0) { c.sack = null; c.sackLeft = 0; }
+  if ((kind === 'kibble' && used > 0) || c.sackLeft <= 0) { c.sack = null; c.sackLeft = 0; }
   return used;
 }
 export function addFruit(c, n, cap = Infinity) {

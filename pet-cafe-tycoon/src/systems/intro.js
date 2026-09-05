@@ -1,24 +1,10 @@
-// src/systems/intro.js — Loop v2 Task 2: the scripted first-minute onboarding (design section 4,
-// "Intro (first 60 s)"). On a fresh game (G.intro.step === undefined) starts at step 0 and walks
-// the owner through five short steps — bake, stock, serve, collect, build — each with its own
-// target station/zone and completion condition; step 5 is "done" (free play). While active,
-// src/systems/objective.js reads G.intro.target/G.intro.active and forces the objective arrow to
-// this step's target instead of the normal jobTarget() pick, with the caption showing the step's
-// verb (CAPTION in objective.js). src/systems/customers.js reads G.intro.step to cap spawns at 2
-// until step 3 so the café stays calm enough to demonstrate bake -> stock -> serve before crowds.
-// A "SKIP" pill appears from step 3 onward. Completed tutorial actions get tiny world-space feedback
-// rather than another text popup: the player should feel progress without reading a checklist.
+// src/systems/intro.js — scripted first-minute onboarding.
+// A fresh game walks the owner through five short steps — bake, stock, serve, collect, build —
+// each using the world-space objective arrow. The old persistent SKIP pill was deliberately removed:
+// it sat in the middle of Day 1 after the player had already learned the controls and looked like
+// leftover debug/tutorial UI. The sequence is short, non-modal, and completes itself through play.
 export function createIntro(G, S, ctx) {
   const { world, owner, fx } = ctx;
-
-  const skipBtn = document.createElement('button');
-  skipBtn.type = 'button'; skipBtn.className = 'pill skipPill hidden'; skipBtn.textContent = 'SKIP';
-  document.body.appendChild(skipBtn);
-  skipBtn.addEventListener('click', () => {
-    ctx.audio && ctx.audio.play('tap');
-    G.intro.step = 5; G.intro.active = false; G.intro.target = null;
-    skipBtn.classList.add('hidden');
-  });
 
   function stepTarget(step) {
     if (step === 0) { const st = world.stations.get('oven1'); return st ? { x: st.x, z: st.z, kind: 'bake' } : null; }
@@ -28,12 +14,11 @@ export function createIntro(G, S, ctx) {
     if (step === 4) { const z = world.area.zones[0]; return z ? { x: z.x, z: z.z, kind: 'build' } : null; }
     return null;
   }
-  // Each step's own completion condition — read from live sim/render state, exactly what the arrow
-  // is asking the player to go do.
+
   function stepDone(step) {
-    if (step === 0) return owner.items.some(m => m.userData.product === 'cookie'); // holds >= 1 cookie
+    if (step === 0) return owner.items.some(m => m.userData.product === 'cookie');
     if (step === 1) { const st = world.stations.get('dispCookie'); return !!(st && st.stock >= 1); }
-    if (step === 2) { for (const e of world.events) if (e.type === 'processed') return true; return false; } // one register sale
+    if (step === 2) { for (const e of world.events) if (e.type === 'processed') return true; return false; }
     if (step === 3) return (G.coins || 0) > 0;
     if (step === 4) { const z = world.area.zones[0]; return !!(z && world.built.has(z.id)); }
     return true;
@@ -56,7 +41,6 @@ export function createIntro(G, S, ctx) {
       G.intro.step = step;
       G.intro.active = step < 5;
       G.intro.target = G.intro.active ? stepTarget(step) : null;
-      skipBtn.classList.toggle('hidden', !(G.intro.active && step >= 3));
     },
   };
 }
