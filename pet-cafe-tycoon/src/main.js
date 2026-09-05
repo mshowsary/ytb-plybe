@@ -2,6 +2,7 @@
 import { createScene } from './render/scene.js';
 import { createGame } from './game.js';
 import { createYouTubePlatform, LOAD_STATUS } from './platform/youtube.js';
+import { validateAndMigrateSave } from './sim/save.js';
 import { createMachineJuice } from './systems/machineJuice.js';
 import { installPetFriendship } from './systems/petFriendship.js';
 import { installServiceFriction } from './systems/serviceFriction.js';
@@ -20,7 +21,11 @@ import { createCoffeePolish } from './render/coffeePolish.js';
 import { AREA1 } from '../data/area1.js';
 
 const $ = id => document.getElementById(id);
-const platform = createYouTubePlatform(window);
+const platform = createYouTubePlatform(window, {
+  // Parsing valid JSON is not enough to authorize cloud writes. Only a supported, canonicalized
+  // Pet Café save may become LOAD_STATUS.LOADED; invalid/future schemas stay write-protected.
+  validateLoadedData: data => validateAndMigrateSave(data, AREA1),
+});
 window.__platform = platform;
 
 function makeBootRecovery() {
@@ -241,9 +246,13 @@ function startGame(S, load, bootUi) {
   const interactionCoach = createInteractionCoach(G, S);
   const cashTrays = createCashTrays(G.world, S.scene);
   const pauseOverlay = makePauseOverlay();
-  platform.bindGame(G);
 
-  if (load.status === LOAD_STATUS.LOADED) G.restore(load.data);
+  if (load.status === LOAD_STATUS.LOADED && !G.restore(load.data)) {
+    // This should be unreachable because the platform validator ran before write authorization,
+    // but do not bind host pause/save callbacks until the restore boundary agrees.
+    throw new Error('Validated cloud save was rejected by the restore boundary');
+  }
+  platform.bindGame(G);
   petFriendship.refresh();
   coffeePolish.update();
   const pauseMenu = createPauseMenu(G, platform);
