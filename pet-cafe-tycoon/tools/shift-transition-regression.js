@@ -86,7 +86,9 @@ const actions = {
   continue: page => page.click('.sheet-root .continue'),
   escape: page => page.keyboard.press('Escape'),
   backdrop: page => page.evaluate(() => document.querySelector('.sheet-root .backdrop')?.click()),
-  close: page => page.click('.sheet-root .sclose'),
+  // The close affordance can be visually translated while the sheet animates; dispatch its real
+  // click handler directly so this characterization tests close semantics, not Playwright hit-testing.
+  close: page => page.evaluate(() => document.querySelector('.sheet-root .sclose')?.click()),
   doubleContinue: page => page.evaluate(() => { const b = document.querySelector('.sheet-root .continue'); b?.click(); b?.click(); }),
 };
 
