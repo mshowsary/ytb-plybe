@@ -14,9 +14,11 @@ function compactBreak(raw, dayState) {
 }
 
 function normalizeRoomba(raw, dayState) {
-  if (!isRecord(raw) || !dayState || dayState.phase !== 'rush') return null;
+  if (!isRecord(raw) || !dayState) return null;
   const day = raw.day | 0;
   const remaining = Number(raw.remaining);
+  // Roomba is purchased during Rush but promises a fixed active-simulation duration. Preserve the
+  // remainder through a same-day phase transition; only a different day makes it stale.
   if (day !== (dayState.day | 0) || !(remaining > 0)) return null;
   return { day, remaining: clamp(remaining, 0, ROOMBA_SWEEP_SECONDS) };
 }
@@ -25,9 +27,11 @@ function normalizePending(raw, dayState) {
   if (!isRecord(raw) || !dayState || !PENDING_KINDS.has(raw.kind)) return null;
   const earnedDay = raw.earnedDay | 0;
   const currentDay = dayState.day | 0;
-  // A completed ad may defer to the next useful rush, including the next day. Older promises are
-  // stale and are dropped rather than becoming a permanent ad-derived upgrade.
-  if (earnedDay < 1 || currentDay < earnedDay || currentDay > earnedDay + 1) return null;
+  // Pending means the ad was already completed but the promised operational benefit could not be
+  // applied. It is not an active boost, so do not silently expire it just because a calendar day
+  // changed; keep it until a genuinely useful rush. A save claiming it was earned in the future is
+  // invalid and is dropped.
+  if (earnedDay < 1 || currentDay < earnedDay) return null;
   if (raw.kind === 'crew') {
     if (!RUSH_CREW_ROLES.includes(raw.role)) return null;
     return { kind: 'crew', role: raw.role, earnedDay };
@@ -98,7 +102,7 @@ export function snapshotTemporaryHelp(G) {
   const petPlayBreak = compactBreak(G && G.boosts && G.boosts.petPlayBreak, d);
   const mess = G && G.petMess;
   const roombaRemaining = mess && finite(mess.roombaRemaining) ? mess.roombaRemaining : 0;
-  const roomba = d && d.phase === 'rush' && roombaRemaining > 0
+  const roomba = d && roombaRemaining > 0
     ? { day: d.day | 0, remaining: clamp(roombaRemaining, 0, ROOMBA_SWEEP_SECONDS) }
     : null;
   const pending = normalizePending(G && G.temporaryHelp && G.temporaryHelp.pending, d);
