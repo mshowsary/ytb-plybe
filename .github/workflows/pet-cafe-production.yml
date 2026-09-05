@@ -49,6 +49,8 @@ jobs:
         run: node tools/rush-help-smoke.js
       - name: Rewarded Pet Play Break smoke
         run: node tools/pet-play-break-smoke.js
+      - name: Pet Play Break visual feedback smoke
+        run: node tools/pet-play-break-visual-smoke.js
       - name: Browser visual smoke
         run: node tools/production-smoke-v2.js
       - name: Ultra-narrow 183px HUD smoke
