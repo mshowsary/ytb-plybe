@@ -23,25 +23,29 @@ test('legacy Crew and Pet Break fields migrate into one temporary-help payload',
   );
 });
 
-test('same-rush Roomba remaining duration survives but stale day/phase is dropped', () => {
+test('Roomba remaining duration survives same-day phase change but expires on a different day', () => {
   const raw = {
     v: TEMPORARY_HELP_VERSION,
     roomba: { day: 4, remaining: 11.25 },
   };
   const same = normalizeTemporaryHelp(raw, {}, rushDay(4));
   assert.deepEqual(same.data.roomba, { day: 4, remaining: 11.25 });
-  assert.equal(normalizeTemporaryHelp(raw, {}, { day: 4, t: 150, phase: 'afternoon' }).data.roomba, null);
+  assert.deepEqual(
+    normalizeTemporaryHelp(raw, {}, { day: 4, t: 150, phase: 'afternoon' }).data.roomba,
+    { day: 4, remaining: 11.25 },
+  );
   assert.equal(normalizeTemporaryHelp(raw, {}, rushDay(5)).data.roomba, null);
 });
 
-test('pending entitlement survives through the next day only', () => {
+test('pending earned entitlement persists until useful and rejects impossible future-earned state', () => {
   const raw = {
     v: TEMPORARY_HELP_VERSION,
     pending: { kind: 'petBreak', earnedDay: 7, duration: 12, slots: 2 },
   };
   assert.deepEqual(normalizeTemporaryHelp(raw, {}, rushDay(7)).data.pending, raw.pending);
   assert.deepEqual(normalizeTemporaryHelp(raw, {}, rushDay(8)).data.pending, raw.pending);
-  assert.equal(normalizeTemporaryHelp(raw, {}, rushDay(9)).data.pending, null);
+  assert.deepEqual(normalizeTemporaryHelp(raw, {}, rushDay(20)).data.pending, raw.pending);
+  assert.equal(normalizeTemporaryHelp(raw, {}, rushDay(6)).data.pending, null);
 });
 
 test('pending entitlement is bounded and cannot become coins', () => {
