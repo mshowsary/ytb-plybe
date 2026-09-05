@@ -2,6 +2,7 @@
 // pure staff sim, and renders a runner's chest-carried items by reusing the human stack.
 import { stepStaff, createStaff as createStaffSim } from '../sim/staff.js';
 import { staffLevelsWithRushCrew } from '../sim/rushCrew.js';
+import { snapshotStaffState } from '../sim/staffState.js';
 import { createHuman } from '../render/human.js';
 import { itemFor } from '../render/props.js';
 
@@ -20,9 +21,31 @@ export function createStaff(G, S, ctx) {
   // Reused only while a rush boost is active. `staffLevelsWithRushCrew` returns G.staffLevels
   // directly on the normal path, so this adds no per-frame object churn to ordinary play.
   const rushLevelScratch = { runner: { speed: 0, carry: 0 }, cashier: { speed: 0 }, cleaner: { speed: 0 } };
+  let snapshotWrapped = false;
+  let assignmentSignature = null;
+
+  function ensureSnapshotIncludesStaffChoices() {
+    if (snapshotWrapped || typeof G.snapshot !== 'function') return;
+    const baseSnapshot = G.snapshot;
+    G.snapshot = () => {
+      const save = baseSnapshot();
+      save.staffState = snapshotStaffState(G.staffList, world);
+      return save;
+    };
+    snapshotWrapped = true;
+  }
+
+  function assignmentSig() {
+    return (G.staffList || []).filter(s => s.kind === 'runner').map(s => s.assign || '').join('|');
+  }
 
   function spawnRunner() {
-    const s = createStaffSim('runner', RUNNER_SPAWN); G.staffList.push(s);
+    let index = 0;
+    for (const s of G.staffList) if (s.kind === 'runner') index++;
+    const savedAssign = G.staffState && Array.isArray(G.staffState.runnerAssignments)
+      ? G.staffState.runnerAssignments[index] || null
+      : null;
+    const s = createStaffSim('runner', RUNNER_SPAWN, savedAssign); G.staffList.push(s);
     const human = createHuman(RUNNER_VARIANT, 'runner'); scene.add(human.group);
     rec.set(s, { human, itemMeshes: [], px: s.x, pz: s.z });
   }
@@ -51,6 +74,7 @@ export function createStaff(G, S, ctx) {
   function teardown() {
     for (const r of rec.values()) scene.remove(r.human.group);
     rec.clear();
+    assignmentSignature = null;
   }
 
   // M3 T3: the register "cha-ching" arm-tap for a cashier — systems/customers.js calls this
@@ -63,11 +87,20 @@ export function createStaff(G, S, ctx) {
   return {
     teardown,
     update(dt) {
+      ensureSnapshotIncludesStaffChoices();
       let runners = 0, cashiers = 0, cleaners = 0;
       for (const s of G.staffList) { if (s.kind === 'runner') runners++; else if (s.kind === 'cashier') cashiers++; else if (s.kind === 'cleaner') cleaners++; }
       if (runners < (G.staff.runner | 0)) spawnRunner();
       if (cashiers < (G.staff.cashier | 0)) spawnCashier();
       if (cleaners < (G.staff.cleaner | 0)) spawnCleaner();
+
+      // A runner picker change is a durable work choice. Observe it at the simulation boundary and
+      // use Task 08's coalescing checkpoint rather than writing directly from the UI click handler.
+      const sig = assignmentSig();
+      if (assignmentSignature !== null && sig !== assignmentSignature && typeof G.requestCheckpoint === 'function') {
+        G.requestCheckpoint('runner-assignment');
+      }
+      assignmentSignature = sig;
 
       // M3 T6: pass G.customers so a hired runner prefers restocking whatever a genuinely stuck
       // customer is waiting on. A future rewarded Rush Crew activation may lend the selected role
