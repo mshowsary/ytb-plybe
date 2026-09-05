@@ -2,6 +2,7 @@
 // Successful checkout visits build New Face -> Regular -> Friend -> Bestie progression.
 // This module deliberately observes pay events without changing prices, patience, traffic or service logic.
 import { allPetCards, ensurePetBook, recordPetVisit } from '../sim/petBook.js';
+import { presentationScheduler } from '../core/presentationScheduler.js';
 
 const STYLE_ID = 'pet-cafe-friendship-style';
 
@@ -33,10 +34,10 @@ function makeToast() {
   document.body.appendChild(el);
   let timer = null;
   return text => {
-    if (timer) clearTimeout(timer);
+    if (timer) presentationScheduler.cancel(timer);
     el.textContent = text;
     el.classList.add('show');
-    timer = setTimeout(() => el.classList.remove('show'), 2300);
+    timer = presentationScheduler.schedule(() => { el.classList.remove('show'); timer = null; }, 2300);
   };
 }
 
@@ -97,14 +98,14 @@ export function installPetFriendship(G, platform = null) {
   }
 
   // meta.js owns opening/rebuilding the book. This listener is installed later, so rendering on the
-  // next frame decorates the fresh cards without making either UI module depend on the other.
+  // next allowed presentation frame decorates the fresh cards without mutating UI during host pause.
   const bookButton = document.querySelector('.meta-pawbook');
   if (bookButton) {
     bookButton.classList.add('pet-forward');
     bookButton.title = 'Pet Visitor Book · meet named pets and build friendships';
     const paw = bookButton.querySelector('.meta-paw'); if (paw) paw.textContent = '🐾';
   }
-  const onBookOpen = () => requestAnimationFrame(renderBook);
+  const onBookOpen = () => presentationScheduler.afterFrames(renderBook, 1);
   if (bookButton) bookButton.addEventListener('click', onBookOpen);
 
   // Observe successful checkout events at their source. The original Array#push still receives the
@@ -124,7 +125,7 @@ export function installPetFriendship(G, platform = null) {
         announce(`${result.profile.name} is now a ${result.friendship.label} ♥`);
         if (bookButton) {
           bookButton.classList.add('bump');
-          setTimeout(() => bookButton.classList.remove('bump'), 500);
+          presentationScheduler.schedule(() => bookButton.classList.remove('bump'), 500);
         }
         if (platform && G.snapshot) platform.save(G.snapshot());
       } else if (firstPetThisDay) {
@@ -133,7 +134,7 @@ export function installPetFriendship(G, platform = null) {
         announce(`${result.profile.name} ♥ ${result.profile.trait}`);
         if (bookButton) {
           bookButton.classList.add('bump');
-          setTimeout(() => bookButton.classList.remove('bump'), 420);
+          presentationScheduler.schedule(() => bookButton.classList.remove('bump'), 420);
         }
       }
       renderBook();
