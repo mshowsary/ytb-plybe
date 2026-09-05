@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createPresentationScheduler } from '../src/core/presentationScheduler.js';
 
-function fakeRuntime() {
+function fakeRuntime(extra = {}) {
   let time = 0, nextId = 1;
   const timers = new Map(), frames = new Map();
   const env = {
@@ -11,6 +11,7 @@ function fakeRuntime() {
     clearTimer(id) { timers.delete(id); },
     requestFrame(fn) { const id = nextId++; frames.set(id, fn); return id; },
     cancelFrame(id) { frames.delete(id); },
+    ...extra,
   };
   function advance(ms) {
     time += ms;
@@ -92,4 +93,29 @@ test('whenResumed waits until every pause reason clears', async () => {
   s.setPaused('user', false);
   await p;
   assert.equal(resolved, true);
+});
+
+test('active CSS/Web Animations pause once and resume only after the final pause reason clears', () => {
+  const owned = {
+    playState:'running', pauses:0, plays:0,
+    pause() { this.pauses++; this.playState = 'paused'; },
+    play() { this.plays++; this.playState = 'running'; },
+  };
+  const alreadyPaused = {
+    playState:'paused', pauses:0, plays:0,
+    pause() { this.pauses++; }, play() { this.plays++; },
+  };
+  const rt = fakeRuntime({ listAnimations: () => [owned, alreadyPaused] });
+  const s = createPresentationScheduler(rt.env);
+
+  s.setPaused('host', true);
+  assert.equal(owned.pauses, 1);
+  assert.equal(alreadyPaused.pauses, 0, 'scheduler must not take ownership of externally paused animation');
+  s.setPaused('user', true);
+  assert.equal(owned.pauses, 1, 'second pause reason must not pause twice');
+  s.setPaused('host', false);
+  assert.equal(owned.plays, 0);
+  s.setPaused('user', false);
+  assert.equal(owned.plays, 1);
+  assert.equal(alreadyPaused.plays, 0);
 });
