@@ -46,7 +46,6 @@ try {
   if (Math.abs(paused.time - before.time) > 0.08) throw new Error(`host pause advanced simulation time: ${JSON.stringify({before,paused})}`);
   if (Math.abs(paused.remaining - before.remaining) > 0.12) throw new Error(`host pause burned Roomba reward: ${JSON.stringify({before,paused})}`);
   if (!paused.saved.temporaryHelp || !(paused.saved.temporaryHelp.roomba.remaining > 9)) throw new Error(`pause save lost Roomba remainder: ${JSON.stringify(paused.saved.temporaryHelp)}`);
-  loadRaw = window === undefined ? loadRaw : loadRaw;
   loadRaw = await page.evaluate(() => window.__ytHelp.saved);
   await page.screenshot({path:path.join(shots,'01-roomba-paused.png')});
 
