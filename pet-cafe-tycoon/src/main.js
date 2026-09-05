@@ -11,6 +11,7 @@ import { installCleanHud } from './ui/cleanHud.js';
 import { installCertificationPolish } from './ui/certificationPolish.js';
 import { createInteractionCoach } from './ui/interactionCoach.js';
 import { installReliefAttention } from './ui/reliefAttention.js';
+import { installServiceSummary } from './ui/serviceSummary.js';
 import { createPauseMenu } from './ui/pauseMenu.js';
 import { createCashTrays } from './render/cashTrays.js';
 import { createCoffeePolish } from './render/coffeePolish.js';
@@ -53,6 +54,7 @@ async function boot() {
   const petFriendship = installPetFriendship(G, platform);
   const serviceFriction = installServiceFriction(G);
   const reliefAttention = installReliefAttention(G);
+  const serviceSummary = installServiceSummary(G);
   const responsive = createResponsivePolish(G);
   const shell = createPlayablesShell();
   installCertificationPolish();
@@ -79,6 +81,7 @@ async function boot() {
   window.__petFriendship = petFriendship;
   window.__serviceFriction = serviceFriction;
   window.__reliefAttention = reliefAttention;
+  window.__serviceSummary = serviceSummary;
   window.__coffeePolish = coffeePolish;
 
   S.render();
