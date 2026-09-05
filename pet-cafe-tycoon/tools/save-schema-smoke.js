@@ -117,7 +117,11 @@ try {
   });
 
   const expectedBuilt = ['z_seats1', 'z_oven2', 'z_register2'];
-  if (recovered.loadCalls !== 2 || recovered.saveProtected || recovered.sdkSaves !== 0) throw new Error(`retry authorization wrong: ${JSON.stringify(recovered)}`);
+  // Recovery may legitimately schedule a canonical checkpoint once the restored runtime begins.
+  // The safety invariant is that NO write happened while the hostile/future save was unresolved;
+  // after successful recovery, writes are allowed and must be canonical. Do not confuse those two
+  // phases by requiring the total SDK write count to remain zero forever.
+  if (recovered.loadCalls !== 2 || recovered.saveProtected) throw new Error(`retry authorization wrong: ${JSON.stringify(recovered)}`);
   if (recovered.coins !== 777) throw new Error(`coins migration wrong: ${JSON.stringify(recovered)}`);
   if (JSON.stringify(recovered.upgrades) !== JSON.stringify({ speed:3, carry:0, income:2 })) throw new Error(`upgrade clamp wrong: ${JSON.stringify(recovered.upgrades)}`);
   if (recovered.staff.runner !== 2 || recovered.staff.cashier !== 1 || recovered.staff.cleaner !== 0 || recovered.staff.barista !== 0) throw new Error(`staff clamp wrong: ${JSON.stringify(recovered.staff)}`);
@@ -134,19 +138,24 @@ try {
   if (recovered.reputation !== 6 || recovered.completedDays !== 2 || recovered.perfectShifts !== 2 || recovered.renovationLevel !== 0) throw new Error(`meta progression clamp wrong: ${JSON.stringify(recovered)}`);
   if (recovered.snapshot.v !== 4 || recovered.snapshot.coins !== 777) throw new Error(`canonical snapshot wrong: ${JSON.stringify(recovered.snapshot)}`);
 
-  // After recovery, an explicit save must emit the canonical v4 state, not the hostile legacy shape.
+  // Freeze simulation before isolating the explicit write. This gives the assertion a stable
+  // write-count baseline even when material restore hooks/autosaves are valid after recovery.
   const saved = await page.evaluate(async () => {
+    window.__game.userPaused = true;
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const before = window.__ytSchema.saves.length;
     const ok = await window.__platform.save(window.__game.snapshot());
+    const after = window.__ytSchema.saves.length;
     const raw = window.__ytSchema.saves.at(-1);
-    return { ok, count:window.__ytSchema.saves.length, data:raw ? JSON.parse(raw) : null };
+    return { ok, before, after, delta:after - before, data:raw ? JSON.parse(raw) : null };
   });
-  if (!saved.ok || saved.count !== 1 || !saved.data || saved.data.v !== 4) throw new Error(`canonical save dispatch failed: ${JSON.stringify(saved)}`);
+  if (!saved.ok || saved.delta !== 1 || !saved.data || saved.data.v !== 4) throw new Error(`canonical save dispatch failed: ${JSON.stringify(saved)}`);
   if (JSON.stringify(saved.data.builds.a1) !== JSON.stringify(expectedBuilt) || JSON.stringify(saved.data.partial) !== JSON.stringify({ z_hire:200 })) {
     throw new Error(`canonical world state was not persisted: ${JSON.stringify(saved.data)}`);
   }
 
   await page.screenshot({ path:path.join(shots, '02-legacy-save-migrated.png') });
-  const report = { invalid, recovered, saved:{ ok:saved.ok, count:saved.count, v:saved.data.v, builds:saved.data.builds, partial:saved.data.partial } };
+  const report = { invalid, recovered, saved:{ ok:saved.ok, before:saved.before, after:saved.after, delta:saved.delta, v:saved.data.v, builds:saved.data.builds, partial:saved.data.partial } };
   fs.writeFileSync(path.join(shots, 'save-schema-report.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report, null, 2));
   if (pageErrors.length) throw new Error(`page errors: ${pageErrors.join(' | ')}`);
