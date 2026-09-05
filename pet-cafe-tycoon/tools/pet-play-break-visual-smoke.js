@@ -56,9 +56,17 @@ await page.waitForFunction(() => window.__game.customers.filter(c => !c.done).le
 const marked = await page.evaluate(() => {
   const G = window.__game, pets = G.customers.filter(c => !c.done).slice(0, 2);
   if (pets.length !== 2) throw new Error('visual fixture did not collect two real pets');
-  for (const c of pets) {
+  for (let i = 0; i < pets.length; i++) {
+    const c = pets[i];
     c._petBreakFloor = Math.max(8, Number(c.patience) || 8);
     c.patience = c._petBreakFloor;
+    // Test-only stable rest state near the camera centre. `timer=-100` keeps stepCustomers from
+    // completing the synthetic eating state during this short capture, while the production
+    // cappedVisualStep still has to animate the EXISTING real render from its spawn position here.
+    c.state = 'eating'; c.mood = 'none'; c.timer = -100;
+    c.x = -1.2 + i * 2.4; c.z = 1.5; c.rot = 0;
+    c.mover.x = c.x; c.mover.z = c.z; c.mover.rot = 0;
+    c.mover.hasTarget = false; c.mover.n = 0; c.mover.k = 0; c.mover.vx = 0; c.mover.vz = 0;
   }
   window.__petBreakVisualIds = pets.map(c => c.id);
   return [...window.__petBreakVisualIds];
@@ -70,12 +78,17 @@ await page.waitForFunction(() => {
   return active.length === 2 && active.every(el => ids.has(Number(el.dataset.customerId)) && /PLAY BREAK/i.test(el.textContent || ''));
 }, null, { timeout:5000 });
 
-// Give visible pets time to project into the camera. The play-break class itself is already the
-// exact render-state assertion; `show` additionally guarantees the production screenshot captures it.
+// `show` means the projection is in front of the camera, not necessarily within the pixel bounds.
+// Wait for the real capped render motion to carry BOTH marked pets into the 320x568 capture frame.
 await page.waitForFunction(() => {
   const ids = new Set(window.__petBreakVisualIds || []);
-  return [...document.querySelectorAll('.pet-identity.play-break.show')].filter(el => ids.has(Number(el.dataset.customerId))).length === 2;
-}, null, { timeout:45000 });
+  const active = [...document.querySelectorAll('.pet-identity.play-break.show')].filter(el => ids.has(Number(el.dataset.customerId)));
+  if (active.length !== 2) return false;
+  return active.every(el => {
+    const r = el.getBoundingClientRect();
+    return r.right >= 0 && r.left <= innerWidth && r.bottom >= 0 && r.top <= innerHeight;
+  });
+}, null, { timeout:60000 });
 
 const visual = await page.evaluate(() => {
   const ids = new Set(window.__petBreakVisualIds || []);
@@ -94,7 +107,7 @@ if (visual.length !== 2 || !visual.every(v => marked.includes(v.id) && /PLAY BRE
   throw new Error(`play-break visual state missing from selected pets: ${JSON.stringify({ marked, visual })}`);
 }
 if (!visual.every(v => v.right >= 0 && v.left <= 320 && v.bottom >= 0 && v.top <= 568)) {
-  throw new Error(`play-break pet identity projected outside viewport: ${JSON.stringify(visual)}`);
+  throw new Error(`play-break pet identity projected outside viewport after settle: ${JSON.stringify(visual)}`);
 }
 await page.screenshot({ path:path.join(shots,'03-pet-play-break-active.png') });
 
