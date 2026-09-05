@@ -14,6 +14,12 @@ const ACTION_KEYS = {
   SUPPLIES: 'pantry',
 };
 const HOLD_RADIUS = 1.75;
+// Ordinary station buttons should never flash while the player is simply crossing their trigger.
+// The complete refill lesson is already highly contextual (the machine is actually empty), so its
+// Pantry taps can remain a little more responsive without making every kiosk/staff/return button
+// feel tutorial-heavy.
+const TAP_DWELL = 0.35;
+const LESSON_TAP_DWELL = 0.22;
 
 function injectStyle() {
   if (document.getElementById(STYLE_ID)) return;
@@ -182,11 +188,11 @@ export function createInteractionCoach(G = null, S = null) {
   };
   document.addEventListener('click', onAction, true);
 
-  function showTap(btn, key, text, dt) {
+  function showTap(btn, key, text, dt, dwell = TAP_DWELL) {
     const candidate = `tap:${key}:${text || ''}`;
     if (candidate !== candidateKey) { candidateKey = candidate; candidateT = 0; activeHold = null; activeHoldSnap = null; hide(); return true; }
     candidateT += Math.max(0, dt);
-    if (candidateT < 0.22) { hide(); return true; }
+    if (candidateT < dwell) { hide(); return true; }
     currentKey = key; root.classList.remove('hold-mode'); root.dataset.mode = 'tap'; setCaption(text); placeBeside(root, btn); root.classList.remove('hidden'); return true;
   }
 
@@ -207,7 +213,7 @@ export function createInteractionCoach(G = null, S = null) {
       if (lesson && G && S) {
         const choice = pantryChoiceButton(lesson.supply);
         if (choice) {
-          showTap(choice, lesson.key, `PICK ${lesson.supply}`, dt); return;
+          showTap(choice, lesson.key, `PICK ${lesson.supply}`, dt, LESSON_TAP_DWELL); return;
         }
         // Any unrelated sheet still suppresses coaching; only the Pantry choice is coachable over UI.
         if (overlayOpen()) { resetCandidate(); hide(); return; }
@@ -216,7 +222,7 @@ export function createInteractionCoach(G = null, S = null) {
           const pantry = pantryStation(G);
           const btn = document.querySelector('.fbtn');
           if (pantry && btn && actionKey(btn) === 'pantry' && G.P && d2(G.P, pantry.front) < HOLD_RADIUS * HOLD_RADIUS) {
-            showTap(btn, lesson.key, 'OPEN SUPPLIES', dt); return;
+            showTap(btn, lesson.key, 'OPEN SUPPLIES', dt, LESSON_TAP_DWELL); return;
           }
           if (pantry) { showRoute({ ...pantry.front, stationId: pantry.id, y: 1.15 }, lesson.key, `GET ${lesson.supply}`, dt); return; }
         } else if (G.P && d2(G.P, { x: lesson.x, z: lesson.z }) > HOLD_RADIUS * HOLD_RADIUS) {
