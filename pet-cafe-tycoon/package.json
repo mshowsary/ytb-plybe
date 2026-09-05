@@ -14,6 +14,7 @@
     "shot": "node tools/shot.js",
     "bot": "node tools/bot.js",
     "barista:sweep": "node tools/barista-price-sweep.js",
+    "barista:robust": "node tools/barista-price-robustness.js",
     "strip": "node tools/strip.js"
   },
   "keywords": [],

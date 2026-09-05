@@ -51,6 +51,12 @@ jobs:
           set -o pipefail
           mkdir -p reports-production
           npm run barista:sweep | tee reports-production/barista-price-sweep-report.txt
+      - name: Barista multi-seed robustness
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p reports-production
+          npm run barista:robust | tee reports-production/barista-price-robustness-report.txt
       - name: Staff overhead what-if
         run: node tools/payroll-whatif.js
       - name: Production build

@@ -5,6 +5,31 @@ const round = (n, digits = 1) => {
   return Math.round(Number(n || 0) * p) / p;
 };
 
+const dayValue = (rows, day) => rows.find(r => r.day === day)?.earnings ?? 0;
+
+// A first crossing can be misleading when later purchase timing makes the incremental service
+// curve dip back below the hire price. "Durable" means the cumulative service gain is at/above
+// price on that day and never falls below it again through the end of the measured career.
+export function recoupMilestones(cost, baselineRows, armRows, hiredDay) {
+  if (!Number.isFinite(cost) || cost <= 0) throw new Error('recoup cost must be positive');
+  if (!Array.isArray(baselineRows) || !Array.isArray(armRows)) throw new Error('recoup rows must be arrays');
+  if (!Number.isFinite(hiredDay)) return { firstRecoupDay: null, durableRecoupDay: null, finalIncrement: 0, path: [] };
+
+  const days = [...new Set(armRows.map(r => Number(r.day)).filter(d => Number.isFinite(d) && d >= hiredDay))].sort((a, b) => a - b);
+  let cumulative = 0;
+  const path = days.map(day => {
+    cumulative += dayValue(armRows, day) - dayValue(baselineRows, day);
+    return { day, cumulative };
+  });
+  const firstRecoupDay = path.find(p => p.cumulative >= cost)?.day ?? null;
+  let durableRecoupDay = null;
+  for (let i = 0; i < path.length; i++) {
+    if (path[i].cumulative < cost) continue;
+    if (path.slice(i).every(p => p.cumulative >= cost)) { durableRecoupDay = path[i].day; break; }
+  }
+  return { firstRecoupDay, durableRecoupDay, finalIncrement: cumulative, path };
+}
+
 export function summarizeBaristaCandidate(cost, report) {
   if (!Number.isFinite(cost) || cost <= 0) throw new Error('candidate cost must be positive');
   const baseline = report && report.baseline;
@@ -14,7 +39,13 @@ export function summarizeBaristaCandidate(cost, report) {
   if (arm.barista?.hiredDay == null || arm.barista?.hiredAt == null) throw new Error(`Barista was never hired at ${cost}`);
 
   const baselineCoffee = Math.max(1, Number(baseline.ownerCoffeeTicks) || 0);
-  const incremental = Number(delta.cumulativeServiceIncrementAfterHire) || 0;
+  const canRebuildRecoup = Array.isArray(baseline.dayReport) && Array.isArray(arm.dayReport) && baseline.dayReport.length && arm.dayReport.length;
+  const rebuilt = canRebuildRecoup
+    ? recoupMilestones(cost, baseline.dayReport, arm.dayReport, arm.barista.hiredDay)
+    : null;
+  const incremental = rebuilt ? rebuilt.finalIncrement : (Number(delta.cumulativeServiceIncrementAfterHire) || 0);
+  const firstRecoupDay = rebuilt ? rebuilt.firstRecoupDay : (delta.firstRecoupDay ?? delta.recoupDay ?? null);
+  const durableRecoupDay = rebuilt ? rebuilt.durableRecoupDay : (delta.durableRecoupDay ?? delta.recoupDay ?? null);
   return {
     cost,
     hireDay: arm.barista.hiredDay,
@@ -31,7 +62,9 @@ export function summarizeBaristaCandidate(cost, report) {
     ownerCoffeeReliefPct: round((1 - (Number(arm.ownerCoffeeTicks) || 0) / baselineCoffee) * 100, 1),
     incrementalAfterHire: incremental,
     recoupCoveragePct: round((incremental / cost) * 100, 1),
-    recoupDay: delta.recoupDay ?? null,
+    firstRecoupDay,
+    durableRecoupDay,
+    recoupDay: durableRecoupDay,
     finalCoins: arm.finalCoins,
     cupsMoved: arm.barista?.cupsMoved || 0,
     beanRefills: arm.barista?.beanRefills || 0,
