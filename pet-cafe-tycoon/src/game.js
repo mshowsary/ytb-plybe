@@ -1,6 +1,7 @@
 // src/game.js — binds simulation, rendering, UI, audio and YouTube platform services.
 import { createWorld, refreshActive, cleanSeat } from './sim/world.js';
 import { applySave } from './sim/save.js';
+import { snapshotStationState, restoreStationState } from './sim/stationState.js';
 import { salePrice, cafeLevel } from './sim/economy.js';
 import { reliefClaimKey } from './sim/relief.js';
 import { ensurePartyOrders, clonePartyOrders, partyOrderProgress } from './sim/partyOrders.js';
@@ -261,7 +262,8 @@ export function createGame(S, area, els, platform = null) {
 
   G.snapshot = () => ({
     v: 4, coins: G.coins, lifetimeEarned: G.stats.lifetimeEarned | 0,
-    builds: { a1: Array.from(world.built) }, partial: { ...world.partial }, upgrades: { ...G.up }, staff: { ...G.staff }, stats: { ...G.stats }, settings: { ...G.settings },
+    builds: { a1: Array.from(world.built) }, partial: { ...world.partial }, stationState: snapshotStationState(world, G.stars),
+    upgrades: { ...G.up }, staff: { ...G.staff }, stats: { ...G.stats }, settings: { ...G.settings },
     staffLevels: { runner: { ...G.staffLevels.runner }, cashier: { ...G.staffLevels.cashier }, cleaner: { ...G.staffLevels.cleaner } }, machineLevels: { ...G.machineLevels }, intro: { ...G.intro },
     meta: {
       completedDays: G.meta.completedDays | 0, rewardedDays: { ...G.meta.rewardedDays }, reputation: G.meta.reputation | 0, perfectShifts: G.meta.perfectShifts | 0,
@@ -279,18 +281,23 @@ export function createGame(S, area, els, platform = null) {
 
   G.restore = save => {
     checkpoint.reset();
-    if (!save || typeof save !== 'object') return; applySave(G, save);
+    if (!save || typeof save !== 'object') return false;
+    const canonical = applySave(G, save);
+    if (!canonical) return false;
     if (typeof G.settings.music !== 'boolean') G.settings.music = true; if (typeof G.settings.sfx !== 'boolean') G.settings.sfx = true;
     audio.setSfx(G.settings.sfx); audio.setMusic(G.settings.music); G.serviceStreak = { count: 0, t: 0 }; G.shiftBestStreak = G.dayStats.bestStreak | 0;
     ensureCareer(G.meta); ensurePartyOrders(G.meta); G.goal = chooseCareerGoal(G.dayState.day, G.meta); world.dayState = G.dayState; world.stars = G.stars; lastAwningSet = -1;
     customers.teardown(); staff.teardown(); G.customers = []; G.staffList = []; world.payAcc = {}; world.built.clear();
-    for (const id of (save.builds && save.builds.a1) || []) world.built.add(id);
-    for (const k of Object.keys(world.partial)) delete world.partial[k]; Object.assign(world.partial, save.partial || {});
-    for (const st of world.stations.values()) st.active = !st.builtBy || world.built.has(st.builtBy); refreshActive(world);
+    for (const id of (canonical.builds && canonical.builds.a1) || []) world.built.add(id);
+    for (const k of Object.keys(world.partial)) delete world.partial[k]; Object.assign(world.partial, canonical.partial || {});
+    for (const st of world.stations.values()) st.active = !st.builtBy || world.built.has(st.builtBy);
+    refreshActive(world);
+    if (!restoreStationState(world, canonical.stationState, G.stars)) return false;
     visuals.syncAll(); registerCash.syncAll(); zones.syncAll(); hud.setCoins(G.coins); syncReputationPresentation(); syncPetBookPresentation(); syncCareerPresentation(); partyOrders.sync(true);
     // A terminal save is already settled. Reopen that committed report as presentation only; the
     // settlement transaction itself is idempotent and cannot award coins/reputation/cups twice.
     if (G.dayState._ended) openDaySummary();
+    return true;
   };
 
   return G;
