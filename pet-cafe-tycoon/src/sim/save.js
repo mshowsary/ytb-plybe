@@ -9,13 +9,15 @@ import {
   CURRENT_SAVE_VERSION, SAVE_LIMITS, validateAndMigrateSave as validateCoreSave,
 } from './saveSchema.js';
 import { normalizeStationState } from './stationState.js';
+import { normalizeOwnerState } from './ownerState.js';
 
 export { CURRENT_SAVE_VERSION, SAVE_LIMITS } from './saveSchema.js';
 export { STATION_STATE_VERSION } from './stationState.js';
+export { OWNER_STATE_VERSION } from './ownerState.js';
 
 // Task 10 extends the already-certified root-v4 schema with its own versioned station payload.
-// Keeping this wrapper in save.js means both the YouTube load gate and applySave use the same
-// canonical station state without destabilizing the Task-09 core migration rules.
+// Task 11 follows the same pattern for owner position/hands. Keeping both wrappers here means the
+// YouTube load gate and applySave canonicalize every persistence extension before writes unlock.
 export function validateAndMigrateSave(raw, area = null) {
   const result = validateCoreSave(raw, area);
   if (!result.ok) return result;
@@ -30,6 +32,10 @@ export function validateAndMigrateSave(raw, area = null) {
   );
   if (!station.ok) return { ok: false, reason: `stationState:${station.reason}` };
   result.data.stationState = station.data;
+
+  const owner = normalizeOwnerState(raw && raw.ownerState, area, result.data.upgrades);
+  if (!owner.ok) return { ok: false, reason: `ownerState:${owner.reason}` };
+  result.data.ownerState = owner.data;
   return result;
 }
 
