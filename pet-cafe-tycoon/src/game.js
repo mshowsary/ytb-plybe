@@ -121,7 +121,7 @@ export function createGame(S, area, els, platform = null) {
   const visuals = createVisuals(G, S, ctx); const registerCash = createRegisterCash(G, S, ctx); const economyExperience = createEconomyExperience(G, S, ctx, platform);
   const partyOrders = createPartyOrders(G, S, ctx, platform); const objective = createObjective(G, S, ctx); const intro = createIntro(G, S, ctx);
 
-  let careerRefreshT = 0; hud.show();
+  let careerRefreshT = 0, dayTransitionPromise = null; hud.show();
   G.update = dt => {
     G.time += dt; input.update(); stations.update(dt); zones.update(dt); customers.update(dt); staff.update(dt); intro.update(dt);
     ambience.update(dt); renovationDecor.update(dt); visuals.update(dt); registerCash.update(dt); objective.update(dt); economyExperience.update(dt); partyOrders.update(dt); fx.update(dt); hud.update();
@@ -165,7 +165,10 @@ export function createGame(S, area, els, platform = null) {
       day: completedDay, earnings: settlement.stats.earned, served: settlement.stats.served, lost: settlement.stats.lost,
       serviceFees: settlement.stats.serviceFees, serviceMisses: settlement.stats.serviceMisses, wasteFees: settlement.stats.wasteFees, cafeLevel: cafeLevel(G),
       goalText: careerGoalLabel(goal), goalMet: met, goalReward: goal.reward, tomorrowText: careerGoalLabel(tomorrow), tomorrowReward: tomorrow.reward, nextUnlock,
-    }, { continue: continueDay });
+    }, {
+      continue: () => finishDayTransition('continue'),
+      dismiss: source => finishDayTransition(source),
+    });
 
     const rewardAmount = met ? goal.reward : Math.max(25, Math.min(250, Math.round(settlement.stats.earned * 0.15)));
     const rewardClaimed = !!G.meta.rewardedDays[completedDay], reliefClaimed = !!G.meta.rewardedDays[reliefClaimKey(completedDay)];
@@ -202,16 +205,36 @@ export function createGame(S, area, els, platform = null) {
     if (platform) platform.save(G.snapshot());
   }
 
-  async function continueDay() {
-    const completedDay = G.dayState.day; metaUI.lockSummary(false); sheets.close();
-    if (platform && completedDay >= 3 && completedDay % 3 === 0) await platform.requestInterstitialAd();
-    nextDay(G.dayState); G.dayStats = freshDayStats(); G.serviceStreak = { count: 0, t: 0 }; G.shiftBestStreak = 0; G.goal = chooseCareerGoal(G.dayState.day, G.meta);
-    syncCareerPresentation(); partyOrders.sync(false);
-    const d = G.dayState.day;
-    if (weekdayIndex(d) === 6) hud.banner('WEEKLY CUP SUNDAY');
-    else if (isWeekend(d) && isHoliday(d)) { hud.banner('WEEKEND'); setTimeout(() => hud.banner('HOLIDAY'), 2700); }
-    else if (isWeekend(d)) hud.banner('WEEKEND'); else if (isHoliday(d)) hud.banner('HOLIDAY');
-    if (platform) platform.save(G.snapshot());
+  function finishDayTransition(source = 'continue') {
+    if (dayTransitionPromise) return dayTransitionPromise;
+    if (!G.dayState._ended) return Promise.resolve(false);
+    const completedDay = G.dayState.day;
+    const run = (async () => {
+      // Close presentation immediately so rapid input cannot create a second visible exit path. The
+      // promise guard below remains authoritative while an interstitial is resolving.
+      metaUI.lockSummary(false); sheets.close();
+      if (platform && completedDay >= 3 && completedDay % 3 === 0) {
+        try { await platform.requestInterstitialAd(); }
+        catch (err) { console.warn('Pet Café interstitial failed during day transition; continuing without it.', err); }
+      }
+      // A single guarded transition owns the terminal -> next-morning mutation. If external code
+      // already changed the day while an ad was up, do not advance again.
+      if (G.dayState.day !== completedDay || !G.dayState._ended) return false;
+      nextDay(G.dayState); G.dayStats = freshDayStats(); G.serviceStreak = { count: 0, t: 0 }; G.shiftBestStreak = 0; G.goal = chooseCareerGoal(G.dayState.day, G.meta);
+      syncCareerPresentation(); partyOrders.sync(false);
+      const d = G.dayState.day;
+      if (weekdayIndex(d) === 6) hud.banner('WEEKLY CUP SUNDAY');
+      else if (isWeekend(d) && isHoliday(d)) { hud.banner('WEEKEND'); setTimeout(() => hud.banner('HOLIDAY'), 2700); }
+      else if (isWeekend(d)) hud.banner('WEEKEND'); else if (isHoliday(d)) hud.banner('HOLIDAY');
+      if (platform) platform.save(G.snapshot());
+      return true;
+    })();
+    dayTransitionPromise = run;
+    run.then(
+      () => { if (dayTransitionPromise === run) dayTransitionPromise = null; },
+      () => { if (dayTransitionPromise === run) dayTransitionPromise = null; },
+    );
+    return run;
   }
 
   G.snapshot = () => ({
