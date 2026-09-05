@@ -5,9 +5,38 @@ import { ensureCareer, chooseCareerGoal } from './career.js';
 import { ensurePartyOrders } from './partyOrders.js';
 import { restoreRushCrewBoost } from './rushCrew.js';
 import { restorePetPlayBreakBoost } from './petPlayBreak.js';
-import { normalizeSave } from './saveSchema.js';
+import {
+  CURRENT_SAVE_VERSION, SAVE_LIMITS, validateAndMigrateSave as validateCoreSave,
+} from './saveSchema.js';
+import { normalizeStationState } from './stationState.js';
 
-export { CURRENT_SAVE_VERSION, SAVE_LIMITS, validateAndMigrateSave, normalizeSave } from './saveSchema.js';
+export { CURRENT_SAVE_VERSION, SAVE_LIMITS } from './saveSchema.js';
+export { STATION_STATE_VERSION } from './stationState.js';
+
+// Task 10 extends the already-certified root-v4 schema with its own versioned station payload.
+// Keeping this wrapper in save.js means both the YouTube load gate and applySave use the same
+// canonical station state without destabilizing the Task-09 core migration rules.
+export function validateAndMigrateSave(raw, area = null) {
+  const result = validateCoreSave(raw, area);
+  if (!result.ok) return result;
+  const areaId = area && typeof area.id === 'string' ? area.id : 'a1';
+  const builtSet = new Set(result.data.builds && result.data.builds[areaId] || []);
+  const station = normalizeStationState(
+    raw && raw.stationState,
+    area,
+    builtSet,
+    result.data.stars,
+    SAVE_LIMITS.maxCoins,
+  );
+  if (!station.ok) return { ok: false, reason: `stationState:${station.reason}` };
+  result.data.stationState = station.data;
+  return result;
+}
+
+export function normalizeSave(raw, area = null) {
+  const result = validateAndMigrateSave(raw, area);
+  return result.ok ? result.data : null;
+}
 
 export function applySave(state, save, area = state && state.world && state.world.area) {
   if (!state || typeof state !== 'object') return null;
