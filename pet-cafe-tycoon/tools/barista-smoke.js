@@ -45,7 +45,7 @@ async function baristaDiagnostic(label) {
     return {
       time:G && G.time, day:G && G.dayState, paused:G && G.userPaused,
       staff:G && {...G.staff}, stats:G && {...G.stats},
-      worker:{ active:!!window.__baristaWorker?.active, state:window.__baristaWorker?.state || null },
+      worker:{ active:!!window.__baristaWorker?.active, state:window.__baristaWorker?.state || null, debug:window.__baristaWorker?.debug || null },
       coffee:coffee && { active:coffee.active, beans:coffee.beans, stock:coffee.stock, front:coffee.front },
       pantry:pantry && { active:pantry.active, front:pantry.front },
       bar:bar && { active:bar.active, stock:bar.stock, front:bar.front },
@@ -61,15 +61,6 @@ async function baristaDiagnostic(label) {
 // each simple lane operation, while Playwright's larger timeout merely gives a slow renderer enough
 // wall time to execute those same simulation seconds. This prevents CI hardware speed from changing
 // the gameplay contract being tested.
-function operationSucceeded(kind) {
-  if (kind === 'refill') {
-    return !!window.__baristaWorker?.active && (window.__game?.stats?.baristaBeanRefills | 0) >= 1 && window.__game.world.stations.get('coffee1').beans > 0;
-  }
-  if (kind === 'transport') {
-    return (window.__game?.stats?.baristaCupsMoved | 0) >= 1 && window.__game.world.stations.get('barCoffee').stock >= 1;
-  }
-  return false;
-}
 async function waitSimulationBudget(kind, startTime, budget = 10, wallTimeout = 45000) {
   await page.waitForFunction(
     ({ kind, startTime, budget }) => {
