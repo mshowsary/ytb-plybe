@@ -41,13 +41,20 @@ export function createPetMess(G, scene) {
   const nativePush = events.push;
   let lastSpawnAt = -Infinity, day = (G.dayState && G.dayState.day) | 0, suppressUntil = -Infinity;
 
-  // G.restore happens before this system is constructed. Task 12 therefore parks canonical Roomba
-  // state on G.temporaryHelp and converts remaining seconds into the active-simulation clock here.
-  const restoredRoomba = G.temporaryHelp && G.temporaryHelp.roomba;
-  if (restoredRoomba && restoredRoomba.day === day && G.dayState && G.dayState.phase === 'rush' && restoredRoomba.remaining > 0) {
-    suppressUntil = (Number(G.time) || 0) + Math.min(ROOMBA_SWEEP_SECONDS, restoredRoomba.remaining);
+  function consumeRestoredRoomba() {
+    const help = G.temporaryHelp;
+    const saved = help && help.roomba;
+    if (!saved) return;
+    // main.js constructs this runtime before G.restore(), so consume the parked canonical state on
+    // the first update AFTER restore rather than only during construction. Consume exactly once.
+    help.roomba = null;
+    const currentDay = (G.dayState && G.dayState.day) | 0;
+    if (!G.dayState || G.dayState.phase !== 'rush' || saved.day !== currentDay || !(saved.remaining > 0)) return;
+    suppressUntil = Math.max(
+      suppressUntil,
+      (Number(G.time) || 0) + Math.min(ROOMBA_SWEEP_SECONDS, Number(saved.remaining) || 0),
+    );
   }
-  if (G.temporaryHelp) G.temporaryHelp.roomba = null;
 
   function removeAt(index) {
     const spot = spots[index]; if (!spot) return;
@@ -66,6 +73,7 @@ export function createPetMess(G, scene) {
     const now = Number(G.time) || 0;
     const currentDay = (G.dayState && G.dayState.day) | 0;
     syncDay(currentDay);
+    consumeRestoredRoomba();
     if (now < suppressUntil) return;
     if (!shouldSpawnPetMess(currentDay, event.id, spots.length, now - lastSpawnAt)) return;
     const seat = event.seatId && G.world.stations.get(event.seatId);
@@ -90,6 +98,7 @@ export function createPetMess(G, scene) {
     update(dt) {
       const nextDay = (G.dayState && G.dayState.day) | 0;
       syncDay(nextDay);
+      consumeRestoredRoomba();
       const P = G.P;
       if (P) {
         for (let i = spots.length - 1; i >= 0; i--) {
