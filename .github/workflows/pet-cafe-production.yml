@@ -93,6 +93,8 @@ jobs:
         run: node tools/boot-recovery-smoke.js
       - name: Material checkpoint smoke
         run: node tools/material-checkpoint-smoke.js
+      - name: Save schema migration smoke
+        run: node tools/save-schema-smoke.js
       - name: Ultra-narrow 183px HUD smoke
         run: node tools/ultra-narrow-smoke.js
       - name: First-use interaction coach smoke
