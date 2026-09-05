@@ -1,10 +1,8 @@
-// Task 01 characterization for the end-of-shift transition contract.
+// Task 03 hard gate for the end-of-shift transition contract.
 //
-// This is intentionally a REPORT-ONLY browser audit while the P0 settlement work is being split into
-// safe slices. It must stay green when it successfully measures a known regression; later tasks will
-// convert these same invariants into hard release gates once settlement/dismiss/restore are repaired.
-// The important part is that every exit path is measured against one explicit contract instead of
-// patching Escape/backdrop/close independently.
+// Continue, Escape, backdrop, close and rapid double input must all converge on exactly one guarded
+// terminal -> next-morning mutation. Reload reopening remains report-only until Task 04; settlement
+// idempotence itself is already covered by the Task 02 unit tests.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -68,15 +66,17 @@ async function state(page) {
       reputation: g.meta.reputation | 0,
       history: h ? JSON.stringify(h) : null,
       summaryVisible: !!document.querySelector('.sheet-root .card') && !document.querySelector('.sheet-root').classList.contains('hidden'),
-      dayStats: JSON.stringify(g.dayStats),
+      dayStats: { ...g.dayStats },
     };
   });
 }
 
 function transitionContract(before, after) {
+  const stats = after.dayStats || {};
   return {
     advancedExactlyOne: after.day === before.day + 1,
     resetForPlay: after.ended === false && after.t === 0 && after.phase === 'morning',
+    dayStatsReset: ['served','lost','earned','serviceFees','serviceMisses','wasteFees','bestStreak'].every(k => (stats[k] | 0) === 0),
     summaryClosed: after.summaryVisible === false,
     noDuplicateSettlement: after.coins === before.coins && after.reputation === before.reputation && after.history === before.history,
   };
@@ -87,7 +87,7 @@ const actions = {
   escape: page => page.keyboard.press('Escape'),
   backdrop: page => page.evaluate(() => document.querySelector('.sheet-root .backdrop')?.click()),
   // The close affordance can be visually translated while the sheet animates; dispatch its real
-  // click handler directly so this characterization tests close semantics, not Playwright hit-testing.
+  // click handler directly so this gate tests close semantics, not Playwright hit-testing.
   close: page => page.evaluate(() => document.querySelector('.sheet-root .sclose')?.click()),
   doubleContinue: page => page.evaluate(() => { const b = document.querySelector('.sheet-root .continue'); b?.click(); b?.click(); }),
 };
@@ -108,8 +108,8 @@ for (const name of Object.keys(actions)) {
   } finally { await ctx.close(); }
 }
 
-// Reload characterization is deliberately separate: a persisted settled shift should reopen its
-// display-only result without re-awarding anything, then advance exactly once when Continue is used.
+// Task 04 will promote this final case to a release gate: a persisted settled terminal shift should
+// reopen its display-only result without another award, then Continue should use the same transition.
 const first = await makePage();
 let reloadCase;
 try {
@@ -136,29 +136,27 @@ try {
   } finally { await second.ctx.close(); }
 } finally { await first.ctx.close(); }
 
-const regressions = [
-  ...cases.filter(c => !c.passes).map(c => c.name),
-  ...(reloadCase.passes ? [] : ['reloadSummary']),
-];
+const hardGateRegressions = cases.filter(c => !c.passes).map(c => c.name);
 const report = {
-  contract: 'Continue/Escape/backdrop/close/rapid-double must converge on exactly one transition; settled reload must reopen the same result without another award.',
-  characterizationOnly: true,
+  contract: 'Continue/Escape/backdrop/close/rapid-double converge on exactly one transition; settled reload reopening is the remaining Task 04 contract.',
+  task03HardGate: true,
   cases,
+  hardGateRegressions,
   reloadCase,
-  regressions,
+  reloadPendingTask04: !reloadCase.passes,
   harnessErrors,
 };
 fs.writeFileSync(path.join(reports, 'shift-transition-regression.json'), JSON.stringify(report, null, 2));
 
-console.log('Pet Café — SHIFT TRANSITION CHARACTERIZATION (Task 01)');
+console.log('Pet Café — SHIFT TRANSITION HARD GATE (Task 03)');
 for (const c of cases) {
   const failed = Object.entries(c.contract).filter(([, ok]) => !ok).map(([k]) => k);
-  console.log(`${c.name.padEnd(14)} ${c.passes ? 'PASS' : 'KNOWN REGRESSION'}${failed.length ? ' — ' + failed.join(', ') : ''}`);
+  console.log(`${c.name.padEnd(14)} ${c.passes ? 'PASS' : 'FAIL'}${failed.length ? ' — ' + failed.join(', ') : ''}`);
 }
-console.log(`reloadSummary  ${reloadCase.passes ? 'PASS' : 'KNOWN REGRESSION'} — preserved=${reloadCase.preservedSettlement} reopened=${reloadCase.reopenedSummary}`);
-console.log(`known regressions isolated: ${regressions.length ? regressions.join(', ') : 'none'}`);
-console.log('NOTE: Task 01 is report-only by design; Tasks 02–04 will turn these invariants into hard gates as settlement/dismiss/restore are repaired.');
+console.log(`reloadSummary  ${reloadCase.passes ? 'PASS EARLY' : 'TASK 04 PENDING'} — preserved=${reloadCase.preservedSettlement} reopened=${reloadCase.reopenedSummary}`);
+console.log(`Task 03 hard regressions: ${hardGateRegressions.length ? hardGateRegressions.join(', ') : 'none'}`);
+console.log('NOTE: Task 03 now hard-gates every live dismissal route. Reload reopening remains report-only until Task 04.');
 console.log('SHIFT_TRANSITION_JSON ' + JSON.stringify(report));
 
 await browser.close(); await new Promise(resolve => server.close(resolve));
-if (harnessErrors.length) process.exit(1);
+if (harnessErrors.length || hardGateRegressions.length) process.exit(1);
