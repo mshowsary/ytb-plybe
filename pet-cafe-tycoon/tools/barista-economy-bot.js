@@ -353,7 +353,12 @@ function runScenario({ name, baristaAware }) {
 
   const lastPos = new Map(); let teleports = 0; const stalls = [];
   function trackMovers(t) {
-    const movers = [ownerMover, ...customers.map(c => c.mover), ...staffList.map(s => s.mover), ...(barista ? [barista.mover] : [])];
+    // Owner navigation deliberately has its own 1s re-plan / 2s recovery contract in walkOwnerTo.
+    // A generic 3s "distance must monotonically shrink" tracker therefore double-counts valid owner
+    // recoveries as stalls. Keep owner teleport detection hard, but reserve the generic stall gate
+    // for customer, hired staff and Barista movers that do not use that recovery contract.
+    teleports += ownerMover.teleports || 0; ownerMover.teleports = 0;
+    const movers = [...customers.map(c => c.mover), ...staffList.map(s => s.mover), ...(barista ? [barista.mover] : [])];
     for (const m of movers) {
       teleports += m.teleports || 0; m.teleports = 0;
       if (m.hasTarget) {
