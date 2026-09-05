@@ -84,7 +84,16 @@ export function createRegisterCash(G, S, ctx) {
 
   return {
     syncAll() {
-      for (const rec of records.values()) rec.amount = -1;
+      // Restore must make the physical till agree immediately, even if the host pauses on the same
+      // frame as load. Waiting for a later update() left restored cash numerically correct but
+      // temporarily invisible in the exact resume frame.
+      for (const rec of records.values()) {
+        rec.amount = rec.st.pile;
+        rec.setAmount(rec.st.pile);
+        rec.group.visible = rec.st.active && rec.st.pile > 0;
+        rec.lastPulse = 0;
+        rec.group.scale.setScalar(1);
+      }
     },
     update(dt) {
       for (const rec of records.values()) {
