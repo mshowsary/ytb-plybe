@@ -1,3 +1,6 @@
+import { resetActiveInputs } from '../core/input.js';
+import { presentationScheduler } from '../core/presentationScheduler.js';
+
 const STYLE_ID = 'pet-cafe-pause-menu-style';
 
 function installStyle() {
@@ -57,6 +60,11 @@ export function createPauseMenu(G, platform) {
   const sfxBtn = root.querySelector('[data-setting="sfx"]');
   const resumeBtn = root.querySelector('[data-action="resume"]');
 
+  function clearMovement() {
+    resetActiveInputs();
+    if (G.P) { G.P.vx = 0; G.P.vz = 0; }
+    G._force = null;
+  }
   function savePrefs() {
     if (platform && G.snapshot) platform.save(G.snapshot());
   }
@@ -71,12 +79,17 @@ export function createPauseMenu(G, platform) {
   }
   function open() {
     if (!root.classList.contains('hidden')) return;
-    G.userPaused = true; root.classList.remove('hidden'); root.setAttribute('aria-hidden', 'false');
-    sync(); requestAnimationFrame(() => resumeBtn.focus({ preventScroll: true }));
+    clearMovement();
+    G.userPaused = true;
+    presentationScheduler.setPaused('user', true);
+    root.classList.remove('hidden'); root.setAttribute('aria-hidden', 'false');
+    sync(); presentationScheduler.afterFrames(() => resumeBtn.focus({ preventScroll: true }), 1);
   }
   function close() {
     if (root.classList.contains('hidden')) return;
+    clearMovement();
     root.classList.add('hidden'); root.setAttribute('aria-hidden', 'true'); G.userPaused = false;
+    presentationScheduler.setPaused('user', false);
     button.focus({ preventScroll: true });
   }
   function toggleSetting(key) {
