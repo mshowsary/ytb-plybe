@@ -1,6 +1,11 @@
 name: Pet Cafe Production
 
 on:
+  push:
+    branches: [chatgpt/pet-cafe-production]
+    paths:
+      - 'pet-cafe-tycoon/**'
+      - '.github/workflows/pet-cafe-production.yml'
   workflow_dispatch:
 
 concurrency:
@@ -96,6 +101,8 @@ jobs:
         run: node tools/owner-persistence-smoke.js
       - name: Temporary help persistence smoke
         run: node tools/temporary-help-persistence-smoke.js
+      - name: Gate A host-pause lifecycle smoke
+        run: node tools/gate-a-lifecycle-smoke.js
       - name: Ultra-narrow 183px HUD smoke
         run: node tools/ultra-narrow-smoke.js
       - name: First-use interaction coach smoke
