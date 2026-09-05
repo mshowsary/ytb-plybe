@@ -3,21 +3,21 @@ import { ensureReputation } from './reputation.js';
 import { ensurePetBook } from './petBook.js';
 import { ensureCareer, chooseCareerGoal } from './career.js';
 import { ensurePartyOrders } from './partyOrders.js';
-import { restoreRushCrewBoost } from './rushCrew.js';
-import { restorePetPlayBreakBoost } from './petPlayBreak.js';
 import {
   CURRENT_SAVE_VERSION, SAVE_LIMITS, validateAndMigrateSave as validateCoreSave,
 } from './saveSchema.js';
 import { normalizeStationState } from './stationState.js';
 import { normalizeOwnerState } from './ownerState.js';
+import { normalizeTemporaryHelp } from './temporaryHelp.js';
 
 export { CURRENT_SAVE_VERSION, SAVE_LIMITS } from './saveSchema.js';
 export { STATION_STATE_VERSION } from './stationState.js';
 export { OWNER_STATE_VERSION } from './ownerState.js';
+export { TEMPORARY_HELP_VERSION } from './temporaryHelp.js';
 
-// Task 10 extends the already-certified root-v4 schema with its own versioned station payload.
-// Task 11 follows the same pattern for owner position/hands. Keeping both wrappers here means the
-// YouTube load gate and applySave canonicalize every persistence extension before writes unlock.
+// Tasks 10–12 extend the certified root-v4 schema through versioned nested payloads. Keeping these
+// wrappers here means the YouTube load gate and applySave canonicalize every extension before cloud
+// writes unlock, without destabilizing the historical root migration contract.
 export function validateAndMigrateSave(raw, area = null) {
   const result = validateCoreSave(raw, area);
   if (!result.ok) return result;
@@ -36,6 +36,10 @@ export function validateAndMigrateSave(raw, area = null) {
   const owner = normalizeOwnerState(raw && raw.ownerState, area, result.data.upgrades);
   if (!owner.ok) return { ok: false, reason: `ownerState:${owner.reason}` };
   result.data.ownerState = owner.data;
+
+  const help = normalizeTemporaryHelp(raw && raw.temporaryHelp, result.data.boosts, result.data.dayState);
+  if (!help.ok) return { ok: false, reason: `temporaryHelp:${help.reason}` };
+  result.data.temporaryHelp = help.data;
   return result;
 }
 
@@ -114,18 +118,19 @@ export function applySave(state, save, area = state && state.world && state.worl
   state.dayState = { ...canonical.dayState };
   state.stars = { ...canonical.stars };
 
-  // Rewarded Rush Help must survive a legitimate reload DURING that same rush, or the player can
-  // lose the benefit while its once-per-day claim remains consumed. Stale/malformed boosts are
-  // never restored: a different day/phase automatically drops them. Pet Play Break intentionally
-  // restores without recipient ids because live customers are not persisted; its runtime reattaches
-  // the remaining break to the next two genuinely stressed guests after reload.
+  // Task 12 owns one canonical temporary-help record. Active Crew/Break instances are restored only
+  // into their legitimate rush; Roomba is consumed later by systems/petMess after that runtime is
+  // constructed; pending earned entitlement remains available for the next useful moment.
   if (!state.boosts || typeof state.boosts !== 'object') state.boosts = {};
-  const rushCrew = restoreRushCrewBoost(canonical.boosts.rushCrew, state.dayState);
-  if (rushCrew) state.boosts.rushCrew = rushCrew;
+  if (canonical.temporaryHelp.rushCrew) state.boosts.rushCrew = { ...canonical.temporaryHelp.rushCrew };
   else delete state.boosts.rushCrew;
-  const petPlayBreak = restorePetPlayBreakBoost(canonical.boosts.petPlayBreak, state.dayState);
-  if (petPlayBreak) state.boosts.petPlayBreak = petPlayBreak;
+  if (canonical.temporaryHelp.petPlayBreak) state.boosts.petPlayBreak = { ...canonical.temporaryHelp.petPlayBreak, recipientIds: [], needsRecipients: true };
   else delete state.boosts.petPlayBreak;
+  state.temporaryHelp = {
+    v: canonical.temporaryHelp.v,
+    roomba: canonical.temporaryHelp.roomba ? { ...canonical.temporaryHelp.roomba } : null,
+    pending: canonical.temporaryHelp.pending ? { ...canonical.temporaryHelp.pending } : null,
+  };
 
   // Regenerate the live adaptive contract so old saves cannot preserve retired Serve-110 style goals.
   state.goal = chooseCareerGoal(state.dayState.day, state.meta);
