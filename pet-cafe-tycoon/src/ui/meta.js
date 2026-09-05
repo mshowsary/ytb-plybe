@@ -112,7 +112,6 @@ export function createMetaUI() {
       const card = document.querySelector('.sheet-root .card');
       if (!card) { if (++tries < 20) setTimeout(attach, 25); return; }
       if (card.querySelector('.meta-rating')) return;
-      const close = card.querySelector('.sclose'); if (close) close.remove();
 
       const rating = document.createElement('div'); rating.className = 'meta-rating'; rating.setAttribute('aria-label', `Service rating ${model.rating} of 3 stars`);
       const rc = document.createElement('div'); rc.className = 'meta-rating-copy';
