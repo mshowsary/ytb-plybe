@@ -8,11 +8,13 @@ import {
 } from './saveSchema.js';
 import { normalizeStationState } from './stationState.js';
 import { normalizeOwnerState } from './ownerState.js';
+import { normalizeStaffState } from './staffState.js';
 import { normalizeTemporaryHelp } from './temporaryHelp.js';
 
 export { CURRENT_SAVE_VERSION, SAVE_LIMITS } from './saveSchema.js';
 export { STATION_STATE_VERSION } from './stationState.js';
 export { OWNER_STATE_VERSION } from './ownerState.js';
+export { STAFF_STATE_VERSION } from './staffState.js';
 export { TEMPORARY_HELP_VERSION } from './temporaryHelp.js';
 
 // Tasks 10–12 extend the certified root-v4 schema through versioned nested payloads. Keeping these
@@ -36,6 +38,10 @@ export function validateAndMigrateSave(raw, area = null) {
   const owner = normalizeOwnerState(raw && raw.ownerState, area, result.data.upgrades);
   if (!owner.ok) return { ok: false, reason: `ownerState:${owner.reason}` };
   result.data.ownerState = owner.data;
+
+  const staffState = normalizeStaffState(raw && raw.staffState, area, builtSet, result.data.staff);
+  if (!staffState.ok) return { ok: false, reason: `staffState:${staffState.reason}` };
+  result.data.staffState = staffState.data;
 
   const help = normalizeTemporaryHelp(raw && raw.temporaryHelp, result.data.boosts, result.data.dayState);
   if (!help.ok) return { ok: false, reason: `temporaryHelp:${help.reason}` };
@@ -70,6 +76,10 @@ export function applySave(state, save, area = state && state.world && state.worl
   };
   state.machineLevels = { ...canonical.machineLevels };
   state.intro = { ...canonical.intro };
+  state.staffState = {
+    v: canonical.staffState.v,
+    runnerAssignments: [...canonical.staffState.runnerAssignments],
+  };
 
   const meta = canonical.meta;
   state.meta = {
