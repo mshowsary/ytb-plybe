@@ -69,6 +69,12 @@ jobs:
         run: npm run build
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
+      - name: Shift transition characterization
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p reports-production
+          node tools/shift-transition-regression.js | tee reports-production/shift-transition-regression.txt
       - name: Rewarded Rush Help smoke
         run: node tools/rush-help-smoke.js
       - name: Rewarded Pet Play Break smoke
