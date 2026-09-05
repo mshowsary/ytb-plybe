@@ -98,7 +98,11 @@ const seed = await page.evaluate(() => {
   const coffee = G.world.stations.get('coffee1'), bar = G.world.stations.get('barCoffee');
   coffee.beans = 0; coffee.stock = 0; coffee.timer = 0; bar.stock = 0;
   const oven = G.world.stations.get('oven1'), cookie = G.world.stations.get('dispCookie');
-  oven.stock = 5; cookie.stock = 0;
+  // Freeze the unrelated bakery producer for this role-isolation fixture. Oven A normally keeps
+  // baking while the Barista works, so comparing its live stock to the seed value would mistake
+  // legitimate production for Barista interference. A large negative timer keeps the source stock
+  // stable for the few simulated seconds under test without disabling its station/path footprint.
+  oven.stock = 5; oven.timer = -1000; cookie.stock = 0;
   return { staff:{...G.staff}, coffeeActive:coffee.active, pantryActive:G.world.stations.get('pantry1').active, barActive:bar.active, startTime:G.time };
 });
 if (seed.staff.barista !== 1 || !seed.coffeeActive || !seed.pantryActive || !seed.barActive) throw new Error(`Barista seed/restore failed: ${JSON.stringify(seed)}`);
