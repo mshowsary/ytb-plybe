@@ -1,20 +1,33 @@
 // Live Barista worker: one specialized coffee-lane employee. It uses the same navigation grid and
 // local avoidance as customers/staff, but remains outside the generic Runner system so it can never
 // drift into bakery/smoothie work. Hiring lives in the normal Workers sheet via STAFF.barista.
+import * as THREE from 'three';
 import { createMover, setTarget, stepMover } from '../sim/mover.js';
 import { baristaDecision, BARISTA } from '../sim/barista.js';
 import { refillBeans, takeFromMachine, putOnDisplay } from '../sim/world.js';
 import { createHuman } from '../render/human.js';
 import { itemFor } from '../render/props.js';
+import { baristaUniformMesh } from '../render/barista.js';
+import { coffeeCupGeometry } from '../render/coffeePolish.js';
+import { toonMaterial } from '../render/palette.js';
 
 const VARIANT = { shirt: '#72C9B8', hair: 1, skin: 1 };
 const FALLBACK_SPAWN = { x: 0.5, z: -3.3 };
+
+function carriedDrinkMesh(key) {
+  if (key === 'coffee' || key === 'latte') {
+    const m = new THREE.Mesh(coffeeCupGeometry(key === 'latte'), toonMaterial());
+    m.userData.product = key; m.castShadow = false; m.receiveShadow = true;
+    return m;
+  }
+  return itemFor(key);
+}
 
 export function createBaristaWorker(G, scene) {
   if (!G || !G.world || !scene) return { update() {}, destroy() {}, get active() { return false; } };
   if (G.staff.barista == null) G.staff.barista = 0;
   const world = G.world;
-  let s = null, human = null, itemMeshes = [], px = 0, pz = 0;
+  let s = null, human = null, uniform = null, itemMeshes = [], px = 0, pz = 0;
 
   function laneSpawn() {
     const coffee = [...world.stations.values()].find(st => st.active && st.type === 'coffee');
@@ -26,13 +39,18 @@ export function createBaristaWorker(G, scene) {
     const p = laneSpawn();
     const mover = createMover(p.x, p.z, 0.30, BARISTA.speed); mover.kind = 'barista';
     s = { mover, x: p.x, z: p.z, state: 'idle', job: null, items: [], workT: 0, idleT: 0 };
-    human = createHuman(VARIANT, 'runner'); human.group.position.set(p.x, 0, p.z); scene.add(human.group);
+    // Use the neutral customer silhouette, then layer the authored café apron/visor over it. This
+    // avoids inheriting the Runner's chef cap, so the two jobs are readable at a glance.
+    human = createHuman(VARIANT, 'customer');
+    uniform = baristaUniformMesh(); human.group.add(uniform);
+    human.group.position.set(p.x, 0, p.z); scene.add(human.group);
     px = p.x; pz = p.z;
   }
   function teardown() {
     if (human) scene.remove(human.group);
     if (human) for (const m of itemMeshes) human.stack.remove(m);
-    s = null; human = null; itemMeshes = [];
+    if (human && uniform) human.group.remove(uniform);
+    s = null; human = null; uniform = null; itemMeshes = [];
   }
   function targetPoint(id) {
     const st = id && world.stations.get(id);
@@ -52,7 +70,8 @@ export function createBaristaWorker(G, scene) {
   function syncCarryRender() {
     if (!s || !human) return;
     while (itemMeshes.length < s.items.length) {
-      const key = s.items[itemMeshes.length]; const m = itemFor(key); m.position.set(0, itemMeshes.length * 0.17, 0); human.stack.add(m); itemMeshes.push(m);
+      const key = s.items[itemMeshes.length]; const m = carriedDrinkMesh(key);
+      m.position.set(0, itemMeshes.length * 0.17, 0); human.stack.add(m); itemMeshes.push(m);
     }
     while (itemMeshes.length > s.items.length) { const m = itemMeshes.pop(); human.stack.remove(m); }
     human.setCarry(itemMeshes.length);
@@ -76,14 +95,14 @@ export function createBaristaWorker(G, scene) {
     const j = s.job || {};
     if (s.state === 'toPantry') {
       const p = targetPoint(j.pantryId); if (!p) { s.state = 'idle'; return; }
-      if (moveTo(p, dt)) { stop(); s.workT = 0.35; s.state = 'fetchBeans'; }
+      if (moveTo(p, dt)) { stop(); if (human) human.tap(); s.workT = 0.35; s.state = 'fetchBeans'; }
     } else if (s.state === 'fetchBeans') {
       s.workT -= dt; if (s.workT <= 0) s.state = 'toRefill';
     } else if (s.state === 'toRefill') {
       const p = targetPoint(j.machineId); if (!p) { s.state = 'idle'; return; }
       if (moveTo(p, dt)) {
         stop(); const used = refillBeans(world, j.machineId, j.amount);
-        if (used > 0) G.stats.baristaBeanRefills = (G.stats.baristaBeanRefills | 0) + 1;
+        if (used > 0) { G.stats.baristaBeanRefills = (G.stats.baristaBeanRefills | 0) + 1; if (human) human.tap(); }
         s.state = 'idle'; s.idleT = 0.18;
       }
     } else if (s.state === 'toMachine') {
@@ -96,6 +115,7 @@ export function createBaristaWorker(G, scene) {
         const wanted = Math.min(BARISTA.carry, j.count | 0, src ? src.stock | 0 : 0);
         const got = wanted > 0 ? takeFromMachine(world, j.sourceId, wanted) : 0;
         for (let i = 0; i < got; i++) s.items.push(j.product);
+        if (got > 0 && human) human.tap();
         s.state = s.items.length ? 'toBar' : 'idle';
       }
     } else if (s.state === 'toBar') {
@@ -109,6 +129,7 @@ export function createBaristaWorker(G, scene) {
       const put = putOnDisplay(world, j.targetId, key, 1);
       if (put > 0) {
         s.items.shift(); G.stats.baristaCupsMoved = (G.stats.baristaCupsMoved | 0) + 1; s.workT = 0.08;
+        if (human) human.tap();
       } else {
         // Bar filled while we were walking. Keep the coffee and retry later; never throw it away.
         s.state = 'idle'; s.idleT = 0.35;
