@@ -56,6 +56,26 @@ async function baristaDiagnostic(label) {
   return { live, pageErrors:[...pageErrors] };
 }
 
+// Browser software rendering can run far below real-time in CI. Worker acceptance therefore uses
+// GAME time, not wall-clock time: the Barista still gets a strict 10 simulated seconds to complete
+// each simple lane operation, while Playwright's larger timeout merely gives a slow renderer enough
+// wall time to execute those same simulation seconds. This prevents CI hardware speed from changing
+// the gameplay contract being tested.
+async function waitSimulationBudget(successFn, startTime, budget = 10, wallTimeout = 45000) {
+  await page.waitForFunction(
+    ({ startTime, budget, successFnSource }) => {
+      const success = (0, eval)(`(${successFnSource})`);
+      return success() || ((window.__game?.time || 0) - startTime >= budget);
+    },
+    { startTime, budget, successFnSource:successFn.toString() },
+    { timeout:wallTimeout },
+  );
+  return page.evaluate(({ successFnSource }) => {
+    const success = (0, eval)(`(${successFnSource})`);
+    return !!success();
+  }, { successFnSource:successFn.toString() });
+}
+
 // Restore a legal Day-5 coffee shop with a purchased Barista. Earlier prerequisites are included so
 // the world/grid mirrors a real progression save rather than force-enabling an isolated station.
 const seed = await page.evaluate(() => {
@@ -69,32 +89,49 @@ const seed = await page.evaluate(() => {
   coffee.beans = 0; coffee.stock = 0; coffee.timer = 0; bar.stock = 0;
   const oven = G.world.stations.get('oven1'), cookie = G.world.stations.get('dispCookie');
   oven.stock = 5; cookie.stock = 0;
-  return { staff:{...G.staff}, coffeeActive:coffee.active, pantryActive:G.world.stations.get('pantry1').active, barActive:bar.active };
+  return { staff:{...G.staff}, coffeeActive:coffee.active, pantryActive:G.world.stations.get('pantry1').active, barActive:bar.active, startTime:G.time };
 });
 if (seed.staff.barista !== 1 || !seed.coffeeActive || !seed.pantryActive || !seed.barActive) throw new Error(`Barista seed/restore failed: ${JSON.stringify(seed)}`);
 
+let refillOk = false;
 try {
-  await page.waitForFunction(() => window.__baristaWorker.active && (window.__game.stats.baristaBeanRefills | 0) >= 1 && window.__game.world.stations.get('coffee1').beans > 0, null, { timeout:12000 });
+  refillOk = await waitSimulationBudget(
+    () => window.__baristaWorker.active && (window.__game.stats.baristaBeanRefills | 0) >= 1 && window.__game.world.stations.get('coffee1').beans > 0,
+    seed.startTime,
+  );
 } catch (error) {
-  const diagnostic = await baristaDiagnostic('refill-timeout');
-  throw new Error(`Barista refill timeout: ${JSON.stringify(diagnostic)}\n${error}`);
+  const diagnostic = await baristaDiagnostic('refill-wall-timeout');
+  throw new Error(`Barista refill wall-timeout before simulation budget elapsed: ${JSON.stringify(diagnostic)}\n${error}`);
+}
+if (!refillOk) {
+  const diagnostic = await baristaDiagnostic('refill-sim-budget');
+  throw new Error(`Barista exceeded 10 simulated seconds to refill beans: ${JSON.stringify(diagnostic)}`);
 }
 const refill = await page.evaluate(() => {
   const G = window.__game, coffee = G.world.stations.get('coffee1');
-  return { beans:coffee.beans, refills:G.stats.baristaBeanRefills|0, workerState:window.__baristaWorker.state };
+  return { beans:coffee.beans, refills:G.stats.baristaBeanRefills|0, workerState:window.__baristaWorker.state, time:G.time };
 });
 if (refill.beans <= 0 || refill.refills < 1) throw new Error(`Barista did not refill beans: ${JSON.stringify(refill)}`);
 
 // Give the machine a ready batch so this test measures Barista transport rather than brew timing.
-await page.evaluate(() => {
+const transportStart = await page.evaluate(() => {
   const G = window.__game, coffee = G.world.stations.get('coffee1'), bar = G.world.stations.get('barCoffee');
   coffee.beans = 18; coffee.stock = 4; coffee.product = 'coffee'; bar.stock = 0; bar.product = 'coffee';
+  return G.time;
 });
+let transportOk = false;
 try {
-  await page.waitForFunction(() => (window.__game.stats.baristaCupsMoved | 0) >= 1 && window.__game.world.stations.get('barCoffee').stock >= 1, null, { timeout:12000 });
+  transportOk = await waitSimulationBudget(
+    () => (window.__game.stats.baristaCupsMoved | 0) >= 1 && window.__game.world.stations.get('barCoffee').stock >= 1,
+    transportStart,
+  );
 } catch (error) {
-  const diagnostic = await baristaDiagnostic('transport-timeout');
-  throw new Error(`Barista transport timeout: ${JSON.stringify(diagnostic)}\n${error}`);
+  const diagnostic = await baristaDiagnostic('transport-wall-timeout');
+  throw new Error(`Barista transport wall-timeout before simulation budget elapsed: ${JSON.stringify(diagnostic)}\n${error}`);
+}
+if (!transportOk) {
+  const diagnostic = await baristaDiagnostic('transport-sim-budget');
+  throw new Error(`Barista exceeded 10 simulated seconds to restock Coffee Bar: ${JSON.stringify(diagnostic)}`);
 }
 
 const transport = await page.evaluate(() => {
@@ -106,6 +143,7 @@ const transport = await page.evaluate(() => {
     cookieStock:G.world.stations.get('dispCookie').stock,
     ovenStock:G.world.stations.get('oven1').stock,
     active:window.__baristaWorker.active,
+    time:G.time,
   };
 });
 if (transport.moved < 1 || transport.barStock < 1) throw new Error(`Barista did not restock Coffee Bar: ${JSON.stringify(transport)}`);
@@ -121,7 +159,7 @@ const persistence = await page.evaluate(() => {
   return { savedCount, restoredCount:G.staff.barista|0, coins:G.coins };
 });
 if (persistence.savedCount !== 1 || persistence.restoredCount !== 1) throw new Error(`Barista save round-trip failed: ${JSON.stringify(persistence)}`);
-await page.waitForFunction(() => window.__baristaWorker.active, null, { timeout:3000 });
+await page.waitForFunction(() => window.__baristaWorker.active, null, { timeout:10000 });
 
 const geometry = await page.evaluate(() => ({
   bodyOverflow:document.body.scrollWidth > innerWidth + 1,
