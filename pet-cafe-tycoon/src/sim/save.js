@@ -36,6 +36,7 @@ export function applySave(state, save) {
     bestServiceStreak: meta.bestServiceStreak | 0,
     shiftRatings: (meta.shiftRatings && typeof meta.shiftRatings === 'object') ? { ...meta.shiftRatings } : {},
     petBook: (meta.petBook && typeof meta.petBook === 'object') ? { ...meta.petBook } : {},
+    petFriendship: (meta.petFriendship && typeof meta.petFriendship === 'object') ? { ...meta.petFriendship } : {},
     petDiscoveries: meta.petDiscoveries | 0,
     career: {
       history: (savedCareer.history && typeof savedCareer.history === 'object') ? structuredCloneSafe(savedCareer.history) : {},
