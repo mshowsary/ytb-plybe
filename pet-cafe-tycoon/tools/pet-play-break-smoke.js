@@ -1,7 +1,7 @@
-// End-to-end rewarded Pet Play Break regression. Uses a real browser game and seven real spawned
-// guests; only the YouTube ad host is mocked. The fixture converts four real guests into a stable
-// empty-bowl pressure group so this smoke tests the reward surface/effect rather than re-testing
-// doorway navigation or the bowl's already-covered give-up rule.
+// End-to-end rewarded Pet Play Break regression. Uses a real browser game with four genuine
+// spawned/rendered pet guests as the only reward-eligible recipients. Three inert simulation-only
+// patrons provide deterministic population context so CI does not depend on seven naturally
+// concurrent arrivals; only the YouTube ad host is mocked.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -41,7 +41,7 @@ await page.goto('http://127.0.0.1:4180/', { waitUntil:'domcontentloaded' });
 await page.waitForFunction(() => window.__game && window.__ready && document.getElementById('loading').classList.contains('hidden'), null, { timeout:30000 });
 
 // Fully built café gives Rush enough population capacity for the broad-overload path. Keep the
-// once-per-day Rush Help claim temporarily consumed while seven genuine browser-system guests spawn,
+// once-per-day Rush Help claim temporarily consumed while four genuine browser-system guests spawn,
 // so pre-fixture queue noise cannot start the monetization dwell early.
 await page.evaluate(() => {
   const G = window.__game, s = G.snapshot();
@@ -56,41 +56,47 @@ await page.evaluate(() => {
   s.meta.rewardedDays = { ...(s.meta.rewardedDays || {}), 'relief:8':1 };
   G.restore(s);
   const bowl = G.world.stations.get('bowl1'); if (bowl) bowl.stock = 0;
-  // Empty shelves keep early guests around long enough to reach seven; the claimed gate above
-  // prevents those temporary empty-shelf signals from surfacing Rush Help during setup.
+  // Empty shelves keep early genuine guests around long enough to collect four of them. The claimed
+  // gate above prevents those temporary empty-shelf signals from surfacing Rush Help during setup.
   for (const id of G.world.displays) { const st = G.world.stations.get(id); if (st) st.stock = 0; }
 });
 
-await page.waitForFunction(() => window.__game.customers.filter(c => !c.done).length >= 7, null, { timeout:45000 });
+await page.waitForFunction(() => window.__game.customers.filter(c => !c.done).length >= 4, null, { timeout:30000 });
 
 const fixture = await page.evaluate(() => {
   const G = window.__game;
-  const active = G.customers.filter(c => !c.done).slice(0, 7);
-  if (active.length < 7) throw new Error('Pet Play Break fixture failed to collect seven real guests');
-  const seats = ['seat1','seat2','seat3'];
+  const active = G.customers.filter(c => !c.done).slice(0, 4);
+  if (active.length < 4) throw new Error('Pet Play Break fixture failed to collect four real guests');
 
-  // Four real pet guests now wait at the empty bowl. `_treatGivenUp=true` deliberately disables
-  // the separate six-second give-up branch for this targeted monetization smoke; the guests still
-  // go through the ordinary atBowl patience drain every simulation tick.
+  // Four REAL rendered pet guests wait at the empty bowl. `_treatGivenUp=true` deliberately
+  // disables the separate six-second give-up branch for this targeted monetization smoke; they
+  // still go through the ordinary atBowl patience drain every simulation tick and remain the only
+  // guests eligible for the rewarded Pet Play Break.
   for (let i = 0; i < 4; i++) {
     const c = active[i];
     c.state = 'atBowl'; c.mood = 'none'; c.wish = { product:'cookie', treat:true }; c.order = ['cookie'];
     c.patience = 14 + i; c._patQ = c.patience * 4; c._treatGivenUp = true; c._bowlSlot = i;
     c.mover.hasTarget = false; c.mover.n = 0; c.mover.k = 0; c.mover.vx = 0; c.mover.vz = 0;
   }
-  // Keep three other real guests active but non-waiting for the whole fixture without manufacturing
-  // extra entities or letting unrelated service bottlenecks take over the classifier.
-  for (let i = 4; i < 7; i++) {
-    const c = active[i], seat = G.world.stations.get(seats[i - 4]);
-    if (!seat) throw new Error('Pet Play Break fixture missing lounge seat');
-    seat.occupied = true; seat.dirty = false;
-    c.state = 'eating'; c.mood = 'none'; c.timer = -100; c.seat = seat; c.seatId = seat.id;
-    c.mover.hasTarget = false; c.mover.n = 0; c.mover.k = 0; c.mover.vx = 0; c.mover.vz = 0;
-  }
+
+  // Population-only shadows: they deliberately have no render record and are never reward-eligible
+  // (mood none, state eating). Their only purpose is to make activeCustomers === 7 deterministically
+  // while preserving the production trigger's real 7-active / 4-waiting requirement. Their eating
+  // timers are far below zero so ordinary customer stepping leaves them inert for the whole smoke.
+  const shadows = Array.from({ length:3 }, (_, i) => ({
+    id: 900001 + i, species:'cat', petVariant:0,
+    x: -1.5 + i * 0.5, z: 4.8, rot:0,
+    state:'eating', mood:'none', patience:17, done:false, hop:0,
+    wish:{ product:'cookie', treat:false }, order:['cookie'], timer:-100,
+    mover:{ x:-1.5 + i * 0.5, z:4.8, rot:0, mask:0, hasTarget:false, n:0, k:0, vx:0, vz:0, speed:0, r:0.3, radius:0.3 },
+  }));
+  G.customers.push(...shadows);
+
   G.meta.rewardedDays['relief:8'] = 0;
   window.__petBreakFixtureStart = G.time;
-  window.__petBreakIds = active.slice(0,4).map(c => c.id);
-  return { ids:[...window.__petBreakIds], start:G.time };
+  window.__petBreakIds = active.map(c => c.id);
+  window.__petBreakShadowIds = shadows.map(c => c.id);
+  return { ids:[...window.__petBreakIds], shadowIds:[...window.__petBreakShadowIds], start:G.time };
 });
 
 await page.waitForFunction(() => {
@@ -105,12 +111,14 @@ await page.waitForFunction(() => {
 }, null, { timeout:18000 });
 
 const surfaceState = await page.evaluate(() => {
-  const G = window.__game, ids = new Set(window.__petBreakIds || []);
+  const G = window.__game, ids = new Set(window.__petBreakIds || []), shadowIds = new Set(window.__petBreakShadowIds || []);
   const root = document.querySelector('.relief-root'), pill = document.querySelector('.relief-pill');
   return {
     fixtureElapsed:G.time - window.__petBreakFixtureStart,
     day:{ day:G.dayState.day, phase:G.dayState.phase, t:G.dayState.t },
     claim:G.meta.rewardedDays['relief:8'] || 0,
+    activeCount:G.customers.filter(c => !c.done).length,
+    shadowCount:G.customers.filter(c => shadowIds.has(c.id) && !c.done).length,
     guests:G.customers.filter(c => ids.has(c.id)).map(c => ({ id:c.id, state:c.state, mood:c.mood, patience:c.patience })),
     rootClass:root && root.className,
     pillClass:pill && pill.className,
@@ -120,6 +128,9 @@ const surfaceState = await page.evaluate(() => {
 const visible = surfaceState.rootClass && !surfaceState.rootClass.split(/\s+/).includes('hidden') &&
   surfaceState.pillClass && !surfaceState.pillClass.split(/\s+/).includes('hidden') && /Pet Play Break/i.test(surfaceState.pillText || '');
 if (!visible) throw new Error(`Pet Play Break surface did not stabilize: ${JSON.stringify(surfaceState)}`);
+if (surfaceState.activeCount < 7 || surfaceState.shadowCount !== 3 || surfaceState.guests.length !== 4) {
+  throw new Error(`Pet Play Break deterministic population fixture drifted: ${JSON.stringify(surfaceState)}`);
+}
 
 const pillGeometry = await page.evaluate(() => {
   const el = document.querySelector('.relief-pill'), r = el.getBoundingClientRect();
@@ -167,6 +178,7 @@ const awarded = await page.evaluate(() => {
 });
 if (awarded.rewardIds.filter(x => x === 'pet-cafe-pet-play-break').length !== 1) throw new Error(`Pet Play Break ad called wrong number of times: ${JSON.stringify(awarded)}`);
 if (!awarded.savedBoost || awarded.savedBoost.day !== 8 || awarded.savedBoost.slots !== 2 || !(awarded.savedBoost.remaining > 0)) throw new Error(`active Pet Play Break missing from snapshot: ${JSON.stringify(awarded)}`);
+if (!awarded.boost.recipientIds.every(id => fixture.ids.includes(id))) throw new Error(`Pet Play Break selected a non-rendered population shadow: ${JSON.stringify(awarded)}`);
 
 await page.evaluate(() => {
   const G = window.__game, b = G.boosts.petPlayBreak;
