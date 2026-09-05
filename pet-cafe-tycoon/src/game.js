@@ -15,6 +15,7 @@ import {
 } from './sim/career.js';
 import { settleShift, cloneSettlement } from './sim/settlement.js';
 import { createCarry } from './sim/carry.js';
+import { createMaterialCheckpoint } from './sim/checkpoint.js';
 import { createInput } from './core/input.js';
 import { buildStatic } from './render/props.js';
 import { createAmbience } from './render/ambience.js';
@@ -63,6 +64,21 @@ export function createGame(S, area, els, platform = null) {
   ensureReputation(G.meta); ensurePetBook(G.meta); ensureCareer(G.meta); ensurePartyOrders(G.meta);
   G.goal = chooseCareerGoal(1, G.meta);
 
+  let updateInProgress = false;
+  const checkpoint = createMaterialCheckpoint(platform, () => G.snapshot());
+  G.requestCheckpoint = reason => checkpoint.mark(reason);
+  Object.defineProperty(G, 'checkpointDirty', { get: () => checkpoint.dirty });
+
+  function saveNow(reason = 'immediate') {
+    if (!platform || typeof platform.save !== 'function' || typeof G.snapshot !== 'function') return Promise.resolve(false);
+    // An immediate save requested from inside G.update would observe only some systems/event
+    // consumers. Defer it into the same post-update boundary instead of capturing half a frame.
+    if (updateInProgress) { checkpoint.mark(reason); return Promise.resolve(true); }
+    checkpoint.reset();
+    try { return Promise.resolve(platform.save(G.snapshot())).catch(() => false); }
+    catch (_) { return Promise.resolve(false); }
+  }
+
   const world = createWorld(area); G.world = world; world.dayState = G.dayState; world.stars = G.stars;
   const scene = S.scene;
   const staticGroup = buildStatic(area); scene.add(staticGroup);
@@ -84,7 +100,7 @@ export function createGame(S, area, els, platform = null) {
     }
     G.coins = result.coins; hud.setCoins(G.coins); hud.bump(); audio.play('chime'); renovationDecor.setLevel(result.level);
     hud.banner(`${result.renovation.name.toUpperCase()} RENOVATION`, 2200); syncCareerPresentation();
-    if (platform && G.snapshot) platform.save(G.snapshot()); return true;
+    G.requestCheckpoint('renovation'); return true;
   }
   function syncReputationPresentation() {
     ensureReputation(G.meta); const progress = reputationProgress(G.meta); const level = reputationLevel(G.meta); ambience.setPrestige(level);
@@ -114,7 +130,7 @@ export function createGame(S, area, els, platform = null) {
   const ctx = { area, world, scene, hud, fx, sheets, audio, input, owner, P, price, els, vis: new Map(), hints: { oven: 0, counter: 0, cash: 0, zone: 0, refillCoffee: 0, refillBowl: 0, harvest: 0, blend: 0, clean: 0 }, firstHint: { msg: null, t: 0 } };
   ctx.discoverPet = (species, variant) => {
     const discovery = discoverPet(G.meta, species, variant); if (!discovery.isNew) return;
-    syncPetBookPresentation(); metaUI.announcePet(discovery); audio.play('ding'); if (platform && G.snapshot) platform.save(G.snapshot());
+    syncPetBookPresentation(); metaUI.announcePet(discovery); audio.play('ding'); saveNow('pet-discovery');
   };
 
   const stations = createStations(G, S, ctx); const zones = createZones(G, S, ctx); const customers = createCustomers(G, S, ctx); const staff = createStaff(G, S, ctx);
@@ -123,6 +139,7 @@ export function createGame(S, area, els, platform = null) {
 
   let careerRefreshT = 0, dayTransitionPromise = null; hud.show();
   G.update = dt => {
+    updateInProgress = true;
     G.time += dt; input.update(); stations.update(dt); zones.update(dt); customers.update(dt); staff.update(dt); intro.update(dt);
     ambience.update(dt); renovationDecor.update(dt); visuals.update(dt); registerCash.update(dt); objective.update(dt); economyExperience.update(dt); partyOrders.update(dt); fx.update(dt); hud.update();
 
@@ -148,7 +165,12 @@ export function createGame(S, area, els, platform = null) {
     }
     hud.setDay(G.dayState.day, G.dayState.phase, phaseFrac(G.dayState)); hud.setGoal(G.goal ? `${careerGoalLabel(G.goal)} · ${careerGoalProgress(G.goal, G.dayStats)}/${G.goal.target}` : null);
     const setIdx = Math.min(2, Math.floor(cafeLevel(G) / 5)); if (setIdx !== lastAwningSet) { lastAwningSet = setIdx; G.awning && G.awning.setSet(setIdx); }
+
+    // Material mutations are only serialized after every system and every world/day event consumer
+    // has finished for this step. Multiple marks collapse to this one immutable platform snapshot.
     world.events.length = 0;
+    updateInProgress = false;
+    checkpoint.flush();
   };
 
   function openDaySummary() {
@@ -182,7 +204,7 @@ export function createGame(S, area, els, platform = null) {
           if (G.meta.rewardedDays[completedDay]) return true; const ok = await platform.requestRewardedAd('pet-cafe-day-bonus-coins');
           if (!ok) { metaUI.toast('Reward not completed'); return false; }
           G.meta.rewardedDays[completedDay] = 1; G.coins += rewardAmount; hud.setCoins(G.coins); hud.bump(); audio.play('chime'); syncCareerPresentation();
-          metaUI.toast(`Bonus +${rewardAmount.toLocaleString('en-US')}`); platform.save(G.snapshot()); return true;
+          metaUI.toast(`Bonus +${rewardAmount.toLocaleString('en-US')}`); saveNow('reward-claim'); return true;
         },
       } : null,
     });
@@ -202,7 +224,7 @@ export function createGame(S, area, els, platform = null) {
       week: weeklyCupState(G.meta, completedDay), cupAward, contractStreak: career.contractStreak | 0, lost: settlement.stats.lost, nextUnlock,
       contract: { kind: goal.kind, label: careerGoalLabel(goal), target: goal.target, progress: goalProgressNow, previous: goal.previous, rival: !!goal.rival, met, reward: goal.reward }, nextChase,
     });
-    if (platform) platform.save(G.snapshot());
+    saveNow('shift-settlement');
   }
 
   function finishDayTransition(source = 'continue') {
@@ -226,7 +248,7 @@ export function createGame(S, area, els, platform = null) {
       if (weekdayIndex(d) === 6) hud.banner('WEEKLY CUP SUNDAY');
       else if (isWeekend(d) && isHoliday(d)) { hud.banner('WEEKEND'); setTimeout(() => hud.banner('HOLIDAY'), 2700); }
       else if (isWeekend(d)) hud.banner('WEEKEND'); else if (isHoliday(d)) hud.banner('HOLIDAY');
-      if (platform) platform.save(G.snapshot());
+      saveNow('day-transition');
       return true;
     })();
     dayTransitionPromise = run;
@@ -256,6 +278,7 @@ export function createGame(S, area, els, platform = null) {
   });
 
   G.restore = save => {
+    checkpoint.reset();
     if (!save || typeof save !== 'object') return; applySave(G, save);
     if (typeof G.settings.music !== 'boolean') G.settings.music = true; if (typeof G.settings.sfx !== 'boolean') G.settings.sfx = true;
     audio.setSfx(G.settings.sfx); audio.setMusic(G.settings.music); G.serviceStreak = { count: 0, t: 0 }; G.shiftBestStreak = G.dayStats.bestStreak | 0;

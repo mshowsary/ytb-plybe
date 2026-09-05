@@ -1,6 +1,7 @@
 // Build-zone outlines + price bubbles + deliberate stand-to-build payment.
 // Gameplay communication is visual-first: the zone shows price + hold progress, not instructions.
 import { payZone } from '../sim/world.js';
+import { crossedBuildPaymentMilestone } from '../sim/checkpoint.js';
 import { buildOutline, buildGhost } from '../render/props.js';
 import { insideBuildFootprint, stepBuildIntent } from '../sim/buildIntent.js';
 import { Spring } from '../core/tween.js';
@@ -30,15 +31,20 @@ export function createZones(G, S, ctx) {
     arm.appendChild(armFill);
 
     els.fx.append(price, arm);
+    const initialPaid = world.built.has(z.id) ? z.price : (world.partial[z.id] || 0);
     zonesMap.set(z.id, {
       outline, ghost, price, priceSpan: price.querySelector('span'), arm, armFill,
       z, fw, fd, rot, intent: { t: 0 }, pulse: new Spring(1, 120, 10), billT: 0, _lastRemaining: -1,
+      checkpointPaid: initialPaid, paymentChanged: false,
     });
   }
   const tmp = { sx: 0, sy: 0, visible: true };
+  const markCheckpoint = reason => { if (typeof G.requestCheckpoint === 'function') G.requestCheckpoint(reason); };
 
   function onBuilt(e) {
     const zv = zonesMap.get(e.zoneId); if (!zv) return;
+    zv.checkpointPaid = zv.z.price; zv.paymentChanged = false;
+    markCheckpoint('build-complete');
     zv.outline.visible = false; zv.ghost.visible = false; zv.price.remove(); zv.arm.remove();
     fx.burst(zv.z.x, 0.5, zv.z.z, '#FFF4E6', 30); audio.play('build'); S.shake(0.08);
   }
@@ -46,6 +52,8 @@ export function createZones(G, S, ctx) {
   function syncAll() {
     for (const zv of zonesMap.values()) {
       zv.intent.t = 0;
+      zv.paymentChanged = false;
+      zv.checkpointPaid = world.built.has(zv.z.id) ? zv.z.price : (world.partial[zv.z.id] || 0);
       zv.armFill.style.transform = 'scaleX(0)';
       if (world.built.has(zv.z.id)) {
         zv.outline.visible = false; zv.ghost.visible = false; zv.price.style.display = 'none'; zv.arm.style.display = 'none';
@@ -79,12 +87,33 @@ export function createZones(G, S, ctx) {
 
         if (intent.armed && G.coins > 0) {
           const r = payZone(world, z.id, G.coins, dt); G.coins -= r.spent; hud.setCoins(G.coins);
-          paid = world.partial[z.id] || 0;
+          paid = r.done ? z.price : (world.partial[z.id] || 0);
           if (r.spent > 0) {
+            zv.paymentChanged = true;
             zv.pulse.kick(1.5);
             zv.billT -= dt;
             if (zv.billT <= 0) { zv.billT = BILL_INTERVAL; fx.billFly(z.x, 0.6, z.z); }
+
+            // Continuous payment can run for many rendered frames. Only meaningful milestones,
+            // wallet exhaustion, and completion mark the post-update checkpoint boundary.
+            if (
+              crossedBuildPaymentMilestone(zv.checkpointPaid, paid, z.price)
+              || G.coins <= 0
+              || r.done
+            ) {
+              markCheckpoint(r.done ? 'build-complete' : 'build-payment');
+              zv.checkpointPaid = paid;
+              zv.paymentChanged = false;
+            }
           }
+        }
+
+        // If the player steps away between quarter milestones, preserve the exact final partial
+        // payment once, rather than either losing it or saving every frame while they were paying.
+        if (!intent.armed && zv.paymentChanged) {
+          markCheckpoint('build-payment-stop');
+          zv.checkpointPaid = paid;
+          zv.paymentChanged = false;
         }
 
         fx.project(z.x, 0.6, z.z, tmp);

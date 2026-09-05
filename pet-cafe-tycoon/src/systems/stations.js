@@ -88,29 +88,30 @@ export function createStations(G, S, ctx) {
 
   function anchorSheet(st) { sheetAnchorId = st ? st.id : null; }
   function refreshOpen() { if (sheets.isOpen) sheets.refresh(buildKioskModel(G, world, currentTab, currentFocusRow)); }
+  const markCheckpoint = reason => { if (typeof G.requestCheckpoint === 'function') G.requestCheckpoint(reason); };
   function doBuy(key) {
     const r = buyUpgrade(G, key);
-    if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); }
+    if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); markCheckpoint('player-upgrade'); }
     else { audio.play('angry'); hud.toast('Not enough coins'); }
   }
   function doHire(kind) {
     const r = hireStaff(G, kind);
-    if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); }
+    if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); markCheckpoint('staff-hire'); }
     else { audio.play('angry'); hud.toast('Not enough coins'); }
   }
   function doBuyWorker(kind, key) {
     const r = buyWorkerUpgrade(G, kind, key);
-    if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); }
+    if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); markCheckpoint('worker-upgrade'); }
     else { audio.play('angry'); hud.toast('Not enough coins'); }
   }
   function doBuyMachine(key) {
     const r = buyMachineUpgrade(G, key);
-    if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); }
+    if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); markCheckpoint('machine-upgrade'); }
     else { audio.play('angry'); hud.toast('Not enough coins'); }
   }
   function doBuyStar(stationId) {
     const r = buyStar(G, world, stationId);
-    if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); }
+    if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); markCheckpoint('station-star'); }
     else { audio.play('angry'); hud.toast('Not enough coins'); }
   }
   function doSetTab(tab) { currentTab = tab; currentFocusRow = null; refreshOpen(); }
@@ -206,6 +207,7 @@ export function createStations(G, S, ctx) {
     hud.setCoins(G.coins); audio.play('coin');
     fx.coinArc(cs.x, 0.3, cs.z, Math.min(10, 2 + (amt / 5 | 0)), () => hud.bump());
     fx.number(cs.x, 0.8, cs.z, '+' + amt);
+    markCheckpoint('cash-collection');
     return amt;
   }
 
