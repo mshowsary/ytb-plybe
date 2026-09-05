@@ -34,16 +34,16 @@ test('return waste charges finished food/fruit but never supply sacks', () => {
 });
 
 test('smart relief recommends a cashier only inside a genuine near-affordability bottleneck', () => {
-  const G = state({ coins: 700, customers: [{ state: 'atRegister', mood: 'wait', done: false }] });
+  const G = state({ coins: 650, customers: [{ state: 'atRegister', mood: 'wait', done: false }] });
   const r = recommendSmartRelief(G, fakeWorld());
   assert.equal(r.key, 'cashier');
-  assert.equal(r.cost, 1800);
+  assert.equal(r.cost, 1550);
   assert.ok(r.reward > 0 && r.reward <= r.gap);
   assert.equal(r.remaining, r.gap - r.reward);
 });
 
 test('smart relief never advertises when player can already afford the useful purchase', () => {
-  const G = state({ coins: 1800, customers: [{ state: 'atRegister', mood: 'wait', done: false }] });
+  const G = state({ coins: 1550, customers: [{ state: 'atRegister', mood: 'wait', done: false }] });
   assert.equal(recommendSmartRelief(G, fakeWorld()), null);
 });
 
@@ -57,7 +57,7 @@ test('cleaner relief is tied to dirty-table pressure rather than day number alon
   assert.equal(recommendSmartRelief(G, fakeWorld({ dirty: 0 })), null);
   const r = recommendSmartRelief(G, fakeWorld({ dirty: 3 }));
   assert.equal(r.key, 'cleaner');
-  assert.equal(r.cost, 1400);
+  assert.equal(r.cost, 1350);
 });
 
 test('reward claim key is stable and namespaced away from end-of-day claims', () => {

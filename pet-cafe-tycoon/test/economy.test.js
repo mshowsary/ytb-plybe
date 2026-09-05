@@ -57,11 +57,11 @@ test('hire costs make staff mid-game savings goals in Runner > Cashier > Cleaner
   assert.ok(STAFF.runner.costs[0] > STAFF.cashier.costs[0]);
   assert.ok(STAFF.cashier.costs[0] > STAFF.cleaner.costs[0]);
   const state = { coins: 20000, up: { speed: 0, carry: 0, income: 0 }, staff: { runner: 0, cashier: 0, cleaner: 0 } };
-  const h1 = hire(state, 'runner'); assert.equal(h1.ok, true); assert.equal(h1.cost, 2200); assert.equal(state.staff.runner, 1);
-  const h2 = hire(state, 'runner'); assert.equal(h2.ok, true); assert.equal(h2.cost, 3600); assert.equal(state.staff.runner, 2);
-  const h3 = hire(state, 'cashier'); assert.equal(h3.ok, true); assert.equal(h3.cost, 1800); assert.equal(state.staff.cashier, 1);
+  const h1 = hire(state, 'runner'); assert.equal(h1.ok, true); assert.equal(h1.cost, 1800); assert.equal(state.staff.runner, 1);
+  const h2 = hire(state, 'runner'); assert.equal(h2.ok, true); assert.equal(h2.cost, 2800); assert.equal(state.staff.runner, 2);
+  const h3 = hire(state, 'cashier'); assert.equal(h3.ok, true); assert.equal(h3.cost, 1550); assert.equal(state.staff.cashier, 1);
   const h4 = hire(state, 'cashier'); assert.equal(h4.ok, false); assert.equal(h4.cost, null);
-  const h5 = hire(state, 'cleaner'); assert.equal(h5.ok, true); assert.equal(h5.cost, 1400);
+  const h5 = hire(state, 'cleaner'); assert.equal(h5.ok, true); assert.equal(h5.cost, 1350);
 });
 test('a Day-3-sized wallet cannot buy permanent staff yet', () => {
   const wallet = 1300;

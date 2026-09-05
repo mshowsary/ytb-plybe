@@ -86,15 +86,14 @@ export function maxCustomers(builtSet) {
   return Math.min(6, 4 + seatingBuilds(builtSet));
 }
 
-// Employees are mid-game operating decisions, not Day-3 impulse buys. Pricing deliberately keeps
-// Runner > Cashier > Cleaner: the Runner automates the broadest owner chore, the Cashier removes a
-// high-pressure bottleneck, and the Cleaner handles a narrower maintenance loop. No hard day lock
-// is used; normal earnings decide when the player is ready, while contextual relief may bridge only
-// part of an authentic shortfall.
+// Employees are mid-game operating decisions, not Day-3 impulse buys. The prices sit just beyond
+// the real early-game wallet rather than behind an artificial day lock. Runner remains the broadest
+// automation and most expensive choice, then Cashier, then Cleaner. The economy bot is the gate:
+// if delayed hiring creates navigation stalls or breaks Area-1 pacing, these values are rejected.
 export const STAFF = {
-  runner:  { costs: [2200, 3600], speed: 2.8, carry: 6 },
-  cashier: { costs: [1800], speed: 2.2 },
-  cleaner: { costs: [1400], speed: 2.2 },
+  runner:  { costs: [1800, 2800], speed: 2.8, carry: 6 },
+  cashier: { costs: [1550], speed: 2.2 },
+  cleaner: { costs: [1350], speed: 2.2 },
 };
 export const REGISTER_RATE = { owner: 0.6, cashierBase: 1.0 };
 export function hireCost(kind, staffCounts) {
