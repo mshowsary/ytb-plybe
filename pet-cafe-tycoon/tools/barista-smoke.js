@@ -32,9 +32,29 @@ window.ytgame={IN_PLAYABLES_ENV:true,
 const browser = await chromium.launch({ headless:true, args:['--use-gl=swiftshader','--enable-webgl','--ignore-gpu-blocklist'] });
 const ctx = await browser.newContext({ viewport:{ width:390, height:700 }, deviceScaleFactor:1 });
 const page = await ctx.newPage();
+const pageErrors = [];
+page.on('pageerror', e => pageErrors.push(String(e && e.stack || e)));
 await page.route('https://www.youtube.com/game_api/v1', route => route.fulfill({ status:200, contentType:'text/javascript', body:mockSdk }));
 await page.goto('http://127.0.0.1:4186/', { waitUntil:'domcontentloaded' });
 await page.waitForFunction(() => window.__game && window.__baristaWorker && window.__ready && document.getElementById('loading').classList.contains('hidden'), null, { timeout:30000 });
+
+async function baristaDiagnostic(label) {
+  const live = await page.evaluate(() => {
+    const G = window.__game, w = G && G.world;
+    const coffee = w && w.stations.get('coffee1'), pantry = w && w.stations.get('pantry1'), bar = w && w.stations.get('barCoffee');
+    return {
+      time:G && G.time, day:G && G.dayState, paused:G && G.userPaused,
+      staff:G && {...G.staff}, stats:G && {...G.stats},
+      worker:{ active:!!window.__baristaWorker?.active, state:window.__baristaWorker?.state || null },
+      coffee:coffee && { active:coffee.active, beans:coffee.beans, stock:coffee.stock, front:coffee.front },
+      pantry:pantry && { active:pantry.active, front:pantry.front },
+      bar:bar && { active:bar.active, stock:bar.stock, front:bar.front },
+      movers:w && w._movers && w._movers.map(m => ({kind:m.kind,x:m.x,z:m.z,tx:m.tx,tz:m.tz,hasTarget:m.hasTarget,n:m.n,k:m.k,stall:m.stall,replans:m.replans,teleports:m.teleports})),
+    };
+  });
+  await page.screenshot({ path:path.join(shots, `debug-${label}.png`) });
+  return { live, pageErrors:[...pageErrors] };
+}
 
 // Restore a legal Day-5 coffee shop with a purchased Barista. Earlier prerequisites are included so
 // the world/grid mirrors a real progression save rather than force-enabling an isolated station.
@@ -53,7 +73,12 @@ const seed = await page.evaluate(() => {
 });
 if (seed.staff.barista !== 1 || !seed.coffeeActive || !seed.pantryActive || !seed.barActive) throw new Error(`Barista seed/restore failed: ${JSON.stringify(seed)}`);
 
-await page.waitForFunction(() => window.__baristaWorker.active && (window.__game.stats.baristaBeanRefills | 0) >= 1 && window.__game.world.stations.get('coffee1').beans > 0, null, { timeout:12000 });
+try {
+  await page.waitForFunction(() => window.__baristaWorker.active && (window.__game.stats.baristaBeanRefills | 0) >= 1 && window.__game.world.stations.get('coffee1').beans > 0, null, { timeout:12000 });
+} catch (error) {
+  const diagnostic = await baristaDiagnostic('refill-timeout');
+  throw new Error(`Barista refill timeout: ${JSON.stringify(diagnostic)}\n${error}`);
+}
 const refill = await page.evaluate(() => {
   const G = window.__game, coffee = G.world.stations.get('coffee1');
   return { beans:coffee.beans, refills:G.stats.baristaBeanRefills|0, workerState:window.__baristaWorker.state };
@@ -65,7 +90,12 @@ await page.evaluate(() => {
   const G = window.__game, coffee = G.world.stations.get('coffee1'), bar = G.world.stations.get('barCoffee');
   coffee.beans = 18; coffee.stock = 4; coffee.product = 'coffee'; bar.stock = 0; bar.product = 'coffee';
 });
-await page.waitForFunction(() => (window.__game.stats.baristaCupsMoved | 0) >= 1 && window.__game.world.stations.get('barCoffee').stock >= 1, null, { timeout:12000 });
+try {
+  await page.waitForFunction(() => (window.__game.stats.baristaCupsMoved | 0) >= 1 && window.__game.world.stations.get('barCoffee').stock >= 1, null, { timeout:12000 });
+} catch (error) {
+  const diagnostic = await baristaDiagnostic('transport-timeout');
+  throw new Error(`Barista transport timeout: ${JSON.stringify(diagnostic)}\n${error}`);
+}
 
 const transport = await page.evaluate(() => {
   const G = window.__game;
