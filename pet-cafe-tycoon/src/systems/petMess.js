@@ -49,7 +49,9 @@ export function createPetMess(G, scene) {
     // the first update AFTER restore rather than only during construction. Consume exactly once.
     help.roomba = null;
     const currentDay = (G.dayState && G.dayState.day) | 0;
-    if (!G.dayState || G.dayState.phase !== 'rush' || saved.day !== currentDay || !(saved.remaining > 0)) return;
+    // The reward is earned during Rush but promises N active-simulation seconds. A same-day
+    // Rush→Afternoon transition must not erase the unused remainder; only a different day is stale.
+    if (!G.dayState || saved.day !== currentDay || !(saved.remaining > 0)) return;
     suppressUntil = Math.max(
       suppressUntil,
       (Number(G.time) || 0) + Math.min(ROOMBA_SWEEP_SECONDS, Number(saved.remaining) || 0),
