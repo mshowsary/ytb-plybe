@@ -1,5 +1,7 @@
 // Tiny procedural WebAudio sound + adaptive score. No samples, no fetch, no asset payload.
 // Nothing touches AudioContext until the player's first interaction unlocks audio.
+import { presentationScheduler } from '../core/presentationScheduler.js';
+
 export function createAudio() {
   let ctx = null, master = null, comp = null, sfx = null, music = null, noiseBuf = null, voices = 0;
   let hostMuted = false, sfxOn = true, musicOn = true, paused = false;
@@ -64,7 +66,7 @@ export function createAudio() {
     if (!ctx || paused || !bus || voices >= 28) return;
     const t = o.at != null ? o.at : ctx.currentTime;
     voices++;
-    setTimeout(() => voices--, (o.dur + 0.12) * 1000);
+    presentationScheduler.schedule(() => voices--, (o.dur + 0.12) * 1000);
     const os = ctx.createOscillator(); os.type = o.type || 'sine'; os.frequency.setValueAtTime(o.f0, t);
     if (o.detune) os.detune.value = o.detune;
     if (o.f1) os.frequency.exponentialRampToValueAtTime(Math.max(20, o.f1), t + o.dur);
@@ -84,7 +86,7 @@ export function createAudio() {
     if (!ctx || paused || voices >= 28) return;
     const t = o.at != null ? o.at : ctx.currentTime;
     voices++;
-    setTimeout(() => voices--, (o.dur + 0.1) * 1000);
+    presentationScheduler.schedule(() => voices--, (o.dur + 0.1) * 1000);
     const src = ctx.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
     const f = ctx.createBiquadFilter(); f.type = o.ft || 'lowpass'; f.Q.value = o.q || 0.8;
     f.frequency.setValueAtTime(o.f0, t);
