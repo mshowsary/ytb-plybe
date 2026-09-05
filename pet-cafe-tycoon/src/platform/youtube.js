@@ -16,7 +16,7 @@ function loadResult(status, data) {
   return data === undefined ? { status } : { status, data };
 }
 
-function classifyLoad(raw) {
+function classifyLoad(raw, validateLoadedData = null) {
   if (raw == null) return loadResult(LOAD_STATUS.EMPTY);
   if (typeof raw !== 'string') return loadResult(LOAD_STATUS.INVALID);
   if (!raw.trim()) return loadResult(LOAD_STATUS.EMPTY);
@@ -25,7 +25,22 @@ function classifyLoad(raw) {
     if (!data || typeof data !== 'object' || Array.isArray(data)) {
       return loadResult(LOAD_STATUS.INVALID);
     }
-    return loadResult(LOAD_STATUS.LOADED, data);
+
+    let normalized = data;
+    if (typeof validateLoadedData === 'function') {
+      let checked;
+      try { checked = validateLoadedData(data); }
+      catch (_) { return loadResult(LOAD_STATUS.INVALID); }
+
+      if (checked && checked.ok === true) normalized = checked.data;
+      else if (checked && checked.ok === false) return loadResult(LOAD_STATUS.INVALID);
+      else normalized = checked;
+
+      if (!normalized || typeof normalized !== 'object' || Array.isArray(normalized)) {
+        return loadResult(LOAD_STATUS.INVALID);
+      }
+    }
+    return loadResult(LOAD_STATUS.LOADED, normalized);
   } catch (_) {
     return loadResult(LOAD_STATUS.INVALID);
   }
@@ -59,6 +74,7 @@ function wait(ms) {
 
 export function createYouTubePlatform(host = globalThis, options = {}) {
   const yt = host.ytgame && host.ytgame.IN_PLAYABLES_ENV ? host.ytgame : null;
+  const validateLoadedData = typeof options.validateLoadedData === 'function' ? options.validateLoadedData : null;
   const configuredTimeout = Number(options.loadTimeoutMs);
   const loadTimeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout >= 0
     ? configuredTimeout
@@ -146,7 +162,7 @@ export function createYouTubePlatform(host = globalThis, options = {}) {
     loadRequest = (async () => {
       try {
         const raw = await yt.game.loadData();
-        const result = classifyLoad(raw);
+        const result = classifyLoad(raw, validateLoadedData);
         currentLoadOutcome = result;
         // If the UI already timed out, retain the late result but keep writes locked until
         // a later load() call explicitly receives that authoritative result.
@@ -165,7 +181,7 @@ export function createYouTubePlatform(host = globalThis, options = {}) {
     if (!yt) {
       const result = previewSave == null
         ? loadResult(LOAD_STATUS.EMPTY)
-        : classifyLoad(previewSave);
+        : classifyLoad(previewSave, validateLoadedData);
       currentLoadOutcome = result;
       return authorizeDeliveredLoad(result);
     }
