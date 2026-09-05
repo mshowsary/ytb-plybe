@@ -61,19 +61,38 @@ async function baristaDiagnostic(label) {
 // each simple lane operation, while Playwright's larger timeout merely gives a slow renderer enough
 // wall time to execute those same simulation seconds. This prevents CI hardware speed from changing
 // the gameplay contract being tested.
-async function waitSimulationBudget(successFn, startTime, budget = 10, wallTimeout = 45000) {
+function operationSucceeded(kind) {
+  if (kind === 'refill') {
+    return !!window.__baristaWorker?.active && (window.__game?.stats?.baristaBeanRefills | 0) >= 1 && window.__game.world.stations.get('coffee1').beans > 0;
+  }
+  if (kind === 'transport') {
+    return (window.__game?.stats?.baristaCupsMoved | 0) >= 1 && window.__game.world.stations.get('barCoffee').stock >= 1;
+  }
+  return false;
+}
+async function waitSimulationBudget(kind, startTime, budget = 10, wallTimeout = 45000) {
   await page.waitForFunction(
-    ({ startTime, budget, successFnSource }) => {
-      const success = (0, eval)(`(${successFnSource})`);
-      return success() || ((window.__game?.time || 0) - startTime >= budget);
+    ({ kind, startTime, budget }) => {
+      const G = window.__game;
+      if (!G) return false;
+      const success = kind === 'refill'
+        ? !!window.__baristaWorker?.active && (G.stats.baristaBeanRefills | 0) >= 1 && G.world.stations.get('coffee1').beans > 0
+        : kind === 'transport'
+          ? (G.stats.baristaCupsMoved | 0) >= 1 && G.world.stations.get('barCoffee').stock >= 1
+          : false;
+      return success || G.time - startTime >= budget;
     },
-    { startTime, budget, successFnSource:successFn.toString() },
+    { kind, startTime, budget },
     { timeout:wallTimeout },
   );
-  return page.evaluate(({ successFnSource }) => {
-    const success = (0, eval)(`(${successFnSource})`);
-    return !!success();
-  }, { successFnSource:successFn.toString() });
+  return page.evaluate(kind => {
+    const G = window.__game;
+    return kind === 'refill'
+      ? !!window.__baristaWorker?.active && (G.stats.baristaBeanRefills | 0) >= 1 && G.world.stations.get('coffee1').beans > 0
+      : kind === 'transport'
+        ? (G.stats.baristaCupsMoved | 0) >= 1 && G.world.stations.get('barCoffee').stock >= 1
+        : false;
+  }, kind);
 }
 
 // Restore a legal Day-5 coffee shop with a purchased Barista. Earlier prerequisites are included so
@@ -95,10 +114,7 @@ if (seed.staff.barista !== 1 || !seed.coffeeActive || !seed.pantryActive || !see
 
 let refillOk = false;
 try {
-  refillOk = await waitSimulationBudget(
-    () => window.__baristaWorker.active && (window.__game.stats.baristaBeanRefills | 0) >= 1 && window.__game.world.stations.get('coffee1').beans > 0,
-    seed.startTime,
-  );
+  refillOk = await waitSimulationBudget('refill', seed.startTime);
 } catch (error) {
   const diagnostic = await baristaDiagnostic('refill-wall-timeout');
   throw new Error(`Barista refill wall-timeout before simulation budget elapsed: ${JSON.stringify(diagnostic)}\n${error}`);
@@ -121,10 +137,7 @@ const transportStart = await page.evaluate(() => {
 });
 let transportOk = false;
 try {
-  transportOk = await waitSimulationBudget(
-    () => (window.__game.stats.baristaCupsMoved | 0) >= 1 && window.__game.world.stations.get('barCoffee').stock >= 1,
-    transportStart,
-  );
+  transportOk = await waitSimulationBudget('transport', transportStart);
 } catch (error) {
   const diagnostic = await baristaDiagnostic('transport-wall-timeout');
   throw new Error(`Barista transport wall-timeout before simulation budget elapsed: ${JSON.stringify(diagnostic)}\n${error}`);
