@@ -247,7 +247,7 @@ function startGame(S, load, bootUi) {
   const cashTrays = createCashTrays(G.world, S.scene);
   const pauseOverlay = makePauseOverlay();
 
-  if (load.status === LOAD_STATUS.LOADED && !G.restore(load.data)) {
+  if (load.status === LOAD_STATUS.LOADED && G.restore(load.data) === false) {
     // This should be unreachable because the platform validator ran before write authorization,
     // but do not bind host pause/save callbacks until the restore boundary agrees.
     throw new Error('Validated cloud save was rejected by the restore boundary');
