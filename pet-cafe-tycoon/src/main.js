@@ -4,6 +4,7 @@ import { createGame } from './game.js';
 import { createYouTubePlatform } from './platform/youtube.js';
 import { createMachineJuice } from './systems/machineJuice.js';
 import { installPetFriendship } from './systems/petFriendship.js';
+import { installServiceFriction } from './systems/serviceFriction.js';
 import { createResponsivePolish } from './ui/responsive.js';
 import { createPlayablesShell } from './ui/playablesShell.js';
 import { installCleanHud } from './ui/cleanHud.js';
@@ -47,6 +48,7 @@ async function boot() {
   );
   const machineJuice = createMachineJuice(G.world, S.scene);
   const petFriendship = installPetFriendship(G, platform);
+  const serviceFriction = installServiceFriction(G);
   const responsive = createResponsivePolish(G);
   const shell = createPlayablesShell();
   installCertificationPolish();
@@ -70,6 +72,7 @@ async function boot() {
   window.__playablesShell = shell;
   window.__interactionCoach = interactionCoach;
   window.__petFriendship = petFriendship;
+  window.__serviceFriction = serviceFriction;
 
   S.render();
   platform.firstFrameReady();
