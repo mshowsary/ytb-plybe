@@ -6,7 +6,7 @@ const fmt = n => Math.round(n).toLocaleString('en-US');
 
 function makeClose(onClose) {
   const b = document.createElement('button'); b.className = 'sclose'; b.type = 'button'; b.setAttribute('aria-label', 'Close');
-  b.innerHTML = CHEVRON_DOWN_SVG; b.addEventListener('click', onClose); return b;
+  b.innerHTML = CHEVRON_DOWN_SVG; b.addEventListener('click', () => onClose('close')); return b;
 }
 function shell(kind, titleText, onClose) {
   const el = document.createElement('div'); const isCard = kind === 'end' || kind === 'summary';
@@ -128,15 +128,30 @@ export function createSheets(root = document.body) {
     if (!current) return; const el = current.el; current = null; el.classList.remove('show');
     setTimeout(() => { el.remove(); if (!current) wrap.classList.add('hidden'); }, 220); for (const cb of closeCbs) cb();
   };
-  backdrop.addEventListener('click', close); document.addEventListener('keydown', e => { if (e.key === 'Escape' && current) close(); });
+  const requestClose = (source = 'close') => {
+    if (!current) return;
+    const dismiss = current.actions && current.actions.dismiss;
+    if (typeof dismiss === 'function') { dismiss(source); return; }
+    close();
+  };
+  // Summary presentation deliberately locks generic background input. Listen at window-capture so
+  // Escape/backdrop still reach the sheet's explicit dismiss contract before that lock can swallow them.
+  window.addEventListener('click', e => {
+    if (!current || e.target !== backdrop) return;
+    requestClose('backdrop'); e.preventDefault(); e.stopImmediatePropagation();
+  }, true);
+  window.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || !current) return;
+    requestClose('escape'); e.preventDefault(); e.stopImmediatePropagation();
+  }, true);
   const open = (kind, model, actions) => {
     if (current) { current.el.remove(); current = null; }
-    const el = build(kind, model, actions, close); wrap.appendChild(el); wrap.classList.remove('hidden'); current = { kind, el, actions };
+    const el = build(kind, model, actions, requestClose); wrap.appendChild(el); wrap.classList.remove('hidden'); current = { kind, el, actions };
     requestAnimationFrame(() => requestAnimationFrame(() => { if (current && current.el === el) el.classList.add('show'); }));
   };
   const refresh = model => {
     if (!current) return; const scroller = current.el.querySelector('.srows'); const scrollTop = scroller ? scroller.scrollTop : 0;
-    const { kind, actions, el: oldEl } = current; const wasShown = oldEl.classList.contains('show'); const el = build(kind, model, actions, close); oldEl.replaceWith(el);
+    const { kind, actions, el: oldEl } = current; const wasShown = oldEl.classList.contains('show'); const el = build(kind, model, actions, requestClose); oldEl.replaceWith(el);
     if (wasShown) el.classList.add('show'); current = { kind, el, actions }; const newScroller = el.querySelector('.srows'); if (newScroller) newScroller.scrollTop = scrollTop;
   };
   return { open, close, refresh, get isOpen() { return !!current; }, onClose: cb => { closeCbs.push(cb); } };
