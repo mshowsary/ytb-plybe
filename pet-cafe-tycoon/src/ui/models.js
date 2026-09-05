@@ -1,11 +1,10 @@
-// src/ui/models.js — bottom-sheet view models built from live game state. M3 T5: the kiosk sheet
-// is now one tabbed panel (Player | Workers | Machines) — buildKioskModel returns all three
-// tabs' rows plus which one is active, so switching tabs is just a re-render with a new `tab`.
+// Bottom-sheet view models built from live game state.
 import {
   UPGRADES, upgradeCost, hireCost, STAFF,
   WORKER_UPGRADES, MACHINE_UPGRADES, workerUpgradeCost, machineUpgradeCost,
   STAR_IDS, nextStarCost, ensureStars,
 } from '../sim/economy.js';
+import { BARISTA, baristaHireState } from '../sim/barista.js';
 
 const PLAYER_ROWS = [
   { key: 'speed',  label: 'Speed',  effect: '+15% per tier' },
@@ -21,9 +20,10 @@ function buildPlayerRows(G) {
 }
 
 const WORKER_KINDS = [
-  { kind: 'runner',  label: 'Runner',  desc: 'Carries treats from the ovens to the displays.', hasCarry: true },
+  { kind: 'runner',  label: 'Runner',  desc: 'Carries treats from production to displays.', hasCarry: true },
   { kind: 'cashier', label: 'Cashier', desc: 'Mans a register so customers can pay.', hasCarry: false },
   { kind: 'cleaner', label: 'Cleaner', desc: 'Clears dirty tables after customers leave.', hasCarry: false },
+  { kind: 'barista', label: 'Barista', desc: `Day ${BARISTA.unlockDay}+ · refills beans and keeps the Coffee Bar stocked.`, hasCarry: false, noLevels: true },
 ];
 function levelRow(key, tier, cost, coins) {
   return { tier, maxTier: WORKER_UPGRADES[key].length, cost, disabled: cost == null || coins < cost };
@@ -31,13 +31,24 @@ function levelRow(key, tier, cost, coins) {
 function buildWorkerRows(G, world) {
   const desk = world.stations.get('hire1');
   const deskBuilt = !!(desk && desk.active);
-  // Loop v2 Task 2: the runner-assignment picker's data — every active display (id + product, so
-  // sheets.js can draw one icon chip each) and, for the runner row only, one entry per HIRED runner
-  // (in G.staffList order) carrying its current s.assign — "each runner gets its own chips".
   const activeDisplays = (world.displays || []).map(id => world.stations.get(id)).filter(st => st && st.active).map(st => ({ id: st.id, product: st.product }));
   const runnerList = (G.staffList || []).filter(s => s.kind === 'runner').map((s, i) => ({ index: i, assign: s.assign || null }));
   return WORKER_KINDS.map(w => {
     const count = G.staff[w.kind] | 0;
+    if (w.kind === 'barista') {
+      const gate = baristaHireState(G.dayState && G.dayState.day, world.built, G.coins, count);
+      let desc = w.desc;
+      if (!gate.unlocked && gate.reason === 'coffee') desc += ' Build Coffee first.';
+      else if (!gate.unlocked && gate.reason === 'day') desc += ` Available on Day ${BARISTA.unlockDay}.`;
+      return {
+        kind: w.kind, label: w.label, desc,
+        count, cap: BARISTA.cap,
+        hireCost: gate.cost == null ? BARISTA.cost : gate.cost,
+        hireMaxed: gate.reason === 'full',
+        hireDisabled: !deskBuilt || !gate.available,
+        showLevels: false, speed: null, carry: null, runners: null, displays: null,
+      };
+    }
     const cost = hireCost(w.kind, G.staff);
     const speedCost = workerUpgradeCost(w.kind, 'speed', G.staffLevels);
     const carryCost = w.hasCarry ? workerUpgradeCost(w.kind, 'carry', G.staffLevels) : null;
@@ -55,18 +66,10 @@ function buildWorkerRows(G, world) {
   });
 }
 
-// Loop v2 Task 3: the Machines tab is now the station-star panel (design section 6) — one row per
-// ACTIVE star-eligible station (STAR_IDS, economy.js), each showing its own 1-3 star tier and the
-// cost to buy the next one. The old flat oven-speed/coffee-speed rows (machineLevels) are gone —
-// speed now comes from the station's OWN star tier (world.js's stepOvens/stepMachines), not a
-// global per-type upgrade; MACHINE_UPGRADES/machineLevels/buyMachineUpgrade stay in economy.js
-// (still sim-tested) but nothing in the live UI buys them any more.
 const STATION_LABEL = {
   oven1: 'Oven A', oven2: 'Oven B', dispCookie: 'Cookie display', dispCupcake: 'Cupcake display',
   coffee1: 'Coffee machine', barCoffee: 'Coffee bar', blender1: 'Blender', barSmoothie: 'Smoothie bar',
 };
-// Only oven1/coffee1 (world.js's ALT_PRODUCT) grow a second recipe at star 3 — see economy.js's
-// PRODUCTS/FAMILY.
 const RECIPE_AT_3 = { oven1: 'brownies', coffee1: 'lattes' };
 function starEffect(stationType, stationId, tier) {
   const parts = [];

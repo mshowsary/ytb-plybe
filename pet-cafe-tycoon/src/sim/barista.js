@@ -1,16 +1,14 @@
-// Barista role contract — simulation/economy prototype only.
-// This module is intentionally NOT wired into the live hiring UI yet. It defines the later worker
-// in testable terms before we let the player spend coins on it, so Runner value cannot be erased by
-// accident. A Barista owns only the coffee lane: bean top-ups + moving finished coffee/latte to the
-// Coffee Bar. It never services ovens, cupcakes, cookies, smoothies, registers or tables.
-import { familyOf } from './economy.js';
+// Barista role contract. The worker owns only the coffee lane: bean top-ups + moving finished
+// coffee/latte to the Coffee Bar. It never services ovens, cupcakes, cookies, smoothies, registers
+// or tables, preserving the Runner's broader cross-product value.
+import { familyOf, STAFF } from './economy.js';
 
 export const BARISTA = Object.freeze({
   unlockDay: 5,
-  cost: 2300,
-  cap: 1,
-  speed: 2.4,
-  carry: 4,
+  cost: STAFF.barista.costs[0],
+  cap: STAFF.barista.costs.length,
+  speed: STAFF.barista.speed,
+  carry: STAFF.barista.carry,
   refillAt: 7,
   refillTo: 18,
 });
@@ -27,7 +25,7 @@ export function baristaHireState(day, built, coins = 0, count = 0) {
   return { unlocked: true, available: Number(coins) >= BARISTA.cost, reason: Number(coins) >= BARISTA.cost ? 'ready' : 'coins', cost: BARISTA.cost };
 }
 
-function laneFor(world) {
+export function baristaLane(world) {
   if (!world || !world.stations) return null;
   let machine = null, bar = null, pantry = null;
   for (const st of world.stations.values()) {
@@ -40,12 +38,11 @@ function laneFor(world) {
 }
 
 export function baristaDecision(world) {
-  const lane = laneFor(world);
+  const lane = baristaLane(world);
   if (!lane) return { kind: 'idle', reason: 'coffee-lane-unavailable' };
   const { machine, bar, pantry } = lane;
 
-  // A Barista may refill only when the real Pantry is active. The prototype deliberately does not
-  // create beans from nowhere; Pantry is the same source the owner uses today.
+  // Pantry is the same supply source the owner uses; a Barista never fabricates beans without it.
   if (pantry && machine.beans <= BARISTA.refillAt) {
     const room = Math.max(0, Math.min(20 - machine.beans, BARISTA.refillTo - machine.beans));
     if (room > 0) return { kind: 'refillBeans', pantryId: pantry.id, machineId: machine.id, amount: room };

@@ -6,6 +6,7 @@ import { createMachineJuice } from './systems/machineJuice.js';
 import { installPetFriendship } from './systems/petFriendship.js';
 import { installServiceFriction } from './systems/serviceFriction.js';
 import { createPetMess } from './systems/petMess.js';
+import { createBaristaWorker } from './systems/baristaWorker.js';
 import { createResponsivePolish } from './ui/responsive.js';
 import { createPlayablesShell } from './ui/playablesShell.js';
 import { installCleanHud } from './ui/cleanHud.js';
@@ -55,6 +56,7 @@ async function boot() {
   const petFriendship = installPetFriendship(G, platform);
   const serviceFriction = installServiceFriction(G);
   const petMess = createPetMess(G, S.scene);
+  const baristaWorker = createBaristaWorker(G, S.scene);
   const reliefAttention = installReliefAttention(G);
   const serviceSummary = installServiceSummary(G);
   const responsive = createResponsivePolish(G);
@@ -83,6 +85,7 @@ async function boot() {
   window.__petFriendship = petFriendship;
   window.__serviceFriction = serviceFriction;
   window.__petMess = petMess;
+  window.__baristaWorker = baristaWorker;
   window.__reliefAttention = reliefAttention;
   window.__serviceSummary = serviceSummary;
   window.__coffeePolish = coffeePolish;
@@ -102,9 +105,6 @@ async function boot() {
     return paused;
   }
 
-  // Host pause means interactions are paused too, not merely the canvas. Capture-phase blocking
-  // prevents keyboard/programmatic DOM actions from reaching game controls while YouTube owns the
-  // paused state. Escape is never preventDefault'ed, preserving the platform/browser contract.
   const blockHostInteraction = e => {
     if (!platform.paused) return;
     e.stopImmediatePropagation();
@@ -122,7 +122,6 @@ async function boot() {
     document.body.classList.toggle('host-paused', hostPaused);
     applyPauseState();
     if (hostPaused) {
-      // Certification requirement: no game-frame execution keeps ticking in the background.
       if (frameId) cancelAnimationFrame(frameId);
       frameId = 0;
     } else {
@@ -139,6 +138,7 @@ async function boot() {
 
     if (!paused) {
       G.update(dt);
+      baristaWorker.update(dt);
       petMess.update(dt);
       machineJuice.update(dt);
       coffeePolish.update();

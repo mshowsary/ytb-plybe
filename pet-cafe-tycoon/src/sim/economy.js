@@ -86,19 +86,22 @@ export function maxCustomers(builtSet) {
   return Math.min(6, 4 + seatingBuilds(builtSet));
 }
 
-// Employees are mid-game operating decisions, not Day-3 impulse buys. The prices sit just beyond
-// the real early-game wallet rather than behind an artificial day lock. Runner remains the broadest
-// automation and most expensive choice, then Cashier, then Cleaner. The economy bot is the gate:
-// if delayed hiring creates navigation stalls or breaks Area-1 pacing, these values are rejected.
+// Employees are mid-game operating decisions, not Day-3 impulse buys. Runner stays the broadest
+// generalist; Cashier/Cleaner solve narrower bottlenecks. Barista is deliberately later and more
+// expensive than the first Runner because it automates an entire unlocked coffee lane including
+// beans, but it can never touch bakery/smoothie stock and therefore does not replace Runner value.
 export const STAFF = {
   runner:  { costs: [1800, 2800], speed: 2.8, carry: 6 },
   cashier: { costs: [1550], speed: 2.2 },
   cleaner: { costs: [1350], speed: 2.2 },
+  barista: { costs: [2300], speed: 2.4, carry: 4 },
 };
 export const REGISTER_RATE = { owner: 0.6, cashierBase: 1.0 };
 export function hireCost(kind, staffCounts) {
   const n = (staffCounts && staffCounts[kind]) | 0;
-  const c = STAFF[kind].costs;
+  const def = STAFF[kind];
+  if (!def) return null;
+  const c = def.costs;
   return n < c.length ? c[n] : null;
 }
 export function buyUpgrade(state, key) {
