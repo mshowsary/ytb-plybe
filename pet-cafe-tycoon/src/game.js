@@ -2,6 +2,7 @@
 import { createWorld, refreshActive, cleanSeat } from './sim/world.js';
 import { applySave } from './sim/save.js';
 import { snapshotStationState, restoreStationState } from './sim/stationState.js';
+import { snapshotOwnerState, restoreOwnerState } from './sim/ownerState.js';
 import { salePrice, cafeLevel } from './sim/economy.js';
 import { reliefClaimKey } from './sim/relief.js';
 import { ensurePartyOrders, clonePartyOrders, partyOrderProgress } from './sim/partyOrders.js';
@@ -18,7 +19,7 @@ import { settleShift, cloneSettlement } from './sim/settlement.js';
 import { createCarry } from './sim/carry.js';
 import { createMaterialCheckpoint } from './sim/checkpoint.js';
 import { createInput } from './core/input.js';
-import { buildStatic } from './render/props.js';
+import { buildStatic, itemFor } from './render/props.js';
 import { createAmbience } from './render/ambience.js';
 import { createRenovationDecor } from './render/renovation.js';
 import { createOwner } from './render/owner.js';
@@ -263,6 +264,7 @@ export function createGame(S, area, els, platform = null) {
   G.snapshot = () => ({
     v: 4, coins: G.coins, lifetimeEarned: G.stats.lifetimeEarned | 0,
     builds: { a1: Array.from(world.built) }, partial: { ...world.partial }, stationState: snapshotStationState(world, G.stars),
+    ownerState: snapshotOwnerState(P, G.carry, owner.items, G.up, area),
     upgrades: { ...G.up }, staff: { ...G.staff }, stats: { ...G.stats }, settings: { ...G.settings },
     staffLevels: { runner: { ...G.staffLevels.runner }, cashier: { ...G.staffLevels.cashier }, cleaner: { ...G.staffLevels.cleaner } }, machineLevels: { ...G.machineLevels }, intro: { ...G.intro },
     meta: {
@@ -293,6 +295,8 @@ export function createGame(S, area, els, platform = null) {
     for (const st of world.stations.values()) st.active = !st.builtBy || world.built.has(st.builtBy);
     refreshActive(world);
     if (!restoreStationState(world, canonical.stationState, G.stars)) return false;
+    if (!restoreOwnerState(P, G.carry, owner, canonical.ownerState, area, G.up, itemFor, world)) return false;
+    owner.group.position.set(P.x, 0, P.z); owner.group.rotation.y = P.rot || 0; S.snap(P.x, P.z); G._force = null; G.contextGuide = null;
     visuals.syncAll(); registerCash.syncAll(); zones.syncAll(); hud.setCoins(G.coins); syncReputationPresentation(); syncPetBookPresentation(); syncCareerPresentation(); partyOrders.sync(true);
     // A terminal save is already settled. Reopen that committed report as presentation only; the
     // settlement transaction itself is idempotent and cannot award coins/reputation/cups twice.
