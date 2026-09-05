@@ -8,6 +8,11 @@ const isRecord = value => !!value && typeof value === 'object' && !Array.isArray
 const finite = value => typeof value === 'number' && Number.isFinite(value);
 const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 
+function compactBreak(raw, dayState) {
+  const restored = restorePetPlayBreakBoost(raw, dayState);
+  return restored ? { day: restored.day | 0, remaining: restored.remaining, slots: restored.slots | 0 } : null;
+}
+
 function normalizeRoomba(raw, dayState) {
   if (!isRecord(raw) || !dayState || dayState.phase !== 'rush') return null;
   const day = raw.day | 0;
@@ -45,7 +50,7 @@ export function normalizeTemporaryHelp(raw, legacyBoosts, dayState) {
       data: {
         v: TEMPORARY_HELP_VERSION,
         rushCrew: restoreRushCrewBoost(legacyBoosts && legacyBoosts.rushCrew, dayState),
-        petPlayBreak: restorePetPlayBreakBoost(legacyBoosts && legacyBoosts.petPlayBreak, dayState),
+        petPlayBreak: compactBreak(legacyBoosts && legacyBoosts.petPlayBreak, dayState),
         roomba: null,
         pending: null,
       },
@@ -62,7 +67,7 @@ export function normalizeTemporaryHelp(raw, legacyBoosts, dayState) {
     data: {
       v: TEMPORARY_HELP_VERSION,
       rushCrew: restoreRushCrewBoost(raw.rushCrew, dayState),
-      petPlayBreak: restorePetPlayBreakBoost(raw.petPlayBreak, dayState),
+      petPlayBreak: compactBreak(raw.petPlayBreak, dayState),
       roomba: normalizeRoomba(raw.roomba, dayState),
       pending: normalizePending(raw.pending, dayState),
     },
@@ -90,7 +95,7 @@ export function makePendingEntitlement(offer, earnedDay) {
 export function snapshotTemporaryHelp(G) {
   const d = G && G.dayState;
   const rushCrew = restoreRushCrewBoost(G && G.boosts && G.boosts.rushCrew, d);
-  const petPlayBreak = restorePetPlayBreakBoost(G && G.boosts && G.boosts.petPlayBreak, d);
+  const petPlayBreak = compactBreak(G && G.boosts && G.boosts.petPlayBreak, d);
   const mess = G && G.petMess;
   const roombaRemaining = mess && finite(mess.roombaRemaining) ? mess.roombaRemaining : 0;
   const roomba = d && d.phase === 'rush' && roombaRemaining > 0
