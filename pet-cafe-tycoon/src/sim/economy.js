@@ -86,13 +86,15 @@ export function maxCustomers(builtSet) {
   return Math.min(6, 4 + seatingBuilds(builtSet));
 }
 
-// Staff should be attainable, but not all in one early shopping burst. These costs are deliberately
-// compatible with the optional contextual Rush Help system: a rewarded ad may close part of an
-// authentic shortfall, while ordinary play always remains sufficient.
+// Employees are mid-game operating decisions, not Day-3 impulse buys. Pricing deliberately keeps
+// Runner > Cashier > Cleaner: the Runner automates the broadest owner chore, the Cashier removes a
+// high-pressure bottleneck, and the Cleaner handles a narrower maintenance loop. No hard day lock
+// is used; normal earnings decide when the player is ready, while contextual relief may bridge only
+// part of an authentic shortfall.
 export const STAFF = {
-  runner:  { costs: [900, 1800], speed: 2.8, carry: 6 },
-  cashier: { costs: [800], speed: 2.2 },
-  cleaner: { costs: [500], speed: 2.2 },
+  runner:  { costs: [2200, 3600], speed: 2.8, carry: 6 },
+  cashier: { costs: [1800], speed: 2.2 },
+  cleaner: { costs: [1400], speed: 2.2 },
 };
 export const REGISTER_RATE = { owner: 0.6, cashierBase: 1.0 };
 export function hireCost(kind, staffCounts) {

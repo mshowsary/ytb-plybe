@@ -53,13 +53,21 @@ test('buyUpgrade deducts coins and refuses when short or maxed', () => {
   const state2 = { coins: 100000, up: { speed: 3, carry: 0, income: 0 }, staff: { runner: 0, cashier: 0 } };
   const r3 = buyUpgrade(state2, 'speed'); assert.equal(r3.ok, false); assert.equal(r3.cost, null);
 });
-test('hire costs are staggered so early staff are savings goals rather than one shopping burst', () => {
-  const state = { coins: 10000, up: { speed: 0, carry: 0, income: 0 }, staff: { runner: 0, cashier: 0, cleaner: 0 } };
-  const h1 = hire(state, 'runner'); assert.equal(h1.ok, true); assert.equal(h1.cost, 900); assert.equal(state.staff.runner, 1);
-  const h2 = hire(state, 'runner'); assert.equal(h2.ok, true); assert.equal(h2.cost, 1800); assert.equal(state.staff.runner, 2);
-  const h3 = hire(state, 'cashier'); assert.equal(h3.ok, true); assert.equal(h3.cost, 800); assert.equal(state.staff.cashier, 1);
+test('hire costs make staff mid-game savings goals in Runner > Cashier > Cleaner order', () => {
+  assert.ok(STAFF.runner.costs[0] > STAFF.cashier.costs[0]);
+  assert.ok(STAFF.cashier.costs[0] > STAFF.cleaner.costs[0]);
+  const state = { coins: 20000, up: { speed: 0, carry: 0, income: 0 }, staff: { runner: 0, cashier: 0, cleaner: 0 } };
+  const h1 = hire(state, 'runner'); assert.equal(h1.ok, true); assert.equal(h1.cost, 2200); assert.equal(state.staff.runner, 1);
+  const h2 = hire(state, 'runner'); assert.equal(h2.ok, true); assert.equal(h2.cost, 3600); assert.equal(state.staff.runner, 2);
+  const h3 = hire(state, 'cashier'); assert.equal(h3.ok, true); assert.equal(h3.cost, 1800); assert.equal(state.staff.cashier, 1);
   const h4 = hire(state, 'cashier'); assert.equal(h4.ok, false); assert.equal(h4.cost, null);
-  const h5 = hire(state, 'cleaner'); assert.equal(h5.ok, true); assert.equal(h5.cost, 500);
+  const h5 = hire(state, 'cleaner'); assert.equal(h5.ok, true); assert.equal(h5.cost, 1400);
+});
+test('a Day-3-sized wallet cannot buy permanent staff yet', () => {
+  const wallet = 1300;
+  assert.ok(hireCost('cleaner', { cleaner: 0 }) > wallet);
+  assert.ok(hireCost('cashier', { cashier: 0 }) > wallet);
+  assert.ok(hireCost('runner', { runner: 0 }) > wallet);
 });
 test('hireCost returns null past the cost table', () => {
   assert.equal(hireCost('runner', { runner: 2 }), null);
@@ -135,7 +143,7 @@ test('cleaner Speed level shortens the clean rate below the base 1.6s', () => {
 test('buyMachineUpgrade: Oven speed divides bake time by 1.25 at tier 1', () => {
   const s = freshState(400);
   const r = buyMachineUpgrade(s, 'oven');
-  assert.equal(r.ok, true); assert.equal(r.cost, 400); assert.equal(s.machineLevels.oven, 1);
+  assert.equal(r.ok, true); assert.equal(r.cost, 400); assert.equal(s.coins, 0); assert.equal(s.machineLevels.oven, 1);
   assert.ok(Math.abs(machineSpeedMult(s.machineLevels, 'oven') - 1.25) < 1e-9);
   const w = createWorld(AREA1); const oven = w.stations.get('oven1');
   stepOvens(w, 1.0, machineSpeedMult(s.machineLevels, 'oven'));
