@@ -125,8 +125,20 @@ export function createSheets(root = document.body) {
   const wrap = document.createElement('div'); wrap.className = 'sheet-root hidden'; const backdrop = document.createElement('div'); backdrop.className = 'backdrop'; wrap.appendChild(backdrop); root.appendChild(wrap);
   let current = null; const closeCbs = [];
   const close = () => {
-    if (!current) return; const el = current.el; current = null; el.classList.remove('show');
-    setTimeout(() => { el.remove(); if (!current) wrap.classList.add('hidden'); }, 220); for (const cb of closeCbs) cb();
+    if (!current) return;
+    const { el, kind } = current; current = null;
+    // The terminal summary owns a game-state transition, so its UI must disappear atomically with
+    // that transition. Leaving a fading live button in the DOM creates a rapid-input race even when
+    // the simulation guard correctly prevents a second day advance. Ordinary sheets keep their
+    // 220ms exit animation because they do not mutate the day lifecycle.
+    if (kind === 'summary') {
+      el.remove(); wrap.classList.add('hidden');
+      for (const cb of closeCbs) cb();
+      return;
+    }
+    el.classList.remove('show');
+    setTimeout(() => { el.remove(); if (!current) wrap.classList.add('hidden'); }, 220);
+    for (const cb of closeCbs) cb();
   };
   const requestClose = (source = 'close') => {
     if (!current) return;
