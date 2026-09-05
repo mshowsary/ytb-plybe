@@ -3,6 +3,7 @@
 // the penalty bounded enough that a bad rush cannot become a debt spiral.
 import { PATIENCE, SETTLE_WAIT } from '../sim/customers.js';
 import { serviceFrictionCost, frictionSeverity, SERVICE_FRICTION_DAILY_CAP } from '../sim/serviceFriction.js';
+import { presentationScheduler } from '../core/presentationScheduler.js';
 
 const SOFT_WAIT = 2.5;
 const STYLE_ID = 'pet-cafe-service-friction-style';
@@ -24,9 +25,9 @@ function makeToast() {
   const el = document.createElement('div'); el.className = 'service-friction-toast'; el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite'); document.body.appendChild(el);
   let timer = 0;
   return text => {
-    if (timer) clearTimeout(timer);
+    if (timer) presentationScheduler.cancel(timer);
     el.textContent = text; el.classList.add('show');
-    timer = setTimeout(() => el.classList.remove('show'), 1050);
+    timer = presentationScheduler.schedule(() => { el.classList.remove('show'); timer = 0; }, 1050);
   };
 }
 
