@@ -51,7 +51,12 @@ export function createPresentationScheduler(env = {}) {
       const state = animation.playState;
       if (state !== 'running' && state !== 'pending') continue;
       try {
+        // Web Animations pause() is allowed to resolve asynchronously. Capture and explicitly seek
+        // back to the pause boundary so a CSS transition cannot consume wall time while Chromium
+        // is processing the pending pause task (the Gate A browser race was ~200ms in CI).
+        const frozenTime = animation.currentTime;
         animation.pause();
+        if (frozenTime != null) animation.currentTime = frozenTime;
         pausedAnimations.add(animation);
       } catch (_) {}
     }
