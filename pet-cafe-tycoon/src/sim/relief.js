@@ -38,7 +38,10 @@ function countPressure(G, world) {
     if (st.type === 'seat' && st.dirty) dirty++;
     if (st.type === 'display' && st.stock <= Math.max(1, Math.floor((st.capacity || 8) * 0.25))) lowDisplays++;
   }
-  return { registerWait, displayWait, dirty, lowDisplays, misses: (G.dayStats && G.dayStats.serviceMisses) | 0 };
+  // Pet pawprints are deliberately separate from dirty tables. This is what keeps a temporary
+  // Roomba from erasing the permanent Cleaner's table-cleaning role.
+  const petMess = Math.max(0, (G.petMess && G.petMess.count) | 0);
+  return { registerWait, displayWait, dirty, lowDisplays, petMess, misses: (G.dayStats && G.dayStats.serviceMisses) | 0 };
 }
 
 function bridgeAmount(gap) {
@@ -112,10 +115,9 @@ function rushCandidate(kind, score, label, why, pressure, extra = {}) {
   return { kind, score, label, why, pressure, ...extra };
 }
 
-// Pure operational classifier for the next generation of Rush Help. It intentionally knows
-// NOTHING about rewarded-ad availability. A calm player should never see monetization merely
-// because the clock says "Rush"; sustained browser-side evidence/cooldown is layered on top later.
-// `context.lastOfferedAt` is supplied by that future runtime and keeps this function deterministic.
+// Pure operational classifier for Rush Help. It intentionally knows NOTHING about rewarded-ad
+// availability. A calm player should never see monetization merely because the clock says "Rush";
+// sustained browser-side evidence/cooldown is layered on top later.
 export function recommendRushHelp(G, world, context = {}) {
   if (!G || !world || !G.dayState || G.dayState.day < RUSH_HELP_MIN_DAY || G.dayState.phase !== 'rush') return null;
   const now = Number.isFinite(context.now) ? context.now : (Number.isFinite(G.time) ? G.time : 0);
@@ -128,8 +130,7 @@ export function recommendRushHelp(G, world, context = {}) {
   const pressure = { ...p, ...urgent, activeCustomers };
   const options = [];
 
-  // Checkout pressure is specific and should beat generic crowd relief. This does not promise a
-  // free permanent cashier: the eventual temporary effect can be a rush-only helper or speed-up.
+  // Checkout pressure is specific and should beat generic crowd relief.
   if (urgent.registerWaiting >= 1 && (p.registerWait >= 2 || urgent.lowPatience >= 1)) {
     options.push(rushCandidate(
       'crew', 112 + urgent.registerWaiting * 14 + urgent.lowPatience * 5,
@@ -147,18 +148,18 @@ export function recommendRushHelp(G, world, context = {}) {
     ));
   }
 
-  // Roomba remains only a candidate here. We deliberately do not make it erase a permanent
-  // Cleaner's value until the separate pet-floor-mess prototype proves what it should clean.
-  if (p.dirty >= 2 && activeCustomers >= 4) {
+  // Roomba now has its OWN pet-floor job. It never responds to dirty tables: those remain a
+  // permanent Cleaner/owner responsibility. This prevents rewarded help from cannibalizing staff.
+  if (p.petMess >= 2 && activeCustomers >= 4) {
     options.push(rushCandidate(
-      'roomba', 74 + p.dirty * 7 + Math.min(12, urgent.lowPatience * 3),
-      'Roomba Assist', 'Cleaning pressure is competing with guest service during the rush.', pressure,
+      'roomba', 76 + p.petMess * 9 + Math.min(10, urgent.lowPatience * 2),
+      'Roomba Sweep', 'Pet pawprints are piling up while you are serving the rush.', pressure,
+      { suggestedSweepSeconds: 18 },
     ));
   }
 
-  // Pet Lounge is the broad-pressure fallback: two guests/pets can eventually take a short play
-  // break, pausing rather than deleting their patience. It scores below a concrete checkout or
-  // stock bottleneck, but wins when several guests are stressed for mixed reasons.
+  // Pet Lounge is the broad-pressure fallback: two guests/pets can take a short play break,
+  // pausing rather than deleting their patience.
   const broadQueue = p.registerWait + p.displayWait;
   if ((urgent.lowPatience >= 2 && activeCustomers >= 5) || (broadQueue >= 4 && activeCustomers >= 7)) {
     options.push(rushCandidate(

@@ -5,6 +5,7 @@ import { createYouTubePlatform } from './platform/youtube.js';
 import { createMachineJuice } from './systems/machineJuice.js';
 import { installPetFriendship } from './systems/petFriendship.js';
 import { installServiceFriction } from './systems/serviceFriction.js';
+import { createPetMess } from './systems/petMess.js';
 import { createResponsivePolish } from './ui/responsive.js';
 import { createPlayablesShell } from './ui/playablesShell.js';
 import { installCleanHud } from './ui/cleanHud.js';
@@ -53,6 +54,7 @@ async function boot() {
   const coffeePolish = createCoffeePolish(G.world, S.scene, G.owner);
   const petFriendship = installPetFriendship(G, platform);
   const serviceFriction = installServiceFriction(G);
+  const petMess = createPetMess(G, S.scene);
   const reliefAttention = installReliefAttention(G);
   const serviceSummary = installServiceSummary(G);
   const responsive = createResponsivePolish(G);
@@ -80,6 +82,7 @@ async function boot() {
   window.__interactionCoach = interactionCoach;
   window.__petFriendship = petFriendship;
   window.__serviceFriction = serviceFriction;
+  window.__petMess = petMess;
   window.__reliefAttention = reliefAttention;
   window.__serviceSummary = serviceSummary;
   window.__coffeePolish = coffeePolish;
@@ -136,6 +139,7 @@ async function boot() {
 
     if (!paused) {
       G.update(dt);
+      petMess.update(dt);
       machineJuice.update(dt);
       coffeePolish.update();
       cashTrays.update(dt);

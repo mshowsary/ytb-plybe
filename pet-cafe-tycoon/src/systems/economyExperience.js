@@ -7,9 +7,11 @@ import {
   PET_PLAY_BREAK_SECONDS, PET_PLAY_BREAK_SLOTS, petPlayBreakActive, selectPetPlayBreakCustomers,
   startPetPlayBreak, stepPetPlayBreak,
 } from '../sim/petPlayBreak.js';
+import { ROOMBA_SWEEP_SECONDS } from '../sim/petMess.js';
 
 export const RUSH_CREW_REWARD_ID = 'pet-cafe-rush-crew';
 export const PET_PLAY_BREAK_REWARD_ID = 'pet-cafe-pet-play-break';
+export const ROOMBA_REWARD_ID = 'pet-cafe-roomba-sweep';
 
 function ensureStyles() {
   if (document.getElementById('pet-cafe-relief-style')) return;
@@ -52,18 +54,20 @@ function createReliefUI(isDev) {
   function render() {
     if (!model) { root.classList.add('hidden'); return; }
     root.classList.remove('hidden'); pill.classList.toggle('hidden', expanded); card.classList.toggle('hidden', !expanded);
-    const crew = model.mode === 'crew', petBreak = model.mode === 'petBreak';
+    const crew = model.mode === 'crew', petBreak = model.mode === 'petBreak', roomba = model.mode === 'roomba';
     pillTitle.textContent = crew ? `${model.label} · this rush`
       : petBreak ? `${model.label} · ${model.duration}s`
+      : roomba ? `${model.label} · ${model.duration}s`
       : `${model.label} · +${model.reward} coins`;
     title.textContent = crew ? `${model.label} can jump in`
       : petBreak ? `${model.label} gives breathing room`
+      : roomba ? `${model.label} can clear the pet floor`
       : `${model.label} would help now`;
     why.textContent = model.why;
-    math.textContent = (crew || petBreak) ? model.detail : model.remaining > 0
+    math.textContent = (crew || petBreak || roomba) ? model.detail : model.remaining > 0
       ? `${model.cost.toLocaleString('en-US')} coins · ${model.gap} short · earn ${model.remaining} more after the reward`
       : `${model.cost.toLocaleString('en-US')} coins · this reward closes the ${model.gap}-coin gap`;
-    reward.textContent = crew ? '+1 TIER' : petBreak ? `${model.duration}s BREAK` : `+${model.reward}`;
+    reward.textContent = crew ? '+1 TIER' : petBreak ? `${model.duration}s BREAK` : roomba ? `${model.duration}s SWEEP` : `+${model.reward}`;
   }
   pill.addEventListener('click', () => { expanded = true; render(); });
   return {
@@ -82,6 +86,9 @@ function crewDetail(role) {
 function petBreakDetail(seconds, slots) {
   return `${slots} stressed pet guests get ${seconds}s where patience cannot fall. Queues keep moving and permanent stats are unchanged.`;
 }
+function roombaDetail(count, seconds) {
+  return `Clears ${count} pet pawprint ${count === 1 ? 'patch' : 'patches'} now and keeps new pawprints away for ${seconds}s. Dirty tables still belong to you or the Cleaner.`;
+}
 
 function waitingRunnerFamilies(G, world) {
   const families = new Set();
@@ -94,9 +101,6 @@ function waitingRunnerFamilies(G, world) {
   return families;
 }
 
-// A faster Runner cannot help an empty shelf if the requested food does not exist yet. Requiring
-// ready matching stock (or a matching item already in a Runner's hands) prevents a completed ad
-// from producing a technically-active but practically useless boost while an oven is still baking.
 function runnerHasReadyWork(G, world) {
   const families = waitingRunnerFamilies(G, world);
   if (!families.size) return false;
@@ -114,30 +118,26 @@ function runnerHasReadyWork(G, world) {
   return false;
 }
 
-// Pure filter layered over the pressure classifier. The temporary crew reward is only actionable
-// when that worker already belongs to the player and at least one permanent tier remains to borrow.
-// Runner help additionally needs work it can perform now, so the ad never substitutes for baking.
 export function rushCrewOfferFor(G, world, context = {}) {
   const next = recommendRushHelp(G, world, context);
   if (!next || next.kind !== 'crew' || !next.role) return null;
   if (((G.staff && G.staff[next.role]) | 0) < 1) return null;
   if (!rushCrewHasBenefit(G.staffLevels, next.role)) return null;
   if (next.role === 'runner' && !runnerHasReadyWork(G, world)) return null;
-  return {
-    ...next,
-    mode: 'crew',
-    key: `crew:${next.role}`,
-    detail: crewDetail(next.role),
-  };
+  return { ...next, mode: 'crew', key: `crew:${next.role}`, detail: crewDetail(next.role) };
+}
+
+export function roombaOfferFor(G, world, context = {}) {
+  const next = recommendRushHelp(G, world, context);
+  const mess = G && G.petMess;
+  if (!next || next.kind !== 'roomba' || !mess || typeof mess.sweep !== 'function') return null;
+  const count = Math.max(0, mess.count | 0);
+  if (count < 2 || mess.roombaActive) return null;
+  const duration = Math.max(5, Math.min(ROOMBA_SWEEP_SECONDS, next.suggestedSweepSeconds | 0 || ROOMBA_SWEEP_SECONDS));
+  return { ...next, mode: 'roomba', key: 'roomba', duration, count, detail: roombaDetail(count, duration) };
 }
 
 export function petPlayBreakOfferFor(G, world, context = {}) {
-  // The shared Rush Help surface itself has a five-second anti-flash dwell. A break triggered only
-  // once two guests fall below the classifier's <4s low-patience threshold would therefore arrive
-  // after those guests had already left. Surface this mode from EARLIER broad overload instead:
-  // at least four genuinely waiting guests among seven active. That pressure can survive the same
-  // five-second evidence rule without changing it, and a specific actionable Crew fix still gets
-  // first priority in createEconomyExperience.update().
   const activeCustomers = (G.customers || []).reduce((n, c) => n + (c && !c.done ? 1 : 0), 0);
   const broadWaiting = selectPetPlayBreakCustomers(G.customers, 4);
   if (activeCustomers < 7 || broadWaiting.length < 4) return null;
@@ -166,10 +166,6 @@ export function createEconomyExperience(G, S, ctx, platform) {
   let dismissedDay = -1, pressureKey = '', pressureT = 0, current = null, tick = 0, busy = false;
   let snapshotWrapped = false;
 
-  // game.js defines G.snapshot later in createGame(). Wrap it lazily on the first live update so
-  // rewarded Rush Help survives a host save/reload while it is still meaningful. Customer ids are
-  // deliberately omitted for Pet Play Break because live customers themselves are not persisted;
-  // the restored boost reattaches its remaining time to the next two stressed guests.
   function ensureSnapshotIncludesRushHelp() {
     if (snapshotWrapped || typeof G.snapshot !== 'function') return;
     const baseSnapshot = G.snapshot;
@@ -188,7 +184,6 @@ export function createEconomyExperience(G, S, ctx, platform) {
     snapshotWrapped = true;
   }
 
-  // Return crate consequence: finished food/fruit is waste; supply sacks are legitimate inventory returns.
   G.carry.onReturn = had => {
     const productKeys = owner.items.map(m => m && m.userData && m.userData.product).filter(Boolean);
     const wanted = returnWasteCost(productKeys, had && had.fruit);
@@ -214,22 +209,19 @@ export function createEconomyExperience(G, S, ctx, platform) {
     if (busy || !current) return;
     const offer = current, day = G.dayState.day | 0;
     if (G.meta.rewardedDays[reliefClaimKey(day)]) { hide(); return; }
-    // Operational rewards are rush-scoped. If the phase rolled over while the card was open,
-    // close it rather than selling a benefit that has already expired.
-    if ((offer.mode === 'crew' || offer.mode === 'petBreak') && (!G.dayState || G.dayState.phase !== 'rush')) { hide(); return; }
+    const operational = offer.mode === 'crew' || offer.mode === 'petBreak' || offer.mode === 'roomba';
+    if (operational && (!G.dayState || G.dayState.phase !== 'rush')) { hide(); return; }
 
     busy = true; ui.watch.disabled = true;
     const rewardId = offer.mode === 'crew' ? RUSH_CREW_REWARD_ID
       : offer.mode === 'petBreak' ? PET_PLAY_BREAK_REWARD_ID
+      : offer.mode === 'roomba' ? ROOMBA_REWARD_ID
       : SMART_RELIEF_REWARD_ID;
     const earned = await (platform ? platform.requestRewardedAd(rewardId) : Promise.resolve(true));
     busy = false; ui.watch.disabled = false;
     if (!earned) { hud.toast('Reward unavailable · keep playing'); return; }
 
     if (offer.mode === 'crew') {
-      // Re-check after the async ad: the player may have upgraded the worker, production may have
-      // dried up, or the host may have resumed into a different phase. Never consume the daily
-      // claim for a reward that can no longer help.
       const roleUseful = offer.role !== 'runner' || runnerHasReadyWork(G, world);
       if (!G.dayState || G.dayState.phase !== 'rush' || ((G.staff && G.staff[offer.role]) | 0) < 1 || !rushCrewHasBenefit(G.staffLevels, offer.role) || !roleUseful) {
         hud.toast('Rush changed · reward not consumed'); hide(); return;
@@ -241,9 +233,6 @@ export function createEconomyExperience(G, S, ctx, platform) {
       audio.play('chime');
       hud.banner(`${offer.label.toUpperCase()} · +1 TIER THIS RUSH`, 2200);
     } else if (offer.mode === 'petBreak') {
-      // Select again AFTER the ad rather than freezing stale ids from when the card first opened.
-      // Guests may have been served while the host UI was up; an ad is never consumed for fewer
-      // than the promised two genuinely stressed recipients.
       const stillEligible = selectPetPlayBreakCustomers(G.customers, offer.slots);
       if (!G.dayState || G.dayState.phase !== 'rush' || stillEligible.length < offer.slots) {
         hud.toast('Rush changed · reward not consumed'); hide(); return;
@@ -253,6 +242,17 @@ export function createEconomyExperience(G, S, ctx, platform) {
       G.meta.rewardedDays[reliefClaimKey(day)] = 1;
       G.stats.rewardedPetBreaks = (G.stats.rewardedPetBreaks | 0) + 1;
       celebratePetBreak(picked);
+    } else if (offer.mode === 'roomba') {
+      const mess = G.petMess;
+      if (!G.dayState || G.dayState.phase !== 'rush' || !mess || mess.roombaActive || (mess.count | 0) < 2) {
+        hud.toast('Rush changed · reward not consumed'); hide(); return;
+      }
+      const cleared = mess.sweep(offer.duration);
+      if (cleared < 1) { hud.toast('Rush changed · reward not consumed'); hide(); return; }
+      G.meta.rewardedDays[reliefClaimKey(day)] = 1;
+      G.stats.rewardedRoombaSweeps = (G.stats.rewardedRoombaSweeps | 0) + 1;
+      audio.play('chime');
+      hud.banner(`ROOMBA SWEEP · ${cleared} PET ${cleared === 1 ? 'MESS' : 'MESSES'} CLEARED`, 2200);
     } else {
       G.meta.rewardedDays[reliefClaimKey(day)] = 1;
       G.coins += offer.reward;
@@ -269,14 +269,8 @@ export function createEconomyExperience(G, S, ctx, platform) {
   return {
     update(dt) {
       ensureSnapshotIncludesRushHelp();
-
-      // This runs after customer + staff simulation in game.js. It therefore restores a play-break
-      // recipient's patience AFTER every ordinary drain path, including the register watchdog.
       const breakStep = stepPetPlayBreak(G, G.dayState, dt);
       if (breakStep.assigned && breakStep.assigned.length) celebratePetBreak(breakStep.assigned, true);
-
-      // Transient means transient: once the phase/day stops matching, remove the live object too.
-      // applySave performs the same rejection on reload, so uninterrupted and restored play agree.
       if (G.boosts && G.boosts.rushCrew && !rushCrewActive(G.boosts, G.dayState)) delete G.boosts.rushCrew;
 
       tick -= dt;
@@ -286,15 +280,15 @@ export function createEconomyExperience(G, S, ctx, platform) {
       const inReliefWindow = d && (d.phase === 'rush' || (d.phase === 'afternoon' && d.t < 172));
       const claimed = d && G.meta.rewardedDays[reliefClaimKey(d.day)];
       const adReady = platform && (platform.rewardedAvailable || !platform.inPlayables);
-      const operationalActive = rushCrewActive(G.boosts, d) || petPlayBreakActive(G.boosts, d);
+      const operationalActive = rushCrewActive(G.boosts, d) || petPlayBreakActive(G.boosts, d) || !!(G.petMess && G.petMess.roombaActive);
       if (!inReliefWindow || claimed || operationalActive || dismissedDay === (d && d.day) || !adReady || G.userPaused || (sheets && sheets.isOpen)) { hide(); return; }
 
-      // During Rush, prefer a specific worker fix; broad overload can instead earn a pet-themed
-      // breathing-room break. Both are optional and actionable. If the classifier's operational
-      // answer is not actually usable, keep the existing permanent-purchase coin bridge fallback.
+      // Specific worker fix first; pet-floor Roomba next; broad Pet Play Break third. If none is
+      // actionable, keep the existing permanent-purchase coin bridge fallback.
       let next = null;
       if (d.phase === 'rush') {
         next = rushCrewOfferFor(G, world, { now: G.time });
+        if (!next) next = roombaOfferFor(G, world, { now: G.time });
         if (!next) next = petPlayBreakOfferFor(G, world, { now: G.time });
       }
       if (!next) {
@@ -304,8 +298,6 @@ export function createEconomyExperience(G, S, ctx, platform) {
       if (!next) { hide(); return; }
       if (next.key !== pressureKey) { pressureKey = next.key; pressureT = 0; current = next; ui.setModel(null); return; }
       pressureT += elapsed; current = next;
-      // Five seconds of sustained evidence prevents monetization from flashing because of one
-      // temporary empty shelf or a single guest briefly entering the register queue.
       if (pressureT >= 5) ui.setModel(next);
     },
     teardown() {
