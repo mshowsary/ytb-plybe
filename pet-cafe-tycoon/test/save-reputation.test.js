@@ -9,7 +9,7 @@ test('old save without meta migrates to a safe modern meta + career + party-orde
   applySave(s, { coins: 50, upgrades: {}, staff: {}, stats: {}, settings: {} });
   assert.deepEqual(s.meta, {
     completedDays: 0, rewardedDays: {}, reputation: 0, perfectShifts: 0, bestServiceStreak: 0,
-    shiftRatings: {}, petBook: {}, petFriendship: {}, petDiscoveries: 0,
+    shiftRatings: {}, petBook: {}, petFriendship: {}, petDiscoveries: 0, settlement: null,
     career: {
       history: {}, weeklyCups: {}, trophies: { bronze: 0, silver: 0, gold: 0 },
       recipeSales: { cookie: 0, cupcake: 0, coffee: 0, smoothie: 0, treat: 0 },
