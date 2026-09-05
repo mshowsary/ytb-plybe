@@ -8,6 +8,7 @@ import {
   startPetPlayBreak, stepPetPlayBreak,
 } from '../sim/petPlayBreak.js';
 import { ROOMBA_SWEEP_SECONDS } from '../sim/petMess.js';
+import { makePendingEntitlement, snapshotTemporaryHelp } from '../sim/temporaryHelp.js';
 
 export const RUSH_CREW_REWARD_ID = 'pet-cafe-rush-crew';
 export const PET_PLAY_BREAK_REWARD_ID = 'pet-cafe-pet-play-break';
@@ -166,19 +167,15 @@ export function createEconomyExperience(G, S, ctx, platform) {
   let dismissedDay = -1, pressureKey = '', pressureT = 0, current = null, tick = 0, busy = false;
   let snapshotWrapped = false;
 
-  function ensureSnapshotIncludesRushHelp() {
+  function ensureSnapshotIncludesTemporaryHelp() {
     if (snapshotWrapped || typeof G.snapshot !== 'function') return;
     const baseSnapshot = G.snapshot;
     G.snapshot = () => {
       const save = baseSnapshot();
-      if (rushCrewActive(G.boosts, G.dayState)) {
-        const b = G.boosts.rushCrew;
-        save.boosts = { ...(save.boosts || {}), rushCrew: { role: b.role, day: b.day | 0 } };
-      }
-      if (petPlayBreakActive(G.boosts, G.dayState)) {
-        const b = G.boosts.petPlayBreak;
-        save.boosts = { ...(save.boosts || {}), petPlayBreak: { day: b.day | 0, remaining: b.remaining, slots: b.slots | 0 } };
-      }
+      save.temporaryHelp = snapshotTemporaryHelp(G);
+      // New snapshots use only the consolidated Task-12 record. save.js still migrates legacy
+      // `boosts` fields from older cloud saves.
+      delete save.boosts;
       return save;
     };
     snapshotWrapped = true;
@@ -204,6 +201,58 @@ export function createEconomyExperience(G, S, ctx, platform) {
     audio.play('chime');
     hud.banner(resumed ? 'PET PLAY BREAK RESUMED' : `PET PLAY BREAK · ${recipients.length} GUESTS · ${PET_PLAY_BREAK_SECONDS}s`, 2200);
   }
+  function ensureHelpState() {
+    if (!G.temporaryHelp || typeof G.temporaryHelp !== 'object') G.temporaryHelp = { v: 1, roomba: null, pending: null };
+    return G.temporaryHelp;
+  }
+  function storePending(offer, day) {
+    const pending = makePendingEntitlement(offer, day);
+    if (!pending) return false;
+    ensureHelpState().pending = pending;
+    G.meta.rewardedDays[reliefClaimKey(day)] = 1;
+    hud.toast('Reward earned · saved for the next useful moment');
+    return true;
+  }
+
+  function tryApplyPending() {
+    const help = ensureHelpState(), pending = help.pending, d = G.dayState;
+    if (!pending || !d) return false;
+    const day = d.day | 0, earnedDay = pending.earnedDay | 0;
+    if (day < earnedDay || day > earnedDay + 1) { help.pending = null; return false; }
+    if (d.phase !== 'rush') return false;
+
+    if (pending.kind === 'crew') {
+      const roleUseful = pending.role !== 'runner' || runnerHasReadyWork(G, world);
+      if (((G.staff && G.staff[pending.role]) | 0) < 1 || !rushCrewHasBenefit(G.staffLevels, pending.role) || !roleUseful) return false;
+      const boost = makeRushCrewBoost(pending.role, day);
+      if (!boost) return false;
+      G.boosts.rushCrew = boost;
+      help.pending = null;
+      audio.play('chime'); hud.banner('EARNED RUSH CREW ACTIVATED', 2200);
+      return true;
+    }
+    if (pending.kind === 'petBreak') {
+      if (selectPetPlayBreakCustomers(G.customers, pending.slots).length < pending.slots) return false;
+      const picked = startPetPlayBreak(G, d, pending.duration, pending.slots);
+      if (picked.length < pending.slots) return false;
+      help.pending = null;
+      G.stats.rewardedPetBreaks = (G.stats.rewardedPetBreaks | 0) + 1;
+      celebratePetBreak(picked, true);
+      return true;
+    }
+    if (pending.kind === 'roomba') {
+      const mess = G.petMess;
+      if (!mess || mess.roombaActive || (mess.count | 0) < 1) return false;
+      const cleared = mess.sweep(pending.duration);
+      if (cleared < 1) return false;
+      help.pending = null;
+      G.stats.rewardedRoombaSweeps = (G.stats.rewardedRoombaSweeps | 0) + 1;
+      audio.play('chime'); hud.banner(`EARNED ROOMBA SWEEP · ${cleared} CLEARED`, 2200);
+      return true;
+    }
+    help.pending = null;
+    return false;
+  }
 
   async function claim() {
     if (busy || !current) return;
@@ -224,10 +273,10 @@ export function createEconomyExperience(G, S, ctx, platform) {
     if (offer.mode === 'crew') {
       const roleUseful = offer.role !== 'runner' || runnerHasReadyWork(G, world);
       if (!G.dayState || G.dayState.phase !== 'rush' || ((G.staff && G.staff[offer.role]) | 0) < 1 || !rushCrewHasBenefit(G.staffLevels, offer.role) || !roleUseful) {
-        hud.toast('Rush changed · reward not consumed'); hide(); return;
+        storePending(offer, day); if (platform && G.snapshot) platform.save(G.snapshot()); hide(); return;
       }
       const boost = makeRushCrewBoost(offer.role, day);
-      if (!boost) { hide(); return; }
+      if (!boost) { storePending(offer, day); if (platform && G.snapshot) platform.save(G.snapshot()); hide(); return; }
       G.boosts.rushCrew = boost;
       G.meta.rewardedDays[reliefClaimKey(day)] = 1;
       audio.play('chime');
@@ -235,20 +284,20 @@ export function createEconomyExperience(G, S, ctx, platform) {
     } else if (offer.mode === 'petBreak') {
       const stillEligible = selectPetPlayBreakCustomers(G.customers, offer.slots);
       if (!G.dayState || G.dayState.phase !== 'rush' || stillEligible.length < offer.slots) {
-        hud.toast('Rush changed · reward not consumed'); hide(); return;
+        storePending(offer, day); if (platform && G.snapshot) platform.save(G.snapshot()); hide(); return;
       }
       const picked = startPetPlayBreak(G, G.dayState, offer.duration, offer.slots);
-      if (picked.length < offer.slots) { hud.toast('Rush changed · reward not consumed'); hide(); return; }
+      if (picked.length < offer.slots) { storePending(offer, day); if (platform && G.snapshot) platform.save(G.snapshot()); hide(); return; }
       G.meta.rewardedDays[reliefClaimKey(day)] = 1;
       G.stats.rewardedPetBreaks = (G.stats.rewardedPetBreaks | 0) + 1;
       celebratePetBreak(picked);
     } else if (offer.mode === 'roomba') {
       const mess = G.petMess;
       if (!G.dayState || G.dayState.phase !== 'rush' || !mess || mess.roombaActive || (mess.count | 0) < 2) {
-        hud.toast('Rush changed · reward not consumed'); hide(); return;
+        storePending(offer, day); if (platform && G.snapshot) platform.save(G.snapshot()); hide(); return;
       }
       const cleared = mess.sweep(offer.duration);
-      if (cleared < 1) { hud.toast('Rush changed · reward not consumed'); hide(); return; }
+      if (cleared < 1) { storePending(offer, day); if (platform && G.snapshot) platform.save(G.snapshot()); hide(); return; }
       G.meta.rewardedDays[reliefClaimKey(day)] = 1;
       G.stats.rewardedRoombaSweeps = (G.stats.rewardedRoombaSweeps | 0) + 1;
       audio.play('chime');
@@ -268,10 +317,11 @@ export function createEconomyExperience(G, S, ctx, platform) {
 
   return {
     update(dt) {
-      ensureSnapshotIncludesRushHelp();
+      ensureSnapshotIncludesTemporaryHelp();
       const breakStep = stepPetPlayBreak(G, G.dayState, dt);
       if (breakStep.assigned && breakStep.assigned.length) celebratePetBreak(breakStep.assigned, true);
       if (G.boosts && G.boosts.rushCrew && !rushCrewActive(G.boosts, G.dayState)) delete G.boosts.rushCrew;
+      tryApplyPending();
 
       tick -= dt;
       if (tick > 0) return;
@@ -280,11 +330,10 @@ export function createEconomyExperience(G, S, ctx, platform) {
       const inReliefWindow = d && (d.phase === 'rush' || (d.phase === 'afternoon' && d.t < 172));
       const claimed = d && G.meta.rewardedDays[reliefClaimKey(d.day)];
       const adReady = platform && (platform.rewardedAvailable || !platform.inPlayables);
+      const hasPending = !!(G.temporaryHelp && G.temporaryHelp.pending);
       const operationalActive = rushCrewActive(G.boosts, d) || petPlayBreakActive(G.boosts, d) || !!(G.petMess && G.petMess.roombaActive);
-      if (!inReliefWindow || claimed || operationalActive || dismissedDay === (d && d.day) || !adReady || G.userPaused || (sheets && sheets.isOpen)) { hide(); return; }
+      if (!inReliefWindow || claimed || hasPending || operationalActive || dismissedDay === (d && d.day) || !adReady || G.userPaused || (sheets && sheets.isOpen)) { hide(); return; }
 
-      // Specific worker fix first; pet-floor Roomba next; broad Pet Play Break third. If none is
-      // actionable, keep the existing permanent-purchase coin bridge fallback.
       let next = null;
       if (d.phase === 'rush') {
         next = rushCrewOfferFor(G, world, { now: G.time });
