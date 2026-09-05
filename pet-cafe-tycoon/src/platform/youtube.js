@@ -1,4 +1,7 @@
 // YouTube Playables host boundary. Local preview intentionally keeps persistence in-memory only.
+import { resetActiveInputs } from '../core/input.js';
+import { presentationScheduler } from '../core/presentationScheduler.js';
+
 export const LOAD_STATUS = Object.freeze({
   LOADED: 'loaded',
   EMPTY: 'empty',
@@ -96,8 +99,7 @@ export function createYouTubePlatform(host = globalThis, options = {}) {
   let latestSave = null;
   let saveSequence = 0;
   let savedSequence = 0;
-  let rewardedBusy = false;
-  let interstitialBusy = false;
+  let adBusy = null;
   let lastAdAt = 0;
   let lastScore = -1;
   let scoreSequence = 0;
@@ -117,18 +119,39 @@ export function createYouTubePlatform(host = globalThis, options = {}) {
     interstitialAvailable: !!(yt && yt.ads && typeof yt.ads.requestInterstitialAd === 'function'),
     language: 'en',
     get paused() { return paused; },
+    get adBusy() { return !!adBusy; },
+    get adKind() { return adBusy && adBusy.kind || null; },
     get loadOutcome() { return currentLoadOutcome; },
     get saveProtected() { return !!yt && !writesAllowed; },
     get saveDirty() { return !!latestSave && latestSave.sequence > savedSequence; },
   };
 
+  function clearHeldMovement() {
+    resetActiveInputs();
+    if (game && game.P) { game.P.vx = 0; game.P.vz = 0; }
+    if (game) game._force = null;
+  }
+
   function setHostPaused(next) {
     const value = !!next;
     if (value === paused) return;
     paused = value;
+    clearHeldMovement();
+    presentationScheduler.setPaused('host', paused);
     for (const fn of pauseListeners) {
       try { fn(paused); } catch (_) {}
     }
+  }
+
+  function waitForHostResume() {
+    if (!paused) return Promise.resolve();
+    return new Promise(resolve => {
+      const off = P.onPauseChange(value => {
+        if (value) return;
+        off();
+        resolve();
+      });
+    });
   }
 
   P.onPauseChange = fn => {
@@ -302,7 +325,7 @@ export function createYouTubePlatform(host = globalThis, options = {}) {
 
     try {
       yt.system.onPause(() => {
-        // Save first while state is still coherent, then notify the frame owner to stop scheduling.
+        // Save first while state is still coherent, then clear held motion and notify the frame owner.
         if (game && game.snapshot) P.save(game.snapshot());
         setHostPaused(true);
       });
@@ -352,24 +375,36 @@ export function createYouTubePlatform(host = globalThis, options = {}) {
   };
 
   P.requestRewardedAd = async (rewardId = 'pet-cafe-day-bonus-coins') => {
-    if (rewardedBusy) return false;
+    if (paused || adBusy) return false;
     if (!P.rewardedAvailable) return !P.inPlayables;
-    rewardedBusy = true;
+    const tx = { kind: 'rewarded', rewardId: String(rewardId) };
+    adBusy = tx;
     lastAdAt = Date.now();
-    try { return !!(await yt.ads.requestRewardedAd(rewardId)); }
-    catch (_) { return false; }
-    finally { rewardedBusy = false; }
+    let earned = false;
+    try { earned = !!(await yt.ads.requestRewardedAd(tx.rewardId)); }
+    catch (_) { earned = false; }
+    // Host pause can arrive while the SDK promise is resolving. Keep the shared ad lock and do not
+    // return to gameplay callers until resume, so reward application cannot mutate paused play.
+    if (paused) await waitForHostResume();
+    if (adBusy === tx) adBusy = null;
+    return earned;
   };
 
   P.requestInterstitialAd = async (minGapMs = INTERSTITIAL_GAP_MS) => {
-    if (!P.interstitialAvailable || interstitialBusy) return false;
+    if (paused || adBusy || !P.interstitialAvailable) return false;
     const now = Date.now();
     if (now - lastAdAt < minGapMs) return false;
-    interstitialBusy = true;
+    const tx = { kind: 'interstitial' };
+    adBusy = tx;
     lastAdAt = now;
-    try { await yt.ads.requestInterstitialAd(); return true; }
-    catch (_) { return false; }
-    finally { interstitialBusy = false; }
+    let shown = false;
+    try { await yt.ads.requestInterstitialAd(); shown = true; }
+    catch (_) { shown = false; }
+    // Even a failed SDK request keeps the transaction lock until host resume if the host paused
+    // during the request. Continue therefore cannot race another ad format or become stranded.
+    if (paused) await waitForHostResume();
+    if (adBusy === tx) adBusy = null;
+    return shown;
   };
 
   return P;
