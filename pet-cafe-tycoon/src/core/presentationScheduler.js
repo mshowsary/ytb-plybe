@@ -6,12 +6,16 @@ export function createPresentationScheduler(env = {}) {
   const clearTimer = typeof env.clearTimer === 'function' ? env.clearTimer : id => clearTimeout(id);
   const requestFrame = typeof env.requestFrame === 'function' ? env.requestFrame : fn => requestAnimationFrame(fn);
   const cancelFrame = typeof env.cancelFrame === 'function' ? env.cancelFrame : id => cancelAnimationFrame(id);
+  const listAnimations = typeof env.listAnimations === 'function'
+    ? env.listAnimations
+    : () => (typeof document !== 'undefined' && typeof document.getAnimations === 'function' ? document.getAnimations() : []);
 
   let nextId = 1;
   const reasons = new Set();
   const timers = new Map();
   const frames = new Map();
   const resumeWaiters = new Set();
+  const pausedAnimations = new Set();
 
   const paused = () => reasons.size > 0;
 
@@ -39,6 +43,31 @@ export function createPresentationScheduler(env = {}) {
     });
   }
 
+  function pauseAnimations() {
+    let animations = [];
+    try { animations = listAnimations() || []; } catch (_) { animations = []; }
+    for (const animation of animations) {
+      if (!animation || typeof animation.pause !== 'function') continue;
+      const state = animation.playState;
+      if (state !== 'running' && state !== 'pending') continue;
+      try {
+        animation.pause();
+        pausedAnimations.add(animation);
+      } catch (_) {}
+    }
+  }
+
+  function resumeAnimations() {
+    for (const animation of pausedAnimations) {
+      if (!animation || typeof animation.play !== 'function') continue;
+      // Finished/cancelled transitions should not be resurrected. A transition paused by us should
+      // normally still report paused; only resume that state so externally-paused animations stay so.
+      if (animation.playState !== 'paused') continue;
+      try { animation.play(); } catch (_) {}
+    }
+    pausedAnimations.clear();
+  }
+
   function pauseAll() {
     const stamp = now();
     for (const task of timers.values()) {
@@ -52,9 +81,11 @@ export function createPresentationScheduler(env = {}) {
       cancelFrame(task.nativeId);
       task.nativeId = null;
     }
+    pauseAnimations();
   }
 
   function resumeAll() {
+    resumeAnimations();
     for (const task of timers.values()) armTimer(task);
     for (const task of frames.values()) armFrame(task);
     for (const resolve of resumeWaiters) resolve();
@@ -115,9 +146,11 @@ export function createPresentationScheduler(env = {}) {
     },
 
     clear() {
+      const wasPaused = paused();
       for (const id of [...timers.keys()]) S.cancel(id);
       for (const id of [...frames.keys()]) S.cancel(id);
       reasons.clear();
+      if (wasPaused) resumeAnimations();
       for (const resolve of resumeWaiters) resolve();
       resumeWaiters.clear();
     },
