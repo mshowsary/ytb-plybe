@@ -24,11 +24,13 @@ export function makePetPlayBreakBoost(day, seconds = PET_PLAY_BREAK_SECONDS, slo
 
 export function petPlayBreakActive(boosts, dayState) {
   const b = boosts && boosts.petPlayBreak;
-  return !!b && !!dayState && dayState.phase === 'rush' && (dayState.day | 0) === (b.day | 0) && b.remaining > 0;
+  // The offer is earned during Rush, but the promise is a fixed number of active-simulation
+  // seconds. If Rush rolls into Afternoon while time remains, do not silently erase that time.
+  return !!b && !!dayState && (dayState.day | 0) === (b.day | 0) && b.remaining > 0;
 }
 
 export function restorePetPlayBreakBoost(saved, dayState) {
-  if (!saved || typeof saved !== 'object' || !dayState || dayState.phase !== 'rush') return null;
+  if (!saved || typeof saved !== 'object' || !dayState) return null;
   const day = saved.day | 0;
   const remaining = Number(saved.remaining);
   const slots = Math.max(1, Math.min(PET_PLAY_BREAK_SLOTS, saved.slots | 0 || PET_PLAY_BREAK_SLOTS));
