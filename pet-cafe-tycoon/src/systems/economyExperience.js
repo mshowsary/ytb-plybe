@@ -213,6 +213,12 @@ export function createEconomyExperience(G, S, ctx, platform) {
     hud.toast('Reward earned · saved for the next useful moment');
     return true;
   }
+  function checkpointConsumedPending() {
+    // tryApplyPending runs inside G.update, so Task 08's coalescing checkpoint snapshots the
+    // post-consumption state after this full simulation step. A crash/reload therefore cannot
+    // replay an already-applied pending entitlement merely because no unrelated save followed it.
+    if (typeof G.requestCheckpoint === 'function') G.requestCheckpoint('temporary-help-consumed');
+  }
 
   function tryApplyPending() {
     const help = ensureHelpState(), pending = help.pending, d = G.dayState;
@@ -231,6 +237,7 @@ export function createEconomyExperience(G, S, ctx, platform) {
       if (!boost) return false;
       G.boosts.rushCrew = boost;
       help.pending = null;
+      checkpointConsumedPending();
       audio.play('chime'); hud.banner('EARNED RUSH CREW ACTIVATED', 2200);
       return true;
     }
@@ -240,6 +247,7 @@ export function createEconomyExperience(G, S, ctx, platform) {
       if (picked.length < pending.slots) return false;
       help.pending = null;
       G.stats.rewardedPetBreaks = (G.stats.rewardedPetBreaks | 0) + 1;
+      checkpointConsumedPending();
       celebratePetBreak(picked, true);
       return true;
     }
@@ -250,10 +258,12 @@ export function createEconomyExperience(G, S, ctx, platform) {
       if (cleared < 1) return false;
       help.pending = null;
       G.stats.rewardedRoombaSweeps = (G.stats.rewardedRoombaSweeps | 0) + 1;
+      checkpointConsumedPending();
       audio.play('chime'); hud.banner(`EARNED ROOMBA SWEEP · ${cleared} CLEARED`, 2200);
       return true;
     }
     help.pending = null;
+    checkpointConsumedPending();
     return false;
   }
 
