@@ -53,6 +53,8 @@ jobs:
         run: node tools/pet-play-break-visual-smoke.js
       - name: Pet friendship persistence and book smoke
         run: node tools/pet-friendship-smoke.js
+      - name: Barista live worker smoke
+        run: node tools/barista-smoke.js
       - name: Browser visual smoke
         run: node tools/production-smoke-v2.js
       - name: Ultra-narrow 183px HUD smoke
