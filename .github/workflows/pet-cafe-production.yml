@@ -89,6 +89,8 @@ jobs:
         run: node tools/barista-smoke.js
       - name: Browser visual smoke
         run: node tools/production-smoke-v2.js
+      - name: Recoverable boot smoke
+        run: node tools/boot-recovery-smoke.js
       - name: Ultra-narrow 183px HUD smoke
         run: node tools/ultra-narrow-smoke.js
       - name: First-use interaction coach smoke

@@ -60,7 +60,8 @@ test('Playables bridge wires lifecycle, audio, pause save, engagement and ads', 
   };
 
   const p = createYouTubePlatform(host);
-  p.firstFrameReady(); p.gameReady();
+  p.firstFrameReady(); p.firstFrameReady();
+  p.gameReady(); p.gameReady();
   assert.equal(first, 1); assert.equal(ready, 1);
   assert.deepEqual(await p.load(), { status: LOAD_STATUS.LOADED, data: { coins: 42 } });
   assert.equal(p.saveProtected, false);
@@ -154,6 +155,78 @@ test('malformed or unusable cloud data is invalid and remains write-protected', 
     assert.equal(await p.save({ coins: 5 }), false);
     assert.equal(writes, 0);
   }
+});
+
+test('retryLoad starts one fresh SDK request after rejection and authorizes only its success', async () => {
+  let loads = 0;
+  const writes = [];
+  const p = createYouTubePlatform(playableHost(
+    async () => {
+      loads++;
+      if (loads === 1) throw new Error('temporary cloud outage');
+      return JSON.stringify({ coins: 77 });
+    },
+    async raw => writes.push(raw),
+  ));
+
+  assert.deepEqual(await p.load(), { status: LOAD_STATUS.ERROR });
+  assert.equal(loads, 1);
+  assert.equal(p.saveProtected, true);
+  assert.equal(await p.save({ coins: 1 }), false);
+
+  assert.deepEqual(await p.retryLoad(), {
+    status: LOAD_STATUS.LOADED,
+    data: { coins: 77 },
+  });
+  assert.equal(loads, 2);
+  assert.equal(p.saveProtected, false);
+  assert.equal(await p.save({ coins: 78 }), true);
+  assert.deepEqual(writes, [JSON.stringify({ coins: 78 })]);
+});
+
+test('retryLoad can recover from invalid data without auto-resetting the first result', async () => {
+  let loads = 0;
+  let writes = 0;
+  const p = createYouTubePlatform(playableHost(
+    async () => (++loads === 1 ? '{bad json' : ''),
+    async () => { writes++; },
+  ));
+
+  assert.deepEqual(await p.load(), { status: LOAD_STATUS.INVALID });
+  assert.equal(p.saveProtected, true);
+  assert.equal(await p.save({ fresh: true }), false);
+  assert.equal(writes, 0);
+
+  assert.deepEqual(await p.retryLoad(), { status: LOAD_STATUS.EMPTY });
+  assert.equal(loads, 2);
+  assert.equal(p.saveProtected, false);
+  assert.equal(await p.save({ fresh: true }), true);
+  assert.equal(writes, 1);
+});
+
+test('retryLoad waits on an unresolved official request instead of racing a second loadData', async () => {
+  const slow = deferred();
+  let loads = 0;
+  const p = createYouTubePlatform(
+    playableHost(() => { loads++; return slow.promise; }),
+    { loadTimeoutMs: 5 },
+  );
+
+  assert.deepEqual(await p.load(), { status: LOAD_STATUS.PENDING });
+  assert.equal(loads, 1);
+  assert.equal(p.saveProtected, true);
+
+  const retry = p.retryLoad();
+  await new Promise(resolve => setTimeout(resolve, 1));
+  assert.equal(loads, 1);
+  slow.resolve(JSON.stringify({ coins: 44 }));
+
+  assert.deepEqual(await retry, {
+    status: LOAD_STATUS.LOADED,
+    data: { coins: 44 },
+  });
+  assert.equal(loads, 1);
+  assert.equal(p.saveProtected, false);
 });
 
 test('transient SDK write failure retries the same immutable snapshot', async () => {

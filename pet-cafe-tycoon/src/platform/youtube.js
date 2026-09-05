@@ -91,6 +91,8 @@ export function createYouTubePlatform(host = globalThis, options = {}) {
   let currentLoadOutcome = yt ? loadResult(LOAD_STATUS.PENDING) : null;
   let loadTimedOut = false;
   let writesAllowed = !yt;
+  let firstFrameReported = false;
+  let gameReadyReported = false;
   const pauseListeners = new Set();
 
   const P = {
@@ -120,10 +122,14 @@ export function createYouTubePlatform(host = globalThis, options = {}) {
   };
 
   P.firstFrameReady = () => {
+    if (firstFrameReported) return;
+    firstFrameReported = true;
     try { yt && yt.game && yt.game.firstFrameReady(); } catch (_) {}
   };
 
   P.gameReady = () => {
+    if (gameReadyReported) return;
+    gameReadyReported = true;
     try { yt && yt.game && yt.game.gameReady(); } catch (_) {}
   };
 
@@ -178,6 +184,37 @@ export function createYouTubePlatform(host = globalThis, options = {}) {
       loadTimedOut = true;
     });
     return result.status === LOAD_STATUS.PENDING ? result : authorizeDeliveredLoad(result);
+  };
+
+  P.retryLoad = async () => {
+    if (!yt) return P.load();
+    if (!yt.game || typeof yt.game.loadData !== 'function') {
+      currentLoadOutcome = loadResult(LOAD_STATUS.ERROR);
+      return currentLoadOutcome;
+    }
+
+    // A late success/empty result is already authoritative; explicitly delivering it through
+    // load() is what opens the write gate after a previous timeout.
+    if (currentLoadOutcome && (
+      currentLoadOutcome.status === LOAD_STATUS.LOADED
+      || currentLoadOutcome.status === LOAD_STATUS.EMPTY
+    )) {
+      return P.load();
+    }
+
+    // Never race a still-live loadData call. Retry simply waits another bounded window for the
+    // same official request, preserving any late result from Task 05.
+    if (currentLoadOutcome && currentLoadOutcome.status === LOAD_STATUS.PENDING && loadRequest) {
+      return P.load();
+    }
+
+    // Rejection or unusable data may be transient. A user-directed retry starts one fresh SDK
+    // request, but the write gate remains closed until that request is authoritatively delivered.
+    loadRequest = null;
+    loadTimedOut = false;
+    writesAllowed = false;
+    currentLoadOutcome = loadResult(LOAD_STATUS.PENDING);
+    return P.load();
   };
 
   async function writeSaveRaw(raw) {
