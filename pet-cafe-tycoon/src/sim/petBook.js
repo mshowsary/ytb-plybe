@@ -1,4 +1,4 @@
-// Persistent Pet Visitor Book. Discovery is cosmetic/meta only and never gates core progression.
+// Persistent Pet Visitor Book. Discovery + friendship are cosmetic/meta only and never gate core progression.
 export const PET_PROFILES = {
   cat: [
     { name: 'Marmalade', rarity: 'common', trait: 'Sunbeam seeker', body: '#D6A35F', belly: '#FFF0D5', accent: '#E0B34F' },
@@ -23,6 +23,15 @@ export const PET_PROFILES = {
 export const PET_SPECIES = ['cat', 'dog', 'bunny'];
 export const PET_VARIANT_WEIGHTS = [0, 0, 0, 1, 1, 1, 2, 2, 3];
 
+// Relationship pacing is intentionally short enough to become visible during normal repeat play,
+// but it never modifies prices, patience, spawn odds, navigation or ad availability.
+export const PET_FRIENDSHIP_TIERS = [
+  { level: 0, label: 'New Face', minVisits: 0 },
+  { level: 1, label: 'Regular', minVisits: 2 },
+  { level: 2, label: 'Friend', minVisits: 5 },
+  { level: 3, label: 'Bestie', minVisits: 10 },
+];
+
 export function petKey(species, variant) {
   return `${species}:${Math.max(0, Math.min(3, variant | 0))}`;
 }
@@ -35,6 +44,13 @@ export function petProfile(species, variant) {
 export function ensurePetBook(meta) {
   if (!meta || typeof meta !== 'object') return;
   if (!meta.petBook || typeof meta.petBook !== 'object') meta.petBook = {};
+  if (!meta.petFriendship || typeof meta.petFriendship !== 'object') meta.petFriendship = {};
+  // Sanitize malformed/newer save values so friendship can never turn into an economy-sized number.
+  for (const [key, value] of Object.entries(meta.petFriendship)) {
+    const visits = Math.max(0, Math.min(9999, Number.isFinite(Number(value)) ? Math.floor(Number(value)) : 0));
+    if (visits) meta.petFriendship[key] = visits;
+    else delete meta.petFriendship[key];
+  }
   meta.petDiscoveries = Math.max(0, meta.petDiscoveries | 0);
 }
 
@@ -46,6 +62,48 @@ export function discoverPet(meta, species, variant) {
   meta.petBook[key] = 1;
   meta.petDiscoveries = Object.keys(meta.petBook).length;
   return { isNew: true, key, profile, species, variant: variant | 0 };
+}
+
+function friendshipFromVisits(visits) {
+  visits = Math.max(0, visits | 0);
+  let tier = PET_FRIENDSHIP_TIERS[0];
+  for (const candidate of PET_FRIENDSHIP_TIERS) if (visits >= candidate.minVisits) tier = candidate;
+  const next = PET_FRIENDSHIP_TIERS[tier.level + 1] || null;
+  const base = tier.minVisits;
+  const needed = next ? Math.max(1, next.minVisits - base) : 0;
+  const current = next ? Math.max(0, visits - base) : 0;
+  return {
+    visits,
+    level: tier.level,
+    label: tier.label,
+    nextLabel: next ? next.label : null,
+    current,
+    needed,
+    frac: next ? Math.max(0, Math.min(1, current / needed)) : 1,
+    max: !next,
+  };
+}
+
+export function petFriendship(meta, species, variant) {
+  ensurePetBook(meta);
+  const key = petKey(species, variant);
+  return friendshipFromVisits(meta.petFriendship[key] | 0);
+}
+
+export function recordPetVisit(meta, species, variant) {
+  ensurePetBook(meta);
+  const discovery = discoverPet(meta, species, variant);
+  const key = discovery.key;
+  const before = friendshipFromVisits(meta.petFriendship[key] | 0);
+  const visits = Math.min(9999, (meta.petFriendship[key] | 0) + 1);
+  meta.petFriendship[key] = visits;
+  const friendship = friendshipFromVisits(visits);
+  return {
+    ...discovery,
+    friendship,
+    previousLevel: before.level,
+    promoted: friendship.level > before.level,
+  };
 }
 
 export function petBookProgress(meta) {
@@ -61,7 +119,14 @@ export function allPetCards(meta) {
   for (const species of PET_SPECIES) {
     for (let variant = 0; variant < PET_PROFILES[species].length; variant++) {
       const key = petKey(species, variant);
-      cards.push({ key, species, variant, profile: PET_PROFILES[species][variant], found: !!meta.petBook[key] });
+      cards.push({
+        key,
+        species,
+        variant,
+        profile: PET_PROFILES[species][variant],
+        found: !!meta.petBook[key],
+        friendship: friendshipFromVisits(meta.petFriendship[key] | 0),
+      });
     }
   }
   return cards;
