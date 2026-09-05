@@ -52,8 +52,8 @@ test('candidate summary rebuilds payback from day reports instead of trusting st
   assert.equal(row.firstRecoupDay, 12);
   assert.equal(row.durableRecoupDay, null);
   assert.equal(row.recoupDay, null);
-  assert.equal(row.incrementalAfterHire, 1400);
-  assert.equal(row.recoupCoveragePct, 70);
+  assert.equal(row.incrementalAfterHire, 1500);
+  assert.equal(row.recoupCoveragePct, 75);
 });
 
 test('robust recommendation keeps the highest price that still repays itself safely across seeds', () => {
