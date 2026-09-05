@@ -40,7 +40,6 @@ test('post-sim stepping restores patience after ordinary drains and expires clea
   startPetPlayBreak(G, rush(), 2, 2);
   const floorA = a.patience, floorB = b.patience;
 
-  // Pretend customer/world simulation has just drained both guests this frame.
   a.patience -= 0.4; b.patience -= 0.7;
   let r = stepPetPlayBreak(G, rush(), 0.5);
   assert.equal(r.active, true);
@@ -55,21 +54,24 @@ test('post-sim stepping restores patience after ordinary drains and expires clea
   assert.equal(b._petBreakFloor, undefined);
 });
 
-test('a saved break restores only into the exact same rush and waits for new stressed guests', () => {
+test('a saved break restores for the same day across Rush→Afternoon and waits for stressed guests', () => {
   const saved = { day: 4, remaining: 9.5, slots: 2 };
   const restored = restorePetPlayBreakBoost(saved, rush(4));
   assert.deepEqual(restored, { day:4, remaining:9.5, slots:2, recipientIds:[], needsRecipients:true });
-  assert.equal(restorePetPlayBreakBoost(saved, { day:4, phase:'afternoon' }), null);
+  assert.deepEqual(
+    restorePetPlayBreakBoost(saved, { day:4, phase:'afternoon', t:155 }),
+    { day:4, remaining:9.5, slots:2, recipientIds:[], needsRecipients:true },
+  );
   assert.equal(restorePetPlayBreakBoost(saved, rush(5)), null);
 
   const G = { customers: [], boosts: { petPlayBreak: restored } };
-  assert.equal(petPlayBreakActive(G.boosts, rush(4)), true);
-  const idle = stepPetPlayBreak(G, rush(4), 5);
+  assert.equal(petPlayBreakActive(G.boosts, { day:4, phase:'afternoon', t:155 }), true);
+  const idle = stepPetPlayBreak(G, { day:4, phase:'afternoon', t:155 }, 5);
   assert.equal(idle.active, true);
   assert.equal(G.boosts.petPlayBreak.remaining, 9.5, 'reward time is not burned while reload has no eligible guests');
 
   G.customers.push(guest(7, 2), guest(8, 3));
-  const attached = stepPetPlayBreak(G, rush(4), 0.5);
+  const attached = stepPetPlayBreak(G, { day:4, phase:'afternoon', t:156 }, 0.5);
   assert.deepEqual(attached.assigned.map(c => c.id), [7, 8]);
   assert.equal(G.boosts.petPlayBreak.remaining, 9);
 });
