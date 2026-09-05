@@ -1,5 +1,6 @@
 // Bottom sheets: upgrades, pantry and end-of-shift card.
 import { sackIcon, iconFor } from './icons.js';
+import { presentationScheduler } from '../core/presentationScheduler.js';
 const COIN_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9.5" fill="#FFD84D" stroke="#C98A00" stroke-width="1.5"/></svg>';
 const CHEVRON_DOWN_SVG = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const fmt = n => Math.round(n).toLocaleString('en-US');
@@ -84,7 +85,7 @@ function renderMachinesTab(rows, model, actions) {
     const maxed = r.cost === null;
     row.append(info, actionButton('sbtn buy', maxed ? 'MAX' : priceContent(r.cost), r.disabled, () => actions.buyStar(r.key))); rows.appendChild(row);
   }
-  if (focusEl) requestAnimationFrame(() => requestAnimationFrame(() => focusEl.scrollIntoView({ block: 'center' })));
+  if (focusEl) presentationScheduler.afterFrames(() => focusEl.scrollIntoView({ block: 'center' }), 2);
 }
 function renderKiosk(model, actions, onClose) {
   const el = shell('kiosk', 'UPGRADES', onClose); const tabs = document.createElement('div'); tabs.className = 'stabs';
@@ -137,7 +138,7 @@ export function createSheets(root = document.body) {
       return;
     }
     el.classList.remove('show');
-    setTimeout(() => { el.remove(); if (!current) wrap.classList.add('hidden'); }, 220);
+    presentationScheduler.schedule(() => { el.remove(); if (!current) wrap.classList.add('hidden'); }, 220);
     for (const cb of closeCbs) cb();
   };
   const requestClose = (source = 'close') => {
@@ -163,7 +164,7 @@ export function createSheets(root = document.body) {
   const open = (kind, model, actions) => {
     if (current) { current.el.remove(); current = null; }
     const el = build(kind, model, actions, requestClose); wrap.appendChild(el); wrap.classList.remove('hidden'); current = { kind, el, actions };
-    requestAnimationFrame(() => requestAnimationFrame(() => { if (current && current.el === el) el.classList.add('show'); }));
+    presentationScheduler.afterFrames(() => { if (current && current.el === el) el.classList.add('show'); }, 2);
   };
   const refresh = model => {
     if (!current) return; const scroller = current.el.querySelector('.srows'); const scrollTop = scroller ? scroller.scrollTop : 0;
