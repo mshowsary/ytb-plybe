@@ -45,7 +45,7 @@ export function normalizeStaffState(raw, area, builtSet = new Set(), staff = {})
   return { ok: true, legacy: false, data: { v: STAFF_STATE_VERSION, runnerAssignments } };
 }
 
-export function snapshotStaffState(staffList, world) {
+export function snapshotStaffState(staffList, world, fallback = null) {
   const allowed = new Set();
   if (world && Array.isArray(world.displays)) {
     for (const id of world.displays) {
@@ -53,10 +53,10 @@ export function snapshotStaffState(staffList, world) {
       if (st && st.active) allowed.add(id);
     }
   }
-  const runnerAssignments = [];
-  for (const s of staffList || []) {
-    if (!s || s.kind !== 'runner') continue;
-    runnerAssignments.push(typeof s.assign === 'string' && allowed.has(s.assign) ? s.assign : null);
-  }
+  const liveRunners = (staffList || []).filter(s => s && s.kind === 'runner');
+  const source = liveRunners.length
+    ? liveRunners.map(s => s.assign || null)
+    : (fallback && Array.isArray(fallback.runnerAssignments) ? fallback.runnerAssignments : []);
+  const runnerAssignments = source.map(id => typeof id === 'string' && allowed.has(id) ? id : null);
   return { v: STAFF_STATE_VERSION, runnerAssignments };
 }
