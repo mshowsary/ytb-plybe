@@ -67,8 +67,8 @@ async function boot() {
   const pauseOverlay = makePauseOverlay();
   platform.bindGame(G);
 
-  const save = await platform.load();
-  if (save) G.restore(save);
+  const load = await platform.load();
+  if (load.status === 'loaded') G.restore(load.data);
   petFriendship.refresh();
   coffeePolish.update();
   const pauseMenu = createPauseMenu(G, platform);
