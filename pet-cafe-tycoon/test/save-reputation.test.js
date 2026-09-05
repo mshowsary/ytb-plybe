@@ -21,20 +21,28 @@ test('old save without meta migrates to a safe modern meta + career + party-orde
 
 test('reputation, pets, friendship, career and party orders round-trip without sharing nested maps', () => {
   const s = state();
+  // This is a state the real progression model could have produced: 24 settled shifts can yield
+  // 72 reputation at the 3-rep maximum, enough for renovation level 2, with three awarded cups.
   const save = {
     coins: 50, upgrades: {}, staff: {}, stats: {}, settings: {},
+    dayState: { day: 25, t: 10, phase: 'morning' },
     meta: {
-      completedDays: 8, rewardedDays: { 7: 1 }, reputation: 72, perfectShifts: 4, bestServiceStreak: 21,
+      completedDays: 24, rewardedDays: { 7: 1 }, reputation: 72, perfectShifts: 4, bestServiceStreak: 21,
       shiftRatings: { 1: 2, 2: 3 }, petBook: { 'cat:0': 1, 'dog:2': 1 }, petFriendship: { 'cat:0': 5, 'dog:2': 2 }, petDiscoveries: 2,
       career: {
         history: { 1: { served: 31, lost: 1, earned: 500, bestStreak: 9, rating: 3, contractMet: true, points: 4 } },
-        weeklyCups: { 1: { tier: 'gold', reward: 1600, points: 26 } }, trophies: { bronze: 1, silver: 0, gold: 2 },
+        weeklyCups: {
+          1: { tier: 'gold', reward: 1600, points: 26 },
+          2: { tier: 'gold', reward: 1600, points: 25 },
+          3: { tier: 'bronze', reward: 600, points: 16 },
+        },
+        trophies: { bronze: 1, silver: 0, gold: 2 },
         recipeSales: { cookie: 78, cupcake: 22, coffee: 91, smoothie: 5, treat: 44 }, contractStreak: 3,
         bestContractStreak: 5, bestWeekPoints: 26, renovationLevel: 2,
       },
       partyOrders: {
-        nextId: 4, completed: 2, lastOfferDay: 7,
-        active: { id: 3, title: 'Shelter Snack Box', subtitle: 'Test', createdDay: 7, expiresDay: 8, reward: 180, claimed: false, requirements: [{ key: 'cookie', target: 4, count: 2 }] },
+        nextId: 4, completed: 2, lastOfferDay: 24,
+        active: { id: 3, title: 'Shelter Snack Box', subtitle: 'Test', createdDay: 24, expiresDay: 25, reward: 180, claimed: false, requirements: [{ key: 'cookie', target: 4, count: 2 }] },
       },
     },
   };
