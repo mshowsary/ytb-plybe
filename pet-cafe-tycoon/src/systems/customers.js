@@ -69,12 +69,12 @@ export function createCustomers(G, S, ctx) {
     const pet = createPet(species, petVariant); pet.group.position.set(c.x + 0.45, 0, c.z - 0.9); scene.add(pet.group);
     const leash = createLeash(scene); leash.attach(human.hand, pet.neck);
     const bub = makeBubble(els);
-    const identity = createPetMoment(els, profile);
+    const identity = createPetMoment(els, profile, c.id);
     if (profile.rarity === 'rare' || profile.rarity === 'epic') identity.announce(`${profile.rarity.toUpperCase()} VISITOR`, 2.8);
     rec.set(c.id, {
       human, pet, leash, identity, profile,
       px: c.x, pz: c.z, eating: false, bub,
-      lastState: c.state, petHappyT: 0, treatCelebrated: false, tablePenalty: false,
+      lastState: c.state, petHappyT: 0, petBreakActive: false, treatCelebrated: false, tablePenalty: false,
     });
     if (ctx.discoverPet) ctx.discoverPet(species, petVariant);
   }
@@ -174,9 +174,27 @@ export function createCustomers(G, S, ctx) {
           rec.delete(c.id); G.customers.splice(i, 1); continue;
         }
 
+        // Pet Play Break is a simulation-side patience hold, but players need to SEE which pets got
+        // the reward. `_petBreakFloor` is written only for the two selected recipients and cleared
+        // by the post-sim controller when the reward expires. This branch changes render state only:
+        // happy bubble + identity highlight + a small bounce/wiggle; no customer or mover coordinate
+        // is touched, so navigation, queue ownership and service timing stay identical.
+        const petBreakNow = Number.isFinite(c._petBreakFloor);
+        if (petBreakNow && !r.petBreakActive) {
+          r.petBreakActive = true;
+          r.identity.setPlayBreak(true);
+          r.pet.setMood('happy');
+          fx.hearts(r.pet.group.position.x, r.pet.height + 0.25, r.pet.group.position.z);
+        } else if (!petBreakNow && r.petBreakActive) {
+          r.petBreakActive = false;
+          r.identity.setPlayBreak(false);
+          r.pet.group.rotation.z = 0;
+          if (r.petHappyT <= 0) r.pet.setMood('none');
+        }
+
         if (r.petHappyT > 0) {
           r.petHappyT = Math.max(0, r.petHappyT - dt);
-          if (r.petHappyT === 0) r.pet.setMood('none');
+          if (r.petHappyT === 0 && !r.petBreakActive) r.pet.setMood('none');
         }
         if (r.eating && c.state !== 'eating') {
           r.pet.stand(); r.human.stand(); r.eating = false; r.identity.setSeated(false);
@@ -194,6 +212,15 @@ export function createCustomers(G, S, ctx) {
           // Follow the visible human. A hidden sim recovery can no longer yank the pet ahead of its owner.
           r.pet.followTarget(r.px, r.pz, c.rot, dt);
           if (c.state === 'queue' || c.state === 'atBowl' || c.state === 'atRegister') r.human.setMood(c.mood === 'wait' ? 'wait' : 'none');
+        }
+
+        if (r.petBreakActive) {
+          const pulse = (G.time + (c.id | 0) * 0.17) * 7;
+          r.pet.setMood('happy');
+          r.pet.group.position.y += 0.035 + Math.abs(Math.sin(pulse)) * 0.08;
+          r.pet.group.rotation.z = Math.sin(pulse * 0.67) * 0.075;
+        } else if (Math.abs(r.pet.group.rotation.z) > 0.001) {
+          r.pet.group.rotation.z *= Math.max(0, 1 - dt * 12);
         }
         r.leash.update();
 
