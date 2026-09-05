@@ -10,6 +10,7 @@ import { createPlayablesShell } from './ui/playablesShell.js';
 import { installCleanHud } from './ui/cleanHud.js';
 import { installCertificationPolish } from './ui/certificationPolish.js';
 import { createInteractionCoach } from './ui/interactionCoach.js';
+import { installReliefAttention } from './ui/reliefAttention.js';
 import { createPauseMenu } from './ui/pauseMenu.js';
 import { createCashTrays } from './render/cashTrays.js';
 import { AREA1 } from '../data/area1.js';
@@ -49,6 +50,7 @@ async function boot() {
   const machineJuice = createMachineJuice(G.world, S.scene);
   const petFriendship = installPetFriendship(G, platform);
   const serviceFriction = installServiceFriction(G);
+  const reliefAttention = installReliefAttention(G);
   const responsive = createResponsivePolish(G);
   const shell = createPlayablesShell();
   installCertificationPolish();
@@ -73,6 +75,7 @@ async function boot() {
   window.__interactionCoach = interactionCoach;
   window.__petFriendship = petFriendship;
   window.__serviceFriction = serviceFriction;
+  window.__reliefAttention = reliefAttention;
 
   S.render();
   platform.firstFrameReady();

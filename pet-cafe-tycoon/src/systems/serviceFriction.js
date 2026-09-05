@@ -49,6 +49,16 @@ export function installServiceFriction(G) {
     return r;
   }
 
+  function syncWalletAfterFrame() {
+    if (typeof document === 'undefined') return;
+    const sync = () => {
+      const num = document.getElementById('walletNum');
+      if (num) num.textContent = Math.max(0, Math.round(G.coins || 0)).toLocaleString('en-US');
+    };
+    if (typeof queueMicrotask === 'function') queueMicrotask(sync);
+    else Promise.resolve().then(sync);
+  }
+
   function charge(kind, severity = 0) {
     const stats = G.dayStats || (G.dayStats = {});
     const used = Math.max(0, stats.serviceFees | 0);
@@ -59,6 +69,8 @@ export function installServiceFriction(G) {
     stats.serviceFees = used + cost;
     stats.serviceMisses = (stats.serviceMisses | 0) + 1;
     if (G.stats) G.stats.serviceFees = (G.stats.serviceFees | 0) + cost;
+    if (G.audio && G.audio.play) G.audio.play('penalty');
+    syncWalletAfterFrame();
     announce(`${LABEL[kind] || 'Service recovery'}  −${cost}`);
     return cost;
   }
