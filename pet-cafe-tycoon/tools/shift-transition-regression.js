@@ -75,7 +75,9 @@ function transitionContract(before, after) {
   const stats = after.dayStats || {};
   return {
     advancedExactlyOne: after.day === before.day + 1,
-    resetForPlay: after.ended === false && after.t === 0 && after.phase === 'morning',
+    // The live render/update loop resumes immediately after the transition. Observe a bounded slice
+    // of the new morning instead of requiring an impossible frozen t===0 snapshot 420ms later.
+    resetForPlay: after.ended === false && after.phase === 'morning' && after.t >= 0 && after.t <= 0.75,
     dayStatsReset: ['served','lost','earned','serviceFees','serviceMisses','wasteFees','bestStreak'].every(k => (stats[k] | 0) === 0),
     summaryClosed: after.summaryVisible === false,
     noDuplicateSettlement: after.coins === before.coins && after.reputation === before.reputation && after.history === before.history,
@@ -86,9 +88,9 @@ const actions = {
   continue: page => page.click('.sheet-root .continue'),
   escape: page => page.keyboard.press('Escape'),
   backdrop: page => page.evaluate(() => document.querySelector('.sheet-root .backdrop')?.click()),
-  // The close affordance can be visually translated while the sheet animates; dispatch its real
-  // click handler directly so this gate tests close semantics, not Playwright hit-testing.
-  close: page => page.evaluate(() => document.querySelector('.sheet-root .sclose')?.click()),
+  // Target the active summary card specifically. A sheet-root can briefly retain another translated
+  // close affordance during animation; the hard gate must exercise the summary's own dismiss action.
+  close: page => page.evaluate(() => document.querySelector('.sheet-root .card .sclose')?.click()),
   doubleContinue: page => page.evaluate(() => { const b = document.querySelector('.sheet-root .continue'); b?.click(); b?.click(); }),
 };
 
