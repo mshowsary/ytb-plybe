@@ -46,10 +46,21 @@ export function createPetMess(G, scene) {
     scene.remove(spot.mesh); spots.splice(index, 1);
   }
   function clearAll() { for (let i = spots.length - 1; i >= 0; i--) removeAt(i); }
+  function syncDay(currentDay) {
+    if (currentDay === day) return;
+    day = currentDay;
+    clearAll();
+    lastSpawnAt = -Infinity;
+    suppressUntil = -Infinity;
+  }
 
   function spawnFromSeat(event) {
     const now = Number(G.time) || 0;
     const currentDay = (G.dayState && G.dayState.day) | 0;
+    // A restore can replace dayState between animation frames. Synchronize here BEFORE handling
+    // the first new seated event so valid pawprints created in that restored day are never cleared
+    // one frame later by update() merely catching up to the already-restored day number.
+    syncDay(currentDay);
     if (now < suppressUntil) return;
     if (!shouldSpawnPetMess(currentDay, event.id, spots.length, now - lastSpawnAt)) return;
     const seat = event.seatId && G.world.stations.get(event.seatId);
@@ -73,7 +84,7 @@ export function createPetMess(G, scene) {
   const api = {
     update(dt) {
       const nextDay = (G.dayState && G.dayState.day) | 0;
-      if (nextDay !== day) { day = nextDay; clearAll(); lastSpawnAt = -Infinity; suppressUntil = -Infinity; }
+      syncDay(nextDay);
       const P = G.P;
       if (P) {
         for (let i = spots.length - 1; i >= 0; i--) {
