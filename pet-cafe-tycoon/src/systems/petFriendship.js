@@ -16,9 +16,10 @@ function ensureStyle() {
     .pet-friendship-track{height:3px;width:100%;overflow:hidden;border-radius:999px;background:#553a3512}
     .pet-friendship-fill{height:100%;border-radius:inherit;background:linear-gradient(90deg,#ef8fa3,#8b7cf6);transition:width .3s ease}
     .meta-pet-card.bestie{border-color:#e29bb56e;box-shadow:inset 0 0 0 1px #fff8,0 4px 14px #d2708c18}
+    .meta-pawbook.pet-forward .meta-paw{font-size:15px;line-height:1}.meta-pawbook.pet-forward .meta-book-count:before{content:'PETS ';font-size:9px;letter-spacing:.05em;opacity:.55;margin-right:3px}
     .friendship-toast{position:fixed;left:50%;bottom:calc(172px + env(safe-area-inset-bottom,0px));z-index:82;pointer-events:none;transform:translate(-50%,10px) scale(.96);opacity:0;max-width:min(330px,calc(100vw - 24px));box-sizing:border-box;padding:10px 15px;border-radius:999px;background:#fff4f7f2;color:#704250;border:1px solid #fff;box-shadow:0 10px 28px #7e394431;font:900 12px/1.15 system-ui,sans-serif;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:.2s ease}
     .friendship-toast.show{opacity:1;transform:translate(-50%,0) scale(1)}
-    @media(max-width:380px){.pet-friendship-top{font-size:7px}.pet-friendship-visits{display:none}.friendship-toast{font-size:11px}}
+    @media(max-width:380px){.pet-friendship-top{font-size:7px}.pet-friendship-visits{display:none}.friendship-toast{font-size:11px}.meta-pawbook.pet-forward .meta-book-count:before{display:none}}
     @media(max-width:240px){.pet-friendship{display:none}}
   `;
   document.head.appendChild(style);
@@ -51,7 +52,7 @@ export function installPetFriendship(G, platform = null) {
   const announce = makeToast();
   const events = G.world.events;
   const nativePush = events.push;
-  let lastPromotionKey = '';
+  let lastPromotionKey = '', spotlightDay = -1, lastSpotlightKey = '';
 
   // Snapshot ownership remains in game.js; this wrapper adds only the new cosmetic map so existing
   // save/certification behavior stays untouched. applySave already migrates old saves to an empty map.
@@ -98,6 +99,11 @@ export function installPetFriendship(G, platform = null) {
   // meta.js owns opening/rebuilding the book. This listener is installed later, so rendering on the
   // next frame decorates the fresh cards without making either UI module depend on the other.
   const bookButton = document.querySelector('.meta-pawbook');
+  if (bookButton) {
+    bookButton.classList.add('pet-forward');
+    bookButton.title = 'Pet Visitor Book · meet named pets and build friendships';
+    const paw = bookButton.querySelector('.meta-paw'); if (paw) paw.textContent = '🐾';
+  }
   const onBookOpen = () => requestAnimationFrame(renderBook);
   if (bookButton) bookButton.addEventListener('click', onBookOpen);
 
@@ -109,6 +115,10 @@ export function installPetFriendship(G, platform = null) {
       const customer = G.customers.find(c => c && c.id === event.id);
       if (!customer || !customer.species) continue;
       const result = recordPetVisit(G.meta, customer.species, customer.petVariant | 0);
+      const day = Math.max(1, (G.dayState && G.dayState.day) | 0);
+      const firstPetThisDay = spotlightDay !== day;
+      if (firstPetThisDay) { spotlightDay = day; lastSpotlightKey = result.key; }
+
       if (result.promoted) {
         lastPromotionKey = result.key;
         announce(`${result.profile.name} is now a ${result.friendship.label} ♥`);
@@ -117,6 +127,14 @@ export function installPetFriendship(G, platform = null) {
           setTimeout(() => bookButton.classList.remove('bump'), 500);
         }
         if (platform && G.snapshot) platform.save(G.snapshot());
+      } else if (firstPetThisDay) {
+        // One quiet pet spotlight per shift makes the named-pet layer visible during Days 1–4
+        // without throwing a toast for every customer. This has no gameplay/economy effect.
+        announce(`${result.profile.name} ♥ ${result.profile.trait}`);
+        if (bookButton) {
+          bookButton.classList.add('bump');
+          setTimeout(() => bookButton.classList.remove('bump'), 420);
+        }
       }
       renderBook();
     }
@@ -127,6 +145,7 @@ export function installPetFriendship(G, platform = null) {
   return {
     refresh: renderBook,
     get lastPromotionKey() { return lastPromotionKey; },
+    get lastSpotlightKey() { return lastSpotlightKey; },
     destroy() {
       if (events.push === observedPush) events.push = nativePush;
       if (bookButton) bookButton.removeEventListener('click', onBookOpen);

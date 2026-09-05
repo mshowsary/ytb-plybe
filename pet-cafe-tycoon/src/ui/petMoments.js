@@ -6,17 +6,17 @@ function ensureStyle() {
   style.id = STYLE_ID;
   style.textContent = `
     .pet-identity{position:absolute;transform:translate(-50%,-100%);z-index:2;pointer-events:none;
-      display:flex;align-items:center;gap:5px;max-width:150px;padding:5px 9px;border-radius:999px;
+      display:flex;align-items:center;gap:5px;max-width:166px;padding:5px 9px;border-radius:999px;
       background:#fff9f0ee;color:#493b35;box-shadow:0 3px 10px #0002;border:1px solid #fff;
-      font:900 11px/1.05 system-ui,sans-serif;white-space:nowrap;opacity:0;transition:opacity .18s ease,transform .18s ease,box-shadow .18s ease,border-color .18s ease}
+      font:900 12px/1.05 system-ui,sans-serif;white-space:nowrap;opacity:0;transition:opacity .18s ease,transform .18s ease,box-shadow .18s ease,border-color .18s ease}
     .pet-identity.show{opacity:1;transform:translate(-50%,-108%)}
-    .pet-identity .paw{font-size:12px;color:#d97c70}.pet-identity .detail{font-size:9px;font-weight:800;opacity:.56;text-transform:uppercase;letter-spacing:.06em;max-width:76px;overflow:hidden;text-overflow:ellipsis}
+    .pet-identity .paw{font-size:12px;color:#d97c70}.pet-identity .detail{font-size:9px;font-weight:800;opacity:.56;text-transform:uppercase;letter-spacing:.06em;max-width:88px;overflow:hidden;text-overflow:ellipsis}
     .pet-identity.rare{border-color:#9d87ed88}.pet-identity.epic{border-color:#df78b488;background:#fff4faee}
     .pet-identity.play-break{border-color:#e58fa3cc;background:#fff6faee;box-shadow:0 4px 14px #d97c7040,0 0 0 2px #ffd9e080}
     .pet-identity.play-break .paw{animation:pet-break-paw .72s ease-in-out infinite alternate}.pet-identity.play-break .detail{opacity:.82;color:#a9516c}
     @keyframes pet-break-paw{from{transform:scale(.9)}to{transform:scale(1.2)}}
     body.ui-compact .pet-identity{font-size:10px;padding:4px 7px}.pet-identity.seated .detail{display:none}
-    @media(max-width:380px){.pet-identity{max-width:110px;font-size:9px;padding:4px 6px}.pet-identity .detail{display:none}}
+    @media(max-width:380px){.pet-identity{max-width:118px;font-size:10px;padding:4px 6px}.pet-identity .detail{display:none}}
     @media(prefers-reduced-motion:reduce){.pet-identity.play-break .paw{animation:none}}
   `;
   document.head.appendChild(style);
@@ -49,17 +49,22 @@ export function createPetMoment(els, profile, customerId = null) {
   };
   P.remove = () => el.remove();
   P.update = (dt, fx, x, y, z) => {
-    timer = Math.max(0, timer - dt);
-    const visible = seated || playBreak || timer > 0;
-    if (!visible) { el.classList.remove('show'); return; }
-    if (!playBreak && seated && timer <= 0 && detailText) { detailText = ''; detail.textContent = ''; }
+    // Announcements are measured in VISIBLE screen time. Pets spawn outside the useful camera
+    // area; burning the timer there made their names/traits disappear before the player could see
+    // them. Project first, then tick the timer only while the badge is actually on-screen.
+    const wantsVisible = seated || playBreak || timer > 0;
+    if (!wantsVisible) { el.classList.remove('show'); return; }
     fx.project(x, y, z, projection);
     el.style.left = projection.sx + 'px'; el.style.top = projection.sy + 'px';
     el.classList.toggle('show', projection.visible);
+    if (!projection.visible) return;
+
+    timer = Math.max(0, timer - dt);
+    if (!playBreak && seated && timer <= 0 && detailText) { detailText = ''; detail.textContent = ''; }
   };
 
   // Common visitors get a tiny personality introduction; rare/epic callers can immediately
   // overwrite this with a higher-priority rarity announcement without creating another element.
-  if (profile.trait) P.announce(profile.trait, 2.1);
+  if (profile.trait) P.announce(profile.trait, 2.4);
   return P;
 }
