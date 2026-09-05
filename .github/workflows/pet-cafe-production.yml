@@ -1,11 +1,6 @@
 name: Pet Cafe Production
 
 on:
-  push:
-    branches: [chatgpt/pet-cafe-production]
-    paths:
-      - 'pet-cafe-tycoon/**'
-      - '.github/workflows/pet-cafe-production.yml'
   workflow_dispatch:
 
 concurrency:
