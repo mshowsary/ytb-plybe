@@ -1,7 +1,8 @@
-// End-to-end rewarded Pet Play Break regression. Uses a real browser game with four genuine
-// spawned/rendered pet guests as the only reward-eligible recipients. Three inert simulation-only
-// patrons provide deterministic population context so CI does not depend on seven naturally
-// concurrent arrivals; only the YouTube ad host is mocked.
+// End-to-end rewarded Pet Play Break regression. Uses a real browser game with two genuine
+// spawned/rendered pet guests — exactly the two recipients the reward promises. Two higher-patience
+// simulation fillers provide the remaining waiting signals and three inert patrons provide the
+// population backdrop, so CI never depends on seven naturally concurrent arrivals. Only the
+// YouTube ad host is mocked.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -41,8 +42,8 @@ await page.goto('http://127.0.0.1:4180/', { waitUntil:'domcontentloaded' });
 await page.waitForFunction(() => window.__game && window.__ready && document.getElementById('loading').classList.contains('hidden'), null, { timeout:30000 });
 
 // Fully built café gives Rush enough population capacity for the broad-overload path. Keep the
-// once-per-day Rush Help claim temporarily consumed while four genuine browser-system guests spawn,
-// so pre-fixture queue noise cannot start the monetization dwell early.
+// once-per-day Rush Help claim temporarily consumed while TWO genuine browser-system guests spawn.
+// Two is the minimum meaningful natural dependency because Pet Play Break rewards exactly two pets.
 await page.evaluate(() => {
   const G = window.__game, s = G.snapshot();
   s.coins = 5000;
@@ -56,51 +57,61 @@ await page.evaluate(() => {
   s.meta.rewardedDays = { ...(s.meta.rewardedDays || {}), 'relief:8':1 };
   G.restore(s);
   const bowl = G.world.stations.get('bowl1'); if (bowl) bowl.stock = 0;
-  // Empty shelves keep early genuine guests around long enough to collect four of them. The claimed
-  // gate above prevents those temporary empty-shelf signals from surfacing Rush Help during setup.
   for (const id of G.world.displays) { const st = G.world.stations.get(id); if (st) st.stock = 0; }
 });
 
-await page.waitForFunction(() => window.__game.customers.filter(c => !c.done).length >= 4, null, { timeout:30000 });
+await page.waitForFunction(() => window.__game.customers.filter(c => !c.done).length >= 2, null, { timeout:45000 });
 
 const fixture = await page.evaluate(() => {
   const G = window.__game;
-  const active = G.customers.filter(c => !c.done).slice(0, 4);
-  if (active.length < 4) throw new Error('Pet Play Break fixture failed to collect four real guests');
+  const real = G.customers.filter(c => !c.done).slice(0, 2);
+  if (real.length < 2) throw new Error('Pet Play Break fixture failed to collect two real guests');
 
-  // Four REAL rendered pet guests wait at the empty bowl. `_treatGivenUp=true` deliberately
-  // disables the separate six-second give-up branch for this targeted monetization smoke; they
-  // still go through the ordinary atBowl patience drain every simulation tick and remain the only
-  // guests eligible for the rewarded Pet Play Break.
-  for (let i = 0; i < 4; i++) {
-    const c = active[i];
+  // These two REAL rendered pets are deliberately the most stressed eligible guests. They remain
+  // comfortably above zero through the five-second anti-flash dwell, but below the two synthetic
+  // fillers, making reward selection deterministic without faking the actual rewarded recipients.
+  for (let i = 0; i < 2; i++) {
+    const c = real[i];
     c.state = 'atBowl'; c.mood = 'none'; c.wish = { product:'cookie', treat:true }; c.order = ['cookie'];
     c.patience = 14 + i; c._patQ = c.patience * 4; c._treatGivenUp = true; c._bowlSlot = i;
     c.mover.hasTarget = false; c.mover.n = 0; c.mover.k = 0; c.mover.vx = 0; c.mover.vz = 0;
   }
 
-  // Population-only shadows: they deliberately have no render record and are never reward-eligible
-  // (mood none, state eating). Their only purpose is to make activeCustomers === 7 deterministically
-  // while preserving the production trigger's real 7-active / 4-waiting requirement. Their eating
-  // timers are far below zero so ordinary customer stepping leaves them inert for the whole smoke.
+  // Two non-rendered waiting fillers complete the production 4-waiting signal, but start with
+  // higher patience so the reward's "two most stressed" rule must choose the two real pets above.
+  const fillers = Array.from({ length:2 }, (_, i) => ({
+    id: 800001 + i, species:'bunny', petVariant:0,
+    x: 5.8 + i * 0.35, z:2.9, rot:0,
+    state:'atBowl', mood:'none', patience:16 + i, done:false, hop:0,
+    wish:{ product:'cookie', treat:true }, order:['cookie'], _treatGivenUp:true, _bowlSlot:2 + i,
+    mover:{ x:5.8 + i * 0.35, z:2.9, rot:0, mask:0, hasTarget:false, n:0, k:0, vx:0, vz:0, speed:0, r:0.3, radius:0.3 },
+  }));
+
+  // Three population-only shadows are never waiting/reward-eligible. Their eating timers are far
+  // below zero so ordinary customer stepping leaves them inert for the whole smoke.
   const shadows = Array.from({ length:3 }, (_, i) => ({
     id: 900001 + i, species:'cat', petVariant:0,
-    x: -1.5 + i * 0.5, z: 4.8, rot:0,
+    x: -1.5 + i * 0.5, z:4.8, rot:0,
     state:'eating', mood:'none', patience:17, done:false, hop:0,
     wish:{ product:'cookie', treat:false }, order:['cookie'], timer:-100,
     mover:{ x:-1.5 + i * 0.5, z:4.8, rot:0, mask:0, hasTarget:false, n:0, k:0, vx:0, vz:0, speed:0, r:0.3, radius:0.3 },
   }));
-  G.customers.push(...shadows);
+  G.customers.push(...fillers, ...shadows);
 
   G.meta.rewardedDays['relief:8'] = 0;
   window.__petBreakFixtureStart = G.time;
-  window.__petBreakIds = active.map(c => c.id);
+  window.__petBreakIds = real.map(c => c.id);
+  window.__petBreakFillerIds = fillers.map(c => c.id);
+  window.__petBreakEligibleIds = [...window.__petBreakIds, ...window.__petBreakFillerIds];
   window.__petBreakShadowIds = shadows.map(c => c.id);
-  return { ids:[...window.__petBreakIds], shadowIds:[...window.__petBreakShadowIds], start:G.time };
+  return {
+    ids:[...window.__petBreakIds], fillerIds:[...window.__petBreakFillerIds],
+    shadowIds:[...window.__petBreakShadowIds], start:G.time,
+  };
 });
 
 await page.waitForFunction(() => {
-  const G = window.__game, ids = new Set(window.__petBreakIds || []);
+  const G = window.__game, ids = new Set(window.__petBreakEligibleIds || []);
   return G.customers.filter(c => ids.has(c.id) && c.state === 'atBowl' && c.mood === 'wait').length === 4;
 }, null, { timeout:3000 });
 
@@ -111,15 +122,17 @@ await page.waitForFunction(() => {
 }, null, { timeout:18000 });
 
 const surfaceState = await page.evaluate(() => {
-  const G = window.__game, ids = new Set(window.__petBreakIds || []), shadowIds = new Set(window.__petBreakShadowIds || []);
+  const G = window.__game;
+  const realIds = new Set(window.__petBreakIds || []), fillerIds = new Set(window.__petBreakFillerIds || []), shadowIds = new Set(window.__petBreakShadowIds || []);
   const root = document.querySelector('.relief-root'), pill = document.querySelector('.relief-pill');
   return {
     fixtureElapsed:G.time - window.__petBreakFixtureStart,
     day:{ day:G.dayState.day, phase:G.dayState.phase, t:G.dayState.t },
     claim:G.meta.rewardedDays['relief:8'] || 0,
     activeCount:G.customers.filter(c => !c.done).length,
+    fillerCount:G.customers.filter(c => fillerIds.has(c.id) && !c.done).length,
     shadowCount:G.customers.filter(c => shadowIds.has(c.id) && !c.done).length,
-    guests:G.customers.filter(c => ids.has(c.id)).map(c => ({ id:c.id, state:c.state, mood:c.mood, patience:c.patience })),
+    guests:G.customers.filter(c => realIds.has(c.id)).map(c => ({ id:c.id, state:c.state, mood:c.mood, patience:c.patience })),
     rootClass:root && root.className,
     pillClass:pill && pill.className,
     pillText:pill && pill.textContent.replace(/\s+/g,' ').trim(),
@@ -128,7 +141,7 @@ const surfaceState = await page.evaluate(() => {
 const visible = surfaceState.rootClass && !surfaceState.rootClass.split(/\s+/).includes('hidden') &&
   surfaceState.pillClass && !surfaceState.pillClass.split(/\s+/).includes('hidden') && /Pet Play Break/i.test(surfaceState.pillText || '');
 if (!visible) throw new Error(`Pet Play Break surface did not stabilize: ${JSON.stringify(surfaceState)}`);
-if (surfaceState.activeCount < 7 || surfaceState.shadowCount !== 3 || surfaceState.guests.length !== 4) {
+if (surfaceState.activeCount < 7 || surfaceState.fillerCount !== 2 || surfaceState.shadowCount !== 3 || surfaceState.guests.length !== 2) {
   throw new Error(`Pet Play Break deterministic population fixture drifted: ${JSON.stringify(surfaceState)}`);
 }
 
@@ -167,31 +180,33 @@ await page.waitForFunction(() => {
 
 const awarded = await page.evaluate(() => {
   const G = window.__game, b = G.boosts.petPlayBreak, save = G.snapshot();
-  const ids = new Set(window.__petBreakIds || []);
+  const eligibleIds = new Set(window.__petBreakEligibleIds || []);
   return {
     rewardIds:[...window.__rewardIds],
     boost:{ day:b.day, remaining:b.remaining, slots:b.slots, recipientIds:[...b.recipientIds] },
     savedBoost:save.boosts && save.boosts.petPlayBreak ? {...save.boosts.petPlayBreak} : null,
     claim:G.meta.rewardedDays['relief:8'],
-    patience:Object.fromEntries(G.customers.filter(c => ids.has(c.id)).map(c => [c.id, c.patience])),
+    patience:Object.fromEntries(G.customers.filter(c => eligibleIds.has(c.id)).map(c => [c.id, c.patience])),
   };
 });
 if (awarded.rewardIds.filter(x => x === 'pet-cafe-pet-play-break').length !== 1) throw new Error(`Pet Play Break ad called wrong number of times: ${JSON.stringify(awarded)}`);
 if (!awarded.savedBoost || awarded.savedBoost.day !== 8 || awarded.savedBoost.slots !== 2 || !(awarded.savedBoost.remaining > 0)) throw new Error(`active Pet Play Break missing from snapshot: ${JSON.stringify(awarded)}`);
-if (!awarded.boost.recipientIds.every(id => fixture.ids.includes(id))) throw new Error(`Pet Play Break selected a non-rendered population shadow: ${JSON.stringify(awarded)}`);
+if (awarded.boost.recipientIds.length !== fixture.ids.length || !awarded.boost.recipientIds.every(id => fixture.ids.includes(id))) {
+  throw new Error(`Pet Play Break failed to choose the two real rendered pets: ${JSON.stringify(awarded)}`);
+}
 
 await page.evaluate(() => {
   const G = window.__game, b = G.boosts.petPlayBreak;
   window.__petBreakObserveStart = G.time;
   window.__petBreakSelected = [...b.recipientIds];
-  window.__petBreakPatienceAtAward = Object.fromEntries((window.__petBreakIds || []).map(id => {
+  window.__petBreakPatienceAtAward = Object.fromEntries((window.__petBreakEligibleIds || []).map(id => {
     const c = G.customers.find(x => x.id === id); return [id, c && c.patience];
   }));
 });
 await page.waitForFunction(() => window.__game.time - window.__petBreakObserveStart >= 2, null, { timeout:9000 });
 const held = await page.evaluate(() => {
   const G = window.__game, selected = new Set(window.__petBreakSelected || []), before = window.__petBreakPatienceAtAward || {};
-  return (window.__petBreakIds || []).map(id => {
+  return (window.__petBreakEligibleIds || []).map(id => {
     const c = G.customers.find(x => x.id === id);
     return { id, selected:selected.has(id), before:before[id], after:c && c.patience };
   });
