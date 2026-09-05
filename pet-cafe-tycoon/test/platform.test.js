@@ -27,7 +27,7 @@ test('local preview persists state in-memory and grants the dev reward path', as
     data: { coins: 123, meta: { completedDays: 2 } },
   });
   assert.equal(await p.requestRewardedAd(), true);
-  assert.equal(p.sendScore(12), false);
+  assert.equal(await p.sendScore(12), false);
 });
 
 test('Playables bridge wires lifecycle, audio, pause save, engagement and ads', async () => {
@@ -78,9 +78,9 @@ test('Playables bridge wires lifecycle, audio, pause save, engagement and ads', 
   resumeCb(); assert.equal(p.paused, false);
   assert.equal(p.language, 'fr');
 
-  assert.equal(p.sendScore(9.8), true);
-  assert.equal(p.sendScore(9.2), false); // floors to same value, no duplicate platform call
-  assert.equal(p.sendScore(12), true);
+  assert.equal(await p.sendScore(9.8), true);
+  assert.equal(await p.sendScore(9.2), false); // floors to same acknowledged value
+  assert.equal(await p.sendScore(12), true);
   assert.deepEqual(scores, [9, 12]);
   assert.equal(await p.requestRewardedAd('pet-cafe-day-bonus-coins'), true);
 });
@@ -156,11 +156,118 @@ test('malformed or unusable cloud data is invalid and remains write-protected', 
   }
 });
 
-test('save reports SDK write failure after a valid load', async () => {
+test('transient SDK write failure retries the same immutable snapshot', async () => {
+  const writes = [];
+  const p = createYouTubePlatform(
+    playableHost(
+      async () => JSON.stringify({ coins: 10 }),
+      async raw => {
+        writes.push(raw);
+        if (writes.length === 1) throw new Error('temporary save failure');
+      },
+    ),
+    { saveRetryLimit: 2, saveRetryDelayMs: 0 },
+  );
+  assert.equal((await p.load()).status, LOAD_STATUS.LOADED);
+
+  const snapshot = { coins: 11, meta: { day: 3 } };
+  const saved = p.save(snapshot);
+  snapshot.coins = 999;
+  snapshot.meta.day = 99;
+
+  assert.equal(await saved, true);
+  assert.deepEqual(writes, [
+    JSON.stringify({ coins: 11, meta: { day: 3 } }),
+    JSON.stringify({ coins: 11, meta: { day: 3 } }),
+  ]);
+  assert.equal(p.saveDirty, false);
+});
+
+test('overlapping saves coalesce toward the newest immutable snapshot', async () => {
+  const firstAttempt = deferred();
+  const writes = [];
+  const p = createYouTubePlatform(
+    playableHost(
+      async () => JSON.stringify({ coins: 10 }),
+      raw => {
+        writes.push(raw);
+        return writes.length === 1 ? firstAttempt.promise : Promise.resolve();
+      },
+    ),
+    { saveRetryLimit: 2, saveRetryDelayMs: 0 },
+  );
+  await p.load();
+
+  const first = { coins: 20 };
+  const firstSave = p.save(first);
+  first.coins = 2000;
+
+  const second = { coins: 30 };
+  const secondSave = p.save(second);
+  second.coins = 3000;
+
+  firstAttempt.reject(new Error('first write lost'));
+  assert.equal(await firstSave, true);
+  assert.equal(await secondSave, true);
+  assert.deepEqual(writes, [JSON.stringify({ coins: 20 }), JSON.stringify({ coins: 30 })]);
+  assert.equal(p.saveDirty, false);
+});
+
+test('bounded write failure returns false and retains dirty state for a later save', async () => {
+  let failing = true;
+  const writes = [];
+  const p = createYouTubePlatform(
+    playableHost(
+      async () => JSON.stringify({ coins: 10 }),
+      async raw => {
+        writes.push(raw);
+        if (failing) throw new Error('save rejected');
+      },
+    ),
+    { saveRetryLimit: 1, saveRetryDelayMs: 0 },
+  );
+  await p.load();
+
+  assert.equal(await p.save({ coins: 11 }), false);
+  assert.equal(writes.length, 2); // initial attempt + one bounded retry
+  assert.equal(p.saveDirty, true);
+
+  failing = false;
+  assert.equal(await p.save({ coins: 12 }), true);
+  assert.equal(writes.at(-1), JSON.stringify({ coins: 12 }));
+  assert.equal(p.saveDirty, false);
+});
+
+test('serialization failure is reported without calling the SDK or discarding progress state', async () => {
+  let writes = 0;
   const p = createYouTubePlatform(playableHost(
     async () => JSON.stringify({ coins: 10 }),
-    async () => { throw new Error('save rejected'); },
+    async () => { writes++; },
   ));
-  assert.equal((await p.load()).status, LOAD_STATUS.LOADED);
-  assert.equal(await p.save({ coins: 11 }), false);
+  await p.load();
+
+  const circular = { coins: 11 };
+  circular.self = circular;
+  assert.equal(await p.save(circular), false);
+  assert.equal(writes, 0);
+  assert.equal(p.saveDirty, false);
+});
+
+test('rejected score is not acknowledged and can be retried without an unhandled rejection', async () => {
+  let rejectScore = true;
+  const scores = [];
+  const host = playableHost(async () => '');
+  host.ytgame.engagement = {
+    sendScore: async model => {
+      scores.push(model.value);
+      if (rejectScore) throw new Error('score unavailable');
+    },
+  };
+
+  const p = createYouTubePlatform(host);
+  assert.equal(await p.sendScore(7), false);
+  rejectScore = false;
+  assert.equal(await p.sendScore(7), true); // failure did not poison duplicate suppression
+  assert.equal(await p.sendScore(7), false); // successful acknowledgement now suppresses duplicate
+  assert.deepEqual(scores, [7, 7]);
 });

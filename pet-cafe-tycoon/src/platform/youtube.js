@@ -8,6 +8,8 @@ export const LOAD_STATUS = Object.freeze({
 });
 
 const LOAD_TIMEOUT_MS = 2200;
+const SAVE_RETRY_LIMIT = 2;
+const SAVE_RETRY_DELAY_MS = 120;
 const INTERSTITIAL_GAP_MS = 4 * 60 * 1000;
 
 function loadResult(status, data) {
@@ -29,6 +31,15 @@ function classifyLoad(raw) {
   }
 }
 
+function serializeSave(data) {
+  try {
+    const raw = JSON.stringify(data);
+    return typeof raw === 'string' ? raw : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 function waitForLoadOrTimeout(promise, ms, onTimeout) {
   return new Promise(resolve => {
     const timer = setTimeout(() => {
@@ -42,23 +53,40 @@ function waitForLoadOrTimeout(promise, ms, onTimeout) {
   });
 }
 
+function wait(ms) {
+  return ms > 0 ? new Promise(resolve => setTimeout(resolve, ms)) : Promise.resolve();
+}
+
 export function createYouTubePlatform(host = globalThis, options = {}) {
   const yt = host.ytgame && host.ytgame.IN_PLAYABLES_ENV ? host.ytgame : null;
   const configuredTimeout = Number(options.loadTimeoutMs);
   const loadTimeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout >= 0
     ? configuredTimeout
     : LOAD_TIMEOUT_MS;
+  const configuredRetryLimit = Number(options.saveRetryLimit);
+  const saveRetryLimit = Number.isInteger(configuredRetryLimit) && configuredRetryLimit >= 0
+    ? configuredRetryLimit
+    : SAVE_RETRY_LIMIT;
+  const configuredRetryDelay = Number(options.saveRetryDelayMs);
+  const saveRetryDelayMs = Number.isFinite(configuredRetryDelay) && configuredRetryDelay >= 0
+    ? configuredRetryDelay
+    : SAVE_RETRY_DELAY_MS;
 
   let game = null;
   let audio = null;
   let paused = false;
   let previewSave = null;
   let saveInFlight = null;
-  let pendingSave = null;
+  let latestSave = null;
+  let saveSequence = 0;
+  let savedSequence = 0;
   let rewardedBusy = false;
   let interstitialBusy = false;
   let lastAdAt = 0;
   let lastScore = -1;
+  let scoreSequence = 0;
+  let acknowledgedScoreSequence = 0;
+  const scoreInFlight = new Map();
   let loadRequest = null;
   let currentLoadOutcome = yt ? loadResult(LOAD_STATUS.PENDING) : null;
   let loadTimedOut = false;
@@ -73,6 +101,7 @@ export function createYouTubePlatform(host = globalThis, options = {}) {
     get paused() { return paused; },
     get loadOutcome() { return currentLoadOutcome; },
     get saveProtected() { return !!yt && !writesAllowed; },
+    get saveDirty() { return !!latestSave && latestSave.sequence > savedSequence; },
   };
 
   function setHostPaused(next) {
@@ -151,10 +180,7 @@ export function createYouTubePlatform(host = globalThis, options = {}) {
     return result.status === LOAD_STATUS.PENDING ? result : authorizeDeliveredLoad(result);
   };
 
-  async function writeSave(data) {
-    let raw;
-    try { raw = JSON.stringify(data); } catch (_) { return false; }
-
+  async function writeSaveRaw(raw) {
     if (yt && yt.game && typeof yt.game.saveData === 'function') {
       try { await yt.game.saveData(raw); return true; } catch (_) { return false; }
     }
@@ -163,28 +189,46 @@ export function createYouTubePlatform(host = globalThis, options = {}) {
     return true;
   }
 
+  async function drainSaveQueue() {
+    let failures = 0;
+    while (latestSave && latestSave.sequence > savedSequence) {
+      const target = latestSave;
+      if (await writeSaveRaw(target.raw)) {
+        savedSequence = Math.max(savedSequence, target.sequence);
+        failures = 0;
+        if (latestSave && latestSave.sequence <= savedSequence) latestSave = null;
+        continue;
+      }
+
+      failures++;
+      if (failures > saveRetryLimit) return false;
+      // Retry the newest snapshot, not necessarily the failed one. If another material change
+      // arrived while the SDK write was pending, the newer immutable snapshot subsumes it.
+      await wait(saveRetryDelayMs * failures);
+    }
+    return true;
+  }
+
+  function ensureSaveDrain() {
+    if (saveInFlight) return saveInFlight;
+    saveInFlight = drainSaveQueue().finally(() => {
+      saveInFlight = null;
+    });
+    return saveInFlight;
+  }
+
   P.save = data => {
     // YouTube explicitly rejects saveData before a successful loadData. More importantly,
     // keeping this gate closed prevents a timed-out fresh session from overwriting a late save.
     if (yt && !writesAllowed) return Promise.resolve(false);
 
-    pendingSave = data;
-    if (saveInFlight) return saveInFlight;
-    saveInFlight = (async () => {
-      let ok = true;
-      while (pendingSave) {
-        const next = pendingSave;
-        pendingSave = null;
-        if (!(await writeSave(next))) {
-          ok = false;
-          break;
-        }
-      }
-      return ok;
-    })().finally(() => {
-      saveInFlight = null;
-    });
-    return saveInFlight;
+    // Serialize at the call boundary. The game can keep mutating its live snapshot object while
+    // an SDK write is pending without silently changing what this save request means.
+    const raw = serializeSave(data);
+    if (raw == null) return Promise.resolve(false);
+
+    latestSave = { sequence: ++saveSequence, raw };
+    return ensureSaveDrain();
   };
 
   P.bindAudio = a => {
@@ -225,10 +269,33 @@ export function createYouTubePlatform(host = globalThis, options = {}) {
   // or raw coins, both of which can distort the meaning of an engagement score.
   P.sendScore = value => {
     const score = Math.max(0, Math.floor(Number(value) || 0));
-    if (score === lastScore) return false;
-    lastScore = score;
-    if (!yt || !yt.engagement || typeof yt.engagement.sendScore !== 'function') return false;
-    try { yt.engagement.sendScore({ value: score }); return true; } catch (_) { return false; }
+    if (score === lastScore) return Promise.resolve(false);
+    if (!yt || !yt.engagement || typeof yt.engagement.sendScore !== 'function') {
+      return Promise.resolve(false);
+    }
+
+    const existing = scoreInFlight.get(score);
+    if (existing) return existing;
+
+    const sequence = ++scoreSequence;
+    let dispatch;
+    try { dispatch = Promise.resolve(yt.engagement.sendScore({ value: score })); }
+    catch (_) { return Promise.resolve(false); }
+
+    let tracked = null;
+    tracked = dispatch.then(() => {
+      // Async score requests can finish out of order. Only the newest successful request may
+      // become the acknowledged score used for duplicate suppression.
+      if (sequence >= acknowledgedScoreSequence) {
+        acknowledgedScoreSequence = sequence;
+        lastScore = score;
+      }
+      return true;
+    }, () => false).finally(() => {
+      if (scoreInFlight.get(score) === tracked) scoreInFlight.delete(score);
+    });
+    scoreInFlight.set(score, tracked);
+    return tracked;
   };
 
   P.requestRewardedAd = async (rewardId = 'pet-cafe-day-bonus-coins') => {
