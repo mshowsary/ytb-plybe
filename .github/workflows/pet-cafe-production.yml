@@ -97,6 +97,8 @@ jobs:
         run: node tools/save-schema-smoke.js
       - name: Station cash and stock persistence smoke
         run: node tools/station-persistence-smoke.js
+      - name: Owner and carry persistence smoke
+        run: node tools/owner-persistence-smoke.js
       - name: Ultra-narrow 183px HUD smoke
         run: node tools/ultra-narrow-smoke.js
       - name: First-use interaction coach smoke
