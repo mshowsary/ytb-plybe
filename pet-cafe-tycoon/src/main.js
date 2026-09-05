@@ -13,6 +13,7 @@ import { createInteractionCoach } from './ui/interactionCoach.js';
 import { installReliefAttention } from './ui/reliefAttention.js';
 import { createPauseMenu } from './ui/pauseMenu.js';
 import { createCashTrays } from './render/cashTrays.js';
+import { createCoffeePolish } from './render/coffeePolish.js';
 import { AREA1 } from '../data/area1.js';
 
 const $ = id => document.getElementById(id);
@@ -48,6 +49,7 @@ async function boot() {
     platform,
   );
   const machineJuice = createMachineJuice(G.world, S.scene);
+  const coffeePolish = createCoffeePolish(G.world, S.scene, G.owner);
   const petFriendship = installPetFriendship(G, platform);
   const serviceFriction = installServiceFriction(G);
   const reliefAttention = installReliefAttention(G);
@@ -62,6 +64,7 @@ async function boot() {
   const save = await platform.load();
   if (save) G.restore(save);
   petFriendship.refresh();
+  coffeePolish.update();
   const pauseMenu = createPauseMenu(G, platform);
   platform.sendScore(G.meta && G.meta.reputation);
   responsive.update(); shell.refresh();
@@ -76,6 +79,7 @@ async function boot() {
   window.__petFriendship = petFriendship;
   window.__serviceFriction = serviceFriction;
   window.__reliefAttention = reliefAttention;
+  window.__coffeePolish = coffeePolish;
 
   S.render();
   platform.firstFrameReady();
@@ -130,6 +134,7 @@ async function boot() {
     if (!paused) {
       G.update(dt);
       machineJuice.update(dt);
+      coffeePolish.update();
       cashTrays.update(dt);
       responsive.update();
       shell.update();
