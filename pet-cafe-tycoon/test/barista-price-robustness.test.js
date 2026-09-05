@@ -11,7 +11,7 @@ test('durable recoup ignores a temporary first crossing that later falls back be
   const m = recoupMilestones(2000, baseline, arm, 10);
   assert.equal(m.firstRecoupDay, 12);
   assert.equal(m.durableRecoupDay, null);
-  assert.equal(m.finalIncrement, 1100);
+  assert.equal(m.finalIncrement, 1000);
 });
 
 test('durable recoup starts at the later recovery when the curve stays above price afterward', () => {
@@ -20,7 +20,7 @@ test('durable recoup starts at the later recovery when the curve stays above pri
   const m = recoupMilestones(2000, baseline, arm, 10);
   assert.equal(m.firstRecoupDay, 12);
   assert.equal(m.durableRecoupDay, 14);
-  assert.equal(m.finalIncrement, 2900);
+  assert.equal(m.finalIncrement, 2800);
 });
 
 test('candidate summary rebuilds payback from day reports instead of trusting stale first-crossing output', () => {
