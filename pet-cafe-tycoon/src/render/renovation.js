@@ -1,6 +1,8 @@
-// Five deliberately visible renovation stages. All pieces live on walls/edges/overhead so none
-// affect navigation, and primitives/instances keep the Playables bundle and draw cost modest.
+// Five deliberately visible renovation stages plus Task 36's one earned Bestie keepsake.
+// All pieces live on walls/edges/overhead so none affect navigation, and primitives keep the
+// Playables bundle and draw cost modest.
 import * as THREE from 'three';
+import { parsePetKey } from '../sim/petBook.js';
 
 const toon = color => new THREE.MeshToonMaterial({ color });
 const glow = (color, opacity = 1) => new THREE.MeshBasicMaterial({ color, transparent: opacity < 1, opacity, depthWrite: opacity >= 1, toneMapped: false });
@@ -9,6 +11,78 @@ function box(w, h, d, color) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), toon(color)); m.castShadow = true; m.receiveShadow = true; return m;
 }
 function sphere(r, color) { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 7), toon(color)); m.castShadow = true; return m; }
+function clamp01(v) { return Math.max(0, Math.min(1, Number(v) || 0)); }
+function smoothstep01(v) { const t = clamp01(v); return t * t * (3 - 2 * t); }
+
+// Exported pure curve so Task 36 can prove the reveal starts at the pet, ends exactly on the wall,
+// and never changes gameplay coordinates. The portrait is the only object following this curve.
+export function keepsakeRevealPose(progress, from, home) {
+  const p = clamp01(progress), e = smoothstep01(p);
+  const x = from.x + (home.x - from.x) * e;
+  const z = from.z + (home.z - from.z) * e;
+  const baseY = from.y + (home.y - from.y) * e;
+  return {
+    x, y: baseY + Math.sin(p * Math.PI) * 0.72, z,
+    scale: 0.58 + 0.42 * e + Math.sin(p * Math.PI) * 0.08,
+    rotationZ: Math.sin(p * Math.PI * 2) * 0.08 * (1 - e),
+  };
+}
+
+function createBestieKeepsake(home) {
+  const root = new THREE.Group();
+  root.name = 'bestie-keepsake'; root.visible = false;
+  root.position.set(home.x, home.y, home.z); root.rotation.y = -Math.PI / 2;
+
+  // A warm wood frame with a fixed set of child meshes. Species changes only toggle/reposition
+  // these existing children; earning/reloading the keepsake can never append duplicate geometry.
+  const shadow = box(0.92, 0.88, 0.05, '#563D32'); shadow.position.z = -0.035;
+  const frame = box(0.84, 0.8, 0.085, '#8A5B3E');
+  const paper = box(0.69, 0.64, 0.022, '#FFF4E6'); paper.position.z = 0.055;
+  const medallion = sphere(0.235, '#D6A35F'); medallion.scale.set(1.08, 0.92, 0.16); medallion.position.set(0, 0.045, 0.085);
+  const muzzle = sphere(0.105, '#FFF0D5'); muzzle.scale.set(1.18, 0.82, 0.13); muzzle.position.set(0, -0.055, 0.12);
+  const earA = box(0.13, 0.23, 0.035, '#D6A35F'); earA.position.set(-0.14, 0.25, 0.105);
+  const earB = box(0.13, 0.23, 0.035, '#D6A35F'); earB.position.set(0.14, 0.25, 0.105);
+  const accent = box(0.48, 0.055, 0.028, '#E0B34F'); accent.position.set(0, -0.275, 0.09);
+  const heart = new THREE.Mesh(new THREE.OctahedronGeometry(0.052, 0), glow('#FF9E9A', 0.96)); heart.scale.set(1.1, 1.0, 0.35); heart.position.set(0.255, -0.225, 0.12);
+  root.add(shadow, frame, paper, medallion, muzzle, earA, earB, accent, heart);
+
+  function setMaterialColor(mesh, color) {
+    if (mesh?.material?.color) mesh.material.color.set(color);
+  }
+
+  function applyKey(key) {
+    const parsed = parsePetKey(key); if (!parsed) { root.visible = false; root.userData.key = null; return false; }
+    if (root.userData.key === parsed.key && root.visible) return false;
+    root.userData.key = parsed.key; root.visible = true;
+    const { species, profile } = parsed;
+    setMaterialColor(medallion, profile.body); setMaterialColor(muzzle, profile.belly);
+    setMaterialColor(earA, profile.body); setMaterialColor(earB, profile.body); setMaterialColor(accent, profile.accent);
+
+    // The fixed portrait pieces form three unmistakable silhouettes without any new object creation.
+    if (species === 'bunny') {
+      earA.visible = earB.visible = true;
+      earA.scale.set(0.68, 1.75, 1); earB.scale.set(0.68, 1.75, 1);
+      earA.position.set(-0.115, 0.29, 0.105); earB.position.set(0.115, 0.29, 0.105);
+      earA.rotation.z = 0.08; earB.rotation.z = -0.08;
+      medallion.scale.set(0.98, 0.9, 0.16);
+    } else if (species === 'dog') {
+      earA.visible = earB.visible = true;
+      earA.scale.set(1.05, 1.1, 1); earB.scale.set(1.05, 1.1, 1);
+      earA.position.set(-0.225, 0.115, 0.1); earB.position.set(0.225, 0.115, 0.1);
+      earA.rotation.z = 0.48; earB.rotation.z = -0.48;
+      medallion.scale.set(1.12, 0.92, 0.16);
+    } else {
+      earA.visible = earB.visible = true;
+      earA.scale.set(0.86, 0.9, 1); earB.scale.set(0.86, 0.9, 1);
+      earA.position.set(-0.145, 0.235, 0.105); earB.position.set(0.145, 0.235, 0.105);
+      earA.rotation.z = -0.38; earB.rotation.z = 0.38;
+      medallion.scale.set(1.08, 0.92, 0.16);
+    }
+    return true;
+  }
+
+  return { root, applyKey, accent, heart };
+}
 
 export function createRenovationDecor(area) {
   const W = area.size.w, D = area.size.d;
@@ -80,11 +154,44 @@ export function createRenovationDecor(area) {
   inner.position.set(0.3,0.082,2.45); stages[4].add(inner);
   const centrePaw=sphere(.27,'#F7D46C');centrePaw.scale.set(1.2,.25,.9);centrePaw.position.set(.3,.105,2.45);stages[4].add(centrePaw);
 
+  // Task 36 — First Bestie Memory. It gets a reserved side-wall spot independent of renovation
+  // level, because affection is a relationship milestone rather than a purchasable room tier.
+  const keepsakeHome = { x: W / 2 - 0.26, y: 1.78, z: 4.55 };
+  const keepsake = createBestieKeepsake(keepsakeHome); group.add(keepsake.root);
+  let reveal = null;
+
   let level=-1, t=0;
   function setLevel(next) {
     next=Math.max(0,Math.min(stages.length,next|0));
     if(next===level)return;level=next;
     for(let i=0;i<stages.length;i++)stages[i].visible=i<next;
+  }
+  function setKeepsake(key) {
+    const changed = keepsake.applyKey(key);
+    reveal = null;
+    if (keepsake.root.visible) {
+      keepsake.root.position.set(keepsakeHome.x, keepsakeHome.y, keepsakeHome.z);
+      keepsake.root.scale.setScalar(1); keepsake.root.rotation.z = 0;
+    }
+    return changed;
+  }
+  function revealKeepsake(key, from = null, reducedMotion = false) {
+    const parsed = parsePetKey(key); if (!parsed) return false;
+    const already = keepsake.root.visible && keepsake.root.userData.key === parsed.key;
+    if (already) return false;
+    keepsake.applyKey(parsed.key);
+    if (reducedMotion || !from || !Number.isFinite(from.x) || !Number.isFinite(from.z)) {
+      setKeepsake(parsed.key); return true;
+    }
+    const start = {
+      x: from.x,
+      y: Number.isFinite(from.y) ? from.y : 1.1,
+      z: from.z,
+    };
+    reveal = { t: 0, duration: 0.92, from: start };
+    const pose = keepsakeRevealPose(0, start, keepsakeHome);
+    keepsake.root.position.set(pose.x, pose.y, pose.z); keepsake.root.scale.setScalar(pose.scale); keepsake.root.rotation.z = pose.rotationZ;
+    return true;
   }
   function update(dt){
     t+=dt;
@@ -93,7 +200,20 @@ export function createRenovationDecor(area) {
         if(child.material && child.material.isMeshBasicMaterial) child.material.opacity=.82+Math.sin(t*1.8+child.position.x)*.14;
       }
     }
+    if (reveal) {
+      reveal.t = Math.min(reveal.duration, reveal.t + Math.max(0, dt));
+      const p = reveal.duration ? reveal.t / reveal.duration : 1;
+      const pose = keepsakeRevealPose(p, reveal.from, keepsakeHome);
+      keepsake.root.position.set(pose.x, pose.y, pose.z); keepsake.root.scale.setScalar(pose.scale); keepsake.root.rotation.z = pose.rotationZ;
+      keepsake.heart.rotation.z += dt * 4.5;
+      if (p >= 1) { reveal = null; keepsake.root.position.set(keepsakeHome.x, keepsakeHome.y, keepsakeHome.z); keepsake.root.scale.setScalar(1); keepsake.root.rotation.z = 0; }
+    }
   }
   setLevel(0);
-  return { group, setLevel, update };
+  return {
+    group, setLevel, update, setKeepsake, revealKeepsake,
+    keepsake: keepsake.root,
+    get keepsakeKey() { return keepsake.root.userData.key || null; },
+    get keepsakeRevealing() { return !!reveal; },
+  };
 }
