@@ -54,8 +54,9 @@ test('Task 29: proven refill lesson is absent from first-use detector after relo
     carry: { sack: null, sackLeft: 0, fruit: 0 },
     world: { stations: new Map([['coffee1', coffee]]) },
   };
-  assert.equal(refillLessonNeed(G, new Set()), null === null ? refillLessonNeed(G, new Set()) : null);
-  assert.equal(refillLessonNeed(G, new Set()).key, 'refillCoffee');
+  const firstUse = refillLessonNeed(G, new Set());
+  assert.equal(firstUse.key, 'refillCoffee');
+  assert.equal(firstUse.supply, 'beans');
   assert.equal(refillLessonNeed(G, new Set(['refillCoffee'])), null);
 });
 
