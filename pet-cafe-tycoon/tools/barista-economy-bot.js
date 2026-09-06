@@ -1,3 +1,4 @@
+import { stepBaristaState } from '../src/sim/baristaState.js';
 // Deterministic long-run A/B for the live Barista economy decision.
 //
 // This intentionally does NOT grant Barista upgrades or ad power. It compares the same competent
@@ -8,8 +9,8 @@
 //
 // Unlike the older tools/bot.js report, this harness mirrors the browser staff system by actually
 // spawning pure sim Runner/Cashier/Cleaner workers after their hire counters change. The Barista
-// state machine below mirrors systems/baristaWorker.js's navigation, work timers, bean thresholds
-// and carry/drop cadence without any Three.js/render dependency. That makes the A/B useful for an
+// state machine is imported from the same module as the live worker, including navigation,
+// work timers, bean thresholds and carry/drop cadence without a Three.js dependency. That makes the A/B useful for an
 // economy decision rather than merely measuring the cost of counters that never became workers.
 import {
   createWorld, activeZones, payZone, stepOvens, stepMachines, takeFromOven, takeFromMachine,
@@ -131,7 +132,7 @@ function runScenario({ name, baristaAware }) {
   }
   const near = (a, b, r) => (a.x - b.x) ** 2 + (a.z - b.z) ** 2 < r * r;
 
-  // Headless mirror of systems/baristaWorker.js. Keeping the same states/timers here is deliberate:
+  // Live and headless workers share the same state machine and movement function:
   // the A/B should pay for a worker that has to physically walk the coffee lane, not an instant
   // spreadsheet bonus that teleports beans/cups into place.
   let barista = null;
@@ -142,86 +143,15 @@ function runScenario({ name, baristaAware }) {
     const mover = createMover(p.x, p.z, 0.30, BARISTA.speed); mover.kind = 'barista';
     barista = { mover, x: p.x, z: p.z, state: 'idle', job: null, items: [], workT: 0, idleT: 0 };
   }
-  function targetPoint(id) { const st = id && world.stations.get(id); return st && st.active ? st.front : null; }
-  function stopBarista() { if (barista) { barista.mover.hasTarget = false; barista.mover.vx = 0; barista.mover.vz = 0; } }
-  function moveBaristaTo(point, dt) {
-    if (!barista || !point) return false;
-    const m = barista.mover;
-    if (m.tx !== point.x || m.tz !== point.z) setTarget(m, point.x, point.z, world.grid);
-    if (!world._movers) world._movers = [];
-    world._movers.push(m);
-    const justArrived = stepMover(m, world.grid, world._movers, dt);
-    world._movers.pop();
-    barista.x = m.x; barista.z = m.z;
-    if (justArrived) return true;
-    const distance = Math.hypot(point.x - barista.x, point.z - barista.z);
-    if (distance < STATION_ARRIVE_EPS) { m.hasTarget = false; return true; }
-    if (!m.hasTarget) {
-      if (distance < IDLE_ARRIVE_EPS) return true;
-      setTarget(m, point.x, point.z, world.grid);
-    }
-    return false;
-  }
-  function startBaristaDecision() {
-    if (!barista) return;
-    if (barista.items.length) {
-      const lane = baristaLane(world);
-      if (lane?.bar) {
-        barista.job = { kind: 'restockCoffee', targetId: lane.bar.id, product: barista.items[0], count: barista.items.length };
-        barista.state = 'toBar'; return;
-      }
-    }
-    const d = baristaDecision(world); barista.job = d;
-    if (d.kind === 'refillBeans') barista.state = 'toPantry';
-    else if (d.kind === 'restockCoffee') barista.state = 'toMachine';
-    else { barista.state = 'idle'; barista.idleT = 0.25; stopBarista(); return; }
-    baristaMetrics.jobs++;
-  }
+  const baristaHooks = {
+    onJob: () => baristaMetrics.jobs++,
+    onRefill: () => baristaMetrics.beanRefills++,
+    onDelivery: () => baristaMetrics.cupsMoved++,
+  };
   function stepBarista(dt) {
     if ((G.staff.barista | 0) <= 0) { barista = null; return; }
     if (!barista) spawnBarista();
-    if (!barista) return;
-    if (barista.state === 'idle') {
-      barista.idleT -= dt; if (barista.idleT <= 0) startBaristaDecision(); return;
-    }
-    const j = barista.job || {};
-    if (barista.state === 'toPantry') {
-      const p = targetPoint(j.pantryId); if (!p) { barista.state = 'idle'; return; }
-      if (moveBaristaTo(p, dt)) { stopBarista(); barista.workT = 0.35; barista.state = 'fetchBeans'; }
-    } else if (barista.state === 'fetchBeans') {
-      barista.workT -= dt; if (barista.workT <= 0) barista.state = 'toRefill';
-    } else if (barista.state === 'toRefill') {
-      const p = targetPoint(j.machineId); if (!p) { barista.state = 'idle'; return; }
-      if (moveBaristaTo(p, dt)) {
-        stopBarista(); const used = refillBeans(world, j.machineId, j.amount);
-        if (used > 0) baristaMetrics.beanRefills++;
-        barista.state = 'idle'; barista.idleT = 0.18;
-      }
-    } else if (barista.state === 'toMachine') {
-      const p = targetPoint(j.sourceId); if (!p) { barista.state = 'idle'; return; }
-      if (moveBaristaTo(p, dt)) { stopBarista(); barista.workT = Math.max(0.18, (j.count | 0) * 0.16); barista.state = 'loading'; }
-    } else if (barista.state === 'loading') {
-      barista.workT -= dt;
-      if (barista.workT <= 0) {
-        const src = world.stations.get(j.sourceId);
-        const wanted = Math.min(BARISTA.carry, j.count | 0, src ? src.stock | 0 : 0);
-        const got = wanted > 0 ? takeFromMachine(world, j.sourceId, wanted) : 0;
-        for (let i = 0; i < got; i++) barista.items.push(j.product);
-        barista.state = barista.items.length ? 'toBar' : 'idle';
-      }
-    } else if (barista.state === 'toBar') {
-      const p = targetPoint(j.targetId); if (!p) { barista.state = 'idle'; return; }
-      if (moveBaristaTo(p, dt)) { stopBarista(); barista.workT = 0.08; barista.state = 'dropping'; }
-    } else if (barista.state === 'dropping') {
-      barista.workT -= dt; if (barista.workT > 0) return;
-      const key = barista.items[0];
-      if (!key) { barista.state = 'idle'; barista.idleT = 0.12; return; }
-      const put = putOnDisplay(world, j.targetId, key, 1);
-      if (put > 0) {
-        barista.items.shift(); baristaMetrics.cupsMoved++; barista.workT = 0.08;
-      } else { barista.state = 'idle'; barista.idleT = 0.35; }
-      if (!barista.items.length) { barista.state = 'idle'; barista.idleT = 0.12; }
-    }
+    stepBaristaState(barista, world, dt, baristaHooks);
   }
 
   function baristaGoalPending() {

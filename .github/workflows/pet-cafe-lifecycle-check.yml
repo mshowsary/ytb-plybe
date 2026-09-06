@@ -1,0 +1,47 @@
+name: Pet Cafe Lifecycle Diagnostic
+
+on:
+  push:
+    branches: [chatgpt/pet-cafe-production]
+    paths:
+      - '.github/workflows/pet-cafe-lifecycle-check.yml'
+      - 'pet-cafe-tycoon/src/core/presentationScheduler.js'
+      - 'pet-cafe-tycoon/src/core/input.js'
+      - 'pet-cafe-tycoon/src/platform/youtube.js'
+      - 'pet-cafe-tycoon/src/main.js'
+      - 'pet-cafe-tycoon/tools/gate-a-lifecycle-smoke.js'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pet-cafe-lifecycle-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    defaults:
+      run:
+        working-directory: pet-cafe-tycoon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: pet-cafe-tycoon/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - name: Integrated lifecycle diagnostic (not full certification)
+        run: node tools/gate-a-lifecycle-smoke.js
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lifecycle-diagnostic-${{ github.sha }}
+          path: pet-cafe-tycoon/shots-production
+          if-no-files-found: warn
+          retention-days: 7

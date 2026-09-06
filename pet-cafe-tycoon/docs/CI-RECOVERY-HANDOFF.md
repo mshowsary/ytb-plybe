@@ -29,3 +29,13 @@ The earlier local art/party/staff-demo commits are on the other local branch and
 360 local unit/simulation tests passed, including new check-runner failure/timeout coverage and event tests. Production build/postbuild checked separately. Browser certification is pending because local Chromium is unavailable.
 Read root AGENTS.md for the user's batched cadence: failed release certification does not mandate halting independent development. Fix demonstrated failures; do not claim certification until the appropriate suite passes on its SHA.
 After this patch is remotely delivered, dispatch only `lifecycle` first. If it passes, continue Tasks 18–21 with Fast Checks; run `all` at the coherent batch/release checkpoint. If it fails, use its named log; independent publisher/visual results remain obtainable without the economy wait.
+
+## Remote delivery and Task 18
+
+Recovery and Task 17 delivered as `ef4a99a5e10ce5a5cf6d91826b3f3955afd8a574`; Fast Checks passed remotely. The earlier shell credential issue was resolved by using the connected GitHub app after explicit user authorization.
+
+Task 18 extracts one Barista state machine AND navigation function into `src/sim/baristaState.js`. Both the renderer adapter and the economy A/B tool import it. Rendering taps and metrics are adapter hooks; state transitions, timers, inventory transfers, arrival tolerances and work selection live in the shared module. Blocked delivery retains cups, and loading takes only available stock. No economy constants changed.
+
+A small Lifecycle Diagnostic workflow runs only when lifecycle code/the diagnostic changes, plus manual dispatch. It runs the integrated smoke directly, without economy or unrelated browser gates. It is not full certification. Production remains manual and batched.
+
+Task 18 validation: 362 unit/simulation tests and production build/postbuild pass. Before/after deterministic 25-day Barista A/B JSON matches in every gameplay field; only measured execution wallMs differs.
