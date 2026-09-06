@@ -42,8 +42,31 @@ function customerState(customers) {
   })).sort((a, b) => a.id - b.id);
 }
 
+function ledgerState(ledger, wallet) {
+  if (!ledger) return null;
+  const accounting = ledger.report(wallet);
+  const snapshot = ledger.snapshot();
+  return {
+    openingWallet: accounting.openingWallet,
+    sale: accounting.sale,
+    collection: accounting.collection,
+    bonus: accounting.bonus,
+    spend: accounting.spend,
+    deduction: accounting.deduction,
+    walletDelta: accounting.walletDelta,
+    expectedWallet: accounting.expectedWallet,
+    actualWallet: accounting.actualWallet,
+    reconciled: accounting.reconciled,
+    // Task 20 gave every transaction a stable identity and category. Parity must compare those too:
+    // matching totals with different sale/collection ordering or categories is still orchestration drift.
+    entries: (snapshot.entries || []).map(e => ({
+      id:e.id, type:e.type, category:e.category, amount:e.amount, delta:e.delta, day:e.day,
+      meta:e.meta ? sortedObject(e.meta) : null,
+    })),
+  };
+}
+
 export function captureParityState({ state, world, ledger, spawnSequence }) {
-  const accounting = ledger ? ledger.report(state.coins) : null;
   return {
     coins: Math.round(Number(state.coins) || 0),
     day: {
@@ -59,18 +82,7 @@ export function captureParityState({ state, world, ledger, spawnSequence }) {
     stations: stationState(world),
     customers: customerState(state.customers),
     spawn: spawnSequence && spawnSequence.snapshot ? spawnSequence.snapshot() : null,
-    ledger: accounting ? {
-      openingWallet: accounting.openingWallet,
-      sale: accounting.sale,
-      collection: accounting.collection,
-      bonus: accounting.bonus,
-      spend: accounting.spend,
-      deduction: accounting.deduction,
-      walletDelta: accounting.walletDelta,
-      expectedWallet: accounting.expectedWallet,
-      actualWallet: accounting.actualWallet,
-      reconciled: accounting.reconciled,
-    } : null,
+    ledger: ledgerState(ledger, state.coins),
   };
 }
 
