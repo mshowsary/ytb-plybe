@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { createCustomerSpawnSequence, CUSTOMER_SPAWN_SEED } from '../src/sim/customerSpawn.js';
 import { compareParityStates, PARITY_TIME_TOLERANCE, PARITY_POSITION_TOLERANCE } from '../src/sim/parity.js';
 import { runParityCharacterization } from '../tools/runtime-bot-parity.js';
@@ -19,12 +20,22 @@ test('shared customer spawn stream consumes pet + human draws in one documented 
   assert.deepEqual(a.snapshot(), { seed:CUSTOMER_SPAWN_SEED, nextId:3, speciesIndex:2, rngDraws:8 });
 });
 
+test('both long-run headless tools stay on the shared browser spawn stream', () => {
+  for (const path of [new URL('../tools/bot.js', import.meta.url), new URL('../tools/barista-economy-bot.js', import.meta.url)]) {
+    const source = readFileSync(path, 'utf8');
+    assert.match(source, /createCustomerSpawnSequence/);
+    assert.match(source, /const spawns = createCustomerSpawnSequence\(\)/);
+    assert.doesNotMatch(source, /makeRng\(1\)/);
+    assert.doesNotMatch(source, /speciesIdx/);
+  }
+});
+
 function fixture() {
   return {
     coins:100,
     day:{ day:1, t:10, phase:'morning', ended:false },
     stats:{ served:1 }, built:[], partial:{}, stars:{}, stations:[], spawn:null,
-    ledger:{ openingWallet:90, sale:10, collection:10, bonus:0, spend:0, deduction:0, walletDelta:10, expectedWallet:100, actualWallet:100, reconciled:true },
+    ledger:{ openingWallet:90, sale:10, collection:10, bonus:0, spend:0, deduction:0, walletDelta:10, expectedWallet:100, actualWallet:100, reconciled:true, entries:[] },
     customers:[{ id:1, species:'cat', petVariant:0, variant:{ shirt:0,hair:0,skin:0 }, state:'queue', counterId:'dispCookie', registerId:null, slot:0, order:null, amount:0, paid:false, wish:{ product:'cookie',treat:false }, patience:17, done:false, x:1, z:2 }],
   };
 }
@@ -51,5 +62,6 @@ test('shared inputs match for the small script and one complete shift', () => {
   assert.equal(report.fullShift.comparison.ok, true, JSON.stringify(report.fullShift.comparison.mismatches.slice(0, 5)));
   assert.equal(report.fullShift.runtime.ledger.reconciled, true);
   assert.equal(report.fullShift.bot.ledger.reconciled, true);
+  assert.deepEqual(report.fullShift.runtime.ledger.entries, report.fullShift.bot.ledger.entries);
   assert.equal(report.fullShift.runtime.spawn.rngDraws, report.fullShift.bot.spawn.rngDraws);
 });
