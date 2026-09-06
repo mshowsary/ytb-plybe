@@ -17,6 +17,29 @@ export { OWNER_STATE_VERSION } from './ownerState.js';
 export { STAFF_STATE_VERSION } from './staffState.js';
 export { TEMPORARY_HELP_VERSION } from './temporaryHelp.js';
 
+const LEGACY_STAFF_DESK_PRICE = 480;
+
+function preserveLegacyDeskInvestment(result, raw, area, areaId) {
+  if (!area || !Array.isArray(area.zones) || !result || !result.data) return;
+  const desk = area.zones.find(z => z.id === 'z_hire');
+  const oldPartial = raw && raw.partial && typeof raw.partial === 'object' && !Array.isArray(raw.partial)
+    ? raw.partial.z_hire
+    : null;
+  if (!desk || !(desk.price < LEGACY_STAFF_DESK_PRICE) || !Number.isFinite(oldPartial)) return;
+  const amount = Math.trunc(oldPartial);
+  // A valid pre-Task-25 Desk partial was necessarily below 480 and could only exist after the old
+  // second-register prerequisite. If that already-invested amount now reaches the supported 300
+  // Desk price, promote it to a completed Desk instead of letting the core validator discard the
+  // over-complete partial. This preserves player value without turning malformed orphan progress
+  // into a free unlock. Smaller valid partials are already preserved unchanged by saveSchema.js.
+  if (amount < desk.price || amount >= LEGACY_STAFF_DESK_PRICE) return;
+  const built = new Set(result.data.builds && result.data.builds[areaId] || []);
+  if (built.has('z_hire') || !built.has('z_oven2') || !built.has('z_register2')) return;
+  built.add('z_hire');
+  result.data.builds[areaId] = area.zones.filter(z => built.has(z.id)).map(z => z.id);
+  if (result.data.partial && typeof result.data.partial === 'object') delete result.data.partial.z_hire;
+}
+
 // Tasks 10–12 extend the certified root-v4 schema through versioned nested payloads. Keeping these
 // wrappers here means the YouTube load gate and applySave canonicalize every extension before cloud
 // writes unlock, without destabilizing the historical root migration contract.
@@ -24,6 +47,9 @@ export function validateAndMigrateSave(raw, area = null) {
   const result = validateCoreSave(raw, area);
   if (!result.ok) return result;
   const areaId = area && typeof area.id === 'string' ? area.id : 'a1';
+  // Task 25 changes a prerequisite and lowers the Desk price; migrate economic value before nested
+  // station/staff state is validated so every downstream normalizer sees the promoted build.
+  preserveLegacyDeskInvestment(result, raw, area, areaId);
   const builtSet = new Set(result.data.builds && result.data.builds[areaId] || []);
   const station = normalizeStationState(
     raw && raw.stationState,
