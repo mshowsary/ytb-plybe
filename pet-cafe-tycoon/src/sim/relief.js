@@ -66,11 +66,9 @@ function candidate(G, key, label, kind, cost, priority, why, pressure) {
   };
 }
 
-// Pure recommendation: no UI, no ad call, no mutation. Task 39 deliberately disables this launch
-// purchase bridge pending Gate C evidence; retaining the classifier lets a future measured policy
-// re-enable the existing design without recreating or retuning its economy values.
-export function recommendSmartRelief(G, world) {
-  if (!purchaseBridgeEnabled()) return null;
+// Pure classifier retained for measurement/history. It answers "what purchase bridge would be useful?"
+// without deciding whether the launch policy is allowed to surface that monetization mechanic.
+export function recommendSmartReliefCandidate(G, world) {
   if (!G || !world || !G.dayState || G.dayState.day < SMART_RELIEF_MIN_DAY) return null;
   const desk = world.stations.get('hire1');
   const p = countPressure(G, world);
@@ -94,9 +92,6 @@ export function recommendSmartRelief(G, world) {
     }
   }
 
-  // Once staff is not the obvious answer, relief can help the player close a meaningful permanent
-  // owner-upgrade gap. This keeps rewarded help useful after the first hires without creating a
-  // separate ad-only stat or temporary power system.
   if (p.displayWait + p.lowDisplays >= 3) {
     options.push(candidate(G, 'carry', 'Carry upgrade', 'player', upgradeCost('carry', G.up), 62 + p.displayWait * 4,
       'More capacity means fewer oven-to-counter trips.', p));
@@ -108,6 +103,12 @@ export function recommendSmartRelief(G, world) {
 
   const valid = options.filter(Boolean).sort((a, b) => b.priority - a.priority || a.gap - b.gap);
   return valid[0] || null;
+}
+
+// Launch-facing recommendation. Task 39 disables the purchase bridge pending Gate C evidence; the
+// classifier above remains testable so the decision can be revisited from data without retuning it.
+export function recommendSmartRelief(G, world) {
+  return purchaseBridgeEnabled() ? recommendSmartReliefCandidate(G, world) : null;
 }
 
 function activeCustomerCount(G) {
