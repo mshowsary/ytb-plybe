@@ -1,5 +1,5 @@
 // Bottom sheets: upgrades, pantry and end-of-shift card.
-import { sackIcon, iconFor } from './icons.js';
+import { beanIcon, kibbleIcon, iconFor } from './icons.js';
 import { presentationScheduler } from '../core/presentationScheduler.js';
 const COIN_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9.5" fill="#FFD84D" stroke="#C98A00" stroke-width="1.5"/></svg>';
 const CHEVRON_DOWN_SVG = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -96,9 +96,11 @@ function renderKiosk(model, actions, onClose) {
 }
 function renderPantry(model, actions, onClose) {
   const el = shell('pantry', 'PANTRY', onClose); const rows = document.createElement('div'); rows.className = 'srows';
-  rows.appendChild(actionButton('sbtn buy', { html: iconSpan(sackIcon()) + '<span>Beans</span>' }, !model.beans, () => actions.pick('beans')));
-  rows.appendChild(actionButton('sbtn buy', { html: iconSpan(sackIcon()) + '<span>Kibble</span>' }, !model.kibble, () => actions.pick('kibble')));
-  el.appendChild(rows); return el;
+  const beans = actionButton('sbtn buy', { html: iconSpan(beanIcon()) + '<span>Beans</span>' }, !model.beans, () => actions.pick('beans'));
+  const kibble = actionButton('sbtn buy', { html: iconSpan(kibbleIcon()) + '<span>Kibble</span>' }, !model.kibble, () => actions.pick('kibble'));
+  // Stable action metadata is deliberately separate from visible copy/localization.
+  beans.dataset.supply = 'beans'; kibble.dataset.supply = 'kibble';
+  rows.append(beans, kibble); el.appendChild(rows); return el;
 }
 function summaryRow(label, value) {
   const row = document.createElement('div'); row.className = 'srow-sub'; row.textContent = `${label}: ${value}`; return row;
@@ -128,10 +130,6 @@ export function createSheets(root = document.body) {
   const close = () => {
     if (!current) return;
     const { el, kind } = current; current = null;
-    // The terminal summary owns a game-state transition, so its UI must disappear atomically with
-    // that transition. Leaving a fading live button in the DOM creates a rapid-input race even when
-    // the simulation guard correctly prevents a second day advance. Ordinary sheets keep their
-    // 220ms exit animation because they do not mutate the day lifecycle.
     if (kind === 'summary') {
       el.remove(); wrap.classList.add('hidden');
       for (const cb of closeCbs) cb();
@@ -148,9 +146,6 @@ export function createSheets(root = document.body) {
     close();
   };
   const hasExplicitDismiss = () => !!current && typeof current.actions?.dismiss === 'function';
-  // Summary presentation deliberately locks generic background input in meta.js. Intercept only
-  // explicit-dismiss sheets at window capture, before that lock, while keeping ordinary sheet/modal
-  // Escape ordering exactly as it was before the transition repair.
   window.addEventListener('click', e => {
     if (!hasExplicitDismiss() || e.target !== backdrop) return;
     requestClose('backdrop'); e.preventDefault(); e.stopImmediatePropagation();
