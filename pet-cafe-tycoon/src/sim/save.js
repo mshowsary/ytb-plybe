@@ -10,6 +10,7 @@ import { normalizeStationState } from './stationState.js';
 import { normalizeOwnerState } from './ownerState.js';
 import { normalizeStaffState } from './staffState.js';
 import { normalizeTemporaryHelp } from './temporaryHelp.js';
+import { normalizeMechanicLearning } from './mechanicLearning.js';
 
 export { CURRENT_SAVE_VERSION, SAVE_LIMITS } from './saveSchema.js';
 export { STATION_STATE_VERSION } from './stationState.js';
@@ -40,9 +41,9 @@ function preserveLegacyDeskInvestment(result, raw, area, areaId) {
   if (result.data.partial && typeof result.data.partial === 'object') delete result.data.partial.z_hire;
 }
 
-// Tasks 10–12 extend the certified root-v4 schema through versioned nested payloads. Keeping these
-// wrappers here means the YouTube load gate and applySave canonicalize every extension before cloud
-// writes unlock, without destabilizing the historical root migration contract.
+// Tasks 10–12 and 29 extend the certified root-v4 schema through versioned nested payloads. Keeping
+// these wrappers here means the YouTube load gate and applySave canonicalize every extension before
+// cloud writes unlock, without destabilizing the historical root migration contract.
 export function validateAndMigrateSave(raw, area = null) {
   const result = validateCoreSave(raw, area);
   if (!result.ok) return result;
@@ -72,6 +73,11 @@ export function validateAndMigrateSave(raw, area = null) {
   const help = normalizeTemporaryHelp(raw && raw.temporaryHelp, result.data.boosts, result.data.dayState);
   if (!help.ok) return { ok: false, reason: `temporaryHelp:${help.reason}` };
   result.data.temporaryHelp = help.data;
+
+  // Task 29: preserve only known demonstrated mechanic IDs. UI-copy, shown-only hints and arbitrary
+  // unknown fields never cross the canonical host boundary. Legacy saves infer only conservative
+  // proof from progression that could not exist without the corresponding mechanic being used.
+  result.data.learning = normalizeMechanicLearning(raw && raw.learning, result.data);
 
   // Task 20: ledger data is observational only and cannot alter canonical wallet/progression data.
   // Preserve an object-shaped payload through the load validator; sim/ledger.js performs the
