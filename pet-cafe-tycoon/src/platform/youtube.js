@@ -1,6 +1,7 @@
 // YouTube Playables host boundary. Local preview intentionally keeps persistence in-memory only.
 import { resetActiveInputs } from '../core/input.js';
 import { presentationScheduler } from '../core/presentationScheduler.js';
+import { installAdLaunchPolicy } from './adLaunchPolicy.js';
 
 export const LOAD_STATUS = Object.freeze({
   LOADED: 'loaded',
@@ -407,5 +408,9 @@ export function createYouTubePlatform(host = globalThis, options = {}) {
     return shown;
   };
 
+  // Launch pacing wraps the already-safe host methods rather than replacing their pause/ad-lock
+  // semantics. This adds minimum-gap enforcement and eligible/requested/earned reporting without
+  // introducing any notion of an SDK "impression" the game cannot truthfully observe.
+  installAdLaunchPolicy(P);
   return P;
 }
