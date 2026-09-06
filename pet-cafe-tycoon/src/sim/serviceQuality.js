@@ -1,11 +1,15 @@
-// Small, predictable service-recovery costs. The lost sale remains the main penalty;
-// these fees create consequence without ever sending the wallet negative.
-export const SERVICE_RECOVERY = Object.freeze({
+// Task 23: base-game service failures change the service outcome, never banked money.
+// Keep the former recovery schedule only as an explicit Task-22 measurement reference so the
+// fee-removal experiment remains reproducible after the live runtime becomes fee-free.
+export const LEGACY_SERVICE_RECOVERY = Object.freeze({
   counter: 5,
   register: 7,
   bowl: 3,
   table: 2,
 });
+
+// Compatibility alias for diagnostics that display the historical reason labels/schedule.
+export const SERVICE_RECOVERY = LEGACY_SERVICE_RECOVERY;
 
 export const SERVICE_LABEL = Object.freeze({
   counter: 'Empty shelf',
@@ -14,10 +18,21 @@ export const SERVICE_LABEL = Object.freeze({
   table: 'Dirty tables',
 });
 
-export function serviceRecoveryCost(reason, coins = Infinity) {
-  const base = SERVICE_RECOVERY[reason] || 0;
+function boundedLegacyCost(reason, coins = Infinity) {
+  const base = LEGACY_SERVICE_RECOVERY[reason] || 0;
   const wallet = Number.isFinite(coins) ? Math.max(0, Math.floor(coins)) : base;
   return Math.max(0, Math.min(base, wallet));
+}
+
+// Live callers use this API. Direct failure fees are locked off by Task 23; callers may continue
+// recording serviceMisses and showing local dissatisfaction without needing a migration flag.
+export function serviceRecoveryCost(_reason, _coins = Infinity) {
+  return 0;
+}
+
+// Experiment-only reference to the former live schedule. Do not import this from runtime systems.
+export function legacyServiceRecoveryCost(reason, coins = Infinity) {
+  return boundedLegacyCost(reason, coins);
 }
 
 export function dirtyTablesBlockingSeats(world) {
