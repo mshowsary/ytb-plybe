@@ -70,28 +70,35 @@ export function upgradeCost(key, up) {
   return t < c.length ? c[t] : null;
 }
 
-const SEATING_ZONES = ['z_seats1', 'z_seats2'];
-function seatingBuilds(builtSet) { return SEATING_ZONES.filter(id => builtSet.has(id)).length; }
-
-// Scarcity pass: before the Staff Desk exists the owner is alone, so the first shifts deliberately
-// create breathing room. After hiring unlocks, traffic rises, but day-phase pressure is still the
-// primary source of difficulty rather than a permanently crowded floor.
-const PRE_HIRE_SPAWN = 7.5, PRE_HIRE_MAXC = 4;
-export function spawnInterval(builtSet) {
-  if (!builtSet.has('z_hire')) return PRE_HIRE_SPAWN;
-  return Math.max(3.4, 5.8 - 0.35 * seatingBuilds(builtSet));
+// Task 25 supported demand model. The Desk itself adds ZERO traffic: arrivals rise only when the
+// café gains a productive menu lane or useful operating capacity. This prevents buying automation
+// from simultaneously making the floor harder, while still allowing developed cafés to feel busier.
+function productiveLines(builtSet) {
+  return 1
+    + (builtSet.has('z_oven2') ? 1 : 0)
+    + (builtSet.has('z_coffee') ? 1 : 0)
+    + (builtSet.has('z_blender') ? 1 : 0);
 }
-export function maxCustomers(builtSet) {
-  if (!builtSet.has('z_hire')) return PRE_HIRE_MAXC;
-  return Math.min(6, 4 + seatingBuilds(builtSet));
+function usefulFrontCapacity(staff = {}) {
+  return Math.min(2, Math.max(0, (staff.runner | 0) + (staff.cashier | 0)));
+}
+export function spawnInterval(builtSet, staff = {}) {
+  const lines = productiveLines(builtSet);
+  const usefulStaff = usefulFrontCapacity(staff);
+  return Math.max(4.3, 7.5 - 0.65 * (lines - 1) - 0.35 * usefulStaff);
+}
+export function maxCustomers(builtSet, staff = {}) {
+  const lines = productiveLines(builtSet);
+  const usefulStaff = usefulFrontCapacity(staff);
+  return Math.min(6, 4 + (lines >= 3 ? 1 : 0) + (usefulStaff >= 2 ? 1 : 0));
 }
 
-// Employees are mid-game operating decisions, not Day-3 impulse buys. Runner stays the broadest
-// generalist; Cashier/Cleaner solve narrower bottlenecks. Barista is deliberately later and more
-// expensive than the first Runner because it automates an entire unlocked coffee lane including
-// beans, but it can never touch bakery/smoothie stock and therefore does not replace Runner value.
+// Task 25: Task 24 measured the first Runner as the earliest useful automation because empty-display
+// pressure dominated the early café. Only that first slot changes: the second Runner and every
+// other worker keep their existing prices, so the candidate creates an early relief moment without
+// flattening the later staffing economy.
 export const STAFF = {
-  runner:  { costs: [1800, 2800], speed: 2.8, carry: 6 },
+  runner:  { costs: [150, 2800], speed: 2.8, carry: 6 },
   cashier: { costs: [1550], speed: 2.2 },
   cleaner: { costs: [1350], speed: 2.2 },
   barista: { costs: [2300], speed: 2.4, carry: 4 },
