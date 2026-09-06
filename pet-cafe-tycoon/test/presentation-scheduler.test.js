@@ -95,14 +95,16 @@ test('whenResumed waits until every pause reason clears', async () => {
   assert.equal(resolved, true);
 });
 
-test('active CSS/Web Animations pause once and resume only after the final pause reason clears', () => {
+test('active CSS/Web Animations pin their timeline at the pause boundary and resume only after the final reason clears', () => {
   const owned = {
-    playState:'running', pauses:0, plays:0,
-    pause() { this.pauses++; this.playState = 'paused'; },
+    playState:'running', pauses:0, plays:0, currentTime:450,
+    // Model a browser pause operation that can advance its timeline before the pending pause settles.
+    // The scheduler must restore the exact boundary it observed before pause().
+    pause() { this.pauses++; this.currentTime += 220; this.playState = 'paused'; },
     play() { this.plays++; this.playState = 'running'; },
   };
   const alreadyPaused = {
-    playState:'paused', pauses:0, plays:0,
+    playState:'paused', pauses:0, plays:0, currentTime:120,
     pause() { this.pauses++; }, play() { this.plays++; },
   };
   const rt = fakeRuntime({ listAnimations: () => [owned, alreadyPaused] });
@@ -110,6 +112,7 @@ test('active CSS/Web Animations pause once and resume only after the final pause
 
   s.setPaused('host', true);
   assert.equal(owned.pauses, 1);
+  assert.equal(owned.currentTime, 450, 'pending browser pause must not consume animation wall time');
   assert.equal(alreadyPaused.pauses, 0, 'scheduler must not take ownership of externally paused animation');
   s.setPaused('user', true);
   assert.equal(owned.pauses, 1, 'second pause reason must not pause twice');
