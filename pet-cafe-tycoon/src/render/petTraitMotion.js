@@ -84,7 +84,8 @@ export function petTraitPose(name, progress, gaze = 0) {
     };
   }
   if (name === 'Biscuit') {
-    // Social double-beat: eager gaze + asymmetric head cock + fast wag.
+    // Social double-beat: eager gaze + asymmetric head cock + fast wag. The small forward/social
+    // lean is centre-weighted so the greeting has a readable body silhouette, not only a tail cue.
     const tiltBeat = Math.sin(p * Math.PI * 2.1);
     return {
       headY: look * e,
@@ -92,7 +93,7 @@ export function petTraitPose(name, progress, gaze = 0) {
       headZ: tiltBeat * 0.2 * e,
       tailY: Math.sin(p * Math.PI * 9) * 0.92 * e,
       tailScale: 1,
-      bodyZ: Math.sin(p * Math.PI * 2) * 0.032 * e,
+      bodyZ: (0.022 + Math.sin(p * Math.PI * 4) * 0.014) * e,
     };
   }
   if (name === 'Snowdrop') {
