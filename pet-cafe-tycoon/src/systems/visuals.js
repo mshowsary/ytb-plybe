@@ -1,15 +1,13 @@
-// src/systems/visuals.js — builds a mesh per station, animates build pop-in, and keeps the
-// counter item pool / oven trays / cash piles in sync with sim state. Also owns the M3 T5 demand
-// counters (n/cap DOM labels over every counter/oven/coffee/blender/bowl/bush).
+// src/systems/visuals.js — builds a mesh per station, keeps physical stock props in sync, owns the
+// Task-31 glanceable stock truth, and runs Task-32's one-shot construction reveal.
 import { ovenMesh, counterMesh, checkoutMesh, tableMesh, hireDeskMesh, kioskMesh, bowlMesh, bushMesh, coffeeMesh, pantryMesh, crateMesh, blenderMesh, chalkboardMesh, itemFor, cashPile, dirtyMesh, zoneRing } from '../render/props.js';
 import { C } from '../render/palette.js';
-import { iconFor, treatIcon, coinIcon, sackIcon, returnIcon, leafIcon, gearIcon, personIcon } from '../ui/icons.js';
+import { buildRevealPhase, buildRevealScale } from '../render/buildReveal.js';
+import { iconFor, treatIcon, coinIcon, sackIcon, returnIcon, leafIcon, gearIcon, personIcon, beanIcon } from '../ui/icons.js';
 import { STAR_IDS } from '../sim/economy.js';
 
-// Loop v2 Task 1: a display's item-mesh pool — capacity is a flat 8 for now (Task 3 adds star
-// levels up to 16, per the design doc), sized with headroom so a future cap bump doesn't need a
-// pool resize too.
 const DISPLAY_POOL = 16;
+const DEMAND_DETAIL_RADIUS = 1.7;
 
 const MESH_FOR = {
   oven: ovenMesh, display: counterMesh, checkout: checkoutMesh, seat: tableMesh, hire: hireDeskMesh, kiosk: kioskMesh,
@@ -41,12 +39,12 @@ const DEMAND_Y = { display: 2.1, oven: 2.3, coffee: 1.55, blender: 1.55, bowl: 0
 
 function makeDemandEl(type) {
   const el = document.createElement('div'); el.className = 'demand hidden';
-  // Task 31: tiny purely-visual state badge. It intentionally does not replace the stock count:
-  // ● healthy, ○ empty, Ⅱ waiting/processing, × blocked, ! customer-actionable shortage.
+  // Task 31 five-state truth: empty / producing / ready / full / blocked. Guest urgency is an
+  // attention overlay, never a fabricated sixth inventory state.
   const state = document.createElement('span');
   state.className = 'dstate';
-  state.style.cssText = 'position:absolute;right:5px;top:3px;font-size:9px;font-weight:1000;line-height:1;opacity:.72;pointer-events:none';
-  const main = document.createElement('div'); main.className = 'dmain';
+  state.style.cssText = 'display:flex;align-items:center;justify-content:center;min-width:13px;height:13px;font-size:11px;font-weight:1000;line-height:1;opacity:.82;pointer-events:none';
+  const main = document.createElement('div'); main.className = 'dmain'; main.style.display = 'none';
   el.append(state, main);
   let pips = null;
   if (type === 'coffee' || type === 'blender') {
@@ -60,7 +58,7 @@ function makeDemandEl(type) {
     for (let i = 0; i < 3; i++) { const p = document.createElement('div'); p.className = 'dstage'; pips.appendChild(p); }
     el.appendChild(pips);
   }
-  return { el, main, state, pips, lastText: null, lastState: null, lastPulse: null, lastVisible: null };
+  return { el, main, state, pips, lastText: null, lastState: null, lastAttention: null, lastDetail: null, lastPulse: null, lastVisible: null };
 }
 
 function stationHasWaiter(st, customers) {
@@ -72,43 +70,69 @@ function stationHasWaiter(st, customers) {
   return false;
 }
 
-// Task 31 pure truth model. Strong warning is reserved for a shortage that has a guest actively
-// blocked by THIS station; merely reading zero is information, not an alarm. Machines with usable
-// input but no output are 'paused' (working/recovering), while missing required input is 'blocked'.
-export function demandVisualState(st, waiter = false) {
+function stockAmountAndCap(st) {
+  if (!st) return { n: 0, cap: 1 };
+  if (st.type === 'display' || st.type === 'bowl') return { n: Math.max(0, st.stock | 0), cap: Math.max(1, st.capacity | 0) };
+  if (st.type === 'oven' || st.type === 'coffee' || st.type === 'blender') return { n: Math.max(0, st.stock | 0), cap: Math.max(1, st.buffer | 0) };
+  if (st.type === 'bush') return { n: Math.max(0, st.stage | 0), cap: 3 };
+  return { n: 0, cap: 1 };
+}
+
+// Exact Task-31 semantic model. Availability outranks production: if something can be taken now it
+// reads ready/full, even if the machine is also continuing to produce behind it.
+export function demandVisualState(st) {
   if (!st || st.active === false) return 'hidden';
-  let n = 0;
-  if (st.type === 'display' || st.type === 'oven' || st.type === 'coffee' || st.type === 'blender' || st.type === 'bowl') n = Math.max(0, st.stock | 0);
-  else if (st.type === 'bush') n = Math.max(0, st.stage | 0);
-  if (waiter && n === 0) return 'actionable';
-  if (n > 0) return 'healthy';
-  if (st.type === 'coffee') return (st.beans | 0) > 0 ? 'paused' : 'blocked';
-  if (st.type === 'blender') return (st.fruit | 0) > 0 ? 'paused' : 'blocked';
-  if (st.type === 'bowl') return 'blocked';
-  if (st.type === 'bush') return (st.stage | 0) < 3 ? 'paused' : 'healthy';
-  if (st.type === 'oven' && Number(st.timer) > 0) return 'paused';
+  const { n, cap } = stockAmountAndCap(st);
+  if (st.type === 'bush') return n >= 3 ? 'full' : 'producing';
+  if (n >= cap) return 'full';
+  if (n > 0) return 'ready';
+  if (st.type === 'coffee') return (st.beans | 0) > 0 ? 'producing' : 'blocked';
+  if (st.type === 'blender') return (st.fruit | 0) > 0 ? 'producing' : 'blocked';
+  if (st.type === 'oven') return Number(st.timer) > 0 ? 'producing' : 'empty';
   return 'empty';
 }
 
-function applyDemandState(dv, state) {
-  if (dv.lastState === state) return;
-  dv.lastState = state;
+export function demandDetailVisible(st, player = null, waiter = false, state = demandVisualState(st)) {
+  if (!st || st.active === false) return false;
+  if (waiter || state === 'blocked') return true;
+  if (!player || !st.front) return false;
+  return (player.x - st.front.x) ** 2 + (player.z - st.front.z) ** 2 <= DEMAND_DETAIL_RADIUS ** 2;
+}
+
+function stateGlyph(state, st) {
+  if (state === 'blocked' && st.type === 'coffee') {
+    return beanIcon().replace('<svg ', '<svg width="12" height="12" ');
+  }
+  return {
+    empty: '○', producing: '◌', ready: '●', full: '◆', blocked: '×',
+  }[state] || '';
+}
+
+function applyDemandState(dv, state, st, attention) {
+  const stateKey = `${state}:${attention ? 1 : 0}:${st.type}`;
+  if (dv.lastState === stateKey) return;
+  dv.lastState = stateKey;
   const spec = {
-    healthy: { glyph: '●', title: 'Stock healthy', bg: 'var(--cream)', fg: 'var(--ink)', border: '1px solid transparent', opacity: '1' },
-    empty: { glyph: '○', title: 'Empty', bg: '#fffdf9', fg: 'var(--ink)', border: '1px dashed #d7aaa3', opacity: '.9' },
-    paused: { glyph: 'Ⅱ', title: 'Recovering', bg: '#f3eee8', fg: '#625650', border: '1px solid #d9cec5', opacity: '.86' },
-    blocked: { glyph: '×', title: 'Needs input', bg: '#e9e2dc', fg: '#554b46', border: '1px solid #b9aaa0', opacity: '.9' },
-    actionable: { glyph: '!', title: 'Guest waiting', bg: 'var(--coral)', fg: '#fff', border: '1px solid transparent', opacity: '1' },
-  }[state] || { glyph: '', title: '', bg: 'var(--cream)', fg: 'var(--ink)', border: '1px solid transparent', opacity: '1' };
-  dv.state.textContent = spec.glyph;
+    empty: { title: 'Empty', bg: '#fffdf9', fg: 'var(--ink)', border: '1px dashed #d7aaa3', opacity: '.88' },
+    producing: { title: 'Producing', bg: '#f3f0ff', fg: '#6256b9', border: '1px solid #d7d0ff', opacity: '.9' },
+    ready: { title: 'Ready', bg: 'var(--cream)', fg: 'var(--ink)', border: '1px solid transparent', opacity: '1' },
+    full: { title: 'Full', bg: '#eef8ef', fg: '#417b49', border: '1px solid #b9dfbf', opacity: '1' },
+    blocked: { title: st.type === 'coffee' ? 'Needs beans' : st.type === 'blender' ? 'Needs fruit' : 'Blocked', bg: '#eee8e2', fg: '#554b46', border: '1px solid #b9aaa0', opacity: '.94' },
+  }[state] || { title: '', bg: 'var(--cream)', fg: 'var(--ink)', border: '1px solid transparent', opacity: '1' };
+  dv.state.innerHTML = stateGlyph(state, st);
   dv.state.title = spec.title;
   dv.el.dataset.stockState = state;
-  dv.el.style.background = spec.bg;
-  dv.el.style.color = spec.fg;
-  dv.el.style.border = spec.border;
+  dv.el.dataset.attention = attention ? 'guest' : '';
+  dv.el.style.background = attention ? 'var(--coral)' : spec.bg;
+  dv.el.style.color = attention ? '#fff' : spec.fg;
+  dv.el.style.border = attention ? '1px solid transparent' : spec.border;
   dv.el.style.opacity = spec.opacity;
-  // M3's old `.zero` class painted every zero coral. Task 31 deliberately retires that alarm.
   dv.el.classList.remove('zero');
+}
+
+function reducedMotion() {
+  try { return !!matchMedia('(prefers-reduced-motion: reduce)').matches; }
+  catch (_) { return false; }
 }
 
 export function createVisuals(G, S, ctx) {
@@ -119,7 +143,7 @@ export function createVisuals(G, S, ctx) {
     const g = build();
     g.position.set(st.x, 0, st.z); g.rotation.y = st.rot; g.visible = st.active;
     scene.add(g);
-    const v = { g, pop: st.active ? 1 : 0, items: [] };
+    const v = { g, items: [], reveal: null };
     if (st.type === 'display') { for (let i = 0; i < DISPLAY_POOL; i++) { const m = itemFor(st.product); m.position.copy(g.slots[i]); m.visible = false; g.add(m); v.items.push(m); } g.setProduct(st.product); }
     if (st.type === 'oven') for (let i = 0; i < 6; i++) { const m = itemFor(st.product); m.position.copy(g.outSlot); m.position.y += i * 0.17; m.visible = false; g.add(m); v.items.push(m); }
     if (st.type === 'checkout') { v.pile = cashPile(); v.pile.position.set(st.cash.x, 0, st.cash.z); scene.add(v.pile); }
@@ -151,7 +175,7 @@ export function createVisuals(G, S, ctx) {
   function syncAll() {
     for (const st of world.stations.values()) {
       const v = vis.get(st.id); if (!v) continue;
-      v.g.visible = st.active; v.pop = 1; v.g.scale.setScalar(1);
+      v.reveal = null; v.g.visible = st.active; v.g.scale.setScalar(1);
     }
   }
 
@@ -161,17 +185,43 @@ export function createVisuals(G, S, ctx) {
       for (const e of world.events) {
         if (e.type === 'built') {
           const z = area.zones.find(z => z.id === e.zoneId); if (!z) continue;
-          for (const id of z.adds) { const v = vis.get(id); if (v) { v.g.visible = true; v.pop = 0; } }
+          // One committed build creates exactly one reveal record per station. Restore/sync never
+          // replays it, so a load cannot repeatedly celebrate an old purchase.
+          for (const id of z.adds) {
+            const v = vis.get(id); if (!v) continue;
+            v.reveal = { t: 0, pulsed: false };
+            v.g.visible = false; v.g.scale.setScalar(0.001);
+          }
         } else if (e.type === 'cleaned') {
           const st = world.stations.get(e.seatId); if (st) fx.burst(st.x, 0.85, st.z, C.cream, 10);
         }
       }
-      for (const v of vis.values()) if (v.pop < 1) {
-        v.pop = Math.min(1, v.pop + dt * 2); const t = v.pop, s = 1 + 2.7 * Math.pow(t - 1, 3) + 1.7 * Math.pow(t - 1, 2);
-        v.g.scale.setScalar(Math.max(0.001, s));
-      }
+
       for (const st of world.stations.values()) {
-        const v = vis.get(st.id);
+        const v = vis.get(st.id); if (!v) continue;
+
+        if (v.reveal) {
+          v.reveal.t += Math.max(0, dt);
+          const phase = buildRevealPhase(v.reveal.t);
+          if (phase === 'anticipation') {
+            v.g.visible = false;
+          } else {
+            v.g.visible = true;
+            v.g.scale.setScalar(buildRevealScale(v.reveal.t, reducedMotion()));
+          }
+          if (phase === 'done') {
+            v.g.scale.setScalar(1);
+            if (!v.reveal.pulsed) {
+              v.reveal.pulsed = true;
+              // The pulse lands at the actual interaction/output side of the new station, teaching
+              // where future work happens without text, collision changes, or camera control.
+              const p = st.front || st;
+              fx.burst(p.x, st.type === 'bowl' ? 0.45 : 0.75, p.z, C.accent, 10);
+            }
+            v.reveal = null;
+          }
+        }
+
         if (st.type === 'display') {
           for (let i = 0; i < v.items.length; i++) {
             const m = v.items[i]; const on = i < st.stock;
@@ -187,25 +237,22 @@ export function createVisuals(G, S, ctx) {
           v._steamT = (v._steamT || 0) + dt;
           if (v._steamT > 0.5) { v._steamT = 0; fx.burst(st.x, 1.0, st.z, '#FFFFFF', 2); }
         }
-        // Task 31: stock truth is glanceable without turning every zero into an emergency.
+
         if (v.demand) {
           const dv = v.demand;
           if (!st.active) {
             if (dv.lastVisible !== false) { dv.el.classList.add('hidden'); dv.lastVisible = false; }
           } else {
-            let n = 0, cap = 1, text = '0/0';
-            if (st.type === 'display') { n = st.stock; cap = st.capacity; text = n + '/' + cap; }
-            else if (st.type === 'oven') { n = st.stock; cap = st.buffer; text = n + '/' + cap; }
-            else if (st.type === 'coffee') { n = st.stock; cap = st.buffer; text = n + '/' + cap; }
-            else if (st.type === 'blender') { n = st.stock; cap = st.buffer; text = n + '/' + cap; }
-            else if (st.type === 'bowl') { n = st.stock; cap = st.capacity; text = n + '/' + cap; }
-            else if (st.type === 'bush') { n = st.stage; cap = 3; text = st.stage + '/3'; }
+            const { n, cap } = stockAmountAndCap(st);
+            const text = `${n}/${cap}`;
             const waiter = stationHasWaiter(st, G.customers);
-            const state = demandVisualState(st, waiter);
-            const pulse = state === 'actionable';
+            const state = demandVisualState(st);
+            const attention = waiter && n === 0;
+            const showDetail = demandDetailVisible(st, G.P, waiter, state);
             if (dv.lastText !== text) { dv.main.textContent = text; dv.lastText = text; }
-            applyDemandState(dv, state);
-            if (dv.lastPulse !== pulse) { dv.el.classList.toggle('pulse', pulse); dv.lastPulse = pulse; }
+            if (dv.lastDetail !== showDetail) { dv.main.style.display = showDetail ? '' : 'none'; dv.lastDetail = showDetail; }
+            applyDemandState(dv, state, st, attention);
+            if (dv.lastPulse !== attention) { dv.el.classList.toggle('pulse', attention); dv.lastPulse = attention; }
             if (dv.pips) {
               if (st.type === 'coffee') { const filled = Math.round(st.beans / 2); for (let i = 0; i < dv.pips.children.length; i++) dv.pips.children[i].classList.toggle('filled', i < filled); }
               else if (st.type === 'blender') { for (let i = 0; i < dv.pips.children.length; i++) dv.pips.children[i].classList.toggle('filled', i < st.fruit); }
