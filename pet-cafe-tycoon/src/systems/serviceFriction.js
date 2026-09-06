@@ -1,4 +1,5 @@
 import { subscribeWorld } from '../sim/events.js';
+import { installEconomicLedger } from './economicLedger.js';
 // Runtime service-friction layer. It observes customer waits without changing routing, patience,
 // prices or ad availability. The goal is to make degraded service matter economically while keeping
 // the penalty bounded enough that a bad rush cannot become a debt spiral.
@@ -34,6 +35,10 @@ function makeToast() {
 
 export function installServiceFriction(G) {
   if (!G || !G.world || !Array.isArray(G.world.events) || typeof G.update !== 'function') return { destroy() {} };
+  // Task 20 composition boundary: install the shared ledger before main.js restores cloud data.
+  // The ledger is independent of fee behavior; later fee-removal work may change this system's
+  // deductions without removing the accounting adapter.
+  installEconomicLedger(G);
   installStyle();
   const announce = makeToast();
   const records = new Map();
