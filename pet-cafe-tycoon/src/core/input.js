@@ -10,7 +10,12 @@ export function resetActiveInputs() {
 export function createInput(joyEl, knobEl) {
   const I = { x: 0, z: 0, active: false, pressed: false };
   let pid = -1, ox = 0, oy = 0, jx = 0, jy = 0; const keys = new Set();
-  const isUi = t => t && (t.closest && (t.closest('button') || t.closest('.pill') || t.closest('.sheet') || t.closest('.card') || t.closest('.backdrop') || t.closest('.fbtn')));
+  // UI surfaces must never seed the floating joystick underneath themselves. Task 38's rewarded
+  // card includes non-button explanatory copy, so protect its whole root rather than only controls.
+  const isUi = t => t && (t.closest && (
+    t.closest('button') || t.closest('.pill') || t.closest('.sheet') || t.closest('.card') ||
+    t.closest('.backdrop') || t.closest('.fbtn') || t.closest('.relief-root')
+  ));
   const reset = () => {
     pid = -1; ox = oy = jx = jy = 0; keys.clear();
     I.x = 0; I.z = 0; I.active = false; I.pressed = false;
