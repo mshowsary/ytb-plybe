@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import { chromium } from '@playwright/test';
+import { chromium } from 'playwright';
 
 const baseUrl = process.env.PET_CAFE_URL || 'http://127.0.0.1:4173';
 const outDir = process.env.PET_CAFE_CERT_DIR || 'artifacts/task25-live';
