@@ -278,6 +278,7 @@ export function createGame(S, area, els, platform = null) {
       bestServiceStreak: G.meta.bestServiceStreak | 0, shiftRatings: { ...G.meta.shiftRatings }, petBook: { ...G.meta.petBook }, petDiscoveries: G.meta.petDiscoveries | 0,
       settlement: cloneSettlement(G.meta.settlement),
       career: {
+        currentContract: G.meta.career.currentContract ? { ...G.meta.career.currentContract, goal: { ...G.meta.career.currentContract.goal } } : null,
         history: Object.fromEntries(Object.entries(G.meta.career.history || {}).map(([k, v]) => [k, { ...v }])), weeklyCups: Object.fromEntries(Object.entries(G.meta.career.weeklyCups || {}).map(([k, v]) => [k, { ...v }])),
         trophies: { ...G.meta.career.trophies }, recipeSales: { ...G.meta.career.recipeSales }, contractStreak: G.meta.career.contractStreak | 0,
         bestContractStreak: G.meta.career.bestContractStreak | 0, bestWeekPoints: G.meta.career.bestWeekPoints | 0, renovationLevel: G.meta.career.renovationLevel | 0,
