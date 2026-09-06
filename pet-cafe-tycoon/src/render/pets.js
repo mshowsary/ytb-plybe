@@ -4,6 +4,12 @@ import { part, merge } from './geo.js';
 import { C, toonMaterial, emissiveMaterial } from './palette.js';
 import { damp } from '../core/tween.js';
 import { petProfile } from '../sim/petBook.js';
+import {
+  createPetTraitMotionState,
+  petTraitContextActive,
+  petTraitPose,
+  stepPetTraitMotion,
+} from './petTraitMotion.js';
 
 const SPEC = {
   cat:   { body: C.cat,   belly: C.cream, earCol: '#E6A5A0', tail: 'long',  eye: C.ink, w: 0.5, h: 0.42, l: 0.8, accent: '#F3C16B' },
@@ -120,7 +126,11 @@ export function createPet(species, variant = 0) {
   const bHappy = new THREE.Mesh(heartGeo(), _heartMat); bHappy.scale.setScalar(0.5);
   bubble.add(bWait, bAngry, bHappy);
   const mouth = new THREE.Group(); mouth.position.set(0, -0.05, s.w * 0.7); head.add(mouth);
-  const P = { group, neck, height: head.position.y + s.w * 0.6, species, variant: variant | 0, _t: Math.random() * 6, _mood: 'none', _carried: null, _sitting: false, _face: 0, _hop: 0 };
+  const P = {
+    group, neck, height: head.position.y + s.w * 0.6, species, variant: variant | 0,
+    _t: Math.random() * 6, _mood: 'none', _carried: null, _sitting: false, _face: 0, _hop: 0,
+    _trait: createPetTraitMotionState((variant + 1) * 0.29), _traitClock: null, _traitActive: false,
+  };
   P.setMood = m => { P._mood = m; bubble.visible = m !== 'none'; bWait.visible = m === 'wait'; bAngry.visible = m === 'angry'; bHappy.visible = m === 'happy'; };
   P.carry = m => { if (P._carried) mouth.remove(P._carried); P._carried = m; if (m) { m.position.set(0, 0, 0); m.scale.setScalar(0.8); mouth.add(m); } };
   P.sit = () => { P._sitting = true; };
@@ -129,6 +139,7 @@ export function createPet(species, variant = 0) {
   P.update = (dt, moving, hop) => {
     P._moving = !!moving;
     head.rotation.y = 0;
+    body.rotation.z = 0;
     if (hop !== undefined) P._hop = hop;
     P._t += dt * (moving ? 12 : 2);
     if (P._sitting) {
@@ -146,26 +157,31 @@ export function createPet(species, variant = 0) {
     group.position.y = P._hop > 0 ? Math.sin(Math.min(1, P._hop / 0.4) * Math.PI) * 0.35 : 0;
     bubble.rotation.y += dt * 2; bubble.position.y = P.height + 0.25 + Math.sin(P._t * 0.8) * 0.04;
   };
-  // A short head/tail performance layered after locomotion. Never changes the path.
+  // Task 35: short context-owned personality clips layered over the current idle pose.
+  // They never alter group x/z, target, mover state, inventory or simulation timing.
   P.react = (name, time, target, reducedMotion = false) => {
-    if (P._moving || reducedMotion || !target) return;
-    const phase = ((time + (variant + 1) * 1.7) % 9) / 1.8;
-    if (phase > 1) return;
-    const envelope = Math.sin(phase * Math.PI);
+    const now = Number(time) || 0;
+    const traitDt = P._traitClock == null ? 0 : Math.max(0, now - P._traitClock);
+    P._traitClock = now;
+    const distance = target ? Math.hypot(target.x - group.position.x, target.z - group.position.z) : Infinity;
+    const result = stepPetTraitMotion(P._trait, name, traitDt, {
+      idle: !P._moving && P._mood === 'none',
+      context: petTraitContextActive(name, target, distance),
+      reducedMotion,
+    });
+    P._traitActive = !!result.active;
+    if (!result.active || !target) return;
+
     const angle = Math.atan2(target.x - group.position.x, target.z - group.position.z) - group.rotation.y;
-    const gaze = Math.max(-0.65, Math.min(0.65, Math.atan2(Math.sin(angle), Math.cos(angle))));
-    if (name === 'Marmalade') {
-      head.rotation.y = gaze * envelope;
-      head.rotation.x -= 0.16 * envelope; // nose toward the warm bakery
-      tail.rotation.y *= 1 - 0.65 * envelope;
-    } else if (name === 'Biscuit') {
-      head.rotation.y = gaze * envelope;
-      head.rotation.z += Math.sin(phase * Math.PI * 2) * 0.19 * envelope;
-      tail.rotation.y = Math.sin(phase * Math.PI * 10) * 0.8 * envelope;
-    } else if (name === 'Snowdrop') {
-      head.rotation.y = (gaze + Math.sin(phase * Math.PI * 3) * 0.16) * envelope;
-      head.rotation.x -= 0.1 * envelope; // attentive garden scan
-    }
+    const gaze = Math.atan2(Math.sin(angle), Math.cos(angle));
+    const pose = petTraitPose(name, result.progress, gaze);
+    if (!pose) return;
+    head.rotation.y = pose.headY;
+    head.rotation.x += pose.headX;
+    head.rotation.z += pose.headZ;
+    body.rotation.z += pose.bodyZ || 0;
+    if (pose.tailY == null) tail.rotation.y *= pose.tailScale;
+    else tail.rotation.y = pose.tailY;
   };
   P.followTarget = (hx, hz, hrot, dt) => {
     const fx = Math.sin(hrot), fz = Math.cos(hrot), rx = Math.cos(hrot), rz = -Math.sin(hrot);
