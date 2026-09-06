@@ -22,6 +22,7 @@ export const PET_PROFILES = {
 
 export const PET_SPECIES = ['cat', 'dog', 'bunny'];
 export const PET_VARIANT_WEIGHTS = [0, 0, 0, 1, 1, 1, 2, 2, 3];
+export const PET_KEEPSAKE_VERSION = 1;
 
 // Relationship pacing is intentionally short enough to become visible during normal repeat play,
 // but it never modifies prices, patience, spawn odds, navigation or ad availability.
@@ -31,6 +32,7 @@ export const PET_FRIENDSHIP_TIERS = [
   { level: 2, label: 'Friend', minVisits: 5 },
   { level: 3, label: 'Bestie', minVisits: 10 },
 ];
+export const PET_BESTIE_VISITS = PET_FRIENDSHIP_TIERS.at(-1).minVisits;
 
 export function petKey(species, variant) {
   return `${species}:${Math.max(0, Math.min(3, variant | 0))}`;
@@ -39,6 +41,15 @@ export function petKey(species, variant) {
 export function petProfile(species, variant) {
   const arr = PET_PROFILES[species] || PET_PROFILES.cat;
   return arr[Math.max(0, Math.min(arr.length - 1, variant | 0))];
+}
+
+export function parsePetKey(key) {
+  if (typeof key !== 'string') return null;
+  const match = /^(cat|dog|bunny):(\d+)$/.exec(key);
+  if (!match) return null;
+  const species = match[1], variant = Number(match[2]);
+  if (!Number.isInteger(variant) || variant < 0 || variant >= PET_PROFILES[species].length) return null;
+  return { key: `${species}:${variant}`, species, variant, profile: PET_PROFILES[species][variant] };
 }
 
 export function ensurePetBook(meta) {
@@ -104,6 +115,36 @@ export function recordPetVisit(meta, species, variant) {
     previousLevel: before.level,
     promoted: friendship.level > before.level,
   };
+}
+
+// Task 36: one persistent physical memory, deliberately NOT another collection/currency system.
+// Old saves that already contain Besties deterministically choose the first authored profile order.
+export function firstBestieKey(meta) {
+  ensurePetBook(meta);
+  for (const species of PET_SPECIES) {
+    for (let variant = 0; variant < PET_PROFILES[species].length; variant++) {
+      const key = petKey(species, variant);
+      if ((meta.petFriendship[key] | 0) >= PET_BESTIE_VISITS) return key;
+    }
+  }
+  return null;
+}
+
+export function normalizePetKeepsake(raw, meta = null) {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw) && raw.v === PET_KEEPSAKE_VERSION) {
+    const parsed = parsePetKey(raw.key);
+    if (parsed) return { v: PET_KEEPSAKE_VERSION, key: parsed.key };
+  }
+  const legacy = meta ? firstBestieKey(meta) : null;
+  return legacy ? { v: PET_KEEPSAKE_VERSION, key: legacy } : null;
+}
+
+export function awardFirstBestieKeepsake(current, key) {
+  const existing = normalizePetKeepsake(current);
+  if (existing) return { changed: false, data: existing };
+  const parsed = parsePetKey(key);
+  if (!parsed) return { changed: false, data: null };
+  return { changed: true, data: { v: PET_KEEPSAKE_VERSION, key: parsed.key } };
 }
 
 export function petBookProgress(meta) {
