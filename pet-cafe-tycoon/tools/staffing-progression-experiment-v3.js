@@ -166,7 +166,17 @@ function runScenario(variant, policy, seed) {
   function chooseTarget() {
     maybeFirstHire();
     const hold = reserve(), real = G.coins, staffBefore = { ...G.staff };
-    G.coins = Math.max(0, real - hold);
+    const earlyDeskZone = variant.earlyDesk && policy.staffFirst && !world.built.has('z_hire')
+      ? (world.activeZoneList || activeZones(world)).find(z => z.id === 'z_hire')
+      : null;
+    const prioritizingDesk = !!earlyDeskZone;
+
+    // While the early Desk is a valid active choice, suppress opportunistic purchases inside
+    // botDecide. v2/v3 originally let its sticky service loop consume every arbitration window and
+    // delayed the Desk to ~28m regardless of whether it cost 480 or 90 — a policy artifact. Chores
+    // still get chosen with a zero visible wallet, and the explicit block below only cuts in once
+    // the owner is not carrying an in-progress delivery/refill.
+    G.coins = prioritizingDesk ? 0 : Math.max(0, real - hold);
     const beforeCoins = G.coins;
     let target = decide(world, G);
     const spent = Math.max(0, beforeCoins - G.coins);
@@ -179,14 +189,12 @@ function runScenario(variant, policy, seed) {
       noteFirstHire(staffBefore);
     }
 
-    // Staff-first means: after Cupcakes, finish the early Desk before another money errand. It does
-    // NOT mean buying Cashier→Runner→Cleaner before productive rooms; only the first worker is reserved.
-    if (variant.earlyDesk && policy.staffFirst && !world.built.has('z_hire') && target &&
-        (target.kind === 'build' || target.kind === 'cash')) {
-      const desk = (world.activeZoneList || activeZones(world)).find(z => z.id === 'z_hire');
-      if (desk && (G.coins > 0 || (world.partial.z_hire|0) > 0)) {
-        target = { x:desk.x, z:desk.z, kind:'build', zoneId:'z_hire' };
-      }
+    // A staff-first player is allowed one bounded construction interruption after Cupcakes. Finish
+    // anything physically in hand first, then step away from the queue/restock loop long enough to
+    // build the Desk. This is the experimental decision being measured; it is not live behavior.
+    const carryBusy = (G.carryCount|0) > 0 || !!carry.sack || (carry.fruit|0) > 0;
+    if (earlyDeskZone && !carryBusy && (G.coins > 0 || (world.partial.z_hire|0) > 0)) {
+      target = { x:earlyDeskZone.x, z:earlyDeskZone.z, kind:'build', zoneId:'z_hire' };
     }
     return { target, hold:reserve() };
   }
@@ -433,6 +441,7 @@ export function runStaffingProgressionExperiment() {
     const inWindow = run.firstHireMinutes != null && run.firstHireMinutes >= 6 && run.firstHireMinutes <= 10;
     return { variant, run, dist, inWindow };
   });
+  if (sweep.some(x => x.run.ledgerMismatches.length)) throw new Error('Task24 sweep ledger mismatch');
   const ranked = sweep.slice().sort((a,b) => {
     if (a.inWindow !== b.inWindow) return a.inWindow ? -1 : 1;
     if (a.inWindow && b.inWindow) return a.run.lostRate-b.run.lostRate || a.run.stockoutSeconds-b.run.stockoutSeconds || a.dist-b.dist;
