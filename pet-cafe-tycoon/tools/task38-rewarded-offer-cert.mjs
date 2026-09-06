@@ -63,7 +63,6 @@ try {
   assert.match((await page.locator('.relief-pill-value').textContent()) || '', /^\+\d+$/,
     'collapsed coin offer must communicate the concrete benefit amount');
   assert.equal(await page.locator('.relief-benefit-icon svg').count(), 1, 'collapsed offer must use one authored pictogram');
-  assert.equal(window === undefined, false); // keep this module browser-agnostic in Node linting
 
   let g = await geometry('.relief-pill');
   assert.equal(inside(g), true, `320px collapsed offer must fit viewport: ${JSON.stringify(g)}`);
