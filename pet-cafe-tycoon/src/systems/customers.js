@@ -38,7 +38,7 @@ export function createCustomers(G, S, ctx) {
   const spawns = createCustomerSpawnSequence();
   const rec = new Map();
   let spawnT = 2, penaltyToastCd = 0;
-  let cachedBuiltSize = -1, interval = 4, maxC = 6, effMaxC = 6;
+  let cachedDemandKey = '', interval = 4, maxC = 6, effMaxC = 6;
   const tmpProj = { sx: 0, sy: 0, visible: true };
 
   function applyServicePenalty(reason, r) {
@@ -88,9 +88,12 @@ export function createCustomers(G, S, ctx) {
     teardown,
     prepare(dt) {
       penaltyToastCd = Math.max(0, penaltyToastCd - dt);
-      if (world.built.size !== cachedBuiltSize) {
-        cachedBuiltSize = world.built.size;
-        interval = spawnInterval(world.built); maxC = maxCustomers(world.built);
+      // Task 25: demand responds to productive rooms and useful front-of-house capacity, so a
+      // Runner/Cashier hire must refresh pacing even though the built-set size did not change.
+      const demandKey = `${world.built.size}:${G.staff && G.staff.runner | 0}:${G.staff && G.staff.cashier | 0}`;
+      if (demandKey !== cachedDemandKey) {
+        cachedDemandKey = demandKey;
+        interval = spawnInterval(world.built, G.staff); maxC = maxCustomers(world.built, G.staff);
       }
       const d = G.dayState;
       const mult = d ? spawnMult(d) : 1;
