@@ -48,14 +48,28 @@ const browser = await chromium.launch({ headless:true, args:['--use-gl=swiftshad
 const context = await browser.newContext({ viewport:{ width:390, height:700 }, deviceScaleFactor:1, hasTouch:true });
 const page = await context.newPage();
 const errors = [];
-page.on('pageerror', e => errors.push(String(e)));
+page.on('pageerror', e => errors.push(String(e && e.stack || e)));
 await page.route('https://www.youtube.com/game_api/v1', route => route.fulfill({ status:200, contentType:'text/javascript', body:sdk }));
 
 function distance(a, b) { return Math.hypot(a.x - b.x, a.z - b.z); }
 
 try {
   await page.goto('http://127.0.0.1:4184/', { waitUntil:'domcontentloaded' });
-  await page.waitForFunction(() => window.__gateA?.ready && window.__game && window.__scene && window.__gateA.pauseCb && window.__gateA.resumeCb, null, { timeout:9000 });
+  try {
+    await page.waitForFunction(() => window.__gateA?.ready && window.__game && window.__scene && window.__gateA.pauseCb && window.__gateA.resumeCb, null, { timeout:9000 });
+  } catch (error) {
+    const boot = await page.evaluate(() => ({
+      gateA: window.__gateA ? { ready:!!window.__gateA.ready, pauseCb:!!window.__gateA.pauseCb, resumeCb:!!window.__gateA.resumeCb } : null,
+      game:!!window.__game,
+      scene:!!window.__scene,
+      platform: window.__platform ? { paused:!!window.__platform.paused } : null,
+      barista:!!window.__baristaWorker,
+      loading: document.getElementById('loading') ? { className:document.getElementById('loading').className, text:document.getElementById('loading').textContent } : null,
+      bodyText:document.body?.innerText?.slice(0, 800) || '',
+    }));
+    console.error('Gate A boot diagnostic:', JSON.stringify({ boot, pageErrors:errors }, null, 2));
+    throw error;
+  }
 
   // Start a genuine CSS transition before pausing. The presentation scheduler should take ownership
   // of that running browser animation and preserve its timeline until the host resumes.
