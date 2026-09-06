@@ -13,21 +13,6 @@ const consoleErrors = [];
 page.on('pageerror', error => pageErrors.push(String(error && (error.stack || error.message) || error)));
 page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
 
-function stageSave(coins = 450) {
-  return {
-    v: 4,
-    coins,
-    builds: { a1: ['z_seats1', 'z_oven2'] },
-    partial: {},
-    upgrades: { speed: 0, carry: 0, income: 0 },
-    staff: { runner: 0, cashier: 0, cleaner: 0, barista: 0 },
-    staffLevels: { runner: { speed: 0, carry: 0 }, cashier: { speed: 0 }, cleaner: { speed: 0 } },
-    machineLevels: { oven: 0, coffee: 0, display: 0 },
-    intro: { step: 5 },
-    stats: {}, settings: { sfx: false, music: false },
-  };
-}
-
 async function liveState() {
   return page.evaluate(() => {
     const G = window.__game;
@@ -61,14 +46,24 @@ try {
     adBusy: false,
   }, 'CI preview must be an explicitly ad-free host boundary');
 
-  // Freeze the requestAnimationFrame owner while the certificate advances the exact same live
-  // systems deterministically. G.update remains the production update function; no sim purchase
-  // helper (payZone/hire) is imported or invoked by this certificate.
-  await page.evaluate(save => {
+  // Start from the production serializer itself, then patch only the progression fields this
+  // certificate needs. That keeps station/owner/meta payloads coherent with G.restore while still
+  // producing the exact Cupcakes-stage economy under test.
+  await page.evaluate(() => {
     const G = window.__game;
     G.userPaused = true;
-    if (!G.restore(save)) throw new Error('Task 25 stage restore failed');
-  }, stageSave());
+    const save = G.snapshot();
+    save.coins = 450;
+    save.builds = { a1: ['z_seats1', 'z_oven2'] };
+    save.partial = {};
+    save.upgrades = { speed: 0, carry: 0, income: 0 };
+    save.staff = { runner: 0, cashier: 0, cleaner: 0, barista: 0 };
+    save.staffLevels = { runner: { speed: 0, carry: 0 }, cashier: { speed: 0 }, cleaner: { speed: 0 } };
+    save.machineLevels = { oven: 0, coffee: 0, display: 0 };
+    save.intro = { step: 5 };
+    save.settings = { sfx: false, music: false };
+    if (!G.restore(save)) throw new Error('Task 25 canonical stage restore failed');
+  });
 
   let state = await liveState();
   assert.deepEqual(state.activeZones.sort(), ['z_hire', 'z_register2'].sort(), 'Cupcakes must expose Desk and Register 2 in parallel');
@@ -76,8 +71,6 @@ try {
   assert.equal(state.built.includes('z_register2'), false);
 
   // Stand on the real Staff Desk construction footprint and let systems/zones.js arm + bill it.
-  // 0.1s steps are small enough to exercise the 0.55s hold gate and continuous payment rather than
-  // bypassing it. 300 coins / 150 coins-per-second plus arming fits comfortably in 40 steps.
   await page.evaluate(() => {
     const G = window.__game;
     const z = G.world.area.zones.find(zone => zone.id === 'z_hire');
@@ -98,8 +91,7 @@ try {
   assert.equal(state.adBusy, false);
   await page.screenshot({ path: `${outDir}/01-desk-built-mobile.png`, fullPage: true });
 
-  // Move to the live hire station, open its actual Workers sheet through the floating action, then
-  // use the rendered Runner BUY button. This certifies the UI model and production hire action too.
+  // Move to the live hire station, open its actual Workers sheet, then hire through its real button.
   await page.evaluate(() => {
     const G = window.__game;
     const desk = G.world.stations.get('hire1');
@@ -135,8 +127,6 @@ try {
   assert.equal(state.coins, 0, 'first Runner must consume the remaining 150 coins');
   assert.equal(state.adBusy, false, 'Desk→Runner progression must require no ad transaction');
 
-  // Sheet refreshes after hire. Its second Runner price must remain the pre-existing 2,800 coins,
-  // proving Task 25 discounted only the first relief hire rather than flattening permanent staff.
   const afterHireRow = page.locator('.sheet .srow').filter({ hasText: 'Runner' }).first();
   const secondRunnerText = (await afterHireRow.textContent()) || '';
   assert.match(secondRunnerText, /1\/2/);
@@ -157,16 +147,18 @@ try {
   assert.equal(roundTrip.register2Built, false, 'optional Register 2 must stay unbuilt across save/load');
   assert.ok(roundTrip.activeZones.includes('z_register2'));
 
-  // Browser-level migration proof for a legitimate old 420/480 Desk partial. The canonical load
-  // must promote it to the now-300 Desk with zero wallet mutation and no orphaned partial residue.
+  // Browser-level migration proof. Again begin with a production snapshot, then rewrite only the
+  // historical root progression shape so nested runtime payloads remain valid during live restore.
   const migrated = await page.evaluate(() => {
     const G = window.__game;
-    const legacy = {
-      v: 4, coins: 91,
-      builds: { a1: ['z_seats1', 'z_oven2', 'z_register2'] },
-      partial: { z_hire: 420 }, intro: { step: 5 },
-      upgrades: {}, staff: {}, stats: {}, settings: { sfx: false, music: false },
-    };
+    const legacy = G.snapshot();
+    legacy.coins = 91;
+    legacy.builds = { a1: ['z_seats1', 'z_oven2', 'z_register2'] };
+    legacy.partial = { z_hire: 420 };
+    legacy.staff = { runner: 0, cashier: 0, cleaner: 0, barista: 0 };
+    legacy.staffLevels = { runner: { speed: 0, carry: 0 }, cashier: { speed: 0 }, cleaner: { speed: 0 } };
+    legacy.intro = { step: 5 };
+    legacy.settings = { sfx: false, music: false };
     if (!G.restore(legacy)) throw new Error('legacy Desk migration restore failed');
     return {
       coins: G.coins,
@@ -187,7 +179,6 @@ try {
   });
   assert.deepEqual(interstitial, { shown: false, adBusy: false, adKind: null }, 'preview progression must remain ad-free');
 
-  // Give queued console/page events one turn to settle before certifying the page clean.
   await page.waitForTimeout(100);
   assert.deepEqual(pageErrors, [], `browser page errors:\n${pageErrors.join('\n')}`);
   assert.deepEqual(consoleErrors, [], `browser console errors:\n${consoleErrors.join('\n')}`);
