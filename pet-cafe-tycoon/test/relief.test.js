@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  recommendSmartRelief, recommendRushHelp, reliefClaimKey, returnWasteCost,
+  recommendSmartRelief, recommendSmartReliefCandidate, recommendRushHelp, reliefClaimKey, returnWasteCost,
   RUSH_HELP_COOLDOWN_SECONDS,
 } from '../src/sim/relief.js';
+import { purchaseBridgeEnabled } from '../src/sim/adPacing.js';
 
 function fakeWorld({ desk = true, dirty = 0, lowDisplays = 0, register = false } = {}) {
   const stations = new Map();
@@ -33,29 +34,36 @@ test('return waste charges finished food/fruit but never supply sacks', () => {
   assert.ok(returnWasteCost([], 4) > 0);
 });
 
-test('smart relief recommends a cashier only inside a genuine near-affordability bottleneck', () => {
+test('purchase-bridge classifier still identifies a cashier near-affordability bottleneck', () => {
   const G = state({ coins: 650, customers: [{ state: 'atRegister', mood: 'wait', done: false }] });
-  const r = recommendSmartRelief(G, fakeWorld());
+  const r = recommendSmartReliefCandidate(G, fakeWorld());
   assert.equal(r.key, 'cashier');
   assert.equal(r.cost, 1550);
   assert.ok(r.reward > 0 && r.reward <= r.gap);
   assert.equal(r.remaining, r.gap - r.reward);
 });
 
-test('smart relief never advertises when player can already afford the useful purchase', () => {
+test('Task 39: launch policy disables the rewarded purchase bridge without deleting its measured classifier', () => {
+  assert.equal(purchaseBridgeEnabled(), false);
+  const G = state({ coins: 650, customers: [{ state: 'atRegister', mood: 'wait', done: false }] });
+  assert.ok(recommendSmartReliefCandidate(G, fakeWorld()));
+  assert.equal(recommendSmartRelief(G, fakeWorld()), null);
+});
+
+test('purchase-bridge classifier rejects a purchase the player can already afford', () => {
   const G = state({ coins: 1550, customers: [{ state: 'atRegister', mood: 'wait', done: false }] });
-  assert.equal(recommendSmartRelief(G, fakeWorld()), null);
+  assert.equal(recommendSmartReliefCandidate(G, fakeWorld()), null);
 });
 
-test('smart relief never advertises when player has barely begun saving', () => {
+test('purchase-bridge classifier rejects players who have barely begun saving', () => {
   const G = state({ coins: 40, customers: [{ state: 'atRegister', mood: 'wait', done: false }] });
-  assert.equal(recommendSmartRelief(G, fakeWorld()), null);
+  assert.equal(recommendSmartReliefCandidate(G, fakeWorld()), null);
 });
 
-test('cleaner relief is tied to dirty-table pressure rather than day number alone', () => {
+test('cleaner purchase-bridge candidate is tied to dirty-table pressure rather than day number alone', () => {
   const G = state({ coins: 500 });
-  assert.equal(recommendSmartRelief(G, fakeWorld({ dirty: 0 })), null);
-  const r = recommendSmartRelief(G, fakeWorld({ dirty: 3 }));
+  assert.equal(recommendSmartReliefCandidate(G, fakeWorld({ dirty: 0 })), null);
+  const r = recommendSmartReliefCandidate(G, fakeWorld({ dirty: 3 }));
   assert.equal(r.key, 'cleaner');
   assert.equal(r.cost, 1350);
 });
