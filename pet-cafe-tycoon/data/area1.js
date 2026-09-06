@@ -41,14 +41,17 @@ export const AREA1 = {
 
   zones: [
     { id: 'z_seats1',    x: -6.75, z: 4.3,  price: 90,   adds: ['seat1', 'seat2'],                       label: 'Tables' },
-    { id: 'z_oven2',     x: 3.5,   z: -3.6, price: 220,  adds: ['oven2', 'dispCupcake'],                 requires: 'z_seats1',    label: 'Cupcake oven' },
-    { id: 'z_register2', x: -8.0,  z: -0.6, price: 340,  adds: ['register2'],                            requires: 'z_oven2',     label: 'Second register' },
-    { id: 'z_hire',      x: -7.2,  z: 1.0,  price: 480,  adds: ['hire1'],                                requires: 'z_register2', label: 'Staff desk' },
-    { id: 'z_coffee',    x: 0.5,   z: -3.6, price: 700,  adds: ['coffee1', 'barCoffee', 'pantry1'],       requires: 'z_hire',      label: 'Coffee bar' },
-    { id: 'z_bowl',      x: 5.3,   z: 2.5,  price: 900,  adds: ['bowl1'],                                 requires: 'z_coffee',    label: 'Pet treat bar' },
-    { id: 'z_blender',   x: -3.5,  z: -3.6, price: 1150, adds: ['blender1', 'barSmoothie', 'bush1'],      requires: 'z_bowl',      label: 'Smoothie bar' },
-    { id: 'z_garden',    x: 6.0,   z: 4.2,  price: 1400, adds: ['bush2', 'bush3'],                        requires: 'z_blender',   label: 'Garden expansion' },
-    { id: 'z_seats2',    x: 0.8,   z: 4.3,  price: 1750, adds: ['seat3', 'seat4', 'seat5', 'seat6'],      requires: 'z_garden',    label: 'Pet lounge' },
+    { id: 'z_oven2',     x: 3.5,   z: -3.6, price: 220,  adds: ['oven2', 'dispCupcake'],                 requires: 'z_seats1', label: 'Cupcake oven' },
+    // Task 25 supported candidate: after Cupcakes, staffing and checkout capacity become parallel
+    // choices. The Desk advances the productive room chain; the second register is a useful but
+    // genuinely optional throughput branch rather than a hidden prerequisite for automation.
+    { id: 'z_register2', x: -8.0,  z: -0.6, price: 340,  adds: ['register2'],                            requires: 'z_oven2', label: 'Second register' },
+    { id: 'z_hire',      x: -7.2,  z: 1.0,  price: 300,  adds: ['hire1'],                                requires: 'z_oven2', label: 'Staff desk' },
+    { id: 'z_coffee',    x: 0.5,   z: -3.6, price: 700,  adds: ['coffee1', 'barCoffee', 'pantry1'],       requires: 'z_hire',   label: 'Coffee bar' },
+    { id: 'z_bowl',      x: 5.3,   z: 2.5,  price: 900,  adds: ['bowl1'],                                 requires: 'z_coffee', label: 'Pet treat bar' },
+    { id: 'z_blender',   x: -3.5,  z: -3.6, price: 1150, adds: ['blender1', 'barSmoothie', 'bush1'],      requires: 'z_bowl',   label: 'Smoothie bar' },
+    { id: 'z_garden',    x: 6.0,   z: 4.2,  price: 1400, adds: ['bush2', 'bush3'],                        requires: 'z_blender',label: 'Garden expansion' },
+    { id: 'z_seats2',    x: 0.8,   z: 4.3,  price: 1750, adds: ['seat3', 'seat4', 'seat5', 'seat6'],      requires: 'z_garden', label: 'Pet lounge' },
   ],
 };
 
