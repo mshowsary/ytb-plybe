@@ -5,7 +5,7 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
 import { AREA1 } from '../data/area1.js';
 import { createWorld } from '../src/sim/world.js';
-import { applySave } from '../src/sim/save.js';
+import { applySave, validateAndMigrateSave } from '../src/sim/save.js';
 
 test('createWorld(AREA1, save) with 3 built zones + partial: active set, boxes.length, partial', () => {
   const built = ['z_seats1', 'z_oven2', 'z_register2'];
@@ -122,4 +122,39 @@ test('Task 25 migration preserves an already-built legacy Desk and second regist
   assert.ok(canonical);
   assert.deepEqual(canonical.builds.a1, ['z_seats1', 'z_oven2', 'z_register2', 'z_hire']);
   assert.equal(canonical.coins, 100);
+});
+
+test('Task 29: canonical host load gate preserves only demonstrated known mechanic IDs', () => {
+  const raw = {
+    v: 4,
+    coins: 42,
+    builds: { a1: ['z_seats1', 'z_oven2', 'z_register2', 'z_hire'] },
+    upgrades: {}, staff: {}, stats: {}, settings: {},
+    learning: {
+      v: 1,
+      proven: ['refillCoffee', 'hire', 'not-real', 'refillCoffee'],
+      shown: ['pantry', 'refillBowl'],
+      prose: 'localized UI text must never become learning state',
+    },
+  };
+  const checked = validateAndMigrateSave(raw, AREA1);
+  assert.equal(checked.ok, true);
+  assert.deepEqual(checked.data.learning, { v: 1, proven: ['hire', 'refillCoffee'] });
+  assert.equal('shown' in checked.data.learning, false);
+  assert.equal('prose' in checked.data.learning, false);
+});
+
+test('Task 29: legacy host save receives conservative mechanic proof from canonical progress', () => {
+  const raw = {
+    v: 4,
+    coins: 0,
+    intro: { step: 5 },
+    upgrades: { speed: 1 },
+    staff: { runner: 1 },
+    stats: { served: 2 },
+    settings: {},
+  };
+  const checked = validateAndMigrateSave(raw, AREA1);
+  assert.equal(checked.ok, true);
+  assert.deepEqual(checked.data.learning.proven, ['build', 'cash', 'hire', 'kiosk', 'move', 'pickup', 'serve']);
 });
