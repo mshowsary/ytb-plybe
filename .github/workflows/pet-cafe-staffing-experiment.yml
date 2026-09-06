@@ -5,7 +5,7 @@ on:
     branches: [chatgpt/pet-cafe-production]
     paths:
       - 'pet-cafe-tycoon/src/sim/staffingExperiment.js'
-      - 'pet-cafe-tycoon/tools/staffing-progression-experiment.js'
+      - 'pet-cafe-tycoon/tools/staffing-progression-experiment-v2.js'
       - 'pet-cafe-tycoon/test/staffing-experiment.test.js'
       - '.github/workflows/pet-cafe-staffing-experiment.yml'
 
@@ -35,4 +35,4 @@ jobs:
       - name: Task 24 focused unit tests
         run: node --test test/staffing-experiment.test.js
       - name: Task 24 multi-policy measurement
-        run: node tools/staffing-progression-experiment.js
+        run: node tools/staffing-progression-experiment-v2.js
