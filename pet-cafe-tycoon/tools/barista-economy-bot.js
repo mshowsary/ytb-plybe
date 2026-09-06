@@ -30,6 +30,7 @@ import {
   recordRecipeOrder, masteryMultiplier, recordCareerShift, awardWeeklyCup,
 } from '../src/sim/career.js';
 import { createCarry, takeSack, useSack, addFruit as carryAddFruit, returnAll } from '../src/sim/carry.js';
+import { createLedger } from '../src/sim/ledger.js';
 import { decide } from '../src/sim/botDecide.js';
 import { BARISTA, baristaDecision, baristaHireState, baristaLane } from '../src/sim/barista.js';
 import { AREA1 } from '../data/area1.js';
@@ -46,6 +47,8 @@ const IDLE_ARRIVE_EPS = 0.35;
 
 function pct(n) { return `${(n * 100).toFixed(1)}%`; }
 function pp(n) { return `${n >= 0 ? '+' : ''}${(n * 100).toFixed(1)}pp`; }
+// `earnings` remains a compatibility alias for downstream sensitivity/robustness tools. In this
+// harness it means gross checkout sales, never wallet income; canonical accounting lives in ledger.
 function dayValue(rows, day, key = 'earnings') { return rows.find(r => r.day === day)?.[key] ?? null; }
 
 function runScenario({ name, baristaAware }) {
@@ -65,6 +68,8 @@ function runScenario({ name, baristaAware }) {
   ensureCareer(G.meta);
   G.goal = chooseCareerGoal(1, G.meta);
   world.dayState = G.dayState; world.stars = G.stars;
+  const ledger = createLedger(null, { day:G.dayState.day, openingWallet:G.coins });
+  const ledgerMismatches = [];
   const price = (key, seated) => Math.round(
     salePrice(key, G.up, G.boosts, seated, 0, tipMult(G.dayState)) * masteryMultiplier(G.meta, key),
   );
@@ -165,8 +170,11 @@ function runScenario({ name, baristaAware }) {
     if (!baristaGoalPending() || G.coins < BARISTA.cost) return false;
     const state = baristaHireState(G.dayState.day, world.built, G.coins, G.staff.barista);
     if (!state.available) return false;
+    const before = G.coins;
     const r = hire(G, 'barista');
     if (!r.ok) return false;
+    const spent = Math.max(0, before - G.coins);
+    if (spent) ledger.record('spend', 'hire:barista', spent, { meta:{ role:'barista' } });
     baristaMetrics.hiredDay = G.dayState.day; baristaMetrics.hiredAt = G.time;
     world.emit({ type: 'purchase', kind: 'hire:barista', at: G.time || 0 });
     return true;
@@ -196,6 +204,9 @@ function runScenario({ name, baristaAware }) {
     const target = withBaristaDecisionShadow(() => decide(world, G));
     const purchaseSpent = Math.max(0, spendableBefore - G.coins);
     G.coins = realCoins - purchaseSpent;
+    // decide() owns normal hires/upgrades/stars. Record its actual wallet delta once, after the
+    // temporary Barista reserve has been put back, so reserve bookkeeping is never mistaken for a cost.
+    if (purchaseSpent) ledger.record('spend', 'purchase:decision', purchaseSpent, { meta:{ targetKind:target?.kind || null } });
     return { target, reserve: reserveAmount() };
   }
   function ownerStep(dt) {
@@ -259,10 +270,23 @@ function runScenario({ name, baristaAware }) {
         const st = world.stations.get(target.stationId); if (!st || !st.dirty) return;
         arrivedT += dt; if (arrivedT >= 1.0) { cleanSeat(world, st.id); arrivedT = 0; } return;
       }
-      case 'cash': for (const id of world.checkouts) G.coins += collectCash(world, id); return;
+      case 'cash': {
+        for (const id of world.checkouts) {
+          const amount = collectCash(world, id);
+          if (amount <= 0) continue;
+          G.coins += amount;
+          ledger.record('collection', `register:${id}`, amount, { meta:{ checkoutId:id, by:'owner' } });
+        }
+        return;
+      }
       case 'build': {
         const spendable = Math.max(0, G.coins - choice.reserve);
-        const r = payZone(world, target.zoneId, spendable, dt); G.coins -= r.spent; return;
+        const r = payZone(world, target.zoneId, spendable, dt);
+        if (r.spent > 0) {
+          G.coins -= r.spent;
+          ledger.record('spend', `build:${target.zoneId}`, r.spent, { meta:{ zoneId:target.zoneId } });
+        }
+        return;
       }
     }
   }
@@ -320,7 +344,11 @@ function runScenario({ name, baristaAware }) {
     if ((G.staff.barista | 0) > 0 && !barista) spawnBarista();
     beginActorStep(world, customers, staffList, (G.staff.barista | 0) > 0 && barista ? [barista] : []);
     stepCustomers(customers, world, price, DT);
-    stepStaff(staffList, world, DT, amount => { G.coins += amount; }, G.staffLevels, customers);
+    stepStaff(staffList, world, DT, amount => {
+      if (amount <= 0) return;
+      G.coins += amount;
+      ledger.record('collection', 'register:staff', amount, { meta:{ by:'cashier' } });
+    }, G.staffLevels, customers);
     stepBarista(DT);
     endActorStep(world);
     trackMovers(t);
@@ -332,7 +360,9 @@ function runScenario({ name, baristaAware }) {
         G.dayStats.served++; G.dayStats.earned += e.amount;
         G.serviceStreak.count = G.serviceStreak.t > 0 ? G.serviceStreak.count + 1 : 1; G.serviceStreak.t = 7;
         G.shiftBestStreak = Math.max(G.shiftBestStreak, G.serviceStreak.count); G.dayStats.bestStreak = G.shiftBestStreak;
-        recordRecipeOrder(G.meta, c?.order || []);
+        const order = c?.order || [];
+        ledger.record('sale', `service:${order.length ? order.join('+') : 'unknown'}`, e.amount, { meta:{ customerId:e.id, checkoutId:e.checkoutId || null } });
+        recordRecipeOrder(G.meta, order);
         if (c && familyOf(c.wish?.product) === 'coffee') coffeeFlow.served++;
       } else if (e.type === 'lost') {
         G.dayStats.lost++; G.serviceStreak = { count: 0, t: 0 };
@@ -358,19 +388,34 @@ function runScenario({ name, baristaAware }) {
       else if (e.type === 'dayEnd') {
         for (const st of world.stations.values()) if (st.type === 'seat' && st.dirty) cleanSeat(world, st.id);
         const completedDay = G.dayState.day, goal = G.goal, met = careerGoalMet(goal, G.dayStats);
-        if (met) G.coins += goal.reward;
+        if (met) {
+          G.coins += goal.reward;
+          ledger.record('bonus', 'contract', goal.reward, { meta:{ day:completedDay } });
+        }
         const outcomes = Math.max(1, G.dayStats.served + G.dayStats.lost), lostRate = G.dayStats.lost / outcomes;
         const rating = lostRate <= 0.06 && (met || G.shiftBestStreak >= 8) ? 3 : lostRate <= 0.16 ? 2 : 1;
         recordCareerShift(G.meta, completedDay, G.dayStats, rating, met);
-        const cup = awardWeeklyCup(G.meta, completedDay); if (cup.awarded) G.coins += cup.reward;
+        const cup = awardWeeklyCup(G.meta, completedDay);
+        if (cup.awarded) {
+          G.coins += cup.reward;
+          ledger.record('bonus', 'weekly-cup', cup.reward, { meta:{ day:completedDay } });
+        }
+        const accounting = ledger.report(G.coins);
+        if (!accounting.reconciled) ledgerMismatches.push({ day:completedDay, ...accounting });
         dayReport.push({
-          day: completedDay, earnings: G.dayStats.earned, served: G.dayStats.served, lost: G.dayStats.lost,
+          day: completedDay,
+          // Compatibility alias for downstream tools; this is gross sale accrual, not wallet income.
+          earnings: accounting.sale,
+          sales: accounting.sale, collected: accounting.collection, bonuses: accounting.bonus,
+          spend: accounting.spend, deductions: accounting.deduction, walletDelta: accounting.walletDelta,
+          served: G.dayStats.served, lost: G.dayStats.lost,
           goalText: careerGoalLabel(goal), goalMet: met, goalReward: met ? goal.reward : 0,
           cupReward: cup.awarded ? cup.reward : 0, afford: closingAfford, purchases: dayPurchases.slice(), coins: Math.round(G.coins),
         });
         dayPurchases = []; G.dayStats = { served: 0, lost: 0, earned: 0, bestStreak: 0 };
         G.serviceStreak = { count: 0, t: 0 }; G.shiftBestStreak = 0;
         nextDay(G.dayState); G.goal = chooseCareerGoal(G.dayState.day, G.meta);
+        ledger.reset(G.dayState.day, G.coins);
       }
     }
 
@@ -389,16 +434,20 @@ function runScenario({ name, baristaAware }) {
   const outsideN = ['morning', 'afternoon', 'closing'].reduce((s, p) => s + phaseFriction[p].n, 0);
   const lostRates = dayReport.map(r => (r.served + r.lost) ? r.lost / (r.served + r.lost) : 0);
   const avgLost = lostRates.length ? lostRates.reduce((a, b) => a + b, 0) / lostRates.length : 0;
-  const totalEarnings = dayReport.reduce((s, r) => s + r.earnings, 0);
+  const totalSales = dayReport.reduce((s, r) => s + r.sales, 0);
+  const totalCollected = dayReport.reduce((s, r) => s + r.collected, 0);
   const finalStaff = { ...G.staff };
 
   return {
-    name, baristaAware, dayReport, daysToComplete, totalEarnings,
+    name, baristaAware, dayReport, daysToComplete,
+    totalSales, totalCollected,
+    totalEarnings: totalSales, // compatibility alias: gross checkout sales
     day8: dayValue(dayReport, 8), day10: dayValue(dayReport, 10), day12: dayValue(dayReport, 12),
     avgLost, rushFriction: frictionByPhase.rush, outsideFriction: outsideOver / Math.max(1, outsideN),
     coffeeWaitOver6: coffeeFlow.done ? coffeeFlow.over / coffeeFlow.done : 0,
     coffeeFlow, finalStaff, finalCoins: Math.round(G.coins),
     barista: baristaMetrics, ownerCoffeeTicks: ownerCoffeeTicks.total,
+    ledgerMismatches,
     stalls: stalls.length, teleports, firstStalls: stalls.slice(0, 5),
     wallMs: Date.now() - wallStart, kindCounts,
   };
@@ -417,6 +466,8 @@ if (withBarista.barista.hiredDay != null) {
 const delta = {
   daysToComplete: (withBarista.daysToComplete ?? 99) - (baseline.daysToComplete ?? 99),
   totalEarnings: withBarista.totalEarnings - baseline.totalEarnings,
+  totalSales: withBarista.totalSales - baseline.totalSales,
+  totalCollected: withBarista.totalCollected - baseline.totalCollected,
   day8: (withBarista.day8 || 0) - (baseline.day8 || 0),
   day10: (withBarista.day10 || 0) - (baseline.day10 || 0),
   day12: (withBarista.day12 || 0) - (baseline.day12 || 0),
@@ -433,7 +484,7 @@ const usefulCoffeeRelief = withBarista.barista.cupsMoved >= 10 && withBarista.ow
 const progressionSafe = delta.daysToComplete <= 1;
 const frictionSafe = delta.avgLost <= 0.02;
 let recommendation = 'HOLD BARISTA UPGRADES';
-if (usefulCoffeeRelief && progressionSafe && frictionSafe && (recoupDay != null || delta.totalEarnings > 0)) {
+if (usefulCoffeeRelief && progressionSafe && frictionSafe && (recoupDay != null || delta.totalSales > 0)) {
   recommendation = 'BASE BARISTA LOOKS USEFUL — KEEP UPGRADES LOCKED UNTIL PLAYTEST';
 } else if (!usefulCoffeeRelief) {
   recommendation = 'BASE BARISTA IS NOT EARNING ITS ROLE YET — DO NOT ADD UPGRADES';
@@ -447,23 +498,23 @@ console.log('both arms simulate real Runner/Cashier/Cleaner bodies; Barista arm 
 console.log('');
 for (const s of [baseline, withBarista]) {
   console.log(`--- ${s.name} ---`);
-  console.log(`Area 1 completion: day ${s.daysToComplete ?? 'NOT REACHED'} | total service earnings: ${s.totalEarnings} | final wallet: ${s.finalCoins}`);
-  console.log(`Day 8/10/12 gross: ${s.day8}/${s.day10}/${s.day12}`);
+  console.log(`Area 1 completion: day ${s.daysToComplete ?? 'NOT REACHED'} | gross sales: ${s.totalSales} | collected cash: ${s.totalCollected} | final wallet: ${s.finalCoins}`);
+  console.log(`Day 8/10/12 gross sales: ${s.day8}/${s.day10}/${s.day12}`);
   console.log(`lost sales: ${pct(s.avgLost)} | rush wait>6s: ${pct(s.rushFriction)} | outside-rush wait>6s: ${pct(s.outsideFriction)}`);
   console.log(`coffee wait>6s: ${pct(s.coffeeWaitOver6)} (${s.coffeeFlow.over}/${s.coffeeFlow.done}) | coffee served/lost: ${s.coffeeFlow.served}/${s.coffeeFlow.lost}`);
   console.log(`staff: ${JSON.stringify(s.finalStaff)} | owner coffee-chore ticks: ${s.ownerCoffeeTicks}`);
   if (s.baristaAware) console.log(`Barista: hired day ${s.barista.hiredDay ?? 'never'} | cups moved ${s.barista.cupsMoved} | bean refills ${s.barista.beanRefills} | jobs ${s.barista.jobs}`);
-  console.log(`movement: stalls ${s.stalls}, teleports ${s.teleports} | wall ${s.wallMs}ms`);
+  console.log(`ledger mismatches: ${s.ledgerMismatches.length} | movement: stalls ${s.stalls}, teleports ${s.teleports} | wall ${s.wallMs}ms`);
 }
 console.log('');
 console.log('--- Barista delta vs staff-aware baseline ---');
 console.log(`Area 1 days: ${delta.daysToComplete >= 0 ? '+' : ''}${delta.daysToComplete}`);
-console.log(`service earnings total: ${delta.totalEarnings >= 0 ? '+' : ''}${delta.totalEarnings}`);
-console.log(`Day 8/10/12: ${delta.day8 >= 0 ? '+' : ''}${delta.day8} / ${delta.day10 >= 0 ? '+' : ''}${delta.day10} / ${delta.day12 >= 0 ? '+' : ''}${delta.day12}`);
+console.log(`gross sales total: ${delta.totalSales >= 0 ? '+' : ''}${delta.totalSales} | collected cash: ${delta.totalCollected >= 0 ? '+' : ''}${delta.totalCollected}`);
+console.log(`Day 8/10/12 sales: ${delta.day8 >= 0 ? '+' : ''}${delta.day8} / ${delta.day10 >= 0 ? '+' : ''}${delta.day10} / ${delta.day12 >= 0 ? '+' : ''}${delta.day12}`);
 console.log(`lost sales: ${pp(delta.avgLost)} | rush friction: ${pp(delta.rushFriction)} | outside friction: ${pp(delta.outsideFriction)}`);
 console.log(`coffee wait>6s: ${pp(delta.coffeeWaitOver6)} | owner coffee-chore ticks: ${delta.ownerCoffeeTicks >= 0 ? '+' : ''}${delta.ownerCoffeeTicks}`);
-console.log(`incremental service earnings from hire day onward: ${delta.cumulativeServiceIncrementAfterHire >= 0 ? '+' : ''}${delta.cumulativeServiceIncrementAfterHire}`);
-console.log(`gross-service recoup of 2,300: ${delta.recoupDay == null ? 'not reached by Day 25' : 'Day ' + delta.recoupDay}`);
+console.log(`incremental gross sales from hire day onward: ${delta.cumulativeServiceIncrementAfterHire >= 0 ? '+' : ''}${delta.cumulativeServiceIncrementAfterHire}`);
+console.log(`gross-sales recoup of 2,300: ${delta.recoupDay == null ? 'not reached by Day 25' : 'Day ' + delta.recoupDay}`);
 console.log(`RECOMMENDATION: ${recommendation}`);
 
 const report = { baseline, withBarista, delta, recommendation };
@@ -471,6 +522,7 @@ console.log('BARISTA_ECONOMY_JSON ' + JSON.stringify(report));
 
 let fail = false;
 for (const s of [baseline, withBarista]) {
+  if (s.ledgerMismatches.length > 0) { console.error(`${s.name}: ledger failed to reconcile wallet`); fail = true; }
   if (s.stalls > 0 || s.teleports > 0) { console.error(`${s.name}: movement regression (${s.stalls} stalls, ${s.teleports} teleports)`); fail = true; }
   if (s.wallMs > 20000) { console.error(`${s.name}: simulation exceeded 20s wall-clock budget`); fail = true; }
   if (s.daysToComplete == null) { console.error(`${s.name}: Area 1 never completed`); fail = true; }
