@@ -2,6 +2,9 @@ name: Pet Cafe Live Preview
 
 on:
   workflow_dispatch:
+  push:
+    branches: [chatgpt/pet-cafe-production]
+    paths: ['.github/workflows/pet-cafe-preview-pages.yml']
 
 permissions:
   contents: read
@@ -28,6 +31,10 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: pet-cafe-tycoon/package-lock.json
+
+      - name: Install dependencies
+        working-directory: pet-cafe-tycoon
+        run: npm ci
 
       # Never replace the phone-playable demo with a commit that already fails deterministic core
       # simulation/layout/save tests. The heavier economy + Chromium suite remains in production CI.

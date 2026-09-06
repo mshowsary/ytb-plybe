@@ -34,7 +34,8 @@ test('rewarded and interstitial formats share one transaction lock', async () =>
     () => { rewardedCalls++; return reward.promise; },
     async () => { interstitialCalls++; },
   );
-  const p = createYouTubePlatform(h.host);
+  let now = 1_000_000;
+  const p = createYouTubePlatform(h.host, { now: () => now });
   p.bindGame({ P:{ vx:0, vz:0 }, snapshot:() => ({ v:4 }) });
 
   const rewarded = p.requestRewardedAd('immutable-offer');
@@ -48,6 +49,8 @@ test('rewarded and interstitial formats share one transaction lock', async () =>
   assert.equal(rewardedCalls, 1);
   assert.equal(p.adBusy, false);
 
+  assert.equal(await p.requestInterstitialAd(0), false, 'unlocked does not bypass launch cooldown');
+  now += 4 * 60 * 1000;
   assert.equal(await p.requestInterstitialAd(0), true);
   assert.equal(interstitialCalls, 1);
 });

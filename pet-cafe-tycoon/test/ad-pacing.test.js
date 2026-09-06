@@ -143,3 +143,23 @@ test('Task 39: standalone launch wrapper is idempotent and never double-wraps re
   assert.equal(calls, 1);
   assert.deepEqual(p.getAdReport().rewarded, { eligible: 0, requested: 1, earned: 1 });
 });
+
+test('launch spacing applies from interstitial to rewarded as well', async () => {
+  let now=1_000_000; const calls=[];
+  const p=createYouTubePlatform(host(calls),{now:()=>now});
+  assert.equal(await p.requestInterstitialAd(0),true);
+  assert.equal(p.canRequestAd('rewarded'),false);
+  assert.equal(await p.requestRewardedAd('too-soon'),false);
+  now+=AD_PACING.interstitialMinGapMs;
+  assert.equal(p.canRequestAd('rewarded'),true);
+  assert.equal(await p.requestRewardedAd('ready'),true);
+  assert.deepEqual(calls.map(x=>x[0]),['interstitial','rewarded']);
+});
+
+test('a request at clock zero still starts the shared cooldown',async()=>{
+ let now=0,calls=0;
+ const p={rewardedAvailable:true,inPlayables:true,async requestRewardedAd(){calls++;return true;}};
+ installAdLaunchPolicy(p,{now:()=>now});
+ assert.equal(await p.requestRewardedAd('first'),true);now=1;
+ assert.equal(await p.requestRewardedAd('second'),false);assert.equal(calls,1);
+});

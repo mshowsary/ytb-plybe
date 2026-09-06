@@ -1,3 +1,4 @@
+import { rewardedClaimedForShift, markRewardedClaim, interstitialDueAfterShift } from './sim/adPacing.js';
 import { beginActorStep, endActorStep } from './sim/actorRoster.js';
 // src/game.js — binds simulation, rendering, UI, audio and YouTube platform services.
 import { createWorld, refreshActive, cleanSeat } from './sim/world.js';
@@ -201,17 +202,18 @@ export function createGame(S, area, els, platform = null) {
     });
 
     const rewardAmount = met ? goal.reward : Math.max(25, Math.min(250, Math.round(settlement.stats.earned * 0.15)));
-    const rewardClaimed = !!G.meta.rewardedDays[completedDay], reliefClaimed = !!G.meta.rewardedDays[reliefClaimKey(completedDay)];
-    const rewardVisible = !reliefClaimed && !!platform && (platform.rewardedAvailable || !platform.inPlayables);
+    const rewardClaimed = rewardedClaimedForShift(G.meta, completedDay);
+    const rewardVisible = !rewardClaimed && !!platform && (platform.rewardedAvailable || !platform.inPlayables) && platform.canRequestAd?.('rewarded') !== false;
+    if (rewardVisible) platform.noteAdEligible?.('rewarded', `summary:${completedDay}`);
     metaUI.decorateSummary({
       rating,
       reputation: { awarded: repResult.awarded, levelUp: repResult.levelUp, title: reputationTitle(G.meta), nextTitle: REPUTATION_TITLES[repLevel + 1] || null, current: repProgress.current, needed: repProgress.needed, frac: repProgress.frac },
       rewardOffer: rewardVisible ? {
         amount: rewardAmount, claimed: rewardClaimed, liveAd: !!platform.rewardedAvailable, label: met ? 'DOUBLE CONTRACT REWARD' : 'BONUS TIP JAR',
         onClaim: async () => {
-          if (G.meta.rewardedDays[completedDay]) return true; const ok = await platform.requestRewardedAd('pet-cafe-day-bonus-coins');
+          if (rewardedClaimedForShift(G.meta, completedDay)) return false; const ok = await platform.requestRewardedAd('pet-cafe-day-bonus-coins');
           if (!ok) { metaUI.toast('Reward not completed'); return false; }
-          G.meta.rewardedDays[completedDay] = 1; G.coins += rewardAmount; hud.setCoins(G.coins); hud.bump(); audio.play('chime'); syncCareerPresentation();
+          if (!markRewardedClaim(G.meta, completedDay, 'summary')) return false; G.coins += rewardAmount; hud.setCoins(G.coins); hud.bump(); audio.play('chime'); syncCareerPresentation();
           metaUI.toast(`Bonus +${rewardAmount.toLocaleString('en-US')}`); saveNow('reward-claim'); return true;
         },
       } : null,
@@ -243,8 +245,8 @@ export function createGame(S, area, els, platform = null) {
       // Close presentation immediately so rapid input cannot create a second visible exit path. The
       // promise guard below remains authoritative while an interstitial is resolving.
       metaUI.lockSummary(false); sheets.close();
-      if (platform && completedDay >= 3 && completedDay % 3 === 0) {
-        try { await platform.requestInterstitialAd(); }
+      if (platform && interstitialDueAfterShift(completedDay)) {
+        try { if (platform.canRequestAd?.('interstitial') !== false) { platform.noteAdEligible?.('interstitial', `continue:${completedDay}`); await platform.requestInterstitialAd(); } }
         catch (err) { console.warn('Pet Café interstitial failed during day transition; continuing without it.', err); }
       }
       // A single guarded transition owns the terminal -> next-morning mutation. If external code

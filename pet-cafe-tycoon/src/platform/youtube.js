@@ -77,6 +77,7 @@ function wait(ms) {
 }
 
 export function createYouTubePlatform(host = globalThis, options = {}) {
+  const adNow = typeof options.now === 'function' ? options.now : () => Date.now();
   const yt = host.ytgame && host.ytgame.IN_PLAYABLES_ENV ? host.ytgame : null;
   const validateLoadedData = typeof options.validateLoadedData === 'function' ? options.validateLoadedData : null;
   const configuredTimeout = Number(options.loadTimeoutMs);
@@ -380,7 +381,7 @@ export function createYouTubePlatform(host = globalThis, options = {}) {
     if (!P.rewardedAvailable) return !P.inPlayables;
     const tx = { kind: 'rewarded', rewardId: String(rewardId) };
     adBusy = tx;
-    lastAdAt = Date.now();
+    lastAdAt = adNow();
     let earned = false;
     try { earned = !!(await yt.ads.requestRewardedAd(tx.rewardId)); }
     catch (_) { earned = false; }
@@ -393,7 +394,7 @@ export function createYouTubePlatform(host = globalThis, options = {}) {
 
   P.requestInterstitialAd = async (minGapMs = INTERSTITIAL_GAP_MS) => {
     if (paused || adBusy || !P.interstitialAvailable) return false;
-    const now = Date.now();
+    const now = adNow();
     if (now - lastAdAt < minGapMs) return false;
     const tx = { kind: 'interstitial' };
     adBusy = tx;
@@ -411,6 +412,6 @@ export function createYouTubePlatform(host = globalThis, options = {}) {
   // Launch pacing wraps the already-safe host methods rather than replacing their pause/ad-lock
   // semantics. This adds minimum-gap enforcement and eligible/requested/earned reporting without
   // introducing any notion of an SDK "impression" the game cannot truthfully observe.
-  installAdLaunchPolicy(P);
+  installAdLaunchPolicy(P, { now: adNow });
   return P;
 }

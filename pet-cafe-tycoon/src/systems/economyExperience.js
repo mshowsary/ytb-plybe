@@ -1,3 +1,4 @@
+import { rewardedClaimedForShift, markRewardedClaim } from '../sim/adPacing.js';
 import {
   recommendSmartRelief, recommendRushHelp, reliefClaimKey, returnWasteCost, SMART_RELIEF_REWARD_ID,
 } from '../sim/relief.js';
@@ -234,7 +235,7 @@ export function createEconomyExperience(G, S, ctx, platform) {
     const pending = makePendingEntitlement(offer, day);
     if (!pending) return false;
     ensureHelpState().pending = pending;
-    G.meta.rewardedDays[reliefClaimKey(day)] = 1;
+    markRewardedClaim(G.meta, day);
     hud.toast('Reward earned · saved for the next useful moment');
     return true;
   }
@@ -295,7 +296,7 @@ export function createEconomyExperience(G, S, ctx, platform) {
   async function claim() {
     if (busy || !current) return;
     const offer = current, day = G.dayState.day | 0;
-    if (G.meta.rewardedDays[reliefClaimKey(day)]) { hide(); return; }
+    if (rewardedClaimedForShift(G.meta, day)) { hide(); return; }
     const operational = offer.mode === 'crew' || offer.mode === 'petBreak' || offer.mode === 'roomba';
     if (operational && (!G.dayState || G.dayState.phase !== 'rush')) { hide(); return; }
 
@@ -316,7 +317,7 @@ export function createEconomyExperience(G, S, ctx, platform) {
       const boost = makeRushCrewBoost(offer.role, day);
       if (!boost) { storePending(offer, day); if (platform && G.snapshot) platform.save(G.snapshot()); hide(); return; }
       G.boosts.rushCrew = boost;
-      G.meta.rewardedDays[reliefClaimKey(day)] = 1;
+      markRewardedClaim(G.meta, day);
       audio.play('chime');
       hud.banner(`${offer.label.toUpperCase()} · +1 TIER THIS RUSH`, 2200);
     } else if (offer.mode === 'petBreak') {
@@ -326,7 +327,7 @@ export function createEconomyExperience(G, S, ctx, platform) {
       }
       const picked = startPetPlayBreak(G, G.dayState, offer.duration, offer.slots);
       if (picked.length < offer.slots) { storePending(offer, day); if (platform && G.snapshot) platform.save(G.snapshot()); hide(); return; }
-      G.meta.rewardedDays[reliefClaimKey(day)] = 1;
+      markRewardedClaim(G.meta, day);
       G.stats.rewardedPetBreaks = (G.stats.rewardedPetBreaks | 0) + 1;
       celebratePetBreak(picked);
     } else if (offer.mode === 'roomba') {
@@ -336,12 +337,12 @@ export function createEconomyExperience(G, S, ctx, platform) {
       }
       const cleared = mess.sweep(offer.duration);
       if (cleared < 1) { storePending(offer, day); if (platform && G.snapshot) platform.save(G.snapshot()); hide(); return; }
-      G.meta.rewardedDays[reliefClaimKey(day)] = 1;
+      markRewardedClaim(G.meta, day);
       G.stats.rewardedRoombaSweeps = (G.stats.rewardedRoombaSweeps | 0) + 1;
       audio.play('chime');
       hud.banner(`ROOMBA SWEEP · ${cleared} PET ${cleared === 1 ? 'MESS' : 'MESSES'} CLEARED`, 2200);
     } else {
-      G.meta.rewardedDays[reliefClaimKey(day)] = 1;
+      markRewardedClaim(G.meta, day);
       G.coins += offer.reward;
       G.stats.rewardedReliefCoins = (G.stats.rewardedReliefCoins | 0) + offer.reward;
       hud.setCoins(G.coins); hud.bump(); audio.play('chime');
@@ -366,8 +367,8 @@ export function createEconomyExperience(G, S, ctx, platform) {
       const elapsed = 0.5; tick = elapsed;
       const d = G.dayState;
       const inReliefWindow = d && (d.phase === 'rush' || (d.phase === 'afternoon' && d.t < 172));
-      const claimed = d && G.meta.rewardedDays[reliefClaimKey(d.day)];
-      const adReady = platform && (platform.rewardedAvailable || !platform.inPlayables);
+      const claimed = d && rewardedClaimedForShift(G.meta, d.day);
+      const adReady = platform && (platform.rewardedAvailable || !platform.inPlayables) && platform.canRequestAd?.('rewarded') !== false;
       const hasPending = !!(G.temporaryHelp && G.temporaryHelp.pending);
       const operationalActive = rushCrewActive(G.boosts, d) || petPlayBreakActive(G.boosts, d) || !!(G.petMess && G.petMess.roombaActive);
       const surfaceAllowed = rewardedOfferSurfaceAllowed({
@@ -391,7 +392,7 @@ export function createEconomyExperience(G, S, ctx, platform) {
       if (!next) { hide(); return; }
       if (next.key !== pressureKey) { pressureKey = next.key; pressureT = 0; current = next; ui.setModel(null); return; }
       pressureT += elapsed; current = next;
-      if (pressureT >= 5) ui.setModel(next);
+      if (pressureT >= 5) { platform?.noteAdEligible?.('rewarded', `rush:${d.day}:${next.key}`); ui.setModel(next); }
     },
     teardown() {
       if (G.carry.onReturn) G.carry.onReturn = null;

@@ -22,7 +22,8 @@ export function installAdLaunchPolicy(platform, { now = () => Date.now() } = {})
 
   const report = blankReport();
   const eligibilityTokens = new Set();
-  let lastAnyAdRequestAt = 0;
+  let lastAnyAdRequestAt = null;
+  const gapReady = () => lastAnyAdRequestAt === null || Number(now()) - lastAnyAdRequestAt >= AD_PACING.interstitialMinGapMs;
   const baseRewarded = typeof platform.requestRewardedAd === 'function'
     ? platform.requestRewardedAd.bind(platform) : null;
   const baseInterstitial = typeof platform.requestInterstitialAd === 'function'
@@ -39,7 +40,7 @@ export function installAdLaunchPolicy(platform, { now = () => Date.now() } = {})
 
   if (baseRewarded) {
     platform.requestRewardedAd = async rewardId => {
-      if (platform.paused || platform.adBusy) return false;
+      if (platform.paused || platform.adBusy || !gapReady()) return false;
       if (!platform.rewardedAvailable && platform.inPlayables) return false;
       report.rewarded.requested++;
       lastAnyAdRequestAt = Number(now()) || 0;
@@ -59,7 +60,7 @@ export function installAdLaunchPolicy(platform, { now = () => Date.now() } = {})
         AD_PACING.interstitialMinGapMs,
         Number.isFinite(Number(requestedGapMs)) ? Math.max(0, Number(requestedGapMs)) : 0,
       );
-      if (lastAnyAdRequestAt && at - lastAnyAdRequestAt < minGap) return false;
+      if (lastAnyAdRequestAt !== null && at - lastAnyAdRequestAt < minGap) return false;
       report.interstitial.requested++;
       lastAnyAdRequestAt = at;
       let shown = false;
@@ -76,6 +77,7 @@ export function installAdLaunchPolicy(platform, { now = () => Date.now() } = {})
     get lastAnyAdRequestAt() { return lastAnyAdRequestAt; },
   };
   Object.defineProperty(platform, '__petCafeAdLaunchPolicy', { value: api, configurable: false });
+  platform.canRequestAd = format => !platform.paused && !platform.adBusy && gapReady() && (format === 'interstitial' ? !!platform.interstitialAvailable : (!!platform.rewardedAvailable || !platform.inPlayables));
   platform.noteAdEligible = noteEligible;
   platform.getAdReport = api.report;
   return api;
