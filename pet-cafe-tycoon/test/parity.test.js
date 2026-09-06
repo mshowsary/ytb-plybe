@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCustomerSpawnSequence, CUSTOMER_SPAWN_SEED } from '../src/sim/customerSpawn.js';
 import { compareParityStates, PARITY_TIME_TOLERANCE, PARITY_POSITION_TOLERANCE } from '../src/sim/parity.js';
+import { runParityCharacterization } from '../tools/runtime-bot-parity.js';
 
 test('shared customer spawn stream consumes pet + human draws in one documented order', () => {
   const a = createCustomerSpawnSequence();
@@ -42,4 +43,13 @@ test('parity never hides wallet or ledger mismatches behind timing tolerance', (
   assert.equal(result.ok, false);
   assert.ok(result.mismatches.some(m => m.path === 'coins'));
   assert.ok(result.mismatches.some(m => m.path === 'ledger'));
+});
+
+test('shared inputs match for the small script and one complete shift', () => {
+  const report = runParityCharacterization();
+  assert.equal(report.small.comparison.ok, true, JSON.stringify(report.small.comparison.mismatches.slice(0, 5)));
+  assert.equal(report.fullShift.comparison.ok, true, JSON.stringify(report.fullShift.comparison.mismatches.slice(0, 5)));
+  assert.equal(report.fullShift.runtime.ledger.reconciled, true);
+  assert.equal(report.fullShift.bot.ledger.reconciled, true);
+  assert.equal(report.fullShift.runtime.spawn.rngDraws, report.fullShift.bot.spawn.rngDraws);
 });
