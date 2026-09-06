@@ -32,7 +32,7 @@ export const PET_FRIENDSHIP_TIERS = [
   { level: 2, label: 'Friend', minVisits: 5 },
   { level: 3, label: 'Bestie', minVisits: 10 },
 ];
-export const PET_BESTIE_VISITS = PET_FRIENDSHIP_TIERS.at(-1).minVisits;
+export const PET_BESTIE_VISITS = PET_FRIENDSHIP_TIERS[PET_FRIENDSHIP_TIERS.length - 1].minVisits;
 
 export function petKey(species, variant) {
   return `${species}:${Math.max(0, Math.min(3, variant | 0))}`;
@@ -121,6 +121,7 @@ export function recordPetVisit(meta, species, variant) {
 // Old saves that already contain Besties deterministically choose the first authored profile order.
 export function firstBestieKey(meta) {
   ensurePetBook(meta);
+  if (!meta?.petFriendship) return null;
   for (const species of PET_SPECIES) {
     for (let variant = 0; variant < PET_PROFILES[species].length; variant++) {
       const key = petKey(species, variant);
@@ -133,7 +134,11 @@ export function firstBestieKey(meta) {
 export function normalizePetKeepsake(raw, meta = null) {
   if (raw && typeof raw === 'object' && !Array.isArray(raw) && raw.v === PET_KEEPSAKE_VERSION) {
     const parsed = parsePetKey(raw.key);
-    if (parsed) return { v: PET_KEEPSAKE_VERSION, key: parsed.key };
+    // The host save boundary supplies canonical friendship evidence. A syntactically valid but
+    // unearned portrait ID is still discarded; only a genuine Bestie may own this wall memory.
+    if (parsed && (!meta || (meta.petFriendship?.[parsed.key] | 0) >= PET_BESTIE_VISITS)) {
+      return { v: PET_KEEPSAKE_VERSION, key: parsed.key };
+    }
   }
   const legacy = meta ? firstBestieKey(meta) : null;
   return legacy ? { v: PET_KEEPSAKE_VERSION, key: legacy } : null;
