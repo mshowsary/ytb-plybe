@@ -1,46 +1,49 @@
 // Low-noise, world-native coaching for explicit and proximity/dwell station actions.
 //
-// Task 29: a mechanic is persisted only after the player DEMONSTRATES it. Merely showing a hand
-// does not teach the mechanic. Proven mechanics survive reload; malformed/legacy payloads fall back
-// to conservative evidence already present in the save. A proven mechanic can be refreshed only
-// after explicit repeated failures during the current session.
+// Task 29: only demonstrated mechanics persist. Hint presentation is session-local, mechanic IDs are
+// stable domain IDs, and localization/UI copy cannot change the learning contract.
 //
-// Task 30: the interaction hand and the world objective arrow are one coaching system. Urgent guest
-// need -> stock recovery -> construction -> contextual kiosk/worker/supply affordance. The hand sets
-// G.coachCueVisible while it owns the cue so objective.js can suppress its arrow instead of drawing
-// two simultaneous instructions over the cafe.
+// Task 30: interaction gestures and the world objective share one priority lane and one escalation
+// policy: natural state first, subtle pulse after ~3s of real hesitation, route/gesture after ~7s.
+// Material movement toward the target resets escalation so a player who is already acting is never
+// redirected or nagged.
 import * as THREE from 'three';
 import { carryCap } from '../sim/economy.js';
+import {
+  MECHANIC_LEARNING_VERSION,
+  REFRESH_AFTER_FAILURES,
+  mechanicIsKnown,
+  normalizeMechanicLearning,
+  coachEscalationStage,
+  selectCoachPriority,
+  stableContextAction,
+} from '../sim/mechanicLearning.js';
+
+export {
+  MECHANIC_LEARNING_VERSION,
+  REFRESH_AFTER_FAILURES,
+  normalizeMechanicLearning,
+  selectCoachPriority,
+  stableContextAction,
+} from '../sim/mechanicLearning.js';
 
 const STYLE_ID = 'pet-cafe-interaction-coach-style';
-const ACTION_KEYS = {
-  RETURN: 'return',
-  UPGRADES: 'kiosk',
-  STAFF: 'hire',
-  SUPPLIES: 'pantry',
-};
 const HOLD_RADIUS = 1.75;
-const TAP_DWELL = 0.35;
-const LESSON_TAP_DWELL = 0.22;
-export const MECHANIC_LEARNING_VERSION = 1;
-export const REFRESH_AFTER_FAILURES = 2;
-const KNOWN_MECHANICS = new Set([
-  'move', 'build', 'pickup', 'serve', 'cash',
-  'return', 'kiosk', 'hire', 'pantry',
-  'refillCoffee', 'refillBowl', 'blend', 'harvest',
-]);
+const PROGRESS_RESET_METERS = 0.18;
 
 function injectStyle() {
   if (document.getElementById(STYLE_ID)) return;
   const s = document.createElement('style'); s.id = STYLE_ID;
   s.textContent = `
-    .interaction-coach{position:fixed;left:0;top:0;width:38px;height:38px;z-index:24;pointer-events:none;transform:translate(-50%,-50%);opacity:.72;filter:drop-shadow(0 3px 5px #0003);transition:opacity .16s ease,transform .16s ease}
+    .interaction-coach{position:fixed;left:0;top:0;width:38px;height:38px;z-index:24;pointer-events:none;transform:translate(-50%,-50%);opacity:.72;filter:drop-shadow(0 3px 5px #0003);transition:opacity .16s ease,filter .16s ease}
     .interaction-coach.hidden{display:none}.interaction-coach svg{width:100%;height:100%;overflow:visible;display:block}
     .interaction-coach .coach-caption{position:absolute;left:50%;top:39px;transform:translateX(-50%);max-width:150px;padding:5px 8px;border-radius:999px;background:#3b2e2ae8;color:#fff8ef;box-shadow:0 3px 9px #0002;font:900 9px/1 system-ui,sans-serif;letter-spacing:.045em;white-space:nowrap;text-transform:uppercase;opacity:0;transition:opacity .15s ease}
     .interaction-coach.has-caption .coach-caption{opacity:.94}
     .interaction-coach .coach-ring{fill:none;stroke:#fff;stroke-width:2.3;opacity:.82;transform-origin:19px 19px;animation:coachTapRing 1.05s ease-out infinite}
     .interaction-coach .coach-hand{fill:#fff8ef;stroke:#6c554c;stroke-width:1.35;stroke-linejoin:round;stroke-linecap:round;animation:coachTapHand 1.05s ease-in-out infinite;transform-origin:20px 23px}
     .interaction-coach .coach-hold-dots{display:none}.interaction-coach .coach-hold-dot{fill:#fff;opacity:.8}
+    .interaction-coach.route-mode{opacity:.9;filter:drop-shadow(0 4px 7px #0004)}
+    .interaction-coach.route-mode .coach-ring{stroke-width:2.8}
     @keyframes coachTapRing{0%{transform:scale(.55);opacity:.9}70%,100%{transform:scale(1.25);opacity:0}}
     @keyframes coachTapHand{0%,100%{transform:translateY(1px) scale(.98)}45%{transform:translateY(-2px) scale(1.03)}}
     .interaction-coach.hold-mode{opacity:.64}
@@ -66,11 +69,10 @@ function overlayOpen() {
   );
 }
 
-function actionKey(btn) {
-  if (!btn || btn.classList.contains('hidden')) return null;
+function buttonVisible(btn) {
+  if (!btn || btn.classList.contains('hidden')) return false;
   const cs = getComputedStyle(btn);
-  if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) <= 0.01) return null;
-  return ACTION_KEYS[String(btn.textContent || '').trim().toUpperCase()] || null;
+  return cs.display !== 'none' && cs.visibility !== 'hidden' && Number(cs.opacity) > 0.01;
 }
 
 function placeBeside(root, btn) {
@@ -97,48 +99,20 @@ function placeAtWorld(root, S, target) {
 }
 
 function d2(a, b) { return (a.x - b.x) ** 2 + (a.z - b.z) ** 2; }
-
-function addEvidence(proven, evidence) {
-  const step = Math.max(0, evidence?.intro?.step | 0);
-  if (step >= 1) proven.add('move');
-  if (step >= 2) proven.add('build');
-  if (step >= 3) proven.add('pickup');
-  if (step >= 4) proven.add('serve');
-  if (step >= 5) proven.add('cash');
-  if ((evidence?.stats?.served | 0) > 0) { proven.add('pickup'); proven.add('serve'); }
-  if (Object.values(evidence?.staff || {}).some(n => (n | 0) > 0)) proven.add('hire');
-  if (Object.values(evidence?.upgrades || evidence?.up || {}).some(n => Number(n) > 0)) proven.add('kiosk');
+function distanceTo(G, target) {
+  if (!G?.P || !target) return null;
+  return Math.hypot(G.P.x - target.x, G.P.z - target.z);
 }
-
-// Public pure normalizer: useful for migration tests and intentionally accepts both the shipped
-// array form and a defensive object-of-booleans form. Unknown mechanics are discarded.
-export function normalizeMechanicLearning(raw, evidence = null) {
-  const proven = new Set();
-  if (raw && typeof raw === 'object' && !Array.isArray(raw) && raw.v === MECHANIC_LEARNING_VERSION) {
-    if (Array.isArray(raw.proven)) {
-      for (const key of raw.proven) if (KNOWN_MECHANICS.has(key)) proven.add(key);
-    } else if (raw.proven && typeof raw.proven === 'object' && !Array.isArray(raw.proven)) {
-      for (const [key, value] of Object.entries(raw.proven)) if (value === true && KNOWN_MECHANICS.has(key)) proven.add(key);
-    }
-  }
-  addEvidence(proven, evidence);
-  return { v: MECHANIC_LEARNING_VERSION, proven: [...proven].sort() };
+function reducedMotion() {
+  try { return !!matchMedia('(prefers-reduced-motion: reduce)').matches; }
+  catch (_) { return false; }
 }
 
 export function urgentCustomerNeed(G) {
   return !!(G?.customers || []).find(c => c && !c.done && c.state !== 'leave' && Number.isFinite(c.patience) && c.patience <= 4);
 }
 
-// Pure priority contract for Task 30. Contextual includes kiosk/staff/pantry/return affordances.
-export function selectCoachPriority({ urgent = false, stock = false, construction = false, contextual = false } = {}) {
-  if (urgent) return 'urgent';
-  if (stock) return 'stock';
-  if (construction) return 'construction';
-  if (contextual) return 'contextual';
-  return null;
-}
-
-// Exported pure detector so this first-use route can be unit tested without DOM/camera machinery.
+// Exported pure detector so the refill lesson can be tested without DOM/camera machinery.
 export function refillLessonNeed(G, suppressed = new Set()) {
   if (!G || !G.world || !G.carry) return null;
   let best = null;
@@ -152,25 +126,32 @@ export function refillLessonNeed(G, suppressed = new Set()) {
     }
     if (!key) continue;
     const dist = G.P ? d2(G.P, st.front) : 0;
-    if (!best || dist < best.dist) best = { key, supply, label, stationId: st.id, x: st.front.x, y: st.type === 'bowl' ? .9 : 1.3, z: st.front.z, dist };
+    if (!best || dist < best.dist) best = {
+      key, supply, label, stationId: st.id,
+      x: st.front.x, y: st.type === 'bowl' ? .9 : 1.3, z: st.front.z, dist,
+    };
   }
   return best;
 }
 
 function pantryStation(G) {
-  if (!G || !G.world) return null;
+  if (!G?.world) return null;
   for (const st of G.world.stations.values()) if (st.active && st.type === 'pantry') return st;
   return null;
 }
+
+// Structural lookup only: Beans is the first pantry choice, Kibble the second. No English title or
+// button copy participates in mechanic recognition, so localization cannot change Task-29 learning.
 function pantryChoiceButton(supply) {
-  const sheet = [...document.querySelectorAll('.sheet')].find(el => el.querySelector('.stitle')?.textContent.trim().toUpperCase() === 'PANTRY');
+  const sheets = [...document.querySelectorAll('.sheet')];
+  const sheet = sheets.find(el => !el.querySelector('.stabs') && el.querySelectorAll('.srows > .sbtn.buy').length === 2);
   if (!sheet) return null;
-  const wanted = supply === 'beans' ? 'BEANS' : 'KIBBLE';
-  return [...sheet.querySelectorAll('.sbtn.buy')].find(b => String(b.textContent || '').trim().toUpperCase().includes(wanted)) || null;
+  const buttons = [...sheet.querySelectorAll('.srows > .sbtn.buy')];
+  return supply === 'beans' ? buttons[0] || null : buttons[1] || null;
 }
 
 function holdTarget(G, suppressed) {
-  if (!G || !G.world || !G.P || !G.carry) return null;
+  if (!G?.world || !G?.P || !G?.carry) return null;
   let best = null;
   const cap = carryCap(G.up || {});
   for (const st of G.world.stations.values()) {
@@ -224,7 +205,8 @@ export function createInteractionCoach(G = null, S = null) {
   const proven = new Set();
   const shown = new Set();
   const failures = new Map();
-  let currentKey = null, candidateKey = null, candidateT = 0, activeHold = null, activeHoldSnap = null;
+  let currentKey = null, candidateKey = null, candidateT = 0, candidateDistance = null;
+  let activeHold = null, activeHoldSnap = null;
 
   function snapshotLearning() { return { v: MECHANIC_LEARNING_VERSION, proven: [...proven].sort() }; }
   function restoreLearning(raw) {
@@ -240,27 +222,51 @@ export function createInteractionCoach(G = null, S = null) {
     return out;
   }
   function recordFailure(key) {
-    if (!KNOWN_MECHANICS.has(key) || !proven.has(key)) return 0;
+    if (!mechanicIsKnown(key) || !proven.has(key)) return 0;
     const n = Math.min(REFRESH_AFTER_FAILURES, (failures.get(key) || 0) + 1);
     failures.set(key, n);
     return n;
   }
 
   function setCaption(text = '') { caption.textContent = text; root.classList.toggle('has-caption', !!text); }
-  function resetCandidate() { candidateKey = null; candidateT = 0; activeHold = null; activeHoldSnap = null; }
+  function resetCandidate() {
+    candidateKey = null; candidateT = 0; candidateDistance = null;
+    activeHold = null; activeHoldSnap = null;
+  }
   function hide() {
-    root.classList.add('hidden'); root.classList.remove('hold-mode'); root.dataset.mode = ''; setCaption(''); currentKey = null;
+    root.classList.add('hidden'); root.classList.remove('hold-mode', 'route-mode');
+    root.dataset.mode = ''; setCaption(''); currentKey = null;
     if (G) G.coachCueVisible = false;
   }
-  function reveal(key) { shown.add(key); if (G) G.coachCueVisible = true; root.classList.remove('hidden'); }
+  function reveal(key, stage) {
+    shown.add(key);
+    root.classList.toggle('route-mode', stage === 'route');
+    if (G) G.coachCueVisible = true;
+    root.classList.remove('hidden');
+  }
   function mark(key) {
-    if (!key || !KNOWN_MECHANICS.has(key)) return;
+    if (!key || !mechanicIsKnown(key)) return;
     proven.add(key); failures.delete(key); resetCandidate(); hide();
   }
 
-  // Feature-owned persistence wrapper. The canonical save validator may ignore fields it does not
-  // own; this coach deliberately preserves/loads its small payload at the game boundary without
-  // changing unrelated save-schema semantics. The wrapper is installed before platform restore.
+  function advanceCandidate(key, dt, distance = null) {
+    if (key !== candidateKey) {
+      candidateKey = key; candidateT = 0; candidateDistance = distance;
+      activeHold = null; activeHoldSnap = null;
+      return 'natural';
+    }
+    if (distance != null && candidateDistance != null && distance < candidateDistance - PROGRESS_RESET_METERS) {
+      candidateT = 0; candidateDistance = distance;
+      hide();
+      return 'natural';
+    }
+    candidateT += Math.max(0, dt);
+    if (distance != null && (candidateDistance == null || distance < candidateDistance)) candidateDistance = distance;
+    return coachEscalationStage(candidateT, reducedMotion());
+  }
+
+  // Install before platform restore. Cloud load validation now preserves the same canonical learning
+  // payload through sim/save.js, so this wrapper round-trips through both live snapshots and host IO.
   if (G && typeof G.snapshot === 'function' && typeof G.restore === 'function' && !G.__coachPersistenceWrapped) {
     const baseSnapshot = G.snapshot.bind(G);
     const baseRestore = G.restore.bind(G);
@@ -272,55 +278,52 @@ export function createInteractionCoach(G = null, S = null) {
     };
     G.__coachPersistenceWrapped = true;
   }
-  // Fresh sessions still inherit proof from already-demonstrated intro/runtime evidence.
   restoreLearning(null);
 
-  // Capture the action while its label still exists; station click handlers hide/relabel the button.
+  // Stable world action IDs are sampled in capture phase while the real .fbtn still exists. The
+  // visible label may be translated, restyled or changed without affecting persistence.
   const onAction = e => {
     const btn = e.target && e.target.closest && e.target.closest('.fbtn');
-    if (!btn) return;
-    mark(actionKey(btn));
+    if (!buttonVisible(btn)) return;
+    mark(stableContextAction(G));
   };
   document.addEventListener('click', onAction, true);
 
-  function showTap(btn, key, text, dt, dwell = TAP_DWELL) {
-    const candidate = `tap:${key}:${text || ''}`;
-    if (candidate !== candidateKey) { candidateKey = candidate; candidateT = 0; activeHold = null; activeHoldSnap = null; hide(); return true; }
-    candidateT += Math.max(0, dt);
-    if (candidateT < dwell) { hide(); return true; }
-    currentKey = key; root.classList.remove('hold-mode'); root.dataset.mode = 'tap'; setCaption(text); placeBeside(root, btn); reveal(key); return true;
+  function showTap(btn, key, routeText, dt) {
+    const stage = advanceCandidate(`tap:${key}`, dt);
+    if (stage === 'natural') { hide(); return true; }
+    currentKey = key; root.classList.remove('hold-mode'); root.dataset.mode = stage;
+    setCaption(stage === 'route' ? routeText : '');
+    placeBeside(root, btn); reveal(key, stage); return true;
   }
 
-  function showRoute(target, key, text, dt) {
-    const candidate = `route:${key}:${target.stationId || target.id}:${text}`;
-    if (candidate !== candidateKey) { candidateKey = candidate; candidateT = 0; activeHold = null; activeHoldSnap = null; hide(); return true; }
-    candidateT += Math.max(0, dt);
-    if (candidateT < 0.4 || !placeAtWorld(root, S, target)) { hide(); return true; }
-    currentKey = key; root.classList.remove('hold-mode'); root.dataset.mode = 'route'; setCaption(text); reveal(key); return true;
+  function showRoute(target, key, routeText, dt) {
+    const station = target.stationId || target.id || '';
+    const stage = advanceCandidate(`route:${key}:${station}`, dt, distanceTo(G, target));
+    if (stage === 'natural' || !placeAtWorld(root, S, target)) { hide(); return true; }
+    currentKey = key; root.classList.remove('hold-mode'); root.dataset.mode = stage;
+    setCaption(stage === 'route' ? routeText : ''); reveal(key, stage); return true;
   }
 
   const coach = {
     update(dt = 0) {
       if (activeHold && holdCompleted(G, activeHold, activeHoldSnap)) mark(activeHold.key);
 
-      // Highest class belongs to the world objective: a guest at <=4s patience must never compete
-      // with a construction/kiosk/refill hint. objective.js remains visible while the hand hides.
+      // Urgent guests own the world lane. Never stack a kiosk/construction/refill hand on top.
       if (urgentCustomerNeed(G)) { resetCandidate(); hide(); return; }
 
       const suppressed = suppressionSet();
-      // Stock recovery is the highest interaction-hand class. It may temporarily replace the
-      // objective arrow; G.coachCueVisible tells objective.js which surface currently owns the cue.
       const lesson = refillLessonNeed(G, suppressed);
       if (lesson && G && S) {
         const choice = pantryChoiceButton(lesson.supply);
-        if (choice) { showTap(choice, lesson.key, `PICK ${lesson.supply}`, dt, LESSON_TAP_DWELL); return; }
+        if (choice) { showTap(choice, lesson.key, `PICK ${lesson.supply}`, dt); return; }
         if (overlayOpen()) { resetCandidate(); hide(); return; }
         const carryingRightSupply = G.carry.sack === lesson.supply && (G.carry.sackLeft | 0) > 0;
         if (!carryingRightSupply) {
           const pantry = pantryStation(G);
           const btn = document.querySelector('.fbtn');
-          if (pantry && btn && actionKey(btn) === 'pantry' && G.P && d2(G.P, pantry.front) < HOLD_RADIUS * HOLD_RADIUS) {
-            showTap(btn, lesson.key, 'OPEN SUPPLIES', dt, LESSON_TAP_DWELL); return;
+          if (pantry && buttonVisible(btn) && stableContextAction(G) === 'pantry' && G.P && d2(G.P, pantry.front) < HOLD_RADIUS * HOLD_RADIUS) {
+            showTap(btn, lesson.key, 'OPEN SUPPLIES', dt); return;
           }
           if (pantry) { showRoute({ ...pantry.front, stationId: pantry.id, y: 1.15 }, lesson.key, `GET ${lesson.supply}`, dt); return; }
         } else if (G.P && d2(G.P, { x: lesson.x, z: lesson.z }) > HOLD_RADIUS * HOLD_RADIUS) {
@@ -328,15 +331,14 @@ export function createInteractionCoach(G = null, S = null) {
         }
       } else if (overlayOpen()) { resetCandidate(); hide(); return; }
 
-      // If the world objective currently owns a stock or build problem, that outranks contextual
-      // kiosk/staff/pantry prompts. Refill lesson above is the sole exception because it replaces
-      // the arrow with a richer first-use route rather than adding another concurrent cue.
+      // Stock/build world work outranks kiosk/staff/pantry prompts even while its visual is still in
+      // the natural stage. The refill lesson above is the richer version of that same single cue.
       const objectiveKind = G?.objectiveCueKind || null;
-      const objectiveStock = objectiveKind === 'restock' || objectiveKind === 'refill' || objectiveKind === 'supplies' || objectiveKind === 'stock';
+      const objectiveStock = ['restock', 'refill', 'supplies', 'stock'].includes(objectiveKind);
       if (objectiveStock || objectiveKind === 'build') { resetCandidate(); hide(); return; }
 
       const btn = document.querySelector('.fbtn');
-      const tapKey = actionKey(btn);
+      const tapKey = buttonVisible(btn) ? stableContextAction(G) : null;
       if (tapKey && !shouldSuppress(tapKey)) {
         if (showTap(btn, tapKey, '', dt)) return;
       }
@@ -345,15 +347,20 @@ export function createInteractionCoach(G = null, S = null) {
       if (!hold) { resetCandidate(); hide(); return; }
       const candidate = `hold:${hold.key}:${hold.stationId}`;
       if (candidate !== candidateKey) {
-        candidateKey = candidate; candidateT = 0; activeHold = hold; activeHoldSnap = snapshotHold(G, hold); hide(); return;
+        candidateKey = candidate; candidateT = 0; candidateDistance = distanceTo(G, hold);
+        activeHold = hold; activeHoldSnap = snapshotHold(G, hold); hide(); return;
       }
       activeHold = hold;
-      candidateT += Math.max(0, dt);
-      if (candidateT < 0.08) { hide(); return; }
-      if (!placeAtWorld(root, S, hold)) { hide(); return; }
-      currentKey = hold.key; root.classList.add('hold-mode'); root.dataset.mode = 'hold';
-      setCaption(hold.key === 'refillCoffee' || hold.key === 'refillBowl' ? 'HOLD TO REFILL' : 'STAY HERE');
-      reveal(hold.key);
+      const stage = advanceCandidate(candidate, dt, distanceTo(G, hold));
+      // advanceCandidate clears hold state only on a new key, which cannot happen in this branch.
+      activeHold = hold;
+      if (!activeHoldSnap) activeHoldSnap = snapshotHold(G, hold);
+      if (stage === 'natural' || !placeAtWorld(root, S, hold)) { hide(); return; }
+      currentKey = hold.key; root.classList.add('hold-mode'); root.dataset.mode = stage;
+      setCaption(stage === 'route'
+        ? (hold.key === 'refillCoffee' || hold.key === 'refillBowl' ? 'HOLD TO REFILL' : 'STAY HERE')
+        : '');
+      reveal(hold.key, stage);
     },
     mark,
     fail: recordFailure,
@@ -365,7 +372,10 @@ export function createInteractionCoach(G = null, S = null) {
     priorityState() {
       const stock = !!refillLessonNeed(G, suppressionSet());
       const construction = G?.objectiveCueKind === 'build';
-      return selectCoachPriority({ urgent: urgentCustomerNeed(G), stock, construction, contextual: !!actionKey(document.querySelector('.fbtn')) });
+      return selectCoachPriority({
+        urgent: urgentCustomerNeed(G), stock, construction,
+        contextual: !!stableContextAction(G),
+      });
     },
     hide,
     destroy() { document.removeEventListener('click', onAction, true); hide(); root.remove(); },
