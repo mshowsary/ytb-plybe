@@ -5,6 +5,12 @@ import { stepCustomers, createCustomer, PATIENCE } from '../sim/customers.js';
 import { createCustomerSpawnSequence } from '../sim/customerSpawn.js';
 import { serviceRecoveryCost, SERVICE_LABEL, dirtyTablesBlockingSeats } from '../sim/serviceQuality.js';
 import { petProfile } from '../sim/petBook.js';
+import {
+  REGULAR_GREETING_SECONDS,
+  regularIdentityForDay,
+  resolveUniquePetIdentity,
+  activeNamedPetKeys,
+} from '../sim/regularVisitors.js';
 import { seatById } from '../sim/world.js';
 import { createHuman } from '../render/human.js';
 import { createPet } from '../render/pets.js';
@@ -31,6 +37,13 @@ function makeBubble(els) {
 }
 function removeBubble(b) { b.wrap.remove(); b.bar.remove(); }
 function petSound(species) { return species === 'dog' ? 'petDog' : species === 'bunny' ? 'petBunny' : 'petCat'; }
+function anonymousIdentity() {
+  // All gameplay/render callers can stay branch-free. The anonymous overflow case owns no DOM and
+  // therefore can never expose a duplicate name while still preserving the customer itself.
+  return {
+    announce() {}, greetRegular() {}, setSeated() {}, setPlayBreak() {}, update() {}, remove() {},
+  };
+}
 
 export function createCustomers(G, S, ctx) {
   const { area, world, scene, hud, fx, els } = ctx;
@@ -39,6 +52,7 @@ export function createCustomers(G, S, ctx) {
   const rec = new Map();
   let spawnT = 2, penaltyToastCd = 0;
   let cachedDemandKey = '', interval = 4, maxC = 6, effMaxC = 6;
+  let regularPlanDay = 0, regularPlan = null, regularGreetedDay = 0;
   const tmpProj = { sx: 0, sy: 0, visible: true };
 
   function applyServicePenalty(reason, r) {
@@ -56,23 +70,50 @@ export function createCustomers(G, S, ctx) {
     }
   }
 
+  function syncRegularPlan() {
+    const day = Math.max(1, (G.dayState && G.dayState.day) | 0);
+    if (regularPlanDay === day) return day;
+    regularPlanDay = day;
+    regularPlan = regularIdentityForDay(G.meta, day);
+    regularGreetedDay = 0;
+    return day;
+  }
+
   function spawn() {
     const next = spawns.next();
-    const { id, species, petVariant, variant } = next;
+    const day = syncRegularPlan();
+    const preferredKey = regularPlan && regularGreetedDay !== day ? regularPlan.key : null;
+    const identityPick = resolveUniquePetIdentity(
+      next.species,
+      next.petVariant,
+      activeNamedPetKeys(G.customers),
+      preferredKey,
+    );
+    const { id, variant } = next;
+    const species = identityPick.species;
+    const petVariant = identityPick.variant;
     const profile = petProfile(species, petVariant);
     const c = createCustomer(id, species, variant, area);
     c.petVariant = petVariant;
+    c.petIdentityKey = identityPick.key;
+    c.regularCandidate = !!(identityPick.named && preferredKey && identityPick.key === preferredKey);
+    c.regularDay = day;
     G.customers.push(c);
     const human = createHuman(variant, 'customer'); human.group.position.set(c.x, 0, c.z); scene.add(human.group);
     const pet = createPet(species, petVariant); pet.group.position.set(c.x + 0.45, 0, c.z - 0.9); scene.add(pet.group);
     const leash = createLeash(scene); leash.attach(human.hand, pet.neck);
     const bub = makeBubble(els);
-    const identity = createPetMoment(els, profile, c.id, species);
-    if (profile.rarity === 'rare' || profile.rarity === 'epic') identity.announce(`${profile.rarity.toUpperCase()} VISITOR`, 2.8);
+    const identity = identityPick.named ? createPetMoment(els, profile, c.id, species) : anonymousIdentity();
+    // The daily familiar face owns the quiet greeting instead of also receiving a long rarity tag.
+    // Other rare/epic visitors keep their existing discovery spotlight.
+    if (!c.regularCandidate && identityPick.named && (profile.rarity === 'rare' || profile.rarity === 'epic')) {
+      identity.announce(`${profile.rarity.toUpperCase()} VISITOR`, 2.8);
+    }
     rec.set(c.id, {
       human, pet, leash, identity, profile,
       px: c.x, pz: c.z, eating: false, bub,
       lastState: c.state, petHappyT: 0, petBreakActive: false, treatCelebrated: false, tablePenalty: false,
+      regularCandidate: c.regularCandidate, regularGreeted: false, regularGreetingT: 0, regularDay: day,
     });
     if (ctx.discoverPet) ctx.discoverPet(species, petVariant);
   }
@@ -82,12 +123,14 @@ export function createCustomers(G, S, ctx) {
       scene.remove(r.human.group); scene.remove(r.pet.group); r.leash.detach(); removeBubble(r.bub); r.identity.remove();
     }
     rec.clear();
+    regularPlanDay = 0; regularPlan = null; regularGreetedDay = 0;
   }
 
   return {
     teardown,
     prepare(dt) {
       penaltyToastCd = Math.max(0, penaltyToastCd - dt);
+      syncRegularPlan();
       // Task 25: demand responds to productive rooms and useful front-of-house capacity, so a
       // Runner/Cashier hire must refresh pacing even though the built-set size did not change.
       const demandKey = `${world.built.size}:${G.staff && G.staff.runner | 0}:${G.staff && G.staff.cashier | 0}`;
@@ -111,6 +154,17 @@ export function createCustomers(G, S, ctx) {
 
       for (const c of G.customers) {
         const r = rec.get(c.id); if (!r) continue;
+        // Trigger only after the guest actually enters the useful café floor. petMoment timers count
+        // visible screen time, so the name + welcome-back beat lasts ~1s on screen rather than
+        // expiring outside the camera. No customer state is paused or redirected.
+        if (r.regularCandidate && !r.regularGreeted && c.state !== 'enter' && c.state !== 'leave' && !c.done) {
+          r.regularGreeted = true;
+          r.regularGreetingT = REGULAR_GREETING_SECONDS;
+          regularGreetedDay = r.regularDay;
+          r.identity.greetRegular('WELCOME BACK', REGULAR_GREETING_SECONDS);
+          r.pet.setMood('happy');
+          fx.hearts(r.pet.group.position.x, r.pet.height + .22, r.pet.group.position.z);
+        }
         if (!r.treatCelebrated && r.lastState === 'atBowl' && c.state !== 'atBowl' && (c.order || []).includes('treat')) {
           r.treatCelebrated = true; r.petHappyT = 1.7; r.pet.setMood('happy');
           r.identity.announce('LOVES THE TREAT ♥', 2.5);
@@ -177,11 +231,6 @@ export function createCustomers(G, S, ctx) {
           rec.delete(c.id); G.customers.splice(i, 1); continue;
         }
 
-        // Pet Play Break is a simulation-side patience hold, but players need to SEE which pets got
-        // the reward. `_petBreakFloor` is written only for the two selected recipients and cleared
-        // by the post-sim controller when the reward expires. This branch changes render state only:
-        // happy bubble + identity highlight + a small bounce/wiggle; no customer or mover coordinate
-        // is touched, so navigation, queue ownership and service timing stay identical.
         const petBreakNow = Number.isFinite(c._petBreakFloor);
         if (petBreakNow && !r.petBreakActive) {
           r.petBreakActive = true;
@@ -192,16 +241,19 @@ export function createCustomers(G, S, ctx) {
           r.petBreakActive = false;
           r.identity.setPlayBreak(false);
           r.pet.group.rotation.z = 0;
-          if (r.petHappyT <= 0) r.pet.setMood('none');
+          if (r.petHappyT <= 0 && r.regularGreetingT <= 0) r.pet.setMood('none');
         }
 
         if (r.petHappyT > 0) {
           r.petHappyT = Math.max(0, r.petHappyT - dt);
-          if (r.petHappyT === 0 && !r.petBreakActive) r.pet.setMood('none');
+          if (r.petHappyT === 0 && !r.petBreakActive && r.regularGreetingT <= 0) r.pet.setMood('none');
+        }
+        if (r.regularGreetingT > 0) {
+          r.regularGreetingT = Math.max(0, r.regularGreetingT - dt);
+          if (r.regularGreetingT === 0 && !r.petBreakActive && r.petHappyT <= 0) r.pet.setMood('none');
         }
         if (r.eating && c.state !== 'eating') {
           r.pet.stand(); r.human.stand(); r.eating = false; r.identity.setSeated(false);
-          // Resume from the real seated render position, not the sim's potentially already-moving coordinate.
           r.px = r.human.group.position.x; r.pz = r.human.group.position.z;
         }
         if (r.eating) {
@@ -212,7 +264,6 @@ export function createCustomers(G, S, ctx) {
           const vx = (step.x - r.px) / safeDt, vz = (step.z - r.pz) / safeDt;
           r.px = step.x; r.pz = step.z;
           r.human.group.position.set(r.px, 0, r.pz); r.human.update(dt, vx, vz);
-          // Follow the visible human. A hidden sim recovery can no longer yank the pet ahead of its owner.
           r.pet.followTarget(r.px, r.pz, c.rot, dt);
           if (c.state === 'queue' || c.state === 'atBowl' || c.state === 'atRegister') r.human.setMood(c.mood === 'wait' ? 'wait' : 'none');
         }
@@ -228,6 +279,13 @@ export function createCustomers(G, S, ctx) {
           r.pet.setMood('happy');
           r.pet.group.position.y += 0.035 + Math.abs(Math.sin(pulse)) * 0.08;
           r.pet.group.rotation.z = Math.sin(pulse * 0.67) * 0.075;
+        } else if (r.regularGreetingT > 0) {
+          // A tiny render-only hello: happy face, head/body tilt and 4cm bounce. No sim coordinate,
+          // mover, queue state or patience clock is changed.
+          const hello = (G.time + c.id * .19) * 8;
+          r.pet.setMood('happy');
+          r.pet.group.position.y += .025 + Math.abs(Math.sin(hello)) * .04;
+          r.pet.group.rotation.z = Math.sin(hello * .65) * .055;
         } else if (Math.abs(r.pet.group.rotation.z) > 0.001) {
           r.pet.group.rotation.z *= Math.max(0, 1 - dt * 12);
         }
