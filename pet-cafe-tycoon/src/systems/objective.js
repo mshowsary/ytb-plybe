@@ -1,5 +1,7 @@
 // Objective arrow: intro target first, then temporary carry guidance, then normal job guidance.
 // Routine jobs are deliberately arrow-only: persistent floating words compete with the café itself.
+// Task 30: the objective and interaction coach now publish/share one cue lane. The world arrow owns
+// urgent/stock/build routing; a contextual first-use hand can temporarily replace it, never stack.
 import { jobTarget } from '../sim/jobs.js';
 import { refillGuideTarget } from '../sim/refillGuide.js';
 import { chevronMesh } from '../render/props.js';
@@ -41,8 +43,21 @@ export function createObjective(G, S, ctx) {
         }
       }
 
+      // Publish the currently actionable world class before deciding which visual owns the lane.
+      // interactionCoach uses this to suppress lower-priority kiosk/staff prompts while stock/build
+      // work is active. `guided` intro/context targets remain highest-level world guidance.
+      G.objectiveCueKind = target ? (guided ? 'guided' : target.kind || null) : null;
+
       if (!target) {
         if (chevron.visible) chevron.visible = false;
+        caption.classList.add('hidden');
+        return;
+      }
+
+      // A first-use interaction hand may replace the arrow, but never coexist with it. On the next
+      // frame after the hand hides the arrow resumes from the same target without recompute jitter.
+      if (G.coachCueVisible) {
+        chevron.visible = false;
         caption.classList.add('hidden');
         return;
       }
