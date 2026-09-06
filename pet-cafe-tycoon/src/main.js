@@ -1,3 +1,4 @@
+import { createFrameMetrics } from './core/frameMetrics.js';
 // Host-aware boot: paint recovery shell → resolve cloud save → create playable runtime → game ready.
 import { createScene } from './render/scene.js';
 import { createGame } from './game.js';
@@ -259,6 +260,8 @@ function startGame(S, load, bootUi) {
   platform.sendScore(G.meta && G.meta.reputation);
   responsive.update(); shell.refresh();
 
+  const frameMetrics = createFrameMetrics();
+  window.__performanceCapture = frameMetrics;
   window.__game = G;
   window.__scene = S;
   window.__audio = G.audio;
@@ -315,7 +318,8 @@ function startGame(S, load, bootUi) {
   function frame(now) {
     frameId = 0;
     if (platform.paused) return;
-    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    const frameMs = Math.max(0, now - last);
+    const dt = Math.min(0.05, frameMs / 1000); last = now;
     const paused = applyPauseState();
 
     if (!paused) {
@@ -326,15 +330,21 @@ function startGame(S, load, bootUi) {
       machineJuice.update(dt);
       coffeePolish.update();
       cashTrays.update(dt);
+      const uiStart = frameMetrics.running ? performance.now() : 0;
       responsive.update();
       shell.update();
       interactionCoach.update(dt);
+      const uiMs = frameMetrics.running ? performance.now() - uiStart : 0;
       G.audio.setMusicPhase(G.dayState.phase);
       G.audio.musicUpdate(dt);
       const rep = (G.meta && G.meta.reputation) | 0;
       if (rep !== lastRep) { lastRep = rep; platform.sendScore(rep); }
       if (S.noteFrame) S.noteFrame(dt);
+      const renderStart = frameMetrics.running ? performance.now() : 0;
       S.render();
+      if (frameMetrics.running) frameMetrics.record({frameMs,uiMs,renderMs:performance.now()-renderStart,
+        drawCalls:S.renderer.info.render.calls,triangles:S.renderer.info.render.triangles,
+        heapBytes:performance.memory?.usedJSHeapSize});
     } else interactionCoach.hide();
 
     if (first) {
