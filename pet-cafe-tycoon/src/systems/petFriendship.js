@@ -2,7 +2,8 @@ import { subscribeWorld } from '../sim/events.js';
 // Cosmetic relationship layer for named pet visitors.
 // Successful checkout visits build New Face -> Regular -> Friend -> Bestie progression.
 // This module deliberately observes pay events without changing prices, patience, traffic or service logic.
-import { allPetCards, ensurePetBook, recordPetVisit } from '../sim/petBook.js';
+import { allPetCards, awardFirstBestieKeepsake, ensurePetBook, recordPetVisit } from '../sim/petBook.js';
+import { getActiveRenovationDecor } from '../render/renovation.js';
 import { presentationScheduler } from '../core/presentationScheduler.js';
 
 const STYLE_ID = 'pet-cafe-friendship-style';
@@ -48,24 +49,39 @@ function friendshipCaption(friendship) {
   return `${friendship.label} · ${remaining} to ${friendship.nextLabel}`;
 }
 
+function prefersReducedMotion(G) {
+  if (G?.settings?.reducedMotion) return true;
+  try { return !!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches; }
+  catch (_) { return false; }
+}
+
 export function installPetFriendship(G, platform = null) {
   ensureStyle();
   ensurePetBook(G.meta);
+  if (!('petKeepsake' in G)) G.petKeepsake = null;
   const announce = makeToast();
+  const decor = getActiveRenovationDecor();
   let lastPromotionKey = '', spotlightDay = -1, lastSpotlightKey = '';
 
-  // Snapshot ownership remains in game.js; this wrapper adds only the new cosmetic map so existing
-  // save/certification behavior stays untouched. applySave already migrates old saves to an empty map.
+  // Snapshot ownership remains in game.js; this wrapper adds only the cosmetic relationship map
+  // and one stable keepsake ID. The canonical save gate sanitizes the ID before restore.
   const baseSnapshot = G.snapshot;
   G.snapshot = () => {
     const save = baseSnapshot();
     if (!save.meta || typeof save.meta !== 'object') save.meta = {};
     save.meta.petFriendship = { ...G.meta.petFriendship };
+    save.petKeepsake = G.petKeepsake ? { ...G.petKeepsake } : null;
     return save;
   };
 
+  function syncKeepsake() {
+    if (!decor) return;
+    decor.setKeepsake(G.petKeepsake && G.petKeepsake.key || null);
+  }
+
   function renderBook() {
     ensurePetBook(G.meta);
+    syncKeepsake();
     const root = document.querySelector('.meta-book-root');
     const bookCards = [...document.querySelectorAll('.meta-book-grid .meta-pet-card')];
     if (!root || root.classList.contains('hidden') || !bookCards.length) return;
@@ -119,14 +135,31 @@ export function installPetFriendship(G, platform = null) {
       const firstPetThisDay = spotlightDay !== day;
       if (firstPetThisDay) { spotlightDay = day; lastSpotlightKey = result.key; }
 
+      let keepsakeAwarded = false;
+      if (result.promoted && result.friendship.max) {
+        const award = awardFirstBestieKeepsake(G.petKeepsake, result.key);
+        if (award.changed) {
+          G.petKeepsake = award.data;
+          keepsakeAwarded = true;
+          // Start just above the actual customer/pet visit. Only the portrait flies; the customer,
+          // pet and camera remain owned by their existing systems throughout the reveal.
+          decor?.revealKeepsake(result.key, { x: customer.x, y: 1.2, z: customer.z }, prefersReducedMotion(G));
+        }
+      }
+
       if (result.promoted) {
         lastPromotionKey = result.key;
-        announce(`${result.profile.name} is now a ${result.friendship.label} ♥`);
+        announce(keepsakeAwarded
+          ? `${result.profile.name} is your Bestie ♥ · a memory joins the café`
+          : `${result.profile.name} is now a ${result.friendship.label} ♥`);
         if (bookButton) {
           bookButton.classList.add('bump');
           presentationScheduler.schedule(() => bookButton.classList.remove('bump'), 500);
         }
-        if (platform && G.snapshot) platform.save(G.snapshot());
+        // Friendship/keepsake mutation occurs during the simulation event pass. Use the game's
+        // material checkpoint so the serialized snapshot is taken only after the full update step.
+        if (typeof G.requestCheckpoint === 'function') G.requestCheckpoint(keepsakeAwarded ? 'pet-keepsake' : 'pet-friendship');
+        else if (platform && G.snapshot) platform.save(G.snapshot());
       } else if (firstPetThisDay) {
         // One quiet pet spotlight per shift makes the named-pet layer visible during Days 1–4
         // without throwing a toast for every customer. This has no gameplay/economy effect.
@@ -145,6 +178,7 @@ export function installPetFriendship(G, platform = null) {
     refresh: renderBook,
     get lastPromotionKey() { return lastPromotionKey; },
     get lastSpotlightKey() { return lastSpotlightKey; },
+    get keepsakeKey() { return G.petKeepsake && G.petKeepsake.key || null; },
     destroy() {
       unsubscribe();
       if (bookButton) bookButton.removeEventListener('click', onBookOpen);
