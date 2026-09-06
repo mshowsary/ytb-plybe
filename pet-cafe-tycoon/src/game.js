@@ -1,3 +1,4 @@
+import { beginActorStep, endActorStep } from './sim/actorRoster.js';
 // src/game.js — binds simulation, rendering, UI, audio and YouTube platform services.
 import { createWorld, refreshActive, cleanSeat } from './sim/world.js';
 import { applySave } from './sim/save.js';
@@ -140,9 +141,14 @@ export function createGame(S, area, els, platform = null) {
   const partyOrders = createPartyOrders(G, S, ctx, platform); const objective = createObjective(G, S, ctx); const intro = createIntro(G, S, ctx);
 
   let careerRefreshT = 0, dayTransitionPromise = null; hud.show();
+  G.finishActorStep = () => endActorStep(world);
   G.update = dt => {
     updateInProgress = true;
-    G.time += dt; input.update(); stations.update(dt); zones.update(dt); customers.update(dt); staff.update(dt); intro.update(dt);
+    G.time += dt; input.update(); stations.update(dt); zones.update(dt);
+    customers.prepare(dt); staff.prepare();
+    const barista = G.baristaWorker?.prepare();
+    beginActorStep(world, G.customers, G.staffList, barista ? [barista] : []);
+    customers.update(dt); staff.update(dt); intro.update(dt);
     ambience.update(dt); renovationDecor.update(dt); visuals.update(dt); registerCash.update(dt); objective.update(dt); economyExperience.update(dt); partyOrders.update(dt); fx.update(dt); hud.update();
 
     G.serviceStreak.t = Math.max(0, G.serviceStreak.t - dt);

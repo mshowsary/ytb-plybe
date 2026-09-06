@@ -73,10 +73,14 @@ export function createBaristaWorker(G, scene) {
   G.restore = save => { teardown(); baseRestore(save); if (G.staff.barista == null) G.staff.barista = 0; };
 
   const api = {
-    update(dt) {
+    prepare() {
       const wanted = (G.staff.barista | 0) > 0;
       if (!wanted) { if (s) teardown(); return; }
       if (!s) spawn();
+      return s;
+    },
+    update(dt) {
+      api.prepare();
       stepSim(dt);
       if (!s || !human) return;
       syncCarryRender();

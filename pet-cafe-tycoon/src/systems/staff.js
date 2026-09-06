@@ -86,7 +86,7 @@ export function createStaff(G, S, ctx) {
 
   return {
     teardown,
-    update(dt) {
+    prepare() {
       ensureSnapshotIncludesStaffChoices();
       let runners = 0, cashiers = 0, cleaners = 0;
       for (const s of G.staffList) { if (s.kind === 'runner') runners++; else if (s.kind === 'cashier') cashiers++; else if (s.kind === 'cleaner') cleaners++; }
@@ -102,6 +102,8 @@ export function createStaff(G, S, ctx) {
       }
       assignmentSignature = sig;
 
+    },
+    update(dt) {
       // M3 T6: pass G.customers so a hired runner prefers restocking whatever a genuinely stuck
       // customer is waiting on. A future rewarded Rush Crew activation may lend the selected role
       // one EXISTING upgrade tier for this rush only; no active boost means this is G.staffLevels

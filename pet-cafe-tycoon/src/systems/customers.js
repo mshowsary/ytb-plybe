@@ -88,7 +88,7 @@ export function createCustomers(G, S, ctx) {
 
   return {
     teardown,
-    update(dt) {
+    prepare(dt) {
       penaltyToastCd = Math.max(0, penaltyToastCd - dt);
       if (world.built.size !== cachedBuiltSize) {
         cachedBuiltSize = world.built.size;
@@ -104,6 +104,8 @@ export function createCustomers(G, S, ctx) {
         if (spawnT <= 0 && G.customers.length < cap) { spawnT = interval / mult; spawn(); }
       }
 
+    },
+    update(dt) {
       stepCustomers(G.customers, world, price, dt);
 
       for (const c of G.customers) {

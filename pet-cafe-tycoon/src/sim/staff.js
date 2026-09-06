@@ -269,23 +269,12 @@ function stepCleaner(s, w, dt, rate) {
 // included) keeps its exact prior behaviour.
 export function stepStaff(list, w, dt, onCollect, levels, customers) {
   const L = levels || DEFAULT_LEVELS;
-  // Append onto the shared avoidance array stepCustomers rebuilds each step (create it if this
-  // is ever called before any stepCustomers call, e.g. a staff-only test).
-  //
-  // Final review fix: this used to ONLY ever push, never clear, trusting stepCustomers to have
-  // reset the array earlier the same tick. A caller that drives stepStaff repeatedly without ever
-  // calling stepCustomers in between (a staff-only test, or a frame where customers genuinely
-  // didn't run) then grows w._movers by `list.length` forever. w._custRanFlag, set by
-  // stepCustomers every time it runs and consumed (cleared) here, is the signal: when it's set,
-  // stepCustomers already rebuilt the array fresh this tick, so we just append onto it; when it's
-  // NOT set, stepCustomers hasn't run since our own last call, so we clear it ourselves first. A
-  // bare grid.frame comparison can't serve as this signal on its own — stepCustomers always
-  // leaves its own bookkeeping counter equal to grid.frame once it's done, which reads identically
-  // to "neither of us has touched anything in a while" from stepStaff's side; the two cases need
-  // telling apart, hence the dedicated one-shot flag instead.
-  if (!w._movers) w._movers = [];
-  if (w._custRanFlag) { w._custRanFlag = false; } else { w._movers.length = 0; }
-  for (const s of list) w._movers.push(s.mover);
+  // Standalone callers retain their bounded fallback; orchestrated steps own a frozen roster.
+  if (!w._actorRosterActive) {
+    if (!w._movers) w._movers = [];
+    if (w._custRanFlag) w._custRanFlag = false; else w._movers.length = 0;
+    for (const s of list) if (!w._movers.includes(s.mover)) w._movers.push(s.mover);
+  }
   // M3 T5: a worker's Speed level (+20%/tier) rescales its mover's speed every frame — cheap
   // (list is tiny) and picks up a live upgrade purchase instantly, the same pattern
   // tools/bot.js's walkOwnerTo already uses for the player's own speed upgrade.

@@ -321,6 +321,7 @@ function startGame(S, load, bootUi) {
     if (!paused) {
       G.update(dt);
       baristaWorker.update(dt);
+      G.finishActorStep();
       petMess.update(dt);
       machineJuice.update(dt);
       coffeePolish.update();

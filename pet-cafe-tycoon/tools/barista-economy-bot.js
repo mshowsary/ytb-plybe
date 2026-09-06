@@ -1,3 +1,4 @@
+import { beginActorStep, endActorStep } from '../src/sim/actorRoster.js';
 import { stepBaristaState } from '../src/sim/baristaState.js';
 // Deterministic long-run A/B for the live Barista economy decision.
 //
@@ -315,10 +316,13 @@ function runScenario({ name, baristaAware }) {
 
     stepOvens(world, DT); stepMachines(world, DT); ownerStep(DT);
     for (const id of world.checkouts) { const co = world.stations.get(id); if (co.active && near(owner, co.front, 1.2)) co.serving = 'owner'; }
-    stepCustomers(customers, world, price, DT);
     syncGenericStaff();
+    if ((G.staff.barista | 0) > 0 && !barista) spawnBarista();
+    beginActorStep(world, customers, staffList, (G.staff.barista | 0) > 0 && barista ? [barista] : []);
+    stepCustomers(customers, world, price, DT);
     stepStaff(staffList, world, DT, amount => { G.coins += amount; }, G.staffLevels, customers);
     stepBarista(DT);
+    endActorStep(world);
     trackMovers(t);
 
     // Consume event bus while done customers still exist so product-family diagnostics are real.

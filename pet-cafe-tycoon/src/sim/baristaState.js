@@ -12,10 +12,9 @@ export function moveBaristaTo(s, world, point, dt) {
     // tiny station tolerance ends the orbit. An idle mover can only count as arrived inside the
     // broader waypoint capture radius; otherwise it is explicitly re-planned from its real position.
     if (m.tx !== point.x || m.tz !== point.z) setTarget(m, point.x, point.z, world.grid);
-    const movers = world._movers || [];
-    movers.push(m);
+    const roster = world._movers || [];
+    const movers = roster.includes(m) ? roster : [...roster, m];
     const justArrived = stepMover(m, world.grid, movers, dt);
-    movers.pop();
     s.x = m.x; s.z = m.z;
     if (justArrived) return true;
     const distance = Math.hypot(point.x - s.x, point.z - s.z);

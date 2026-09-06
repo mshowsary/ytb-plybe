@@ -97,6 +97,10 @@ function walkTo(c, tx, tz, w, dt) {
   const justArrived = stepMover(m, w.grid, w._movers, dt);
   c.x = m.x; c.z = m.z; c.rot = m.rot;
   if (justArrived) return true;
+  // With all workers visible to avoidance, contact can hold a guest 8cm off the target.
+  // Accept a physical arrival inside 10cm (also inside checkout's 15cm head radius),
+  // without snapping position or allowing a distant idle mover to claim arrival.
+  if (Math.hypot(tx-c.x,tz-c.z) < .1) { m.hasTarget=false; return true; }
   if (!m.hasTarget) {
     if (Math.hypot(tx - c.x, tz - c.z) < 0.35) return true;
     setTarget(m, tx, tz, w.grid);
@@ -326,6 +330,7 @@ function assignRegister(c, w) {
 export function stepCustomers(list, w, price, dt) {
   stepBowlCooldown(w, dt); // Loop v2 Task 3: decay the just-vacated-slot cooldown — see takeBowlSlot above
   w.grid.frame++; // once per sim step, before stepStaff (nav.js's cachedPath cache key)
+  if (!w._actorRosterActive) {
   // Rebuild the shared avoidance list from scratch every step (customers only; stepStaff appends
   // its own movers to this same array at the start of its step — see src/sim/staff.js).
   let movers = w._movers;
@@ -336,6 +341,8 @@ export function stepCustomers(list, w, price, dt) {
   // append onto it rather than clear it again.
   w._custRanFlag = true;
   for (const c of list) if (!c.done) movers.push(c.mover);
+
+  }
 
   const area = w.area;
   const door = area.door;

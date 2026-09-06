@@ -38,6 +38,22 @@ await page.route('https://www.youtube.com/game_api/v1', route => route.fulfill({
 await page.goto('http://127.0.0.1:4186/', { waitUntil:'domcontentloaded' });
 await page.waitForFunction(() => window.__game && window.__baristaWorker && window.__ready && document.getElementById('loading').classList.contains('hidden'), null, { timeout:30000 });
 
+// Inspect the roster at the actual live Barista step, before avoidance runs.
+await page.evaluate(() => {
+  window.__rosterWitness = { samples:0 };
+  const api=window.__baristaWorker, original=api.update;
+  api.update=function(dt) {
+    if(api.active) {
+      const world=window.__game.world, roster=world._movers;
+      if(!world._actorRosterActive || !Object.isFrozen(roster)) throw new Error('live roster was not frozen before Barista');
+      if(new Set(roster).size!==roster.length) throw new Error('duplicate mover in live roster');
+      if(roster.filter(m=>m.kind==='barista').length!==1) throw new Error('Barista missing or duplicated in live roster');
+      window.__rosterWitness.samples++;
+    }
+    return original.call(this,dt);
+  };
+});
+
 async function baristaDiagnostic(label) {
   const live = await page.evaluate(() => {
     const G = window.__game, w = G && G.world;
@@ -178,5 +194,7 @@ const geometry = await page.evaluate(() => ({
 if (geometry.bodyOverflow || geometry.count !== 1 || !geometry.active) throw new Error(`Barista post-restore/browser geometry failed: ${JSON.stringify(geometry)}`);
 await page.screenshot({ path:path.join(shots, '02-barista-restored.png') });
 
-console.log(JSON.stringify({ seed, refill, transport, persistence, geometry }, null, 2));
+const roster = await page.evaluate(() => window.__rosterWitness);
+if (!roster.samples) throw new Error('live roster was never exercised');
+console.log(JSON.stringify({ seed, refill, transport, persistence, geometry, roster }, null, 2));
 await ctx.close(); await browser.close(); await new Promise(resolve => server.close(resolve));

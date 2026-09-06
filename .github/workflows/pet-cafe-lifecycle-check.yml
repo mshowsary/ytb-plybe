@@ -9,6 +9,8 @@ on:
       - 'pet-cafe-tycoon/src/core/input.js'
       - 'pet-cafe-tycoon/src/platform/youtube.js'
       - 'pet-cafe-tycoon/src/main.js'
+      - 'pet-cafe-tycoon/src/sim/actorRoster.js'
+      - 'pet-cafe-tycoon/tools/barista-smoke.js'
       - 'pet-cafe-tycoon/tools/gate-a-lifecycle-smoke.js'
   workflow_dispatch:
 
@@ -38,6 +40,9 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Integrated lifecycle diagnostic (not full certification)
         run: node tools/gate-a-lifecycle-smoke.js
+      - name: Live Barista and actor-roster diagnostic
+        if: ${{ !cancelled() }}
+        run: node tools/barista-smoke.js
       - uses: actions/upload-artifact@v4
         if: always()
         with:
