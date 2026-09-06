@@ -1,6 +1,6 @@
 // Pure save/restore helper shared by game.js and node tests.
 import { ensureReputation } from './reputation.js';
-import { ensurePetBook } from './petBook.js';
+import { ensurePetBook, normalizePetKeepsake } from './petBook.js';
 import { ensureCareer, chooseCareerGoal } from './career.js';
 import { ensurePartyOrders } from './partyOrders.js';
 import {
@@ -41,9 +41,9 @@ function preserveLegacyDeskInvestment(result, raw, area, areaId) {
   if (result.data.partial && typeof result.data.partial === 'object') delete result.data.partial.z_hire;
 }
 
-// Tasks 10–12 and 29 extend the certified root-v4 schema through versioned nested payloads. Keeping
-// these wrappers here means the YouTube load gate and applySave canonicalize every extension before
-// cloud writes unlock, without destabilizing the historical root migration contract.
+// Tasks 10–12, 29 and 36 extend the certified root-v4 schema through versioned nested payloads.
+// Keeping these wrappers here means the YouTube load gate and applySave canonicalize every extension
+// before cloud writes unlock, without destabilizing the historical root migration contract.
 export function validateAndMigrateSave(raw, area = null) {
   const result = validateCoreSave(raw, area);
   if (!result.ok) return result;
@@ -78,6 +78,11 @@ export function validateAndMigrateSave(raw, area = null) {
   // unknown fields never cross the canonical host boundary. Legacy saves infer only conservative
   // proof from progression that could not exist without the corresponding mechanic being used.
   result.data.learning = normalizeMechanicLearning(raw && raw.learning, result.data);
+
+  // Task 36: one cosmetic ID only. An older legitimate save that already has a Bestie but predates
+  // the keepsake field deterministically receives its first authored Bestie; malformed arbitrary IDs
+  // can never create render content. This has no economy or progression meaning.
+  result.data.petKeepsake = normalizePetKeepsake(raw && raw.petKeepsake, result.data.meta);
 
   // Task 20: ledger data is observational only and cannot alter canonical wallet/progression data.
   // Preserve an object-shaped payload through the load validator; sim/ledger.js performs the
@@ -120,6 +125,7 @@ export function applySave(state, save, area = state && state.world && state.worl
     v: canonical.staffState.v,
     runnerAssignments: [...canonical.staffState.runnerAssignments],
   };
+  state.petKeepsake = canonical.petKeepsake ? { ...canonical.petKeepsake } : null;
 
   const meta = canonical.meta;
   state.meta = {
