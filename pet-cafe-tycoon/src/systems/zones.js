@@ -10,6 +10,12 @@ import { Spring } from '../core/tween.js';
 const COIN_SVG = '<svg class="coin" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="#FFD84D" stroke="#C98A00" stroke-width="1.5"/></svg>';
 const fmt = n => Math.round(n).toLocaleString('en-US');
 const BILL_INTERVAL = 0.15;
+export const BUILD_ANTICIPATION_SECONDS = 0.15;
+
+function reducedMotion() {
+  try { return !!matchMedia('(prefers-reduced-motion: reduce)').matches; }
+  catch (_) { return false; }
+}
 
 export function createZones(G, S, ctx) {
   const { area, world, scene, hud, fx, audio, hints, els, P } = ctx;
@@ -18,14 +24,13 @@ export function createZones(G, S, ctx) {
     const stDef = area.stations.find(s => s.id === z.adds[0]);
     const fw = (stDef && stDef.fw) || 1.6, fd = (stDef && stDef.fd) || 1.6, rot = (stDef && stDef.rot) || 0;
     const outline = buildOutline(fw, fd); outline.position.set(z.x, 0, z.z); outline.rotation.y = rot; outline.visible = false; scene.add(outline);
-    // Task 32: the construction ghost now uses the real future station silhouette. A player can read
-    // "oven", "table", "counter", or "staff desk" from the world itself before spending a coin.
+    // Task 32: the construction ghost uses the real future station silhouette. A player can read
+    // oven/table/counter/Staff Desk from the world before spending a coin.
     const ghost = semanticBuildGhost(stDef, fw, fd); ghost.position.set(z.x, 0.025, z.z); ghost.rotation.y = rot; ghost.visible = false; scene.add(ghost);
 
     const price = document.createElement('div'); price.className = 'zprice'; price.style.display = 'none';
     price.innerHTML = COIN_SVG + '<span></span>';
 
-    // A tiny hold-progress bar replaces the old "Stop here / Hold still" sentence.
     const arm = document.createElement('div');
     arm.className = 'build-intent-progress';
     arm.style.cssText = 'position:absolute;display:none;transform:translate(-50%,-50%);width:48px;height:7px;padding:2px;border-radius:999px;background:#3B2E2ACC;box-shadow:0 3px 8px #0003;pointer-events:none;overflow:hidden';
@@ -39,6 +44,7 @@ export function createZones(G, S, ctx) {
       outline, ghost, price, priceSpan: price.querySelector('span'), arm, armFill,
       z, fw, fd, rot, intent: { t: 0 }, pulse: new Spring(1, 120, 10), billT: 0, _lastRemaining: -1,
       checkpointPaid: initialPaid, paymentChanged: false,
+      revealAnticipation: -1,
     });
   }
   const tmp = { sx: 0, sy: 0, visible: true };
@@ -48,14 +54,19 @@ export function createZones(G, S, ctx) {
     const zv = zonesMap.get(e.zoneId); if (!zv) return;
     zv.checkpointPaid = zv.z.price; zv.paymentChanged = false;
     markCheckpoint('build-complete');
-    zv.outline.visible = false; zv.ghost.visible = false; zv.price.remove(); zv.arm.remove();
-    fx.burst(zv.z.x, 0.5, zv.z.z, '#FFF4E6', 30); audio.play('build'); S.shake(0.08);
+    zv.outline.visible = false;
+    // Keep the recognizable blueprint silhouette for the exact anticipation beat. visuals.js reveals
+    // the real station on the same 150ms boundary, so there is no ambiguous blank frame.
+    zv.ghost.visible = true; zv.ghost.scale.setScalar(1); zv.revealAnticipation = 0;
+    zv.price.remove(); zv.arm.remove();
+    audio.play('build');
   }
 
   function syncAll() {
     for (const zv of zonesMap.values()) {
       zv.intent.t = 0;
       zv.paymentChanged = false;
+      zv.revealAnticipation = -1;
       zv.checkpointPaid = world.built.has(zv.z.id) ? zv.z.price : (world.partial[zv.z.id] || 0);
       zv.armFill.style.transform = 'scaleX(0)';
       if (world.built.has(zv.z.id)) {
@@ -97,8 +108,6 @@ export function createZones(G, S, ctx) {
             zv.billT -= dt;
             if (zv.billT <= 0) { zv.billT = BILL_INTERVAL; fx.billFly(z.x, 0.6, z.z); }
 
-            // Continuous payment can run for many rendered frames. Only meaningful milestones,
-            // wallet exhaustion, and completion mark the post-update checkpoint boundary.
             if (
               crossedBuildPaymentMilestone(zv.checkpointPaid, paid, z.price)
               || G.coins <= 0
@@ -111,8 +120,6 @@ export function createZones(G, S, ctx) {
           }
         }
 
-        // If the player steps away between quarter milestones, preserve the exact final partial
-        // payment once, rather than either losing it or saving every frame while they were paying.
         if (!intent.armed && zv.paymentChanged) {
           markCheckpoint('build-payment-stop');
           zv.checkpointPaid = paid;
@@ -129,8 +136,19 @@ export function createZones(G, S, ctx) {
       }
       for (const e of world.events) if (e.type === 'built') onBuilt(e);
 
-      // The old secondary tutorial chain lived here and could survive SKIP. Keep this system silent;
-      // onboarding is owned by the objective arrow, and routine play is communicated by the world.
+      // The committed build gets a short semantic-ghost anticipation, not a camera takeover. With
+      // reduced motion the silhouette simply holds steady for the same information beat.
+      for (const zv of zonesMap.values()) {
+        if (zv.revealAnticipation < 0) continue;
+        zv.revealAnticipation += Math.max(0, dt);
+        if (zv.revealAnticipation >= BUILD_ANTICIPATION_SECONDS) {
+          zv.revealAnticipation = -1; zv.ghost.visible = false; zv.ghost.scale.setScalar(1);
+        } else if (!reducedMotion()) {
+          const p = zv.revealAnticipation / BUILD_ANTICIPATION_SECONDS;
+          zv.ghost.scale.setScalar(1 + Math.sin(p * Math.PI) * 0.055);
+        }
+      }
+
       hud.hint(null);
       if (ctx.firstHint.t > 0) ctx.firstHint.t = Math.max(0, ctx.firstHint.t - dt);
     },
