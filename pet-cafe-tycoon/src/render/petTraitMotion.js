@@ -80,7 +80,7 @@ export function petTraitPose(name, progress, gaze = 0) {
       headZ: Math.sin(p * Math.PI) * 0.025 * e,
       tailY: null,
       tailScale: 1 - 0.72 * e,
-      bodyLift: 0.012 * e,
+      bodyZ: -0.014 * e,
     };
   }
   if (name === 'Biscuit') {
@@ -92,11 +92,11 @@ export function petTraitPose(name, progress, gaze = 0) {
       headZ: tiltBeat * 0.2 * e,
       tailY: Math.sin(p * Math.PI * 9) * 0.92 * e,
       tailScale: 1,
-      bodyLift: Math.max(0, Math.sin(p * Math.PI * 2)) * 0.026 * e,
+      bodyZ: Math.sin(p * Math.PI * 2) * 0.032 * e,
     };
   }
   if (name === 'Snowdrop') {
-    // Alert garden-watch scan: slower side-to-side search with a small upward attentive posture.
+    // Alert garden-watch scan: slower side-to-side search with a small poised body angle.
     const scan = Math.sin(p * Math.PI * 2.6) * 0.2;
     return {
       headY: clamp(look + scan, -0.65, 0.65) * e,
@@ -104,7 +104,7 @@ export function petTraitPose(name, progress, gaze = 0) {
       headZ: Math.sin(p * Math.PI * 1.3) * 0.035 * e,
       tailY: null,
       tailScale: 1,
-      bodyLift: 0.008 * e,
+      bodyZ: Math.sin(p * Math.PI) * 0.012 * e,
     };
   }
   return null;
