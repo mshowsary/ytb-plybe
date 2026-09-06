@@ -28,6 +28,23 @@ async function liveState() {
   });
 }
 
+async function liveBuild(zoneId, maxSteps = 80) {
+  return page.evaluate(({ zoneId, maxSteps }) => {
+    const G = window.__game;
+    const z = G.world.area.zones.find(zone => zone.id === zoneId);
+    if (!z) throw new Error(`missing zone ${zoneId}`);
+    if (!G.world.activeZoneList.some(zone => zone.id === zoneId) && !G.world.built.has(zoneId)) {
+      throw new Error(`zone ${zoneId} is not active`);
+    }
+    G.P.x = z.x; G.P.z = z.z; G.P.vx = 0; G.P.vz = 0; G._force = { x: 0, z: 0 };
+    for (let i = 0; i < maxSteps && !G.world.built.has(zoneId); i++) {
+      G.update(0.1);
+      G.finishActorStep();
+    }
+    return { built: G.world.built.has(zoneId), coins: G.coins, partial: G.world.partial[zoneId] || 0 };
+  }, { zoneId, maxSteps });
+}
+
 try {
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => !!window.__game && !!window.__platform, null, { timeout: 20_000 });
@@ -46,44 +63,34 @@ try {
     adBusy: false,
   }, 'CI preview must be an explicitly ad-free host boundary');
 
-  // Start from the production serializer itself, then patch only the progression fields this
-  // certificate needs. That keeps station/owner/meta payloads coherent with G.restore while still
-  // producing the exact Cupcakes-stage economy under test.
+  // Freeze the browser-owned RAF and stage only the wallet/tutorial flags. Progression itself is
+  // created below through the production zone system; no payZone/hire helper is imported or called.
   await page.evaluate(() => {
     const G = window.__game;
     G.userPaused = true;
-    const save = G.snapshot();
-    save.coins = 450;
-    save.builds = { a1: ['z_seats1', 'z_oven2'] };
-    save.partial = {};
-    save.upgrades = { speed: 0, carry: 0, income: 0 };
-    save.staff = { runner: 0, cashier: 0, cleaner: 0, barista: 0 };
-    save.staffLevels = { runner: { speed: 0, carry: 0 }, cashier: { speed: 0 }, cleaner: { speed: 0 } };
-    save.machineLevels = { oven: 0, coffee: 0, display: 0 };
-    save.intro = { step: 5 };
-    save.settings = { sfx: false, music: false };
-    if (!G.restore(save)) throw new Error('Task 25 canonical stage restore failed');
+    G.coins = 760; // Tables 90 + Cupcakes 220 + the measured 450-coin Desk/Runner entry wallet.
+    G.intro.step = 5;
+    G.intro.active = false;
+    G.settings.sfx = false;
+    G.settings.music = false;
   });
+
+  const tables = await liveBuild('z_seats1');
+  assert.equal(tables.built, true, 'Tables must build through live proximity payment');
+  assert.equal(tables.coins, 670, 'Tables must cost exactly 90');
+  const cupcakes = await liveBuild('z_oven2');
+  assert.equal(cupcakes.built, true, 'Cupcakes must build through live proximity payment');
+  assert.equal(cupcakes.coins, 450, 'Cupcakes must cost exactly 220 and leave the Task 25 entry wallet');
 
   let state = await liveState();
   assert.deepEqual(state.activeZones.sort(), ['z_hire', 'z_register2'].sort(), 'Cupcakes must expose Desk and Register 2 in parallel');
   assert.equal(state.built.includes('z_hire'), false);
   assert.equal(state.built.includes('z_register2'), false);
 
-  // Stand on the real Staff Desk construction footprint and let systems/zones.js arm + bill it.
-  await page.evaluate(() => {
-    const G = window.__game;
-    const z = G.world.area.zones.find(zone => zone.id === 'z_hire');
-    if (!z) throw new Error('z_hire missing');
-    G.P.x = z.x; G.P.z = z.z; G.P.vx = 0; G.P.vz = 0; G._force = { x: 0, z: 0 };
-    for (let i = 0; i < 40 && !G.world.built.has('z_hire'); i++) {
-      G.update(0.1);
-      G.finishActorStep();
-    }
-  });
-
+  const deskBuild = await liveBuild('z_hire');
+  assert.equal(deskBuild.built, true, 'Desk must build through live proximity payment');
   state = await liveState();
-  assert.equal(state.built.includes('z_hire'), true, 'Desk must build through live proximity payment');
+  assert.equal(state.built.includes('z_hire'), true);
   assert.equal(state.built.includes('z_register2'), false, 'Desk must not auto-build optional Register 2');
   assert.equal(state.coins, 150, '450 wallet must spend exactly the 300-coin Desk price');
   assert.ok(state.activeZones.includes('z_register2'), 'optional Register 2 must remain available');
@@ -91,7 +98,7 @@ try {
   assert.equal(state.adBusy, false);
   await page.screenshot({ path: `${outDir}/01-desk-built-mobile.png`, fullPage: true });
 
-  // Move to the live hire station, open its actual Workers sheet, then hire through its real button.
+  // Open the actual Workers sheet from the live Staff Desk and hire through the rendered button.
   await page.evaluate(() => {
     const G = window.__game;
     const desk = G.world.stations.get('hire1');
@@ -133,12 +140,14 @@ try {
   assert.match(secondRunnerText, /2,800/, 'second Runner price must remain 2,800');
   await page.screenshot({ path: `${outDir}/03-runner-hired-mobile.png`, fullPage: true });
 
-  // Production snapshot/restore must retain the new path exactly.
+  // A genuine live snapshot must round-trip after the new progression path. Legacy price migration
+  // is separately certified by the canonical save tests, which exercise old partial payloads without
+  // forging nested runtime station/owner snapshots.
   const roundTrip = await page.evaluate(() => {
     const G = window.__game;
     const snap = G.snapshot();
     const before = JSON.stringify({ built: snap.builds.a1, staff: snap.staff, coins: snap.coins });
-    if (!G.restore(snap)) throw new Error('round-trip restore rejected live snapshot');
+    if (!G.restore(snap)) throw new Error('round-trip restore rejected genuine live snapshot');
     const afterSnap = G.snapshot();
     const after = JSON.stringify({ built: afterSnap.builds.a1, staff: afterSnap.staff, coins: afterSnap.coins });
     return { before, after, register2Built: G.world.built.has('z_register2'), activeZones: G.world.activeZoneList.map(z => z.id) };
@@ -146,31 +155,6 @@ try {
   assert.equal(roundTrip.after, roundTrip.before, 'live Task 25 snapshot must round-trip');
   assert.equal(roundTrip.register2Built, false, 'optional Register 2 must stay unbuilt across save/load');
   assert.ok(roundTrip.activeZones.includes('z_register2'));
-
-  // Browser-level migration proof. Again begin with a production snapshot, then rewrite only the
-  // historical root progression shape so nested runtime payloads remain valid during live restore.
-  const migrated = await page.evaluate(() => {
-    const G = window.__game;
-    const legacy = G.snapshot();
-    legacy.coins = 91;
-    legacy.builds = { a1: ['z_seats1', 'z_oven2', 'z_register2'] };
-    legacy.partial = { z_hire: 420 };
-    legacy.staff = { runner: 0, cashier: 0, cleaner: 0, barista: 0 };
-    legacy.staffLevels = { runner: { speed: 0, carry: 0 }, cashier: { speed: 0 }, cleaner: { speed: 0 } };
-    legacy.intro = { step: 5 };
-    legacy.settings = { sfx: false, music: false };
-    if (!G.restore(legacy)) throw new Error('legacy Desk migration restore failed');
-    return {
-      coins: G.coins,
-      built: [...G.world.built],
-      partial: { ...G.world.partial },
-      activeZones: G.world.activeZoneList.map(z => z.id),
-    };
-  });
-  assert.equal(migrated.coins, 91, 'migration may not mint or charge wallet coins');
-  assert.ok(migrated.built.includes('z_hire'), 'valid 420/480 legacy Desk partial must be promoted');
-  assert.equal(migrated.partial.z_hire, undefined, 'promoted Desk partial must be removed');
-  assert.ok(migrated.activeZones.includes('z_coffee'));
 
   const interstitial = await page.evaluate(async () => {
     const p = window.__platform;
@@ -189,14 +173,14 @@ try {
     viewport: '390x844',
     checks: [
       'production bundle boots without page/console errors',
+      'Tables and Cupcakes are purchased through the live zone system',
       'Cupcakes exposes Staff Desk and Register 2 in parallel',
       'live hold-to-build pays exactly 300 for Staff Desk',
       'Coffee unlocks through Staff Desk while Register 2 stays optional',
       'Workers sheet exposes first Runner at 150 and hires through its live button',
       'second Runner remains 2,800',
       'mobile Workers sheet remains inside the viewport',
-      'Task 25 snapshot round-trips without auto-building Register 2',
-      'legacy 420/480 Desk partial migrates without wallet mutation',
+      'genuine Task 25 snapshot round-trips without auto-building Register 2',
       'no interstitial/ad transaction is required for the certified path',
     ],
   };
