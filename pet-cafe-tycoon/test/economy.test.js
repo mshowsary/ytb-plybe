@@ -29,20 +29,23 @@ test('boost and seating', () => {
   assert.equal(salePrice('cookie', up0, {}, true, 0), 16);
 });
 
-test('spawnInterval and maxCustomers hold at the solo-owner teaching pace before Staff Desk', () => {
-  assert.equal(spawnInterval(new Set()), 7.5);
-  assert.equal(spawnInterval(new Set(['z_seats1'])), 7.5);
-  assert.equal(spawnInterval(new Set(['z_seats1', 'z_seats2'])), 7.5);
-  assert.equal(maxCustomers(new Set()), 4);
-  assert.equal(maxCustomers(new Set(['z_seats1'])), 4);
-  assert.equal(maxCustomers(new Set(['z_seats1', 'z_seats2'])), 4);
+test('Task 25 demand is capacity-driven: Desk alone adds no traffic', () => {
+  const cupcakes = new Set(['z_seats1', 'z_oven2']);
+  const withDesk = new Set([...cupcakes, 'z_hire']);
+  assert.equal(spawnInterval(cupcakes, {}), 6.85);
+  assert.equal(spawnInterval(withDesk, {}), 6.85);
+  assert.equal(maxCustomers(cupcakes, {}), 4);
+  assert.equal(maxCustomers(withDesk, {}), 4);
 });
-test('post-hire traffic rises without making the whole day permanently crowded', () => {
-  assert.equal(spawnInterval(new Set(['z_hire'])), 5.8);
-  assert.ok(Math.abs(spawnInterval(new Set(['z_hire', 'z_seats1', 'z_seats2'])) - 5.1) < 1e-9);
-  assert.equal(maxCustomers(new Set(['z_hire'])), 4);
-  assert.equal(maxCustomers(new Set(['z_hire', 'z_seats1'])), 5);
-  assert.equal(maxCustomers(new Set(['z_hire', 'z_seats1', 'z_seats2'])), 6);
+test('productive lines and useful staff raise demand in bounded steps', () => {
+  const desk = new Set(['z_seats1', 'z_oven2', 'z_hire']);
+  const coffee = new Set([...desk, 'z_coffee']);
+  assert.ok(spawnInterval(coffee, {}) < spawnInterval(desk, {}));
+  assert.equal(maxCustomers(coffee, {}), 5);
+  assert.ok(spawnInterval(coffee, { runner: 1 }) < spawnInterval(coffee, {}));
+  assert.equal(maxCustomers(coffee, { runner: 1 }), 5);
+  assert.equal(maxCustomers(coffee, { runner: 1, cashier: 1 }), 6);
+  assert.ok(spawnInterval(new Set([...coffee, 'z_blender']), { runner: 1, cashier: 1 }) >= 4.3);
 });
 test('buyUpgrade deducts coins and refuses when short or maxed', () => {
   const state = { coins: 500, up: { speed: 0, carry: 0, income: 0 }, staff: { runner: 0, cashier: 0 } };
@@ -53,21 +56,23 @@ test('buyUpgrade deducts coins and refuses when short or maxed', () => {
   const state2 = { coins: 100000, up: { speed: 3, carry: 0, income: 0 }, staff: { runner: 0, cashier: 0 } };
   const r3 = buyUpgrade(state2, 'speed'); assert.equal(r3.ok, false); assert.equal(r3.cost, null);
 });
-test('hire costs make staff mid-game savings goals in Runner > Cashier > Cleaner order', () => {
-  assert.ok(STAFF.runner.costs[0] > STAFF.cashier.costs[0]);
-  assert.ok(STAFF.cashier.costs[0] > STAFF.cleaner.costs[0]);
+test('Task 25 makes only the first Runner an early relief purchase', () => {
+  assert.equal(STAFF.runner.costs[0], 150);
+  assert.equal(STAFF.runner.costs[1], 2800);
+  assert.equal(STAFF.cashier.costs[0], 1550);
+  assert.equal(STAFF.cleaner.costs[0], 1350);
   const state = { coins: 20000, up: { speed: 0, carry: 0, income: 0 }, staff: { runner: 0, cashier: 0, cleaner: 0 } };
-  const h1 = hire(state, 'runner'); assert.equal(h1.ok, true); assert.equal(h1.cost, 1800); assert.equal(state.staff.runner, 1);
+  const h1 = hire(state, 'runner'); assert.equal(h1.ok, true); assert.equal(h1.cost, 150); assert.equal(state.staff.runner, 1);
   const h2 = hire(state, 'runner'); assert.equal(h2.ok, true); assert.equal(h2.cost, 2800); assert.equal(state.staff.runner, 2);
   const h3 = hire(state, 'cashier'); assert.equal(h3.ok, true); assert.equal(h3.cost, 1550); assert.equal(state.staff.cashier, 1);
   const h4 = hire(state, 'cashier'); assert.equal(h4.ok, false); assert.equal(h4.cost, null);
   const h5 = hire(state, 'cleaner'); assert.equal(h5.ok, true); assert.equal(h5.cost, 1350);
 });
-test('a Day-3-sized wallet cannot buy permanent staff yet', () => {
+test('early Runner is affordable while specialist hires remain savings goals', () => {
   const wallet = 1300;
+  assert.ok(hireCost('runner', { runner: 0 }) <= wallet);
   assert.ok(hireCost('cleaner', { cleaner: 0 }) > wallet);
   assert.ok(hireCost('cashier', { cashier: 0 }) > wallet);
-  assert.ok(hireCost('runner', { runner: 0 }) > wallet);
 });
 test('hireCost returns null past the cost table', () => {
   assert.equal(hireCost('runner', { runner: 2 }), null);
