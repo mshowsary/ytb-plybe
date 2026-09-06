@@ -1,3 +1,4 @@
+import { emitWorld } from './events.js';
 // src/sim/botDecide.js — M3 T6: the single "competent player" priority loop, shared by
 // tools/bot.js (headless economy pacing, pure Node) and tools/strip.js (drives the real running
 // game's owner via window.__game.botDecide() — see src/game.js). Pure and side-effect-light: the
@@ -309,7 +310,7 @@ function tryHiresAndUpgrades(w, G) {
     const kind = nextHireKind(G.staff);
     if (kind) {
       const r = hire(G, kind);
-      if (r.ok) w.events.push({ type: 'purchase', kind: 'hire:' + kind, at: G.time || 0 });
+      if (r.ok) emitWorld(w, { type: 'purchase', kind: 'hire:' + kind, at: G.time || 0 });
     }
   }
   const kiosk = w.stations.get('kiosk1');
@@ -324,7 +325,7 @@ function tryHiresAndUpgrades(w, G) {
   const incCost = upgradeCost('income', G.up);
   if (incCost != null && coins >= incCost * 2) {
     const r = buyUpgrade(G, 'income');
-    if (r.ok) w.events.push({ type: 'purchase', kind: 'upgrade:income', at: G.time || 0 });
+    if (r.ok) emitWorld(w, { type: 'purchase', kind: 'upgrade:income', at: G.time || 0 });
     return;
   }
   // Loop v2 Task 3: station stars — same "only once nothing more pressing" gate. Prioritizes the
@@ -340,7 +341,7 @@ function tryHiresAndUpgrades(w, G) {
       const cost = nextStarCost(w.area, id, (G.stars && G.stars[id]) || 1);
       if (cost != null && coins >= cost * 2) {
         const r = buyStar(G, w, id);
-        if (r.ok) { w.events.push({ type: 'purchase', kind: 'star:' + id, at: G.time || 0 }); return; }
+        if (r.ok) { emitWorld(w, { type: 'purchase', kind: 'star:' + id, at: G.time || 0 }); return; }
       }
     }
   }
@@ -351,7 +352,7 @@ function tryHiresAndUpgrades(w, G) {
     const mc = machineUpgradeCost(key, G.machineLevels);
     if (mc != null && G.coins >= mc * 2) {
       const r = buyMachineUpgrade(G, key);
-      if (r.ok) { w.events.push({ type: 'purchase', kind: 'machine:' + key, at: G.time || 0 }); return; }
+      if (r.ok) { emitWorld(w, { type: 'purchase', kind: 'machine:' + key, at: G.time || 0 }); return; }
     }
   }
 }

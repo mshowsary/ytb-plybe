@@ -1,3 +1,4 @@
+import { subscribeWorld } from '../sim/events.js';
 // Pet pawprint floor-mess runtime. Pawprints are a zero-penalty tactile chore: the owner can wipe
 // them by standing over them briefly. Roomba Assist clears/suppresses only these pawprints — dirty
 // tables remain the permanent Cleaner's responsibility.
@@ -37,8 +38,6 @@ export function createPetMess(G, scene) {
   if (!G || !G.world || !scene) return { update() {}, sweep() { return 0; }, get count() { return 0; }, get roombaActive() { return false; }, get roombaRemaining() { return 0; }, destroy() {} };
   const spots = [];
   const roomba = roombaMesh(); scene.add(roomba);
-  const events = G.world.events;
-  const nativePush = events.push;
   let lastSpawnAt = -Infinity, day = (G.dayState && G.dayState.day) | 0, suppressUntil = -Infinity;
 
   function consumeRestoredRoomba() {
@@ -92,9 +91,8 @@ export function createPetMess(G, scene) {
 
   const observedPush = function petMessObservedPush(...items) {
     for (const event of items) if (event && event.type === 'seated' && event.id != null) spawnFromSeat(event);
-    return nativePush.apply(this, items);
   };
-  events.push = observedPush;
+  const unsubscribe = subscribeWorld(G.world, event => observedPush(event), 30);
 
   const api = {
     update(dt) {
@@ -130,7 +128,7 @@ export function createPetMess(G, scene) {
     get roombaActive() { return (Number(G.time) || 0) < suppressUntil; },
     get roombaRemaining() { return Math.max(0, suppressUntil - (Number(G.time) || 0)); },
     destroy() {
-      if (events.push === observedPush) events.push = nativePush;
+      unsubscribe();
       clearAll(); scene.remove(roomba);
     },
   };

@@ -62,7 +62,7 @@ try {
   await page.evaluate(async () => {
     const el = document.createElement('div');
     el.id = 'gate-a-transition';
-    Object.assign(el.style, { position:'fixed', left:'0', top:'0', width:'4px', height:'4px', opacity:'0.01', transform:'translateX(0px)', transition:'transform 1s linear' });
+    Object.assign(el.style, { position:'fixed', left:'0', top:'0', width:'4px', height:'4px', opacity:'0.01', transform:'translateX(0px)', transition:'transform 10s linear' });
     document.body.appendChild(el);
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
     el.style.transform = 'translateX(100px)';
@@ -84,6 +84,7 @@ try {
   const animBeforePause = await page.evaluate(() => {
     const a = document.getElementById('gate-a-transition').getAnimations()[0];
     if (!a) return null;
+    window.__gateATransition = a;
     const sample = { state:a.playState, time:Number(a.currentTime) };
     window.__gateA.pauseCb();
     return sample;
@@ -106,7 +107,7 @@ try {
   await page.setViewportSize({ width:700, height:390 });
   await page.waitForTimeout(260);
   const pausedState = await page.evaluate(() => {
-    const a = document.getElementById('gate-a-transition').getAnimations()[0];
+    const a = window.__gateATransition;
     return {
       pos:{ x:window.__game.P.x, z:window.__game.P.z },
       aspect:window.__scene.camera.aspect,
@@ -123,9 +124,14 @@ try {
 
   await page.evaluate(() => window.__gateA.resumeCb());
   await page.waitForFunction(() => window.__platform.paused === false);
-  await page.waitForTimeout(140);
+  // play() can report running while its pending play task still awaits a rendered frame.
+  // Assert observable timeline progress, bounded at 5s, rather than runner wall-clock speed.
+  await page.waitForFunction(previous => {
+    const a = window.__gateATransition;
+    return a && !a.pending && a.playState === 'running' && Number(a.currentTime) > previous + 40;
+  }, pausedState.animation.time, { timeout:5000, polling:'raf' });
   const resumed = await page.evaluate(() => {
-    const a = document.getElementById('gate-a-transition').getAnimations()[0];
+    const a = window.__gateATransition;
     return {
       pos:{ x:window.__game.P.x, z:window.__game.P.z },
       velocity:{ vx:window.__game.P.vx, vz:window.__game.P.vz },

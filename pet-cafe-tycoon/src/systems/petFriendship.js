@@ -1,3 +1,4 @@
+import { subscribeWorld } from '../sim/events.js';
 // Cosmetic relationship layer for named pet visitors.
 // Successful checkout visits build New Face -> Regular -> Friend -> Bestie progression.
 // This module deliberately observes pay events without changing prices, patience, traffic or service logic.
@@ -51,8 +52,6 @@ export function installPetFriendship(G, platform = null) {
   ensureStyle();
   ensurePetBook(G.meta);
   const announce = makeToast();
-  const events = G.world.events;
-  const nativePush = events.push;
   let lastPromotionKey = '', spotlightDay = -1, lastSpotlightKey = '';
 
   // Snapshot ownership remains in game.js; this wrapper adds only the new cosmetic map so existing
@@ -108,8 +107,8 @@ export function installPetFriendship(G, platform = null) {
   const onBookOpen = () => presentationScheduler.afterFrames(renderBook, 1);
   if (bookButton) bookButton.addEventListener('click', onBookOpen);
 
-  // Observe successful checkout events at their source. The original Array#push still receives the
-  // exact same events in the exact same order; friendship is therefore presentation/meta-only.
+  // Observe successful checkout events at their source through an explicit subscription.
+  // Priorities preserve the former outer-to-inner observer order without replacing Array.push.
   const observedPush = function friendshipObservedPush(...items) {
     for (const event of items) {
       if (!event || event.type !== 'pay') continue;
@@ -139,16 +138,15 @@ export function installPetFriendship(G, platform = null) {
       }
       renderBook();
     }
-    return nativePush.apply(this, items);
   };
-  events.push = observedPush;
+  const unsubscribe = subscribeWorld(G.world, event => observedPush(event), 10);
 
   return {
     refresh: renderBook,
     get lastPromotionKey() { return lastPromotionKey; },
     get lastSpotlightKey() { return lastSpotlightKey; },
     destroy() {
-      if (events.push === observedPush) events.push = nativePush;
+      unsubscribe();
       if (bookButton) bookButton.removeEventListener('click', onBookOpen);
     },
   };

@@ -1,3 +1,4 @@
+import { emitWorld } from './events.js';
 // src/sim/customers.js — pure customer state machine. The sim entity is the HUMAN
 // (their pet is a render-side follower). States:
 // enter → queue (counter) → [toBowl → atBowl] → toRegister → atRegister → (toSeat → eating) → leave → done
@@ -274,7 +275,7 @@ function activeBowl(w) {
 function setPatience(w, c, value) {
   c.patience = Math.max(0, Math.min(PATIENCE, value));
   const q = Math.floor(c.patience * 4);
-  if (q !== c._patQ) { c._patQ = q; w.events.push({ type: 'patience', id: c.id, value: c.patience }); }
+  if (q !== c._patQ) { c._patQ = q; emitWorld(w, { type: 'patience', id: c.id, value: c.patience }); }
 }
 function assignSlots(list, w) {
   for (const arr of w._queues.values()) arr.length = 0;
@@ -349,7 +350,7 @@ export function stepCustomers(list, w, price, dt) {
     c.hop = Math.max(0, c.hop - dt);
     if (c.wish == null) {
       c.wish = wishFor(w);
-      w.events.push({ type: 'wish', id: c.id, product: c.wish.product, treat: c.wish.treat });
+      emitWorld(w, { type: 'wish', id: c.id, product: c.wish.product, treat: c.wish.treat });
     }
     // mask 1 (entry lane) while approaching/crossing the door; once truly on the floor, drop to
     // mask 0 so the mover no longer treats the west-margin lane cells as walkable (leave() sets
@@ -381,7 +382,7 @@ export function stepCustomers(list, w, price, dt) {
           for (let i = 0; i < orderSize; i++) { if (takeFromDisplay(w, c.counterId)) taken++; else break; }
           if (taken > 0) {
             c.order = new Array(taken).fill(c.wish.product);
-            w.events.push({ type: 'took', id: c.id, product: c.wish.product, count: taken });
+            emitWorld(w, { type: 'took', id: c.id, product: c.wish.product, count: taken });
             c.mood = 'none';
             const wantsBowl = c.wish.treat ? activeBowl(w) : null;
             const bowlSlot = wantsBowl ? takeBowlSlot(w) : null;
@@ -415,14 +416,14 @@ export function stepCustomers(list, w, price, dt) {
                 // other reassignment in this file (register payment, patience-loss leave) so the
                 // walk starts from a clean baseline instead of an old, now-irrelevant target.
                 c.mover.hasTarget = false;
-                w.events.push({ type: 'settled', id: c.id, from, to });
-                w.events.push({ type: 'wish', id: c.id, product: to, treat: c.wish.treat });
+                emitWorld(w, { type: 'settled', id: c.id, from, to });
+                emitWorld(w, { type: 'wish', id: c.id, product: to, treat: c.wish.treat });
                 break;
               }
             }
             if (c.patience <= 0) {
-              w.events.push({ type: 'lost', id: c.id, reason: 'counter' });
-              w.events.push({ type: 'angry', id: c.id });
+              emitWorld(w, { type: 'lost', id: c.id, reason: 'counter' });
+              emitWorld(w, { type: 'angry', id: c.id });
               c.mood = 'none'; c.state = 'leave'; c.mover.hasTarget = false;
             }
           }
@@ -462,8 +463,8 @@ export function stepCustomers(list, w, price, dt) {
             assignRegister(c, w);
           } else if (c.patience <= 0) {
             releaseBowlSlot(w, c._bowlSlot); c._bowlSlot = null;
-            w.events.push({ type: 'lost', id: c.id, reason: 'bowl' });
-            w.events.push({ type: 'angry', id: c.id });
+            emitWorld(w, { type: 'lost', id: c.id, reason: 'bowl' });
+            emitWorld(w, { type: 'angry', id: c.id });
             c.mood = 'none'; c.state = 'leave'; c.mover.hasTarget = false;
           }
         }
@@ -503,8 +504,8 @@ export function stepCustomers(list, w, price, dt) {
             c.mood = 'wait';
             if (c.patience <= 0) {
               c.registerId = null;
-              w.events.push({ type: 'lost', id: c.id, reason: 'register' });
-              w.events.push({ type: 'angry', id: c.id });
+              emitWorld(w, { type: 'lost', id: c.id, reason: 'register' });
+              emitWorld(w, { type: 'angry', id: c.id });
               // M3 T3 fix (found by the nav-fullhouse acceptance test): unlike the counter's
               // slot-0-only wait (a stable target — nobody's slot number changes once they're at
               // the front), EVERY 'atRegister' customer drains patience regardless of slot, and
@@ -541,7 +542,7 @@ export function stepCustomers(list, w, price, dt) {
           // detector (progress toward tx/tz over a 3s window) flags. Clear it explicitly so the
           // mover is cleanly at rest, like any other arrival.
           c.mover.hasTarget = false;
-          w.events.push({ type: 'seated', id: c.id, seatId: c.seatId });
+          emitWorld(w, { type: 'seated', id: c.id, seatId: c.seatId });
         }
         break;
       }
@@ -553,7 +554,7 @@ export function stepCustomers(list, w, price, dt) {
         // "occupied" by anyone.
         c.timer += dt; if (c.timer >= EAT_TIME) {
           c.seat.occupied = false; c.seat.dirty = true;
-          w.events.push({ type: 'dirtied', seatId: c.seat.id });
+          emitWorld(w, { type: 'dirtied', seatId: c.seat.id });
           c.seat = null; c.seatId = null; c.order = null; c.state = 'leave'; c.hop = 0.5;
         }
         break;
@@ -568,7 +569,7 @@ export function stepCustomers(list, w, price, dt) {
           const spawnSpot = laneSpot(area.spawnStart, c._doorSlot, 1);
           if (walkTo(c, spawnSpot.x, spawnSpot.z, w, dt)) {
             releaseSlot(w, '_doorTaken_leave', c._doorSlot); c._doorSlot = null;
-            c.done = true; w.events.push({ type: 'left', id: c.id });
+            c.done = true; emitWorld(w, { type: 'left', id: c.id });
           }
         }
         break;

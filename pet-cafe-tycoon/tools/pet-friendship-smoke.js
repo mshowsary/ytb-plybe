@@ -47,7 +47,7 @@ const promotion = await page.evaluate(() => {
   const coins = G.coins;
   const fake = { id:991001, species:'cat', petVariant:0 };
   G.customers.push(fake);
-  G.world.events.push({ type:'pay', id:fake.id, amount:123, by:'owner' });
+  G.world.emit({ type:'pay', id:fake.id, amount:123, by:'owner' });
   G.world.events.length = 0;
   G.customers.pop();
   const save = G.snapshot();
@@ -103,7 +103,7 @@ const friend = await page.evaluate(() => {
   const G = window.__game;
   const emit = () => {
     const fake = { id:991002, species:'cat', petVariant:0 };
-    G.customers.push(fake); G.world.events.push({ type:'pay', id:fake.id, amount:1, by:'owner' });
+    G.customers.push(fake); G.world.emit({ type:'pay', id:fake.id, amount:1, by:'owner' });
     G.world.events.length = 0; G.customers.pop();
   };
   emit(); emit(); emit(); // 2 -> 5 visits = Friend

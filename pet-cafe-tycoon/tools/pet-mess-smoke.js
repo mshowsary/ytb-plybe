@@ -32,7 +32,7 @@ const seeded = await page.evaluate(() => {
   const seat1=G.world.stations.get('seat1'), seat2=G.world.stations.get('seat2'); seat1.dirty=true;
   // Day 3 deterministic cadence accepts ids divisible by 3. Advance G.time past the 7s spawn
   // cooldown between synthetic seated events, then clear those events before the sim consumes them.
-  const push=(id,seatId,t)=>{G.time=t;G.world.events.push({type:'seated',id,seatId});G.world.events.length=0;};
+  const push=(id,seatId,t)=>{G.time=t;G.world.emit({type:'seated',id,seatId});G.world.events.length=0;};
   push(3,'seat1',100); push(6,'seat2',108); push(9,'seat1',116);
   return {count:window.__petMess.count,coins:G.coins,dirty:seat1.dirty,seat1Active:seat1.active,seat2Active:seat2.active};
 });

@@ -1,0 +1,208 @@
+{
+  "lifecycle": [
+    {
+      "name": "Gate A host-pause lifecycle smoke",
+      "command": [
+        "node",
+        "tools/gate-a-lifecycle-smoke.js"
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "name": "Recoverable boot smoke",
+      "command": [
+        "node",
+        "tools/boot-recovery-smoke.js"
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "name": "Material checkpoint smoke",
+      "command": [
+        "node",
+        "tools/material-checkpoint-smoke.js"
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "name": "Save schema migration smoke",
+      "command": [
+        "node",
+        "tools/save-schema-smoke.js"
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "name": "Station cash and stock persistence smoke",
+      "command": [
+        "node",
+        "tools/station-persistence-smoke.js"
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "name": "Owner and carry persistence smoke",
+      "command": [
+        "node",
+        "tools/owner-persistence-smoke.js"
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "name": "Temporary help persistence smoke",
+      "command": [
+        "node",
+        "tools/temporary-help-persistence-smoke.js"
+      ],
+      "timeoutMs": 300000
+    }
+  ],
+  "gameplay": [
+    {
+      "name": "Rewarded Rush Help smoke",
+      "command": [
+        "node",
+        "tools/rush-help-smoke.js"
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "name": "Rewarded Pet Play Break smoke",
+      "command": [
+        "node",
+        "tools/pet-play-break-smoke.js"
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "name": "Pet Play Break visual feedback smoke",
+      "command": [
+        "node",
+        "tools/pet-play-break-visual-smoke.js"
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "name": "Pet friendship persistence and book smoke",
+      "command": [
+        "node",
+        "tools/pet-friendship-smoke.js"
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "name": "Pet pawprint and Roomba smoke",
+      "command": [
+        "node",
+        "tools/pet-mess-smoke.js"
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "name": "Barista live worker smoke",
+      "command": [
+        "node",
+        "tools/barista-smoke.js"
+      ],
+      "timeoutMs": 300000
+    }
+  ],
+  "visual": [
+    {
+      "name": "Browser visual smoke",
+      "command": [
+        "node",
+        "tools/production-smoke-v2.js"
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "name": "Ultra-narrow 183px HUD smoke",
+      "command": [
+        "node",
+        "tools/ultra-narrow-smoke.js"
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "name": "First-use interaction coach smoke",
+      "command": [
+        "node",
+        "tools/interaction-coach-smoke.js"
+      ],
+      "timeoutMs": 300000
+    }
+  ],
+  "publisher": [
+    {
+      "name": "YouTube publisher certification smoke",
+      "command": [
+        "node",
+        "tools/playables-cert-smoke.js"
+      ],
+      "timeoutMs": 300000
+    }
+  ],
+  "economy": [
+    {
+      "name": "Economy pacing bot",
+      "command": [
+        "npm",
+        "run",
+        "bot"
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "name": "Barista economy A/B",
+      "command": [
+        "node",
+        "tools/barista-economy-bot.js"
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "name": "Barista price/timing sensitivity",
+      "command": [
+        "npm",
+        "run",
+        "barista:sweep"
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "name": "Barista multi-seed robustness",
+      "command": [
+        "npm",
+        "run",
+        "barista:robust"
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "name": "Barista staffing-order robustness",
+      "command": [
+        "npm",
+        "run",
+        "barista:policy"
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "name": "Staff overhead what-if",
+      "command": [
+        "node",
+        "tools/payroll-whatif.js"
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "name": "Shift transition characterization",
+      "command": [
+        "node",
+        "tools/shift-transition-regression.js"
+      ],
+      "timeoutMs": 300000
+    }
+  ]
+}

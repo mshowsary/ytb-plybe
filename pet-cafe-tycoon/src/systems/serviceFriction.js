@@ -1,3 +1,4 @@
+import { subscribeWorld } from '../sim/events.js';
 // Runtime service-friction layer. It observes customer waits without changing routing, patience,
 // prices or ad availability. The goal is to make degraded service matter economically while keeping
 // the penalty bounded enough that a bad rush cannot become a debt spiral.
@@ -36,8 +37,6 @@ export function installServiceFriction(G) {
   installStyle();
   const announce = makeToast();
   const records = new Map();
-  const events = G.world.events;
-  const nativePush = events.push;
   const baseUpdate = G.update;
   let day = G.dayState && G.dayState.day || 1;
 
@@ -113,9 +112,8 @@ export function installServiceFriction(G) {
         }
       }
     }
-    return nativePush.apply(this, items);
   };
-  events.push = observedPush;
+  const unsubscribe = subscribeWorld(G.world, event => observedPush(event), 20);
 
   const wrappedUpdate = function serviceFrictionUpdate(dt) {
     const result = baseUpdate(dt);
@@ -136,7 +134,7 @@ export function installServiceFriction(G) {
   return {
     destroy() {
       if (G.update === wrappedUpdate) G.update = baseUpdate;
-      if (events.push === observedPush) events.push = nativePush;
+      unsubscribe();
     },
   };
 }

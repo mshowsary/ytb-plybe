@@ -237,7 +237,7 @@ function runScenario({ name, baristaAware }) {
     const r = hire(G, 'barista');
     if (!r.ok) return false;
     baristaMetrics.hiredDay = G.dayState.day; baristaMetrics.hiredAt = G.time;
-    world.events.push({ type: 'purchase', kind: 'hire:barista', at: G.time || 0 });
+    world.emit({ type: 'purchase', kind: 'hire:barista', at: G.time || 0 });
     return true;
   }
 

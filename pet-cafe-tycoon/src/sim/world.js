@@ -1,3 +1,4 @@
+import { emitWorld } from './events.js';
 // src/sim/world.js
 import { PRODUCTS, REGISTER_RATE, FAMILY, familyOf } from './economy.js';
 import { stationBoxes } from './collide.js';
@@ -87,6 +88,7 @@ export function createWorld(area, save, seed) {
   }
   // M3 T3: seeded RNG for the sim layer (wishFor et al.) — no Math.random in src/sim.
   const w = { area, built, partial, payAcc, stations, events: [], displays: [], checkouts: [], _queues: new Map(), rng: makeRng(seed || 1) };
+  w.emit = (...events) => emitWorld(w, ...events);
   refreshActive(w);
   return w;
 }
@@ -125,7 +127,7 @@ export function payZone(w, zoneId, coins, dt) {
     delete w.partial[zoneId]; delete w.payAcc[zoneId]; w.built.add(zoneId);
     for (const id of z.adds) { const st = w.stations.get(id); if (st) st.active = true; }
     refreshActive(w);
-    w.events.push({ type: 'built', zoneId });
+    emitWorld(w, { type: 'built', zoneId });
     return { spent, done: true };
   }
   if (spent > 0) w.partial[zoneId] = total;
@@ -263,7 +265,7 @@ export function refillBowl(w, id, kibble) {
 // see systems/stations.js and sim/staff.js). No-op (and no event) if the seat wasn't dirty.
 export function cleanSeat(w, id) {
   const st = w.stations.get(id);
-  if (st && st.dirty) { st.dirty = false; w.events.push({ type: 'cleaned', seatId: id }); }
+  if (st && st.dirty) { st.dirty = false; emitWorld(w, { type: 'cleaned', seatId: id }); }
 }
 
 // M3 T3: manned-register processing. `st.serving` ('' | 'owner' | 'cashier') is set every frame
@@ -345,8 +347,8 @@ export function stepRegisters(w, dt) {
         const amount = head.amount || 0;
         st.pile += amount;
         head.paid = true;
-        w.events.push({ type: 'processed', id: head.id, amount, checkoutId: st.id, by: st.serving });
-        w.events.push({ type: 'pay', id: head.id, amount, x: st.x, z: st.z, checkoutId: st.id });
+        emitWorld(w, { type: 'processed', id: head.id, amount, checkoutId: st.id, by: st.serving });
+        emitWorld(w, { type: 'pay', id: head.id, amount, x: st.x, z: st.z, checkoutId: st.id });
       }
     }
   }
