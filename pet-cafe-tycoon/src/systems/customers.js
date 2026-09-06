@@ -39,7 +39,7 @@ export function createCustomers(G, S, ctx) {
   const rng = makeRng(SPAWN_SEED);
   const rec = new Map();
   let spawnT = 2, seq = 1, speciesIdx = 0, penaltyToastCd = 0;
-  let cachedBuiltSize = -1, interval = 4, maxC = 6;
+  let cachedBuiltSize = -1, interval = 4, maxC = 6, effMaxC = 6;
   const tmpProj = { sx: 0, sy: 0, visible: true };
 
   function applyServicePenalty(reason, r) {
@@ -96,7 +96,7 @@ export function createCustomers(G, S, ctx) {
       }
       const d = G.dayState;
       const mult = d ? spawnMult(d) : 1;
-      const effMaxC = maxC + (d ? capBonus(d) : 0) + Math.min(3, Math.floor(cafeLevel(G) / 5));
+      effMaxC = maxC + (d ? capBonus(d) : 0) + Math.min(3, Math.floor(cafeLevel(G) / 5));
       const introCap = G.intro && G.intro.active && (G.intro.step | 0) < 3;
       const cap = introCap ? Math.min(effMaxC, 2) : effMaxC;
       if (mult > 0) {
