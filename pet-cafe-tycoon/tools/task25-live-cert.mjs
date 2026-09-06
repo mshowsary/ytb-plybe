@@ -63,12 +63,10 @@ try {
     adBusy: false,
   }, 'CI preview must be an explicitly ad-free host boundary');
 
-  // Freeze the browser-owned RAF and stage only the wallet/tutorial flags. Progression itself is
-  // created below through the production zone system; no payZone/hire helper is imported or called.
   await page.evaluate(() => {
     const G = window.__game;
     G.userPaused = true;
-    G.coins = 760; // Tables 90 + Cupcakes 220 + the measured 450-coin Desk/Runner entry wallet.
+    G.coins = 760;
     G.intro.step = 5;
     G.intro.active = false;
     G.settings.sfx = false;
@@ -98,7 +96,6 @@ try {
   assert.equal(state.adBusy, false);
   await page.screenshot({ path: `${outDir}/01-desk-built-mobile.png`, fullPage: true });
 
-  // Open the actual Workers sheet from the live Staff Desk and hire through the rendered button.
   await page.evaluate(() => {
     const G = window.__game;
     const desk = G.world.stations.get('hire1');
@@ -114,6 +111,14 @@ try {
   assert.match(firstRunnerText, /Runner/);
   assert.match(firstRunnerText, /150/, 'first Runner UI must show the measured 150-coin price');
 
+  // The sheet uses a deliberate translateY entrance. Wait for the final geometry, not merely DOM
+  // visibility, so the mobile assertion cannot race the 220ms slide-in animation.
+  await page.waitForFunction(() => {
+    const sheet = document.querySelector('.sheet');
+    if (!sheet || !sheet.classList.contains('show')) return false;
+    const r = sheet.getBoundingClientRect();
+    return r.top < innerHeight - 1 && r.bottom <= innerHeight + 1;
+  }, null, { timeout: 2_000 });
   const geometry = await page.evaluate(() => {
     const sheet = document.querySelector('.sheet');
     const r = sheet?.getBoundingClientRect();
@@ -140,9 +145,6 @@ try {
   assert.match(secondRunnerText, /2,800/, 'second Runner price must remain 2,800');
   await page.screenshot({ path: `${outDir}/03-runner-hired-mobile.png`, fullPage: true });
 
-  // A genuine live snapshot must round-trip after the new progression path. Legacy price migration
-  // is separately certified by the canonical save tests, which exercise old partial payloads without
-  // forging nested runtime station/owner snapshots.
   const roundTrip = await page.evaluate(() => {
     const G = window.__game;
     const snap = G.snapshot();
@@ -179,7 +181,7 @@ try {
       'Coffee unlocks through Staff Desk while Register 2 stays optional',
       'Workers sheet exposes first Runner at 150 and hires through its live button',
       'second Runner remains 2,800',
-      'mobile Workers sheet remains inside the viewport',
+      'mobile Workers sheet remains inside the viewport after its entrance transition',
       'genuine Task 25 snapshot round-trips without auto-building Register 2',
       'no interstitial/ad transaction is required for the certified path',
     ],
