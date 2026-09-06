@@ -5,7 +5,8 @@ import {
   createWorld, activeZones, payZone, stepOvens, stepMachines, takeFromOven, takeFromMachine,
   putOnDisplay, collectCash, refillBeans, refillBowl, harvestBush, addFruit as stationAddFruit, cleanSeat,
 } from '../src/sim/world.js';
-import { createCustomer, stepCustomers, SPECIES } from '../src/sim/customers.js';
+import { createCustomer, stepCustomers } from '../src/sim/customers.js';
+import { createCustomerSpawnSequence } from '../src/sim/customerSpawn.js';
 import { createStaff, stepStaff } from '../src/sim/staff.js';
 import { createMover, setTarget, stepMover } from '../src/sim/mover.js';
 import {
@@ -21,7 +22,6 @@ import { createCarry, takeSack, useSack, addFruit as carryAddFruit, returnAll } 
 import { createLedger } from '../src/sim/ledger.js';
 import { decide } from '../src/sim/botDecide.js';
 import { AREA1 } from '../data/area1.js';
-import { makeRng } from '../src/core/rng.js';
 
 const DT = 1 / 30;
 const MAX_DAYS = 25;
@@ -50,14 +50,14 @@ const price = (key, seated) => Math.round(
 
 let customers = [], staffList = [];
 G.customers = customers;
-let seq = 1, speciesIdx = 0, spawnT = 2;
+let spawnT = 2;
 let cachedBuiltSize = -1, interval = 4, maxC = 6;
-const rng = makeRng(1);
+const spawns = createCustomerSpawnSequence();
 
 function spawnCustomer() {
-  const species = SPECIES[speciesIdx++ % SPECIES.length];
-  const variant = { shirt: rng.i(0, 4), hair: rng.i(0, 3), skin: rng.i(0, 2) };
-  const c = createCustomer(seq++, species, variant, AREA1);
+  const next = spawns.next();
+  const c = createCustomer(next.id, next.species, next.variant, AREA1);
+  c.petVariant = next.petVariant;
   customers.push(c);
   custSpawnPhase.set(c.id, G.dayState.phase);
 }
