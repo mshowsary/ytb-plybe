@@ -46,6 +46,14 @@ export function validateAndMigrateSave(raw, area = null) {
   const help = normalizeTemporaryHelp(raw && raw.temporaryHelp, result.data.boosts, result.data.dayState);
   if (!help.ok) return { ok: false, reason: `temporaryHelp:${help.reason}` };
   result.data.temporaryHelp = help.data;
+
+  // Task 20: ledger data is observational only and cannot alter canonical wallet/progression data.
+  // Preserve an object-shaped payload through the load validator; sim/ledger.js performs the
+  // transaction-level sanitization when the runtime restores it. Invalid/missing ledgers simply
+  // start a fresh reconciliation baseline from the already validated wallet.
+  result.data.ledger = raw && raw.ledger && typeof raw.ledger === 'object' && !Array.isArray(raw.ledger)
+    ? raw.ledger
+    : null;
   return result;
 }
 
