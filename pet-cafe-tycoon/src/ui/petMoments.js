@@ -16,18 +16,22 @@ function ensureStyle() {
     .pet-identity.play-break .paw{animation:pet-break-paw .72s ease-in-out infinite alternate}.pet-identity.play-break .detail{opacity:.82;color:#a9516c}
     @keyframes pet-break-paw{from{transform:scale(.9)}to{transform:scale(1.2)}}
     body.ui-compact .pet-identity{font-size:10px;padding:4px 7px}.pet-identity.seated .detail{display:none}
+    .pet-identity .paw{width:24px;height:24px;flex:none;border-radius:50%;display:grid;place-items:center;background:linear-gradient(145deg,#fffdf5,#f1dfc7);box-shadow:inset 0 0 0 1px var(--pet-accent,#b99576)}
+    .pet-identity .paw svg{width:20px;height:20px;fill:none;stroke:#654735;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+    .pet-identity .paw svg circle{fill:#654735;stroke:none}
     @media(max-width:380px){.pet-identity{max-width:118px;font-size:10px;padding:4px 6px}.pet-identity .detail{display:none}}
     @media(prefers-reduced-motion:reduce){.pet-identity.play-break .paw{animation:none}}
   `;
   document.head.appendChild(style);
 }
 
-export function createPetMoment(els, profile, customerId = null) {
+export function createPetMoment(els, profile, customerId = null, species = 'cat') {
   ensureStyle();
   const el = document.createElement('div');
   el.className = `pet-identity ${profile.rarity || 'common'}`;
   if (customerId != null) el.dataset.customerId = String(customerId);
-  const paw = document.createElement('span'); paw.className = 'paw'; paw.textContent = '♥';
+  const paw = document.createElement('span'); paw.className = 'paw'; paw.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${species === 'bunny' ? 'M7 12C1-2 10-2 10 11M14 11C14-2 23-2 17 12M6 13a7 6 0 1 0 12 0' : species === 'dog' ? 'M6 8C-1 7 0 19 5 16M18 8c7-1 6 11 1 8M6 7q6-4 12 0v9a6 5 0 0 1-12 0Z' : 'M5 11V3l6 4h2l6-4v8a8 8 0 1 1-14 0Z'}"/><circle cx="9" cy="14" r=".8"/><circle cx="15" cy="14" r=".8"/><path d="m10 17 2 1 2-1"/></svg>`;
+  paw.style.setProperty('--pet-accent', profile.accent || '#B99576');
   const name = document.createElement('span'); name.textContent = profile.name;
   const detail = document.createElement('span'); detail.className = 'detail'; detail.textContent = '';
   el.append(paw, name, detail); els.fx.appendChild(el);

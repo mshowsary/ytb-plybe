@@ -67,7 +67,7 @@ export function createCustomers(G, S, ctx) {
     const pet = createPet(species, petVariant); pet.group.position.set(c.x + 0.45, 0, c.z - 0.9); scene.add(pet.group);
     const leash = createLeash(scene); leash.attach(human.hand, pet.neck);
     const bub = makeBubble(els);
-    const identity = createPetMoment(els, profile, c.id);
+    const identity = createPetMoment(els, profile, c.id, species);
     if (profile.rarity === 'rare' || profile.rarity === 'epic') identity.announce(`${profile.rarity.toUpperCase()} VISITOR`, 2.8);
     rec.set(c.id, {
       human, pet, leash, identity, profile,

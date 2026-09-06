@@ -1,3 +1,4 @@
+import { createRecoveryMetrics } from './recovery-metrics.js';
 // Task 24 v4 — experiment only. Uses the proven bot orchestration but changes no live economy.
 // Policy correction: "staff-first" keeps normal construction/chores before the Desk, then reserves
 // only for the first meaningful worker. No artificial pre-Desk steering.
@@ -44,6 +45,7 @@ function median(values) {
 
 export function runScenario(variant, policy, seed, options = {}) {
   const wallStart = Date.now();
+  const recovery = createRecoveryMetrics();
   const area = areaForStaffingVariant(variant);
   const world = createWorld(area, null, seed);
   const G = {
@@ -132,28 +134,30 @@ export function runScenario(variant, policy, seed, options = {}) {
 
   function ownerStep(){
     const {target,hold}=chooseTarget();
-    if(!target){idleSeconds+=DT;ownerMover.hasTarget=false;lastKind=lastStationId=lastZoneId=null;return;}
+    if(!target){recovery.owner(G.dayState.phase,G.time,DT,null,false);idleSeconds+=DT;ownerMover.hasTarget=false;lastKind=lastStationId=lastZoneId=null;return;}
     activeSeconds+=DT;
     const stationId=target.stationId||null,zoneId=target.zoneId||null;
     if(target.kind!==lastKind||stationId!==lastStationId||zoneId!==lastZoneId){ownerMover.hasTarget=false;arrivedT=0;lastKind=target.kind;lastStationId=stationId;lastZoneId=zoneId;}
-    if(!walk(target.x,target.z))return;
+    const arrived=walk(target.x,target.z);
+    recovery.owner(G.dayState.phase,G.time,DT,target.kind,!arrived);
+    if(!arrived)return;
     switch(target.kind){
       case'register':return;
-      case'fetch':{const st=world.stations.get(target.stationId);if(!st||!st.active||st.stock<=0||(G.carryKey&&G.carryKey!==target.product))return;const cap=carryCap(G.up);arrivedT+=DT;while(arrivedT>=.35&&st.stock>0&&G.carryCount<cap){arrivedT-=.35;const n=(st.type==='oven'?takeFromOven:takeFromMachine)(world,st.id,1);if(n>0){G.carryKey=target.product;G.carryCount++;}}return;}
-      case'drop':{const st=world.stations.get(target.stationId);if(!st||!G.carryKey)return;arrivedT+=DT;while(arrivedT>=.15&&G.carryCount>0&&st.stock<st.capacity){arrivedT-=.15;const n=putOnDisplay(world,st.id,G.carryKey,1);if(n<=0)break;G.carryCount--;if(!G.carryCount)G.carryKey=null;}return;}
+      case'fetch':{const st=world.stations.get(target.stationId);if(!st||!st.active||st.stock<=0||(G.carryKey&&G.carryKey!==target.product))return;const cap=carryCap(G.up);arrivedT+=DT;while(arrivedT>=.35&&st.stock>0&&G.carryCount<cap){arrivedT-=.35;const n=(st.type==='oven'?takeFromOven:takeFromMachine)(world,st.id,1);if(n>0){recovery.useful('fetchedItems',n);G.carryKey=target.product;G.carryCount++;}}return;}
+      case'drop':{const st=world.stations.get(target.stationId);if(!st||!G.carryKey)return;arrivedT+=DT;while(arrivedT>=.15&&G.carryCount>0&&st.stock<st.capacity){arrivedT-=.15;const n=putOnDisplay(world,st.id,G.carryKey,1);if(n<=0)break;recovery.useful('deliveredItems',n);G.carryCount--;if(!G.carryCount)G.carryKey=null;}return;}
       case'return':returnAll(carry);G.carryKey=null;G.carryCount=0;return;
       case'refillPickup':if(!carry.sack)takeSack(carry,target.sackKind);return;
-      case'refillDrop':{const st=world.stations.get(target.stationId);if(!st||!carry.sack)return;if(carry.sack==='beans'){const n=Math.min(carry.sackLeft,Math.max(0,20-st.beans));refillBeans(world,st.id,n);useSack(carry,n);}else{const n=refillBowl(world,st.id,carry.sackLeft);useSack(carry,n);}return;}
+      case'refillDrop':{const st=world.stations.get(target.stationId);if(!st||!carry.sack)return;if(carry.sack==='beans'){const n=Math.min(carry.sackLeft,Math.max(0,20-st.beans));refillBeans(world,st.id,n);useSack(carry,n);recovery.useful('refillUnits',n);}else{const n=refillBowl(world,st.id,carry.sackLeft);useSack(carry,n);recovery.useful('refillUnits',n);}return;}
       case'harvest':{const st=world.stations.get(target.stationId);if(st&&st.stage===3)carryAddFruit(carry,harvestBush(world,st.id),carryCap(G.up));return;}
       case'blend':{const st=world.stations.get(target.stationId);if(st&&carry.fruit>0)carry.fruit-=stationAddFruit(world,st.id,carry.fruit);return;}
-      case'clean':{const st=world.stations.get(target.stationId);if(!st||!st.dirty)return;arrivedT+=DT;if(arrivedT>=1){cleanSeat(world,st.id);arrivedT=0;}return;}
+      case'clean':{const st=world.stations.get(target.stationId);if(!st||!st.dirty)return;arrivedT+=DT;if(arrivedT>=1){cleanSeat(world,st.id);recovery.useful('cleanedSeats');arrivedT=0;}return;}
       case'cash':for(const id of world.checkouts){const n=collectCash(world,id);if(n>0){G.coins+=n;ledger.record('collection',`register:${id}`,n,{meta:{checkoutId:id}});}}return;
-      case'build':{const available=Math.max(0,G.coins-hold);if(!available)return;const r=payZone(world,target.zoneId,available,DT);if(r.spent>0){G.coins-=r.spent;spend.build+=r.spent;ledger.record('spend',`build:${target.zoneId}`,r.spent,{meta:{zoneId:target.zoneId}});}return;}
+      case'build':{const available=Math.max(0,G.coins-hold);if(!available)return;const r=payZone(world,target.zoneId,available,DT);if(r.spent>0){recovery.useful('buildCoins',r.spent);G.coins-=r.spent;spend.build+=r.spent;ledger.record('spend',`build:${target.zoneId}`,r.spent,{meta:{zoneId:target.zoneId}});}return;}
     }
   }
 
   function observeStockouts(){
-    const alive=new Set();for(const c of customers){if(!c||c.done)continue;alive.add(c.id);const d=c.counterId&&world.stations.get(c.counterId);const out=c.state==='queue'&&c.mood==='wait'&&d&&d.active&&d.stock<=0;if(out){stockoutSeconds+=DT;if(!stockoutActive.has(c.id)){stockoutActive.add(c.id);stockoutIncidents++;}}else stockoutActive.delete(c.id);}for(const id of [...stockoutActive])if(!alive.has(id))stockoutActive.delete(id);
+    const alive=new Set();for(const c of customers){if(!c||c.done)continue;alive.add(c.id);const d=c.counterId&&world.stations.get(c.counterId);const out=c.state==='queue'&&c.mood==='wait'&&d&&d.active&&d.stock<=0;if(out){recovery.stock(G.dayState.phase,world,d,DT);stockoutSeconds+=DT;if(!stockoutActive.has(c.id)){stockoutActive.add(c.id);stockoutIncidents++;}}else stockoutActive.delete(c.id);}for(const id of [...stockoutActive])if(!alive.has(id))stockoutActive.delete(id);
   }
   const coreIds=area.zones.filter(z=>!(variant.earlyDesk&&z.id==='z_register2')).map(z=>z.id);
   let t=0;
@@ -161,12 +165,13 @@ export function runScenario(variant, policy, seed, options = {}) {
     G.time=t;G.serviceStreak.t=Math.max(0,G.serviceStreak.t-DT);
     const d=staffingDemand(variant,world.built,G.staff),key=`${d.interval}:${d.maxCustomers}`;if(key!==demandKey){demandKey=key;interval=d.interval;baseMaxC=d.maxCustomers;}
     const mult=spawnMult(G.dayState),effMaxC=baseMaxC+capBonus(G.dayState)+Math.min(3,Math.floor(cafeLevel(G)/5));
-    if(mult>0){spawnT-=DT;if(spawnT<=0&&customers.length<effMaxC){spawnT=interval/mult;spawnCustomer();}}
+    if(mult>0){spawnT-=DT;if(spawnT<=0&&customers.length<effMaxC){spawnT=interval/mult*(G.dayState.phase==='rush'?(options.rushIntervalScale||1):1);spawnCustomer();}}
     stepOvens(world,DT);stepMachines(world,DT);ownerStep();
     for(const id of world.checkouts){const co=world.stations.get(id);if(co.active&&near(owner,co.front,1.2))co.serving='owner';}
     syncStaff();beginActorStep(world,customers,staffList);stepCustomers(customers,world,price,DT);
     stepStaff(staffList,world,DT,n=>{if(n>0){G.coins+=n;ledger.record('collection','register:staff',n,{meta:{by:'cashier'}});}},G.staffLevels,customers);endActorStep(world);observeStockouts();
     for(const e of world.events){
+      if(e.type==='purchase'||e.type==='built')recovery.purchase(t,e.kind||e.zoneId);
       if(e.type==='pay'){G.dayStats.served++;G.dayStats.earned+=e.amount;G.serviceStreak.count=G.serviceStreak.t>0?G.serviceStreak.count+1:1;G.serviceStreak.t=7;G.shiftBestStreak=Math.max(G.shiftBestStreak,G.serviceStreak.count);G.dayStats.bestStreak=G.shiftBestStreak;const c=customers.find(x=>x.id===e.id),order=c?.order||[];ledger.record('sale',`service:${order.length?order.join('+'):'unknown'}`,e.amount,{meta:{customerId:e.id,checkoutId:e.checkoutId||null}});recordRecipeOrder(G.meta,order);}
       else if(e.type==='lost'){G.dayStats.lost++;G.serviceStreak={count:0,t:0};}
       else if(e.type==='purchase')purchases[e.kind]=(purchases[e.kind]||0)+1;
@@ -177,7 +182,7 @@ export function runScenario(variant, policy, seed, options = {}) {
     ensureStars(G,world);if(coreCompleteAt==null&&coreIds.every(id=>world.built.has(id)))coreCompleteAt=t;world.events.length=0;t+=DT;
   }
   const served=dayRows.reduce((s,r)=>s+r.served,0),lost=dayRows.reduce((s,r)=>s+r.lost,0),goals=dayRows.filter(r=>r.goalMet).length;
-  return {variant:variant.id,policy:policy.id,seed,firstHireMinutes:firstHireAt==null?null:firstHireAt/60,firstHireKind,cupcakeBuiltMinutes:cupcakeBuiltAt==null?null:cupcakeBuiltAt/60,deskBuiltMinutes:deskBuiltAt==null?null:deskBuiltAt/60,entryCost:firstHireEntryCost(variant),coreCompleteMinutes:coreCompleteAt==null?null:coreCompleteAt/60,served,lost,lostRate:lost/Math.max(1,served+lost),goalRate:goals/Math.max(1,dayRows.length),stockoutSeconds,stockoutIncidents,idleSeconds,activeSeconds,finalWallet:Math.round(G.coins),spend:{...spend,total:spend.build+spend.manualHire+spend.decision},purchases,dayRows,ledgerMismatches,spawnDraws:spawns.snapshot().rngDraws,days:dayRows.length,wallMs:Date.now()-wallStart};
+  return {variant:variant.id,policy:policy.id,seed,firstHireMinutes:firstHireAt==null?null:firstHireAt/60,firstHireKind,cupcakeBuiltMinutes:cupcakeBuiltAt==null?null:cupcakeBuiltAt/60,deskBuiltMinutes:deskBuiltAt==null?null:deskBuiltAt/60,entryCost:firstHireEntryCost(variant),coreCompleteMinutes:coreCompleteAt==null?null:coreCompleteAt/60,served,lost,lostRate:lost/Math.max(1,served+lost),goalRate:goals/Math.max(1,dayRows.length),stockoutSeconds,stockoutIncidents,idleSeconds,activeSeconds,finalWallet:Math.round(G.coins),spend:{...spend,total:spend.build+spend.manualHire+spend.decision},purchases,dayRows,recovery:recovery.report(t),ledgerMismatches,spawnDraws:spawns.snapshot().rngDraws,days:dayRows.length,wallMs:Date.now()-wallStart};
 }
 
 function summary(rows){return{runs:rows.length,firstHireMedian:median(rows.map(r=>r.firstHireMinutes)),deskBuiltMedian:median(rows.map(r=>r.deskBuiltMinutes)),coreCompleteMedian:median(rows.map(r=>r.coreCompleteMinutes)),lostRate:mean(rows,r=>r.lostRate),goalRate:mean(rows,r=>r.goalRate),stockoutSeconds:mean(rows,r=>r.stockoutSeconds),idleSeconds:mean(rows,r=>r.idleSeconds),finalWallet:mean(rows,r=>r.finalWallet),spend:mean(rows,r=>r.spend.total),served:mean(rows,r=>r.served)};}
