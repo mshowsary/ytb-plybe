@@ -1,4 +1,5 @@
 name: Pet Cafe Live Preview
+# Refresh preview with the Task 38 dismiss-button layout repair.
 
 on:
   workflow_dispatch:

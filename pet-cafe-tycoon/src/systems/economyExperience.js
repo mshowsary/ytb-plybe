@@ -35,7 +35,7 @@ function ensureStyles() {
   const s = document.createElement('style'); s.id = 'pet-cafe-relief-style';
   s.textContent = `
     .relief-root{position:fixed;right:calc(10px + env(safe-area-inset-right,0px));left:auto;bottom:calc(78px + env(safe-area-inset-bottom,0px));transform:none;z-index:22;width:min(198px,max(112px,calc(100vw - 142px - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px))));font-family:inherit;color:#3B2E2A;pointer-events:auto}
-    .relief-root.expanded{top:calc(10px + env(safe-area-inset-top,0px));bottom:auto;width:min(330px,calc(100vw - 16px - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px)))}
+    .relief-root.expanded{top:calc(66px + env(safe-area-inset-top,0px));bottom:auto;width:min(330px,calc(100vw - 16px - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px)))}
     .relief-pill,.relief-card{box-sizing:border-box;width:100%;border:0;background:#FFF4E6F7;box-shadow:0 8px 26px #0003;border-radius:18px;color:inherit}
     .relief-pill{min-height:50px;padding:7px 8px;display:flex;align-items:center;gap:7px;text-align:left;cursor:pointer;border:1px solid #ffffffc4}
     .relief-benefit-icon{width:32px;height:32px;flex:none;display:grid;place-items:center;border-radius:11px;background:#ffffffb8}.relief-benefit-icon svg{width:25px;height:25px;display:block}
@@ -47,7 +47,7 @@ function ensureStyles() {
     .relief-watch{min-width:116px;min-height:48px;border:0;border-radius:14px;padding:9px 12px;background:linear-gradient(180deg,#8B7CF6,#6F60DC);box-shadow:0 4px 0 #5145AE;color:#fff;font:950 12px/1.1 system-ui,sans-serif;cursor:pointer}.relief-watch:disabled{opacity:.55;box-shadow:none}.relief-ad{display:inline-flex;align-items:center;border:1px solid #ffffff80;border-radius:7px;padding:2px 5px;margin-right:4px;font-size:9px}
     .relief-card .relief-close{position:absolute;right:5px;top:5px;background:#ffffff8c}
     @media(max-width:360px){.relief-root.expanded{right:8px;width:calc(100vw - 16px)}.relief-pill-label{display:none}.relief-card{grid-template-columns:1fr;padding:12px 56px 12px 12px}.relief-watch{width:100%}.relief-pill-value{font-size:12px}.relief-benefit-icon{width:30px;height:30px}}
-    @media(max-height:520px){.relief-root{bottom:calc(10px + env(safe-area-inset-bottom,0px))}.relief-root.expanded{top:calc(8px + env(safe-area-inset-top,0px));bottom:auto;width:min(320px,calc(100vw - 16px))}.relief-card{padding:10px 54px 10px 10px;grid-template-columns:1fr auto}.relief-why{display:none}.relief-watch{min-width:104px}}
+    @media(max-height:520px){.relief-root{bottom:calc(10px + env(safe-area-inset-bottom,0px))}.relief-root.expanded{top:calc(66px + env(safe-area-inset-top,0px));bottom:auto;width:min(320px,calc(100vw - 16px))}.relief-card{padding:10px 54px 10px 10px;grid-template-columns:1fr auto}.relief-why{display:none}.relief-watch{min-width:104px}}
   `;
   document.head.appendChild(s);
 }

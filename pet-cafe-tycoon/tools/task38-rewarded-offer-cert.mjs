@@ -125,6 +125,7 @@ try {
     'dragging rewarded-card copy must not spawn the floating joystick');
   await page.mouse.up();
 
+  assert.equal(await page.locator('.relief-close').evaluate(el => { const r=el.getBoundingClientRect(); return !!document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('.relief-close'); }), true, 'close control must receive taps without Pause intercepting');
   await page.locator('.relief-close').click();
   await page.waitForFunction(() => document.querySelector('.relief-root')?.classList.contains('hidden'));
 
