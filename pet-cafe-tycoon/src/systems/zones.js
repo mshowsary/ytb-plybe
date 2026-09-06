@@ -2,7 +2,8 @@
 // Gameplay communication is visual-first: the zone shows price + hold progress, not instructions.
 import { payZone } from '../sim/world.js';
 import { crossedBuildPaymentMilestone } from '../sim/checkpoint.js';
-import { buildOutline, buildGhost } from '../render/props.js';
+import { buildOutline } from '../render/props.js';
+import { semanticBuildGhost } from '../render/buildPreview.js';
 import { insideBuildFootprint, stepBuildIntent } from '../sim/buildIntent.js';
 import { Spring } from '../core/tween.js';
 
@@ -17,7 +18,9 @@ export function createZones(G, S, ctx) {
     const stDef = area.stations.find(s => s.id === z.adds[0]);
     const fw = (stDef && stDef.fw) || 1.6, fd = (stDef && stDef.fd) || 1.6, rot = (stDef && stDef.rot) || 0;
     const outline = buildOutline(fw, fd); outline.position.set(z.x, 0, z.z); outline.rotation.y = rot; outline.visible = false; scene.add(outline);
-    const ghost = buildGhost(fw, fd); ghost.position.set(z.x, 0, z.z); ghost.rotation.y = rot; ghost.visible = false; scene.add(ghost);
+    // Task 32: the construction ghost now uses the real future station silhouette. A player can read
+    // "oven", "table", "counter", or "staff desk" from the world itself before spending a coin.
+    const ghost = semanticBuildGhost(stDef, fw, fd); ghost.position.set(z.x, 0.025, z.z); ghost.rotation.y = rot; ghost.visible = false; scene.add(ghost);
 
     const price = document.createElement('div'); price.className = 'zprice'; price.style.display = 'none';
     price.innerHTML = COIN_SVG + '<span></span>';
