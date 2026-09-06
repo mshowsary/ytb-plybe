@@ -10,13 +10,15 @@ Partial Task 35 visual implementation: Marmalade turns toward the real oven; Bis
 
 ## Evidence and limitations
 
+Verified code commit: `d7b80d88e8a8519935607a0792ea1d9181cdfa57`. All 398 local tests, production build and existing no-fee certificate pass. GitHub [Fast Checks 34051964576](https://github.com/mshowsary/ytb-plybe/actions/runs/34051964576) and [production mobile certificate 34051964600](https://github.com/mshowsary/ytb-plybe/actions/runs/34051964600) both passed. The first mobile attempt caught the separate live snapshot builder omitting `currentContract`; that omission is fixed in this verified commit. Do not repeat that investigation. This handoff's subsequent commit changes documentation only.
+
 `node tools/contract-capacity-experiment.js` runs paired controls/candidates across 5 fixed seeds × 3 policies × 12 shifts (360 simulated shifts total). Full reproducible output is written to `artifacts/task27-contracts.json`; the compact committed summary is `docs/task27-contract-evidence.json`.
 
 After two learning shifts, normal-policy success is 84% (control 76%), slow 76% (78%), staff-first 86% (78%). Normal policy meets the blueprint's 70–85% range; staff-first is slightly above it. All ledgers reconcile. These are bots, not observed human learning.
 
 Median first hire stays 10.33 minutes for balanced and 7.06 for staff-first; slow improves 11.17 → 10.60. Mean final wallets: balanced 1637 → 1634; slow 1350 → 1229; staff-first 1569 → 1891. Thus increased staff-first contract success retains more coins; track this in Task 28, do not silently add fees. Loss rates remain approximately 0.3%/0.9%/0.3%.
 
-Regression tests cover frozen targets, canonical save round-trip, malformed cache, unchanged prior awards, and independence from deliberately weak or extreme prior scores. The existing mobile certificate now includes the contract in its genuine save comparison. Check the exact pushed commit's Fast Checks and targeted Task 25 mobile run before claiming browser certification. No full Production or YouTube publisher run was requested.
+Regression tests cover frozen targets, canonical save round-trip, malformed cache, unchanged prior awards, and independence from deliberately weak or extreme prior scores. The passing mobile certificate includes the contract in its genuine save comparison and proves the existing 320px HUD acceptance. It does not certify the three new pet motion clips. No full Production or YouTube publisher run was requested.
 
 ## Continue here
 
