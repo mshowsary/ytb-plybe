@@ -6,6 +6,9 @@ import { parsePetKey } from '../sim/petBook.js';
 
 const toon = color => new THREE.MeshToonMaterial({ color });
 const glow = (color, opacity = 1) => new THREE.MeshBasicMaterial({ color, transparent: opacity < 1, opacity, depthWrite: opacity >= 1, toneMapped: false });
+let activeDecor = null;
+
+export function getActiveRenovationDecor() { return activeDecor; }
 
 function box(w, h, d, color) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), toon(color)); m.castShadow = true; m.receiveShadow = true; return m;
@@ -141,7 +144,6 @@ export function createRenovationDecor(area) {
   }
 
   // 5 — Legendary Finish: gold entrance arch + star canopy + centre medallion.
-  const archMat=toon('#D5A52D');
   for(const x of [-9.25,-8.45]){const post=box(.18,2.45,.18,'#D5A52D');post.position.set(x,1.23,area.door.z);stages[4].add(post);}
   const arch=box(1.05,.18,.18,'#D5A52D');arch.position.set(-8.85,2.42,area.door.z);stages[4].add(arch);
   for(let i=0;i<7;i++){
@@ -183,11 +185,7 @@ export function createRenovationDecor(area) {
     if (reducedMotion || !from || !Number.isFinite(from.x) || !Number.isFinite(from.z)) {
       setKeepsake(parsed.key); return true;
     }
-    const start = {
-      x: from.x,
-      y: Number.isFinite(from.y) ? from.y : 1.1,
-      z: from.z,
-    };
+    const start = { x: from.x, y: Number.isFinite(from.y) ? from.y : 1.1, z: from.z };
     reveal = { t: 0, duration: 0.92, from: start };
     const pose = keepsakeRevealPose(0, start, keepsakeHome);
     keepsake.root.position.set(pose.x, pose.y, pose.z); keepsake.root.scale.setScalar(pose.scale); keepsake.root.rotation.z = pose.rotationZ;
@@ -210,10 +208,12 @@ export function createRenovationDecor(area) {
     }
   }
   setLevel(0);
-  return {
+  const api = {
     group, setLevel, update, setKeepsake, revealKeepsake,
     keepsake: keepsake.root,
     get keepsakeKey() { return keepsake.root.userData.key || null; },
     get keepsakeRevealing() { return !!reveal; },
   };
+  activeDecor = api;
+  return api;
 }
