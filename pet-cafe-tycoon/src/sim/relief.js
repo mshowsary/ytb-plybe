@@ -1,4 +1,5 @@
 import { PRODUCTS, hireCost, upgradeCost } from './economy.js';
+import { purchaseBridgeEnabled } from './adPacing.js';
 import { urgentJobs } from './jobs.js';
 
 export const SMART_RELIEF_REWARD_ID = 'pet-cafe-smart-relief-coins';
@@ -65,8 +66,11 @@ function candidate(G, key, label, kind, cost, priority, why, pressure) {
   };
 }
 
-// Pure recommendation: no UI, no ad call, no mutation. The browser system decides when to surface it.
+// Pure recommendation: no UI, no ad call, no mutation. Task 39 deliberately disables this launch
+// purchase bridge pending Gate C evidence; retaining the classifier lets a future measured policy
+// re-enable the existing design without recreating or retuning its economy values.
 export function recommendSmartRelief(G, world) {
+  if (!purchaseBridgeEnabled()) return null;
   if (!G || !world || !G.dayState || G.dayState.day < SMART_RELIEF_MIN_DAY) return null;
   const desk = world.stations.get('hire1');
   const p = countPressure(G, world);
