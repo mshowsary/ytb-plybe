@@ -12,7 +12,16 @@ Branch: `chatgpt/pet-cafe-production`; follows `85ba642db4cde61fa7df52e097553b17
 
 ## Validation status
 
-The previous 465-test suite passed locally; two additional reverse-cooldown/clock-zero regressions also passed (17 focused ad tests). Production build and no-fee certificate passed. Check the current commit's Fast Checks, Task 38 mobile certificate, Task 25 live certificate and Pages deployment for exact browser/deployment status. This file will be updated with results when available. No full Production or publisher certification is implied.
+Verified gameplay code: `311ce4f014f655b2520af94d0d1ffd618d2dc3c7`.
+
+- [Fast Checks 34066295248](https://github.com/mshowsary/ytb-plybe/actions/runs/34066295248): passed (467 tests, no-fee certificate, production build).
+- [Task 38 mobile certificate 34066295254](https://github.com/mshowsary/ytb-plybe/actions/runs/34066295254): passed, including four portrait/landscape screenshots, actual dismiss-button hit testing, AD disclosure, joystick isolation, and the delivered Runner benefit.
+- [Pages preview 34066295183](https://github.com/mshowsary/ytb-plybe/actions/runs/34066295183): passed. **Play now: https://mshowsary.github.io/ytb-plybe/**.
+- Lifecycle diagnostic [34066138068](https://github.com/mshowsary/ytb-plybe/actions/runs/34066138068) and Task 25 save/progression browser certificate [34066138045](https://github.com/mshowsary/ytb-plybe/actions/runs/34066138045) passed on `818c099e60988bcf3e66a3928ffe914ab323ac4b`. The subsequent gameplay change only moves expanded reward cards below the Pause control; its mobile test passed on the newer SHA above.
+
+The first Task 38 attempt exposed a genuine collision: Pause intercepted taps intended for the expanded offer's close button. Both portrait and short-landscape expanded cards now start 66px below the safe-area top. The certificate verifies hit targeting and clicks normally; it never forces the click through another control.
+
+Tasks 38–39 now have the focused acceptance evidence described above. This is not full publisher certification or human Gate C evidence. The subsequent handoff commit changes documentation only.
 
 ## Continue
 
