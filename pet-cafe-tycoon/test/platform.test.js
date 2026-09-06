@@ -216,8 +216,10 @@ test('retryLoad waits on an unresolved official request instead of racing a seco
   assert.equal(loads, 1);
   assert.equal(p.saveProtected, true);
 
+  // retryLoad has synchronously reused the official in-flight request before it returns its
+  // bounded waiter. Resolve immediately: a real-time 1ms sleep here made this test depend on CI
+  // scheduler latency versus the 5ms load timeout without testing any additional platform rule.
   const retry = p.retryLoad();
-  await new Promise(resolve => setTimeout(resolve, 1));
   assert.equal(loads, 1);
   slow.resolve(JSON.stringify({ coins: 44 }));
 
