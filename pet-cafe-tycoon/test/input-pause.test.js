@@ -115,3 +115,22 @@ test('pointercancel and window blur perform the same full reset', () => {
     input.dispose(); h.restore();
   }
 });
+
+test('Task 38: pointerdown anywhere inside rewarded offer root cannot spawn the floating joystick', () => {
+  const h = eventHarness();
+  const { joy, knob } = elements();
+  const input = createInput(joy, knob);
+  try {
+    const target = {
+      closest(selector) { return selector === '.relief-root' ? { className:'relief-root' } : null; },
+    };
+    h.dispatch('pointerdown', { pointerId:11, clientX:280, clientY:420, target });
+    h.dispatch('pointermove', { pointerId:11, clientX:320, clientY:420, target });
+    input.update();
+    assert.equal(input.pressed, false);
+    assert.equal(input.active, false);
+    assert.equal(joy.classList.contains('hidden'), true);
+  } finally {
+    input.dispose(); h.restore();
+  }
+});
