@@ -1,5 +1,3 @@
-import { reliefClaimKey } from './relief.js';
-
 // Task 39 launch policy. Keep this intentionally small and inspectable: it controls WHEN an
 // already-authored voluntary benefit may be offered, never the economy value of that benefit.
 export const AD_PACING = Object.freeze({
@@ -9,12 +7,14 @@ export const AD_PACING = Object.freeze({
   purchaseBridgeEnabled: false,
 });
 
+export function reliefRewardKey(day) { return `relief:${Math.max(1, day | 0)}`; }
+
 export function rewardedClaimedForShift(meta, day) {
   const rewarded = meta && meta.rewardedDays && typeof meta.rewardedDays === 'object' ? meta.rewardedDays : {};
   const d = Math.max(1, day | 0);
   // Historical saves used the numeric completed-day key for summary rewards and relief:<day> for
   // in-shift help. Launch pacing treats either as the one voluntary rewarded claim for that shift.
-  return !!(rewarded[d] || rewarded[String(d)] || rewarded[reliefClaimKey(d)]);
+  return !!(rewarded[d] || rewarded[String(d)] || rewarded[reliefRewardKey(d)]);
 }
 
 export function markRewardedClaim(meta, day, placement = 'relief') {
@@ -23,7 +23,7 @@ export function markRewardedClaim(meta, day, placement = 'relief') {
   const d = Math.max(1, day | 0);
   if (rewardedClaimedForShift(meta, d)) return false;
   if (placement === 'summary') meta.rewardedDays[d] = 1;
-  else meta.rewardedDays[reliefClaimKey(d)] = 1;
+  else meta.rewardedDays[reliefRewardKey(d)] = 1;
   return true;
 }
 
