@@ -73,3 +73,53 @@ test('applySave: a save without staffLevels/machineLevels (an M2 save) defaults 
   assert.deepEqual(state.staffLevels, { runner: { speed: 0, carry: 0 }, cashier: { speed: 0 }, cleaner: { speed: 0 } });
   assert.deepEqual(state.machineLevels, { oven: 0, coffee: 0, display: 0 });
 });
+
+function migrationState() {
+  return { coins: 0, up: {}, staff: {}, stats: {}, settings: {} };
+}
+function oldDeskSave(partial, built = ['z_seats1', 'z_oven2', 'z_register2']) {
+  return {
+    v: 4,
+    coins: 100,
+    builds: { a1: built },
+    partial: { z_hire: partial },
+    upgrades: {}, staff: {}, stats: {}, settings: {},
+  };
+}
+
+test('Task 25 migration preserves a valid legacy Desk partial below the new 300 price', () => {
+  const canonical = applySave(migrationState(), oldDeskSave(250), AREA1);
+  assert.ok(canonical);
+  assert.deepEqual(canonical.builds.a1, ['z_seats1', 'z_oven2', 'z_register2']);
+  assert.equal(canonical.partial.z_hire, 250);
+});
+
+test('Task 25 migration promotes 300–479 of valid legacy Desk investment to a completed Desk', () => {
+  for (const invested of [300, 301, 420, 479]) {
+    const canonical = applySave(migrationState(), oldDeskSave(invested), AREA1);
+    assert.ok(canonical, `canonical save missing for ${invested}`);
+    assert.ok(canonical.builds.a1.includes('z_hire'), `Desk not promoted for ${invested}`);
+    assert.equal(canonical.partial.z_hire, undefined, `over-complete partial survived for ${invested}`);
+    assert.equal(canonical.coins, 100, 'migration must not mint or charge wallet coins');
+  }
+});
+
+test('Task 25 migration never turns orphaned over-complete Desk partial into a free unlock', () => {
+  const canonical = applySave(migrationState(), oldDeskSave(420, ['z_seats1', 'z_oven2']), AREA1);
+  assert.ok(canonical);
+  assert.equal(canonical.builds.a1.includes('z_hire'), false);
+  assert.equal(canonical.partial.z_hire, undefined);
+  assert.equal(canonical.coins, 100);
+});
+
+test('Task 25 migration preserves an already-built legacy Desk and second register', () => {
+  const canonical = applySave(migrationState(), {
+    v: 4,
+    coins: 100,
+    builds: { a1: ['z_seats1', 'z_oven2', 'z_register2', 'z_hire'] },
+    upgrades: {}, staff: {}, stats: {}, settings: {},
+  }, AREA1);
+  assert.ok(canonical);
+  assert.deepEqual(canonical.builds.a1, ['z_seats1', 'z_oven2', 'z_register2', 'z_hire']);
+  assert.equal(canonical.coins, 100);
+});
