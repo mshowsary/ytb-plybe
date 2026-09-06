@@ -1,23 +1,14 @@
 import { beginActorStep, endActorStep } from '../src/sim/actorRoster.js';
 import { stepBaristaState } from '../src/sim/baristaState.js';
 // Deterministic long-run A/B for the live Barista economy decision.
-//
-// This intentionally does NOT grant Barista upgrades or ad power. It compares the same competent
-// 25-day owner policy twice from the same seed:
-//   baseline      — current generic staffing/purchase strategy
-//   barista-aware — after Cashier + first Runner, save for the Day-5/Coffee-gated 2,300 coin Barista
-//                    before Cleaner/second Runner and let that worker own routine coffee-lane chores.
-//
-// Unlike the older tools/bot.js report, this harness mirrors the browser staff system by actually
-// spawning pure sim Runner/Cashier/Cleaner workers after their hire counters change. The Barista
-// state machine is imported from the same module as the live worker, including navigation,
-// work timers, bean thresholds and carry/drop cadence without a Three.js dependency. That makes the A/B useful for an
-// economy decision rather than merely measuring the cost of counters that never became workers.
+// Both arms now consume the exact browser customer spawn sequence as well as the shared Barista
+// state machine and economic ledger, so a fixed-seed comparison is a real population comparison.
 import {
   createWorld, activeZones, payZone, stepOvens, stepMachines, takeFromOven, takeFromMachine,
   putOnDisplay, collectCash, refillBeans, refillBowl, harvestBush, addFruit as stationAddFruit, cleanSeat,
 } from '../src/sim/world.js';
-import { createCustomer, stepCustomers, SPECIES } from '../src/sim/customers.js';
+import { createCustomer, stepCustomers } from '../src/sim/customers.js';
+import { createCustomerSpawnSequence } from '../src/sim/customerSpawn.js';
 import { createStaff, stepStaff } from '../src/sim/staff.js';
 import { createMover, setTarget, stepMover } from '../src/sim/mover.js';
 import {
@@ -32,9 +23,8 @@ import {
 import { createCarry, takeSack, useSack, addFruit as carryAddFruit, returnAll } from '../src/sim/carry.js';
 import { createLedger } from '../src/sim/ledger.js';
 import { decide } from '../src/sim/botDecide.js';
-import { BARISTA, baristaDecision, baristaHireState, baristaLane } from '../src/sim/barista.js';
+import { BARISTA, baristaHireState, baristaLane } from '../src/sim/barista.js';
 import { AREA1 } from '../data/area1.js';
-import { makeRng } from '../src/core/rng.js';
 
 const DT = 1 / 30;
 const MAX_DAYS = 25;
@@ -42,8 +32,6 @@ const RUNNER_SPAWN = { x: 4, z: -3 };
 const CASHIER_FALLBACK = { x: -4, z: -0.2 };
 const CLEANER_SPAWN = { x: -6, z: 4 };
 const BARISTA_FALLBACK = { x: 0.5, z: -3.3 };
-const STATION_ARRIVE_EPS = 0.14;
-const IDLE_ARRIVE_EPS = 0.35;
 
 function pct(n) { return `${(n * 100).toFixed(1)}%`; }
 function pp(n) { return `${n >= 0 ? '+' : ''}${(n * 100).toFixed(1)}pp`; }
@@ -76,9 +64,9 @@ function runScenario({ name, baristaAware }) {
 
   let customers = [], staffList = [];
   G.customers = customers;
-  let seq = 1, speciesIdx = 0, spawnT = 2;
+  let spawnT = 2;
   let cachedBuiltSize = -1, interval = 4, maxC = 6;
-  const rng = makeRng(1);
+  const spawns = createCustomerSpawnSequence();
   const custSpawnPhase = new Map();
   const custWaitTime = new Map();
   const phaseFriction = {
@@ -88,15 +76,14 @@ function runScenario({ name, baristaAware }) {
   const coffeeFlow = { done: 0, over: 0, served: 0, lost: 0 };
 
   function spawnCustomer() {
-    const species = SPECIES[speciesIdx++ % SPECIES.length];
-    const variant = { shirt: rng.i(0, 4), hair: rng.i(0, 3), skin: rng.i(0, 2) };
-    const c = createCustomer(seq++, species, variant, AREA1);
+    const next = spawns.next();
+    const c = createCustomer(next.id, next.species, next.variant, AREA1);
+    c.petVariant = next.petVariant;
     customers.push(c); custSpawnPhase.set(c.id, G.dayState.phase);
   }
 
-  // Browser-equivalent generic staff spawning. The live systems/staff.js layer performs exactly
-  // this count -> pure-sim-worker synchronization; the older economy bot imported createStaff but
-  // never instantiated those counters, which made its staff purchases economically invisible.
+  // Browser-equivalent generic staff spawning. The live systems/staff.js layer performs this
+  // count -> pure-sim-worker synchronization after purchases.
   function syncGenericStaff() {
     const counts = { runner: 0, cashier: 0, cleaner: 0 };
     for (const s of staffList) if (counts[s.kind] != null) counts[s.kind]++;
@@ -138,9 +125,7 @@ function runScenario({ name, baristaAware }) {
   }
   const near = (a, b, r) => (a.x - b.x) ** 2 + (a.z - b.z) ** 2 < r * r;
 
-  // Live and headless workers share the same state machine and movement function:
-  // the A/B should pay for a worker that has to physically walk the coffee lane, not an instant
-  // spreadsheet bonus that teleports beans/cups into place.
+  // Live and headless workers share the same state machine and physical movement timings.
   let barista = null;
   const baristaMetrics = { hiredDay: null, hiredAt: null, cupsMoved: 0, beanRefills: 0, jobs: 0 };
   function spawnBarista() {
@@ -182,9 +167,7 @@ function runScenario({ name, baristaAware }) {
 
   // Once hired, a competent owner stops volunteering for routine coffee-lane chores. The decision
   // engine predates Barista, so for its read-only target selection we temporarily present a stable
-  // Coffee Bar / non-empty bean tank. Real world state is restored immediately afterward; customers,
-  // machines, Runner and Barista all continue seeing the actual stock. Existing coffee/bean carry
-  // commitments are allowed to finish instead of being discarded.
+  // Coffee Bar / non-empty bean tank, then immediately restore the real state.
   function withBaristaDecisionShadow(fn) {
     if (!baristaAware || (G.staff.barista | 0) <= 0 || G.carryKey || carry.sack === 'beans') return fn();
     const lane = baristaLane(world); if (!lane) return fn();
@@ -204,8 +187,8 @@ function runScenario({ name, baristaAware }) {
     const target = withBaristaDecisionShadow(() => decide(world, G));
     const purchaseSpent = Math.max(0, spendableBefore - G.coins);
     G.coins = realCoins - purchaseSpent;
-    // decide() owns normal hires/upgrades/stars. Record its actual wallet delta once, after the
-    // temporary Barista reserve has been put back, so reserve bookkeeping is never mistaken for a cost.
+    // decide() owns normal hires/upgrades/stars. The temporary Barista reserve is restored before
+    // this transaction is recorded, so bookkeeping cannot be mistaken for a cost.
     if (purchaseSpent) ledger.record('spend', 'purchase:decision', purchaseSpent, { meta:{ targetKind:target?.kind || null } });
     return { target, reserve: reserveAmount() };
   }
@@ -308,10 +291,8 @@ function runScenario({ name, baristaAware }) {
 
   const lastPos = new Map(); let teleports = 0; const stalls = [];
   function trackMovers(t) {
-    // Owner navigation deliberately has its own 1s re-plan / 2s recovery contract in walkOwnerTo.
-    // A generic 3s "distance must monotonically shrink" tracker therefore double-counts valid owner
-    // recoveries as stalls. Keep owner teleport detection hard, but reserve the generic stall gate
-    // for customer, hired staff and Barista movers that do not use that recovery contract.
+    // Owner navigation has its own 1s re-plan / 2s recovery contract. Keep its teleport detection
+    // hard, but use the generic stall gate for customer, hired staff and Barista movers.
     teleports += ownerMover.teleports || 0; ownerMover.teleports = 0;
     const movers = [...customers.map(c => c.mover), ...staffList.map(s => s.mover), ...(barista ? [barista.mover] : [])];
     for (const m of movers) {
@@ -353,7 +334,7 @@ function runScenario({ name, baristaAware }) {
     endActorStep(world);
     trackMovers(t);
 
-    // Consume event bus while done customers still exist so product-family diagnostics are real.
+    // Consume events while done customers still exist so product-family diagnostics are real.
     for (const e of world.events) {
       const c = (e.id != null) ? customers.find(x => x.id === e.id) : null;
       if (e.type === 'pay') {
@@ -447,7 +428,7 @@ function runScenario({ name, baristaAware }) {
     coffeeWaitOver6: coffeeFlow.done ? coffeeFlow.over / coffeeFlow.done : 0,
     coffeeFlow, finalStaff, finalCoins: Math.round(G.coins),
     barista: baristaMetrics, ownerCoffeeTicks: ownerCoffeeTicks.total,
-    ledgerMismatches,
+    spawn: spawns.snapshot(), ledgerMismatches,
     stalls: stalls.length, teleports, firstStalls: stalls.slice(0, 5),
     wallMs: Date.now() - wallStart, kindCounts,
   };
@@ -494,7 +475,7 @@ if (usefulCoffeeRelief && progressionSafe && frictionSafe && (recoupDay != null 
 
 console.log('Pet Café — BARISTA ECONOMY A/B (deterministic 25-day career)');
 console.log('policy: Cashier -> first Runner -> reserve 2,300 for Barista (Day 5 + Coffee required) -> resume Cleaner/second Runner');
-console.log('both arms simulate real Runner/Cashier/Cleaner bodies; Barista arm uses live-equivalent movement/work timings');
+console.log('both arms use the browser customer spawn stream and simulate real Runner/Cashier/Cleaner bodies; Barista uses live-equivalent movement/work timings');
 console.log('');
 for (const s of [baseline, withBarista]) {
   console.log(`--- ${s.name} ---`);
@@ -503,6 +484,7 @@ for (const s of [baseline, withBarista]) {
   console.log(`lost sales: ${pct(s.avgLost)} | rush wait>6s: ${pct(s.rushFriction)} | outside-rush wait>6s: ${pct(s.outsideFriction)}`);
   console.log(`coffee wait>6s: ${pct(s.coffeeWaitOver6)} (${s.coffeeFlow.over}/${s.coffeeFlow.done}) | coffee served/lost: ${s.coffeeFlow.served}/${s.coffeeFlow.lost}`);
   console.log(`staff: ${JSON.stringify(s.finalStaff)} | owner coffee-chore ticks: ${s.ownerCoffeeTicks}`);
+  console.log(`spawn RNG draws: ${s.spawn.rngDraws}`);
   if (s.baristaAware) console.log(`Barista: hired day ${s.barista.hiredDay ?? 'never'} | cups moved ${s.barista.cupsMoved} | bean refills ${s.barista.beanRefills} | jobs ${s.barista.jobs}`);
   console.log(`ledger mismatches: ${s.ledgerMismatches.length} | movement: stalls ${s.stalls}, teleports ${s.teleports} | wall ${s.wallMs}ms`);
 }
@@ -527,6 +509,7 @@ for (const s of [baseline, withBarista]) {
   if (s.wallMs > 20000) { console.error(`${s.name}: simulation exceeded 20s wall-clock budget`); fail = true; }
   if (s.daysToComplete == null) { console.error(`${s.name}: Area 1 never completed`); fail = true; }
 }
+if (baseline.spawn.rngDraws !== withBarista.spawn.rngDraws) { console.error('A/B arms consumed different customer spawn RNG draw counts'); fail = true; }
 if (withBarista.barista.hiredDay == null) { console.error('Barista-aware arm never purchased the Barista; A/B is invalid'); fail = true; }
 if (withBarista.barista.hiredDay < BARISTA.unlockDay) { console.error('Barista purchased before Day-5 unlock'); fail = true; }
 if (withBarista.barista.cupsMoved <= 0) { console.error('Barista was purchased but never moved a coffee-family cup'); fail = true; }
