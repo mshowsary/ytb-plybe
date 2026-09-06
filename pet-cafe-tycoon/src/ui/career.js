@@ -35,6 +35,7 @@ export function createCareerUI() {
   const root = document.createElement('div'); root.className = 'career-root hidden';
   root.innerHTML = `<div class="career-backdrop"></div><div class="career-card" role="dialog" aria-modal="true" aria-label="Cafe Journey">
     <div class="career-head"><div class="career-title">Café Journey</div><button class="career-close" type="button" aria-label="Close">×</button></div>
+    <div class="career-section career-completion" hidden><div class="career-big career-completion-title"></div><div class="career-muted career-completion-next"></div></div>
     <div class="career-section career-rank"><div class="career-section-head"><div class="career-big career-rank-title">Cozy Corner</div><div class="career-rank-value">0 ★</div></div><div class="career-bar"><div></div></div><div class="career-muted career-rank-next"></div></div>
     <div class="career-section career-week-section"><div class="career-section-head"><div class="career-big career-week-title">Week 1</div><div class="career-cup career-week-points">0/24</div></div><div class="career-week-note"></div><div class="career-week"></div><div class="career-trophies"></div></div>
     <div class="career-section career-mastery-section"><div class="career-section-head"><div class="career-kicker">MASTERY</div></div><div class="career-mastery"></div></div>
@@ -54,6 +55,11 @@ export function createCareerUI() {
   let model = null;
   function render() {
     if (!model) return;
+    const completion=root.querySelector('.career-completion');completion.hidden=!model.completion?.roomComplete;
+    if(model.completion?.roomComplete){
+      root.querySelector('.career-completion-title').textContent=model.completion.title;
+      root.querySelector('.career-completion-next').textContent=model.completion.next;
+    }
     root.querySelector('.career-rank-title').textContent = model.rank.title;
     root.querySelector('.career-rank-value').textContent = `${model.rank.rep} ★`;
     root.querySelector('.career-rank-next').textContent = model.rank.nextTitle || 'MAX';

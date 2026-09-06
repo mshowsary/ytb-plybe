@@ -1,5 +1,5 @@
 name: Pet Cafe Live Preview
-# Refresh preview with the Task 38 dismiss-button layout repair.
+# Refresh preview with current diagnostics and the room-completion presentation.
 
 on:
   workflow_dispatch:

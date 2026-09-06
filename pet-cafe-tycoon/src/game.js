@@ -1,3 +1,4 @@
+import { cafeCompletion } from './sim/completion.js';
 import { rewardedClaimedForShift, markRewardedClaim, interstitialDueAfterShift } from './sim/adPacing.js';
 import { beginActorStep, endActorStep } from './sim/actorRoster.js';
 // src/game.js — binds simulation, rendering, UI, audio and YouTube platform services.
@@ -116,7 +117,7 @@ export function createGame(S, area, els, platform = null) {
   function syncCareerPresentation() {
     const career = ensureCareer(G.meta), rep = reputationProgress(G.meta), level = reputationLevel(G.meta), week = weeklyCupState(G.meta, G.dayState.day);
     careerUI.setModel({
-      day: G.dayState.day,
+      day: G.dayState.day, completion: cafeCompletion(G),
       rank: { rep: G.meta.reputation | 0, title: reputationTitle(G.meta), nextTitle: REPUTATION_TITLES[level + 1] || null, current: rep.current, needed: rep.needed, frac: rep.frac },
       week: { ...week, currentIndex: weekdayIndex(G.dayState.day) }, trophies: { ...career.trophies }, masteries: allMasteryProgress(G.meta),
       legendaryTarget: LEGENDARY_REPUTATION, legendary: (G.meta.reputation | 0) >= LEGENDARY_REPUTATION,
@@ -175,6 +176,11 @@ export function createGame(S, area, els, platform = null) {
     hud.setDay(G.dayState.day, G.dayState.phase, phaseFrac(G.dayState)); hud.setContract(G.goal, G.dayStats, G.dayState.day);
     const setIdx = Math.min(2, Math.floor(cafeLevel(G) / 5)); if (setIdx !== lastAwningSet) { lastAwningSet = setIdx; G.awning && G.awning.setSet(setIdx); }
 
+    if (world.events.some(e => e.type === 'built') && cafeCompletion(G).roomComplete) {
+      hud.banner('YOUR CAFÉ IS BUILT', 2400); audio.play('chime');
+      if (!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) fx.burst(P.x, 1.1, P.z, '#75BDA0', 18);
+      syncCareerPresentation();
+    }
     // Material mutations are only serialized after every system and every world/day event consumer
     // has finished for this step. Multiple marks collapse to this one immutable platform snapshot.
     world.events.length = 0;
@@ -221,7 +227,8 @@ export function createGame(S, area, els, platform = null) {
 
     const career = ensureCareer(G.meta), masteries = allMasteryProgress(G.meta), closestMastery = masteries.filter(m => !m.max).sort((a, b) => b.frac - a.frac)[0] || null;
     const reno = renovationState(G.meta, G.coins), party = ensurePartyOrders(G.meta).active, pp = party ? partyOrderProgress(party) : null;
-    const nextChase = nextUnlock
+    const completion = cafeCompletion(G);
+    const nextChase = completion.roomComplete ? completion.next : nextUnlock
       ? `Build ${nextUnlock.label} · ${nextUnlock.price.toLocaleString('en-US')} coins`
       : party && pp && pp.count < pp.target
         ? `Party Order · ${pp.count}/${pp.target} · +${party.reward} coins`

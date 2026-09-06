@@ -36,10 +36,10 @@ try{
   await page.evaluate(()=>{const G=window.__game;G.P.x=8;G.P.z=4.5;window.__scene.snap(8,4.5);});
   await shot('bestie-renovated');
   await page.evaluate(()=>{const G=window.__game,s=G.world.stations.get('oven1');s.stock=12;G.P.x=s.front.x;G.P.z=s.front.z;window.__scene.snap(G.P.x,G.P.z);});
-  await page.waitForFunction(()=>window.__game.carryCount>0);
-  const carried=await page.evaluate(()=>window.__game.carryCount);
+  await page.waitForFunction(()=>window.__game.owner.items.length>0);
+  const carried=await page.evaluate(()=>window.__game.owner.items.length);
   await page.evaluate(()=>{const G=window.__game,s=G.world.stations.get('dispCookie');s.stock=0;G.P.x=s.front.x;G.P.z=s.front.z;window.__scene.snap(G.P.x,G.P.z);});
-  await page.waitForFunction(n=>window.__game.carryCount<n,carried);
+  await page.waitForFunction(n=>window.__game.owner.items.length<n,carried);
   await page.evaluate(()=>window.__game.setMove(null));
   // Actual owner input in the recorded session, rather than teleporting a walking animation.
   await page.keyboard.down('ArrowRight');await page.waitForTimeout(1200);await page.keyboard.up('ArrowRight');
