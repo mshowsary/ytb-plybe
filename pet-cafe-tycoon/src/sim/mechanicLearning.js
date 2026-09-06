@@ -7,6 +7,9 @@ export const MECHANIC_IDS = Object.freeze([
   'move', 'build', 'pickup', 'serve', 'cash',
   'return', 'kiosk', 'hire', 'pantry',
   'refillCoffee', 'refillBowl', 'blend', 'harvest',
+  // Task 33 keeps the demonstrated role inside the same compact stable-ID payload. The first one
+  // proven suppresses all future first-hire demonstrations; no UI text or employee name is saved.
+  'staffDemoRunner', 'staffDemoCashier',
 ]);
 const KNOWN = new Set(MECHANIC_IDS);
 
