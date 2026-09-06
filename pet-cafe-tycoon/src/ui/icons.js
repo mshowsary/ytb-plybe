@@ -1,6 +1,6 @@
 // src/ui/icons.js — inline SVG product icons for the wish bubble (Task 5), written once each as
 // a function returning a full <svg> string. viewBox 0 0 24 24 throughout so every icon drops into
-// the same 38x38 .wishIcon box (see src/style.css) without further sizing.
+// the same UI boxes without further sizing.
 export function cookieIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="#D9A066"/>' +
     '<circle cx="8.5" cy="9" r="1.3" fill="#6B4A2B"/><circle cx="14.7" cy="8.2" r="1.1" fill="#6B4A2B"/>' +
@@ -26,8 +26,7 @@ export function treatIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#C97A3A" d="M4.5 9.5a2.2 2.2 0 1 1 3.6-2.5l6.9 6.9a2.2 2.2 0 1 1-2.5 3.6l-.2-.2-6.9-6.9-.9-.9zM19.5 14.5a2.2 2.2 0 1 0-3.6 2.5l-.2.2a2.2 2.2 0 1 0 2.5 3.6l1.3-1.3a2.2 2.2 0 0 0 0-3.1l0-1.9z"/></svg>';
 }
 // Loop v2 Task 3: star-3 second recipes (Oven A's brownie, the coffee machine's latte) — same
-// viewBox 0 0 24 24 convention, reusing the cookie/coffee silhouettes with a darker/lighter fill so
-// they read as "the other thing this same station makes" rather than a wholly new shape.
+// viewBox convention, reusing the cookie/coffee silhouettes with a darker/lighter fill.
 export function brownieIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="2.5" fill="#6B4023"/>' +
     '<rect x="4" y="6" width="16" height="4" rx="2" fill="#8A5A34"/>' +
@@ -43,6 +42,15 @@ export const PRODUCT_ICON = {
   brownie: brownieIcon, latte: latteIcon,
 };
 export function iconFor(key) { return (PRODUCT_ICON[key] || cookieIcon)(); }
+
+// Shared supply pictograms. Task 31 deliberately uses the exact bean glyph both in Pantry and on a
+// bean-blocked Coffee station so the cause and remedy are visually identical.
+export function beanIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.8 4.6c3.2 3.2 1.3 9.3-2.5 13.1-3.2 3.2-8.1 2.8-10.2.7-2.1-2.1-2.5-7 .7-10.2 3.8-3.8 9.9-5.7 13.1-2.5z" fill="#6B4A2B"/><path d="M7 17c3.4-1.2 4-4.1 5.2-6.3 1.1-2 2.8-3.6 5.1-4.5" fill="none" stroke="#D9A066" stroke-width="1.45" stroke-linecap="round"/></svg>';
+}
+export function kibbleIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="9" r="3" fill="#C97A3A"/><circle cx="15.5" cy="8" r="2.6" fill="#B86D35"/><circle cx="12" cy="15.5" r="3.2" fill="#D28A49"/><circle cx="18" cy="15" r="2" fill="#A95F2E"/></svg>';
+}
 
 // Loop v2 Task 2: chalkboard/pantry-popup icons — same viewBox 0 0 24 24 convention as the product
 // icons above, sized by whatever CSS class wraps them (src/style.css's .chalkIcon/.sicon).
