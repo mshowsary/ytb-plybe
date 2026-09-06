@@ -18,6 +18,7 @@ import {
   recordRecipeOrder, masteryMultiplier, recordCareerShift, awardWeeklyCup,
 } from '../src/sim/career.js';
 import { createCarry, takeSack, useSack, addFruit as carryAddFruit, returnAll } from '../src/sim/carry.js';
+import { createLedger } from '../src/sim/ledger.js';
 import { decide } from '../src/sim/botDecide.js';
 import { AREA1 } from '../data/area1.js';
 import { makeRng } from '../src/core/rng.js';
@@ -41,6 +42,8 @@ const G = {
 ensureCareer(G.meta);
 G.goal = chooseCareerGoal(1, G.meta);
 world.dayState = G.dayState; world.stars = G.stars;
+let ledger = createLedger(null, { day:G.dayState.day, openingWallet:G.coins });
+const ledgerMismatches = [];
 const price = (key, seated) => Math.round(
   salePrice(key, G.up, G.boosts, seated, 0, tipMult(G.dayState)) * masteryMultiplier(G.meta, key),
 );
@@ -155,9 +158,22 @@ function ownerStep(dt) {
       const st = world.stations.get(target.stationId); if (!st || !st.dirty) return;
       arrivedT += dt; if (arrivedT >= 1.0) { cleanSeat(world, st.id); arrivedT = 0; } return;
     }
-    case 'cash': for (const id of world.checkouts) G.coins += collectCash(world, id); return;
+    case 'cash': {
+      for (const id of world.checkouts) {
+        const amount = collectCash(world, id);
+        if (amount <= 0) continue;
+        G.coins += amount;
+        ledger.record('collection', `register:${id}`, amount, { meta:{ checkoutId:id } });
+      }
+      return;
+    }
     case 'build': {
-      const r = payZone(world, target.zoneId, G.coins, dt); G.coins -= r.spent; return;
+      const r = payZone(world, target.zoneId, G.coins, dt);
+      if (r.spent > 0) {
+        G.coins -= r.spent;
+        ledger.record('spend', `build:${target.zoneId}`, r.spent, { meta:{ zoneId:target.zoneId } });
+      }
+      return;
     }
   }
 }
@@ -171,7 +187,7 @@ let daysToComplete = null, closingAfford = 0;
 function affordableOptionsCount() {
   const coins = G.coins; let n = 0;
   for (const z of (world.activeZoneList || activeZones(world))) if ((z.price - (world.partial[z.id] || 0)) <= coins) n++;
-  for (const kind of ['cashier', 'runner', 'cleaner']) { const c = hireCost(kind, G.staff); if (c != null && c <= coins) n++; }
+  for (const kind of ['cashier', 'runner', 'cleaner']) { const c = hireCost(kind, G.staff); if (c != null && c <= coins) n++;
   for (const id of STAR_IDS) {
     const st = world.stations.get(id); if (!st || !st.active) continue;
     const c = nextStarCost(world.area, id, (G.stars && G.stars[id]) || 1); if (c != null && c <= coins) n++;
@@ -229,7 +245,9 @@ while (G.dayState.day <= MAX_DAYS) {
       G.shiftBestStreak = Math.max(G.shiftBestStreak, G.serviceStreak.count);
       G.dayStats.bestStreak = G.shiftBestStreak;
       const paid = customers.find(c => c.id === e.id);
-      recordRecipeOrder(G.meta, paid && paid.order || []);
+      const order = paid && paid.order || [];
+      ledger.record('sale', `service:${order.length ? order.join('+') : 'unknown'}`, e.amount, { meta:{ customerId:e.id, checkoutId:e.checkoutId || null } });
+      recordRecipeOrder(G.meta, order);
     } else if (e.type === 'lost') {
       G.dayStats.lost++; G.serviceStreak = { count: 0, t: 0 };
     } else if (e.type === 'built') dayPurchases.push('built ' + e.zoneId);
@@ -243,21 +261,32 @@ while (G.dayState.day <= MAX_DAYS) {
       for (const st of world.stations.values()) if (st.type === 'seat' && st.dirty) cleanSeat(world, st.id);
       const completedDay = G.dayState.day;
       const goal = G.goal; const met = careerGoalMet(goal, G.dayStats);
-      if (met) G.coins += goal.reward;
+      if (met) {
+        G.coins += goal.reward;
+        ledger.record('bonus', 'contract', goal.reward, { meta:{ day:completedDay } });
+      }
       const outcomes = Math.max(1, G.dayStats.served + G.dayStats.lost);
       const lostRate = G.dayStats.lost / outcomes;
       const rating = lostRate <= 0.06 && (met || G.shiftBestStreak >= 8) ? 3 : lostRate <= 0.16 ? 2 : 1;
       recordCareerShift(G.meta, completedDay, G.dayStats, rating, met);
       const cup = awardWeeklyCup(G.meta, completedDay);
-      if (cup.awarded) G.coins += cup.reward;
+      if (cup.awarded) {
+        G.coins += cup.reward;
+        ledger.record('bonus', 'weekly-cup', cup.reward, { meta:{ day:completedDay } });
+      }
+      const accounting = ledger.report(G.coins);
+      if (!accounting.reconciled) ledgerMismatches.push({ day:completedDay, ...accounting });
       dayReport.push({
-        day: completedDay, earnings: G.dayStats.earned, served: G.dayStats.served, lost: G.dayStats.lost,
+        day: completedDay, sales: accounting.sale, collected: accounting.collection, bonuses: accounting.bonus,
+        spend: accounting.spend, deductions: accounting.deduction, walletDelta: accounting.walletDelta,
+        served: G.dayStats.served, lost: G.dayStats.lost,
         goalText: careerGoalLabel(goal), goalMet: met, goalReward: met ? goal.reward : 0,
         cupReward: cup.awarded ? cup.reward : 0, afford: closingAfford, purchases: dayPurchases.slice(),
       });
       dayPurchases = []; G.dayStats = { served: 0, lost: 0, earned: 0, bestStreak: 0 };
       G.serviceStreak = { count: 0, t: 0 }; G.shiftBestStreak = 0;
       nextDay(G.dayState); G.goal = chooseCareerGoal(G.dayState.day, G.meta);
+      ledger.reset(G.dayState.day, G.coins);
     }
   }
 
@@ -270,26 +299,26 @@ while (G.dayState.day <= MAX_DAYS) {
 
 const wallMs = Date.now() - wallStart;
 console.log('Pet Café Tycoon — LIVE career economy bot');
-console.log('day'.padEnd(5) + 'earnings'.padEnd(10) + 'served'.padEnd(8) + 'lost'.padEnd(6) + 'contract'.padEnd(28) + 'afford'.padEnd(9) + 'purchases');
+console.log('day'.padEnd(5) + 'sales'.padEnd(9) + 'collect'.padEnd(9) + 'served'.padEnd(8) + 'lost'.padEnd(6) + 'contract'.padEnd(28) + 'afford'.padEnd(9) + 'purchases');
 for (const r of dayReport) {
   const reward = (r.goalReward || 0) + (r.cupReward || 0);
   const goalStr = `${r.goalText} ${r.goalMet ? 'MET+' + reward : 'missed'}`;
-  console.log(String(r.day).padEnd(5) + r.earnings.toFixed(0).padEnd(10) + String(r.served).padEnd(8) + String(r.lost).padEnd(6) + goalStr.padEnd(28) + String(r.afford).padEnd(9) + r.purchases.join(', '));
+  console.log(String(r.day).padEnd(5) + String(r.sales).padEnd(9) + String(r.collected).padEnd(9) + String(r.served).padEnd(8) + String(r.lost).padEnd(6) + goalStr.padEnd(28) + String(r.afford).padEnd(9) + r.purchases.join(', '));
 }
 console.log(`TOTAL game seconds: ${t.toFixed(1)} (${(t / 60).toFixed(1)} min, ${dayReport.length} days completed)`);
 
-function dayEarnings(day) { const r = dayReport.find(x => x.day === day); return r ? r.earnings : null; }
+function daySales(day) { const r = dayReport.find(x => x.day === day); return r ? r.sales : null; }
 const CHECKPOINTS = [
   { day: 1, lo: 220, hi: 400 },
   { day: 3, lo: 450, hi: 800 },
   { day: 5, lo: 700, hi: 1250 },
   { day: 8, lo: 900, hi: 1800 },
 ];
-console.log('--- checkpoints (gross service earnings; contract/cup rewards excluded) ---');
+console.log('--- checkpoints (gross sales accrued at checkout; collection and bonuses reported separately) ---');
 let checkpointFail = false;
 for (const cp of CHECKPOINTS) {
-  const e = dayEarnings(cp.day); const ok = e != null && e >= cp.lo && e <= cp.hi;
-  console.log(`day ${cp.day}: earnings=${e == null ? 'n/a' : e.toFixed(0)} target ${cp.lo}-${cp.hi} ${ok ? 'OK' : 'WARN'}`);
+  const e = daySales(cp.day); const ok = e != null && e >= cp.lo && e <= cp.hi;
+  console.log(`day ${cp.day}: sales=${e == null ? 'n/a' : e.toFixed(0)} target ${cp.lo}-${cp.hi} ${ok ? 'OK' : 'WARN'}`);
   if (!ok) checkpointFail = true;
 }
 
@@ -311,14 +340,18 @@ console.log(`lost sales: ${avgLostPct.toFixed(1)}% avg/day (target 4-10%) ${avgL
 console.log(`daysToComplete: ${daysToComplete == null ? 'NOT REACHED' : daysToComplete} (target 10-12) ${daysToComplete != null && daysToComplete >= 10 && daysToComplete <= 12 ? 'OK' : 'WARN'}`);
 const affordVals = dayReport.filter(r => r.day >= 2 && r.day <= 8).map(r => r.afford);
 console.log(`affordable options at closing (days 2-8): [${affordVals.join(', ')}] — healthy target is usually 1-3, not everything at once`);
+console.log('ledger reconciliation mismatches: ' + ledgerMismatches.length);
 console.log('stalls: ' + stalls.length + '  teleports: ' + teleports);
 if (stalls.length) console.log('first stalls:', JSON.stringify(stalls.slice(0, 10)));
+if (ledgerMismatches.length) console.log('first ledger mismatch:', JSON.stringify(ledgerMismatches[0]));
 console.log('kind counts:', JSON.stringify(kindCounts));
 console.log('café level (final): ' + cafeLevel(G) + ' stars: ' + JSON.stringify(G.stars));
 console.log('career history days: ' + Object.keys(G.meta.career.history).length + ' cups: ' + JSON.stringify(G.meta.career.trophies));
+console.log('wallet (final): ' + G.coins);
 console.log('wall clock: ' + wallMs + ' ms');
 
 let gateFail = false;
+if (ledgerMismatches.length > 0) { console.error('LEDGER FAILED TO RECONCILE WALLET'); gateFail = true; }
 if (stalls.length > 0) { console.error(`${stalls.length} STALLS (must be 0)`); gateFail = true; }
 if (teleports > 0) { console.error(`${teleports} TELEPORTS (must be 0)`); gateFail = true; }
 if (wallMs > 15000) { console.error('BOT WALL-CLOCK BUDGET EXCEEDED'); gateFail = true; }
