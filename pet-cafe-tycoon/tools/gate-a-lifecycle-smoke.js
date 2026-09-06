@@ -78,13 +78,18 @@ try {
   await page.waitForTimeout(160);
   const moved = await page.evaluate(() => ({ x:window.__game.P.x, z:window.__game.P.z }));
   const aspectBefore = await page.evaluate(() => window.__scene.camera.aspect);
+  // Sample the browser animation and invoke the host pause in one browser task. Keeping these
+  // operations atomic prevents Playwright/runner scheduling delay from being miscounted as paused
+  // presentation time while retaining the strict 35 ms lifecycle tolerance below.
   const animBeforePause = await page.evaluate(() => {
     const a = document.getElementById('gate-a-transition').getAnimations()[0];
-    return a ? { state:a.playState, time:Number(a.currentTime) } : null;
+    if (!a) return null;
+    const sample = { state:a.playState, time:Number(a.currentTime) };
+    window.__gateA.pauseCb();
+    return sample;
   });
   if (!animBeforePause) throw new Error('test transition was not created');
 
-  await page.evaluate(() => window.__gateA.pauseCb());
   await page.waitForFunction(() => window.__platform.paused === true);
   const pausedPosition = await page.evaluate(() => ({ x:window.__game.P.x, z:window.__game.P.z, vx:window.__game.P.vx, vz:window.__game.P.vz }));
   if (pausedPosition.vx !== 0 || pausedPosition.vz !== 0) throw new Error(`owner velocity not cleared on pause: ${JSON.stringify(pausedPosition)}`);
