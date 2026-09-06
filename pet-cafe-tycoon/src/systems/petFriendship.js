@@ -81,7 +81,6 @@ export function installPetFriendship(G, platform = null) {
 
   function renderBook() {
     ensurePetBook(G.meta);
-    syncKeepsake();
     const root = document.querySelector('.meta-book-root');
     const bookCards = [...document.querySelectorAll('.meta-book-grid .meta-pet-card')];
     if (!root || root.classList.contains('hidden') || !bookCards.length) return;
@@ -169,13 +168,21 @@ export function installPetFriendship(G, platform = null) {
           presentationScheduler.schedule(() => bookButton.classList.remove('bump'), 420);
         }
       }
+      // Do not sync the wall here: a just-awarded keepsake may still be flying toward it.
       renderBook();
     }
   };
   const unsubscribe = subscribeWorld(G.world, event => observedPush(event), 10);
 
+  function refresh() {
+    // main.js calls this after G.restore: already-earned memories should appear at their settled
+    // wall home immediately and must never replay their award animation on reload.
+    syncKeepsake();
+    renderBook();
+  }
+
   return {
-    refresh: renderBook,
+    refresh,
     get lastPromotionKey() { return lastPromotionKey; },
     get lastSpotlightKey() { return lastSpotlightKey; },
     get keepsakeKey() { return G.petKeepsake && G.petKeepsake.key || null; },
