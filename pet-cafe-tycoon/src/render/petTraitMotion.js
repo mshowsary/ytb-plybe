@@ -97,10 +97,11 @@ export function petTraitPose(name, progress, gaze = 0) {
     };
   }
   if (name === 'Snowdrop') {
-    // Alert garden-watch scan: slower side-to-side search with a small poised body angle.
-    const scan = Math.sin(p * Math.PI * 2.6) * 0.2;
+    // Alert garden-watch scan: the garden target anchors the pose, but the slower searching sweep
+    // is deliberately dominant so the bunny reads as surveying growth instead of merely gazing.
+    const scan = Math.sin(p * Math.PI * 2.6) * 0.42;
     return {
-      headY: clamp(look + scan, -0.65, 0.65) * e,
+      headY: clamp(look * 0.5 + scan, -0.65, 0.65) * e,
       headX: -0.085 * e,
       headZ: Math.sin(p * Math.PI * 1.3) * 0.035 * e,
       tailY: null,
