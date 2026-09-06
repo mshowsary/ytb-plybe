@@ -300,8 +300,22 @@ function normalizeCareer(raw, completedDays, reputation) {
   while (renovationLevel > 0 && reputation < RENOVATIONS[renovationLevel - 1].rep) renovationLevel--;
 
   const contractStreak = clampInt(src.contractStreak, 0, completedDays, 0);
+  const cached = src.currentContract;
+  const g = cached?.goal;
+  const validContract = isRecord(cached) && isRecord(g)
+    && Number.isInteger(cached.day) && cached.day >= 1 && cached.day <= SAVE_LIMITS.maxDay
+    && ['serve', 'earn', 'streak'].includes(g.kind)
+    && Number.isInteger(g.target) && g.target > 0 && g.target <= SAVE_LIMITS.maxShiftEarned
+    && Number.isInteger(g.reward) && g.reward >= 0 && g.reward <= SAVE_LIMITS.maxShiftEarned;
+  const contractFields = new Set(['kind', 'target', 'reward', 'rival', 'cupDay', 'eyebrow']);
   return {
     history,
+    ...(validContract ? { currentContract: {
+      day: cached.day, tier: clampInt(cached.tier, 0, 3, 0),
+      goal: Object.fromEntries(Object.entries(g).filter(([key, value]) => contractFields.has(key)
+        && (key === 'eyebrow' ? typeof value === 'string' && value.length <= 80
+          : ['rival', 'cupDay'].includes(key) ? typeof value === 'boolean' : true))),
+    } } : {}),
     weeklyCups,
     trophies,
     recipeSales,

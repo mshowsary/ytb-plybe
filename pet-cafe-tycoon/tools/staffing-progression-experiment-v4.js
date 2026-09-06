@@ -42,7 +42,7 @@ function median(values) {
   return a.length % 2 ? a[m] : (a[m-1]+a[m])/2;
 }
 
-function runScenario(variant, policy, seed) {
+export function runScenario(variant, policy, seed, options = {}) {
   const wallStart = Date.now();
   const area = areaForStaffingVariant(variant);
   const world = createWorld(area, null, seed);
@@ -53,7 +53,7 @@ function runScenario(variant, policy, seed) {
     meta:{reputation:0,career:{}}, serviceStreak:{count:0,t:0}, shiftBestStreak:0,
     dayState:createDay(), stars:{}, dayStats:{served:0,lost:0,earned:0,bestStreak:0},
   };
-  ensureCareer(G.meta); G.goal = chooseCareerGoal(1,G.meta);
+  ensureCareer(G.meta); G.goal = chooseCareerGoal(1,G.meta,options.capacityContracts ? G : undefined);
   world.dayState = G.dayState; world.stars = G.stars;
   let ledger = createLedger(null,{day:1,openingWallet:0});
   const ledgerMismatches = [];
@@ -173,11 +173,11 @@ function runScenario(variant, policy, seed) {
       else if(e.type==='built'){if(e.zoneId==='z_oven2'&&cupcakeBuiltAt==null)cupcakeBuiltAt=t;if(e.zoneId==='z_hire'&&deskBuiltAt==null)deskBuiltAt=t;}
     }
     customers=customers.filter(c=>!c.done);G.customers=customers;
-    for(const e of stepDay(G.dayState,DT)){if(e.type!=='dayEnd')continue;for(const st of world.stations.values())if(st.type==='seat'&&st.dirty)cleanSeat(world,st.id);const day=G.dayState.day,goal=G.goal,met=careerGoalMet(goal,G.dayStats);if(met){G.coins+=goal.reward;ledger.record('bonus','contract',goal.reward,{meta:{day}});}const outcomes=Math.max(1,G.dayStats.served+G.dayStats.lost),lostRate=G.dayStats.lost/outcomes,rating=lostRate<=.06&&(met||G.shiftBestStreak>=8)?3:lostRate<=.16?2:1;recordCareerShift(G.meta,day,G.dayStats,rating,met);const cup=awardWeeklyCup(G.meta,day);if(cup.awarded){G.coins+=cup.reward;ledger.record('bonus','weekly-cup',cup.reward,{meta:{day}});}const a=ledger.report(G.coins);if(!a.reconciled)ledgerMismatches.push({day,...a});dayRows.push({day,served:G.dayStats.served,lost:G.dayStats.lost,goalMet:met,wallet:G.coins,sales:a.sale,spend:a.spend});G.dayStats={served:0,lost:0,earned:0,bestStreak:0};G.serviceStreak={count:0,t:0};G.shiftBestStreak=0;nextDay(G.dayState);G.goal=chooseCareerGoal(G.dayState.day,G.meta);ledger.reset(G.dayState.day,G.coins);}
+    for(const e of stepDay(G.dayState,DT)){if(e.type!=='dayEnd')continue;for(const st of world.stations.values())if(st.type==='seat'&&st.dirty)cleanSeat(world,st.id);const day=G.dayState.day,goal=G.goal,met=careerGoalMet(goal,G.dayStats);if(met){G.coins+=goal.reward;ledger.record('bonus','contract',goal.reward,{meta:{day}});}const outcomes=Math.max(1,G.dayStats.served+G.dayStats.lost),lostRate=G.dayStats.lost/outcomes,rating=lostRate<=.06&&(met||G.shiftBestStreak>=8)?3:lostRate<=.16?2:1;recordCareerShift(G.meta,day,G.dayStats,rating,met);const cup=awardWeeklyCup(G.meta,day);if(cup.awarded){G.coins+=cup.reward;ledger.record('bonus','weekly-cup',cup.reward,{meta:{day}});}const a=ledger.report(G.coins);if(!a.reconciled)ledgerMismatches.push({day,...a});dayRows.push({day,served:G.dayStats.served,lost:G.dayStats.lost,goalMet:met,goal:{...goal},earned:G.dayStats.earned,bestStreak:G.dayStats.bestStreak,built:[...world.built],staff:{...G.staff},wallet:G.coins,sales:a.sale,spend:a.spend});G.dayStats={served:0,lost:0,earned:0,bestStreak:0};G.serviceStreak={count:0,t:0};G.shiftBestStreak=0;nextDay(G.dayState);G.goal=chooseCareerGoal(G.dayState.day,G.meta,options.capacityContracts ? G : undefined);ledger.reset(G.dayState.day,G.coins);}
     ensureStars(G,world);if(coreCompleteAt==null&&coreIds.every(id=>world.built.has(id)))coreCompleteAt=t;world.events.length=0;t+=DT;
   }
   const served=dayRows.reduce((s,r)=>s+r.served,0),lost=dayRows.reduce((s,r)=>s+r.lost,0),goals=dayRows.filter(r=>r.goalMet).length;
-  return {variant:variant.id,policy:policy.id,seed,firstHireMinutes:firstHireAt==null?null:firstHireAt/60,firstHireKind,cupcakeBuiltMinutes:cupcakeBuiltAt==null?null:cupcakeBuiltAt/60,deskBuiltMinutes:deskBuiltAt==null?null:deskBuiltAt/60,entryCost:firstHireEntryCost(variant),coreCompleteMinutes:coreCompleteAt==null?null:coreCompleteAt/60,served,lost,lostRate:lost/Math.max(1,served+lost),goalRate:goals/Math.max(1,dayRows.length),stockoutSeconds,stockoutIncidents,idleSeconds,activeSeconds,finalWallet:Math.round(G.coins),spend:{...spend,total:spend.build+spend.manualHire+spend.decision},purchases,ledgerMismatches,spawnDraws:spawns.snapshot().rngDraws,days:dayRows.length,wallMs:Date.now()-wallStart};
+  return {variant:variant.id,policy:policy.id,seed,firstHireMinutes:firstHireAt==null?null:firstHireAt/60,firstHireKind,cupcakeBuiltMinutes:cupcakeBuiltAt==null?null:cupcakeBuiltAt/60,deskBuiltMinutes:deskBuiltAt==null?null:deskBuiltAt/60,entryCost:firstHireEntryCost(variant),coreCompleteMinutes:coreCompleteAt==null?null:coreCompleteAt/60,served,lost,lostRate:lost/Math.max(1,served+lost),goalRate:goals/Math.max(1,dayRows.length),stockoutSeconds,stockoutIncidents,idleSeconds,activeSeconds,finalWallet:Math.round(G.coins),spend:{...spend,total:spend.build+spend.manualHire+spend.decision},purchases,dayRows,ledgerMismatches,spawnDraws:spawns.snapshot().rngDraws,days:dayRows.length,wallMs:Date.now()-wallStart};
 }
 
 function summary(rows){return{runs:rows.length,firstHireMedian:median(rows.map(r=>r.firstHireMinutes)),deskBuiltMedian:median(rows.map(r=>r.deskBuiltMinutes)),coreCompleteMedian:median(rows.map(r=>r.coreCompleteMinutes)),lostRate:mean(rows,r=>r.lostRate),goalRate:mean(rows,r=>r.goalRate),stockoutSeconds:mean(rows,r=>r.stockoutSeconds),idleSeconds:mean(rows,r=>r.idleSeconds),finalWallet:mean(rows,r=>r.finalWallet),spend:mean(rows,r=>r.spend.total),served:mean(rows,r=>r.served)};}

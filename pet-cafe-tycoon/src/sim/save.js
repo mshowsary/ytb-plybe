@@ -136,6 +136,7 @@ export function applySave(state, save, area = state && state.world && state.worl
     } : null,
     career: {
       history: structuredCloneSafe(meta.career.history),
+      ...(meta.career.currentContract ? { currentContract: structuredCloneSafe(meta.career.currentContract) } : {}),
       weeklyCups: structuredCloneSafe(meta.career.weeklyCups),
       trophies: { ...meta.career.trophies },
       recipeSales: { ...meta.career.recipeSales },

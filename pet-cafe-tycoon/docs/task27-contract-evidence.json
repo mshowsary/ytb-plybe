@@ -1,0 +1,91 @@
+{
+  "seeds": [
+    1337,
+    1438,
+    1548,
+    1777,
+    1999
+  ],
+  "shifts": 12,
+  "learningShiftsExcluded": 2,
+  "summary": [
+    {
+      "policy": "balanced",
+      "candidate": false,
+      "successAfterLearning": 0.76,
+      "firstShiftServed": [
+        24,
+        24,
+        24,
+        24,
+        24
+      ],
+      "ledgerMismatches": 0
+    },
+    {
+      "policy": "balanced",
+      "candidate": true,
+      "successAfterLearning": 0.84,
+      "firstShiftServed": [
+        24,
+        24,
+        24,
+        24,
+        24
+      ],
+      "ledgerMismatches": 0
+    },
+    {
+      "policy": "slow",
+      "candidate": false,
+      "successAfterLearning": 0.78,
+      "firstShiftServed": [
+        24,
+        24,
+        24,
+        24,
+        24
+      ],
+      "ledgerMismatches": 0
+    },
+    {
+      "policy": "slow",
+      "candidate": true,
+      "successAfterLearning": 0.76,
+      "firstShiftServed": [
+        24,
+        24,
+        24,
+        24,
+        24
+      ],
+      "ledgerMismatches": 0
+    },
+    {
+      "policy": "staff-first",
+      "candidate": false,
+      "successAfterLearning": 0.78,
+      "firstShiftServed": [
+        24,
+        24,
+        24,
+        24,
+        24
+      ],
+      "ledgerMismatches": 0
+    },
+    {
+      "policy": "staff-first",
+      "candidate": true,
+      "successAfterLearning": 0.86,
+      "firstShiftServed": [
+        24,
+        24,
+        24,
+        24,
+        24
+      ],
+      "ledgerMismatches": 0
+    }
+  ]
+}

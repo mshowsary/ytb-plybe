@@ -217,6 +217,12 @@ export function createCustomers(G, S, ctx) {
           if (c.state === 'queue' || c.state === 'atBowl' || c.state === 'atRegister') r.human.setMood(c.mood === 'wait' ? 'wait' : 'none');
         }
 
+        const traitTarget = r.profile.name === 'Marmalade' ? world.stations.get('oven1')
+          : r.profile.name === 'Snowdrop' ? world.stations.get('bush1') : G.P;
+        if (!r.petBreakActive && c.mood !== 'angry' && traitTarget?.active !== false) {
+          r.pet.react(r.profile.name, G.time + c.id * 0.37, traitTarget,
+            !!G.settings.reducedMotion || globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+        }
         if (r.petBreakActive) {
           const pulse = (G.time + (c.id | 0) * 0.17) * 7;
           r.pet.setMood('happy');

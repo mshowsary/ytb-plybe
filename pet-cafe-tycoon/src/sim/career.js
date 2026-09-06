@@ -51,7 +51,7 @@ function round25(n) { return Math.max(25, Math.round(n / 25) * 25); }
 
 // Week 1 teaches the three contract verbs. Later weeks challenge the player's own previous
 // same-weekday result, so difficulty follows actual skill/cafe power instead of an exploding day formula.
-export function chooseCareerGoal(day, meta) {
+function legacyCareerGoal(day, meta) {
   day = Math.max(1, day | 0);
   const c = ensureCareer(meta || {});
   const wd = weekdayIndex(day);
@@ -101,6 +101,27 @@ export function chooseCareerGoal(day, meta) {
   base.cupDay = cupDay;
   base.eyebrow = cupDay ? 'WEEKLY CUP' : `DAILY CONTRACT · ${WEEKDAY_NAMES[wd].toUpperCase()}`;
   return base;
+}
+
+// Targets are fixed at shift start from durable operating capacity, never last week's
+// score. Deliberately serving fewer guests cannot buy an easier next contract.
+export function chooseCareerGoal(day, meta, context) {
+  const career = ensureCareer(meta || {});
+  const saved = career.currentContract;
+  if (saved?.day === day && ['serve', 'earn', 'streak'].includes(saved.goal?.kind)
+      && Number.isFinite(saved.goal.target) && saved.goal.target > 0
+      && Number.isFinite(saved.goal.reward) && saved.goal.reward >= 0) return { ...saved.goal };
+  const goal = legacyCareerGoal(day, meta);
+  if (!context?.world?.built) return goal; // Historical experiment callers retain their control.
+  const built = context.world.built;
+  const tier = built.has('z_blender') ? 3 : built.has('z_coffee') ? 2 : built.has('z_oven2') ? 1 : 0;
+  const targets = { serve: [20, 24, 28, 34], earn: [350, 650, 950, 1900], streak: [4, 5, 8, 12] };
+  goal.target = targets[goal.kind][tier];
+  goal.rival = false;
+  goal.eyebrow = goal.cupDay ? 'WEEKLY CUP' : 'DAILY CONTRACT';
+  delete goal.previous;
+  career.currentContract = { day, tier, goal: { ...goal } };
+  return goal;
 }
 
 export function careerGoalLabel(goal) {

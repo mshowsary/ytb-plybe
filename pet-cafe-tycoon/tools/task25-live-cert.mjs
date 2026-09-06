@@ -148,10 +148,10 @@ try {
   const roundTrip = await page.evaluate(() => {
     const G = window.__game;
     const snap = G.snapshot();
-    const before = JSON.stringify({ built: snap.builds.a1, staff: snap.staff, coins: snap.coins });
+    const before = JSON.stringify({ built: snap.builds.a1, staff: snap.staff, coins: snap.coins, contract: G.goal });
     if (!G.restore(snap)) throw new Error('round-trip restore rejected genuine live snapshot');
     const afterSnap = G.snapshot();
-    const after = JSON.stringify({ built: afterSnap.builds.a1, staff: afterSnap.staff, coins: afterSnap.coins });
+    const after = JSON.stringify({ built: afterSnap.builds.a1, staff: afterSnap.staff, coins: afterSnap.coins, contract: G.goal });
     return { before, after, register2Built: G.world.built.has('z_register2'), activeZones: G.world.activeZoneList.map(z => z.id) };
   });
   assert.equal(roundTrip.after, roundTrip.before, 'live Task 25 snapshot must round-trip');

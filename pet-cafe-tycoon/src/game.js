@@ -65,7 +65,7 @@ export function createGame(S, area, els, platform = null) {
     hintsSeen: new Set(), intro: {}, dayState: createDay(), stars: {}, goal: null, dayStats: freshDayStats(),
   };
   ensureReputation(G.meta); ensurePetBook(G.meta); ensureCareer(G.meta); ensurePartyOrders(G.meta);
-  G.goal = chooseCareerGoal(1, G.meta);
+  G.goal = chooseCareerGoal(1, G.meta, G);
 
   let updateInProgress = false;
   const checkpoint = createMaterialCheckpoint(platform, () => G.snapshot());
@@ -82,7 +82,7 @@ export function createGame(S, area, els, platform = null) {
     catch (_) { return Promise.resolve(false); }
   }
 
-  const world = createWorld(area); G.world = world; world.dayState = G.dayState; world.stars = G.stars;
+  const world = createWorld(area); G.world = world; G.goal = chooseCareerGoal(1, G.meta, G); world.dayState = G.dayState; world.stars = G.stars;
   const scene = S.scene;
   const staticGroup = buildStatic(area); scene.add(staticGroup);
   const ambience = createAmbience(area); scene.add(ambience.group);
@@ -190,7 +190,7 @@ export function createGame(S, area, els, platform = null) {
     if (fresh && cupAward && cupAward.awarded) { hud.bump(); audio.play('chime'); }
     const repProgress = reputationProgress(G.meta), repLevel = reputationLevel(G.meta); syncReputationPresentation(); syncCareerPresentation();
     const remaining = world.area.zones.filter(z => !world.built.has(z.id)).sort((a, b) => a.price - b.price); const nextUnlock = remaining.length ? { label: remaining[0].label, price: remaining[0].price } : null;
-    const tomorrow = chooseCareerGoal(completedDay + 1, G.meta);
+    const tomorrow = chooseCareerGoal(completedDay + 1, structuredClone(G.meta), G);
     sheets.open('summary', {
       day: completedDay, earnings: settlement.stats.earned, served: settlement.stats.served, lost: settlement.stats.lost,
       serviceFees: settlement.stats.serviceFees, serviceMisses: settlement.stats.serviceMisses, wasteFees: settlement.stats.wasteFees, cafeLevel: cafeLevel(G),
@@ -250,7 +250,7 @@ export function createGame(S, area, els, platform = null) {
       // A single guarded transition owns the terminal -> next-morning mutation. If external code
       // already changed the day while an ad was up, do not advance again.
       if (G.dayState.day !== completedDay || !G.dayState._ended) return false;
-      nextDay(G.dayState); G.dayStats = freshDayStats(); G.serviceStreak = { count: 0, t: 0 }; G.shiftBestStreak = 0; G.goal = chooseCareerGoal(G.dayState.day, G.meta);
+      nextDay(G.dayState); G.dayStats = freshDayStats(); G.serviceStreak = { count: 0, t: 0 }; G.shiftBestStreak = 0; G.goal = chooseCareerGoal(G.dayState.day, G.meta, G);
       syncCareerPresentation(); partyOrders.sync(false);
       const d = G.dayState.day;
       if (weekdayIndex(d) === 6) hud.banner('WEEKLY CUP SUNDAY');
@@ -294,12 +294,13 @@ export function createGame(S, area, els, platform = null) {
     if (!canonical) return false;
     if (typeof G.settings.music !== 'boolean') G.settings.music = true; if (typeof G.settings.sfx !== 'boolean') G.settings.sfx = true;
     audio.setSfx(G.settings.sfx); audio.setMusic(G.settings.music); G.serviceStreak = { count: 0, t: 0 }; G.shiftBestStreak = G.dayStats.bestStreak | 0;
-    ensureCareer(G.meta); ensurePartyOrders(G.meta); G.goal = chooseCareerGoal(G.dayState.day, G.meta); world.dayState = G.dayState; world.stars = G.stars; lastAwningSet = -1;
+    ensureCareer(G.meta); ensurePartyOrders(G.meta); world.dayState = G.dayState; world.stars = G.stars; lastAwningSet = -1;
     customers.teardown(); staff.teardown(); G.customers = []; G.staffList = []; world.payAcc = {}; world.built.clear();
     for (const id of (canonical.builds && canonical.builds.a1) || []) world.built.add(id);
     for (const k of Object.keys(world.partial)) delete world.partial[k]; Object.assign(world.partial, canonical.partial || {});
     for (const st of world.stations.values()) st.active = !st.builtBy || world.built.has(st.builtBy);
     refreshActive(world);
+    G.goal = chooseCareerGoal(G.dayState.day, G.meta, G);
     if (!restoreStationState(world, canonical.stationState, G.stars)) return false;
     if (!restoreOwnerState(P, G.carry, owner, canonical.ownerState, area, G.up, itemFor, world)) return false;
     owner.group.position.set(P.x, 0, P.z); owner.group.rotation.y = P.rot || 0; S.snap(P.x, P.z); G._force = null; G.contextGuide = null;

@@ -127,6 +127,8 @@ export function createPet(species, variant = 0) {
   P.stand = () => { P._sitting = false; };
   P.setHop = h => { P._hop = h; };
   P.update = (dt, moving, hop) => {
+    P._moving = !!moving;
+    head.rotation.y = 0;
     if (hop !== undefined) P._hop = hop;
     P._t += dt * (moving ? 12 : 2);
     if (P._sitting) {
@@ -143,6 +145,27 @@ export function createPet(species, variant = 0) {
     head.rotation.x = moving ? Math.sin(P._t * 0.5) * 0.035 : Math.sin(P._t * 0.32) * 0.02;
     group.position.y = P._hop > 0 ? Math.sin(Math.min(1, P._hop / 0.4) * Math.PI) * 0.35 : 0;
     bubble.rotation.y += dt * 2; bubble.position.y = P.height + 0.25 + Math.sin(P._t * 0.8) * 0.04;
+  };
+  // A short head/tail performance layered after locomotion. Never changes the path.
+  P.react = (name, time, target, reducedMotion = false) => {
+    if (P._moving || reducedMotion || !target) return;
+    const phase = ((time + (variant + 1) * 1.7) % 9) / 1.8;
+    if (phase > 1) return;
+    const envelope = Math.sin(phase * Math.PI);
+    const angle = Math.atan2(target.x - group.position.x, target.z - group.position.z) - group.rotation.y;
+    const gaze = Math.max(-0.65, Math.min(0.65, Math.atan2(Math.sin(angle), Math.cos(angle))));
+    if (name === 'Marmalade') {
+      head.rotation.y = gaze * envelope;
+      head.rotation.x -= 0.16 * envelope; // nose toward the warm bakery
+      tail.rotation.y *= 1 - 0.65 * envelope;
+    } else if (name === 'Biscuit') {
+      head.rotation.y = gaze * envelope;
+      head.rotation.z += Math.sin(phase * Math.PI * 2) * 0.19 * envelope;
+      tail.rotation.y = Math.sin(phase * Math.PI * 10) * 0.8 * envelope;
+    } else if (name === 'Snowdrop') {
+      head.rotation.y = (gaze + Math.sin(phase * Math.PI * 3) * 0.16) * envelope;
+      head.rotation.x -= 0.1 * envelope; // attentive garden scan
+    }
   };
   P.followTarget = (hx, hz, hrot, dt) => {
     const fx = Math.sin(hrot), fz = Math.cos(hrot), rx = Math.cos(hrot), rz = -Math.sin(hrot);
