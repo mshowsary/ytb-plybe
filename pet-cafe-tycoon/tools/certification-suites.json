@@ -145,6 +145,14 @@
   ],
   "economy": [
     {
+      "name": "Runtime / bot state-ledger parity",
+      "command": [
+        "node",
+        "tools/runtime-bot-parity.js"
+      ],
+      "timeoutMs": 300000
+    },
+    {
       "name": "Economy pacing bot",
       "command": [
         "npm",
