@@ -2,6 +2,7 @@ import {
   ensurePartyOrders, maybeStartPartyOrder, recordPartyOrderSale, partyOrderComplete,
   partyOrderProgress, expirePartyOrder, claimPartyOrder,
 } from '../sim/partyOrders.js';
+import { createPartyOrderCrate } from '../render/partyOrderCrate.js';
 import { iconFor } from '../ui/icons.js';
 
 function injectStyle() {
@@ -33,9 +34,7 @@ function createUI(onClaim) {
   btn.addEventListener('click', () => root.classList.remove('hidden'));
   root.querySelector('.party-close').addEventListener('click', close); root.querySelector('.party-backdrop').addEventListener('click', close);
   root.querySelector('.party-claim').addEventListener('click', () => { if (onClaim()) close(); });
-  let model = null;
   function render(active, day) {
-    model = active;
     if (!active) { btn.classList.add('hidden'); root.classList.add('hidden'); return; }
     const progress = partyOrderProgress(active), complete = partyOrderComplete(active);
     btn.classList.remove('hidden'); btn.classList.toggle('party-order-ready', complete);
@@ -56,10 +55,13 @@ function createUI(onClaim) {
 }
 
 export function createPartyOrders(G, S, ctx, platform = null) {
-  const { world, hud, audio } = ctx;
+  const { area, world, hud, audio } = ctx;
   ensurePartyOrders(G.meta);
   let lastDay = -1, tick = 0;
   let ui;
+  const crate = createPartyOrderCrate(area);
+  S.scene.add(crate.group);
+
   const claim = () => {
     const result = claimPartyOrder(G.meta);
     if (!result.ok) return false;
@@ -77,23 +79,29 @@ export function createPartyOrders(G, S, ctx, platform = null) {
     if (start.started && !quiet) { hud.banner('NEW PET PARTY ORDER', 1800); audio.play('ding'); }
     const active = ensurePartyOrders(G.meta).active;
     ui.render(active, day);
+    crate.setOrder(active);
     lastDay = day;
   }
   sync(true);
 
   return {
     sync,
+    visual: crate,
     onSale(order) {
+      // This observes the already-paid order. It never removes stock or creates another transaction;
+      // the same count that drives persistence/UI is the sole source for the physical crate fill.
       const r = recordPartyOrderSale(G.meta, order);
       if (!r.changed) return;
       ui.render(r.active, G.dayState.day | 0); ui.bump();
+      crate.setOrder(r.active); crate.bump();
       if (r.completedNow) { audio.play('chime'); hud.banner('PARTY ORDER READY!', 1900); }
     },
     update(dt) {
+      crate.update(dt);
       tick -= dt;
       if (tick > 0) return; tick = 0.75;
       if ((G.dayState.day | 0) !== lastDay) sync(false);
     },
-    teardown() { ui.destroy(); },
+    teardown() { ui.destroy(); S.scene.remove(crate.group); },
   };
 }
