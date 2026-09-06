@@ -70,7 +70,8 @@ export function createBaristaWorker(G, scene) {
   // Restore can replace G.staff and clear the generic staff list. Reset our external render/sim in
   // the same transaction so a saved Barista respawns exactly once from the restored count.
   const baseRestore = G.restore;
-  G.restore = save => { teardown(); baseRestore(save); if (G.staff.barista == null) G.staff.barista = 0; };
+  const wrappedRestore = save => { const ok = baseRestore(save); if (ok === false) return false; teardown(); if (G.staff.barista == null) G.staff.barista = 0; return ok; };
+  G.restore = wrappedRestore;
 
   const api = {
     prepare() {
@@ -99,7 +100,7 @@ export function createBaristaWorker(G, scene) {
         mover:{ x:m.x, z:m.z, tx:m.tx, tz:m.tz, hasTarget:m.hasTarget, n:m.n, k:m.k, blockedT:m.blockedT, replans:m.replans, teleports:m.teleports },
       };
     },
-    destroy() { teardown(); if (G.restore !== baseRestore) G.restore = baseRestore; },
+    destroy() { teardown(); if (G.restore === wrappedRestore) G.restore = baseRestore; },
   };
   G.baristaWorker = api;
   return api;

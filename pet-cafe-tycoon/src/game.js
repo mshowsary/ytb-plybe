@@ -171,7 +171,7 @@ export function createGame(S, area, els, platform = null) {
       if (e.type === 'phase') { if (e.phase === 'rush') hud.banner('RUSH HOUR'); else if (e.phase === 'closing') hud.banner('CLOSING'); }
       else if (e.type === 'dayEnd') openDaySummary();
     }
-    hud.setDay(G.dayState.day, G.dayState.phase, phaseFrac(G.dayState)); hud.setGoal(G.goal ? `${careerGoalLabel(G.goal)} · ${careerGoalProgress(G.goal, G.dayStats)}/${G.goal.target}` : null);
+    hud.setDay(G.dayState.day, G.dayState.phase, phaseFrac(G.dayState)); hud.setContract(G.goal, G.dayStats, G.dayState.day);
     const setIdx = Math.min(2, Math.floor(cafeLevel(G) / 5)); if (setIdx !== lastAwningSet) { lastAwningSet = setIdx; G.awning && G.awning.setSet(setIdx); }
 
     // Material mutations are only serialized after every system and every world/day event consumer

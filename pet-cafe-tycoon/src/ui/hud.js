@@ -1,3 +1,4 @@
+import { createContractBadge } from './contractBadge.js';
 // src/ui/hud.js
 import { presentationScheduler } from '../core/presentationScheduler.js';
 
@@ -37,6 +38,8 @@ export function createHud() {
   const dayBarFill = document.createElement('div'); dayBarFill.className = 'dayBarFill'; dayBarFill.style.width = '0%';
   dayBar.appendChild(dayBarFill);
   dayPillEl.append(dayTop, dayBar); hud.appendChild(dayPillEl);
+  const contract = createContractBadge(dayPillEl);
+  H.setContract = (goal, stats, day) => contract.update(goal, stats, day);
   const goalPillEl = document.createElement('div'); goalPillEl.className = 'pill'; goalPillEl.id = 'goalPill'; hud.appendChild(goalPillEl);
   const PHASE_LABEL = { morning: 'Morning', rush: 'Rush', afternoon: 'Afternoon', closing: 'Closing' };
   let lastDayText = '', lastGoalText = '', lastFrac = -1;

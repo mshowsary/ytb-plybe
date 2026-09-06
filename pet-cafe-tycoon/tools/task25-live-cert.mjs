@@ -158,6 +158,37 @@ try {
   assert.equal(roundTrip.register2Built, false, 'optional Register 2 must stay unbuilt across save/load');
   assert.ok(roundTrip.activeZones.includes('z_register2'));
 
+  // Exercise the production HUD with deterministic contract progress while paused.
+  await page.locator('.sheet .sclose').click();
+  const contractFixture = await page.evaluate(() => {
+    const G = window.__game;
+    const original = { goal: G.goal, stats: { ...G.dayStats } };
+    G.goal = { kind: 'serve', target: 24, reward: 0 };
+    G.dayStats.served = 6;
+    G.update(0);
+    return original;
+  });
+  const badge = page.locator('#dayPill .contract-badge');
+  assert.equal(await badge.getAttribute('aria-valuenow'), '6');
+  assert.equal(await badge.getAttribute('aria-valuemax'), '24');
+  assert.equal(await badge.locator('.contract-count').textContent(), '6/24');
+  await page.screenshot({ path: `${outDir}/04-contract-mobile.png`, fullPage: true });
+  await page.setViewportSize({ width: 320, height: 844 });
+  const compact = await badge.boundingBox();
+  assert.ok(compact && compact.x >= 0 && compact.x + compact.width <= 320, 'contract must fit at 320px');
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), '320px HUD must not overflow');
+  await page.screenshot({ path: `${outDir}/05-contract-320.png`, fullPage: true });
+  await page.evaluate(() => { window.__game.dayStats.served = 24; window.__game.update(0); });
+  assert.match(await badge.getAttribute('class'), /celebrate/, 'completion must pulse');
+  assert.equal(await badge.getAttribute('aria-valuenow'), '24');
+  await page.evaluate(original => {
+    const G = window.__game;
+    G.goal = original.goal;
+    Object.assign(G.dayStats, original.stats);
+    G.update(0);
+  }, contractFixture);
+  await page.setViewportSize({ width: 390, height: 844 });
+
   const interstitial = await page.evaluate(async () => {
     const p = window.__platform;
     const shown = await p.requestInterstitialAd(0);
@@ -183,6 +214,8 @@ try {
       'second Runner remains 2,800',
       'mobile Workers sheet remains inside the viewport after its entrance transition',
       'genuine Task 25 snapshot round-trips without auto-building Register 2',
+      'Task 26 pictogram/counter renders live progress and pulses on completion',
+      'Task 26 contract fits the compact 320px viewport without page overflow',
       'no interstitial/ad transaction is required for the certified path',
     ],
   };
