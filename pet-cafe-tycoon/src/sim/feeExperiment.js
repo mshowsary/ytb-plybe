@@ -1,7 +1,8 @@
 // Task 22 experiment configuration only. Nothing in the live runtime imports this module.
-// It lets bot tools measure the existing direct deductions against a fee-free variant while
-// preserving the exact lost-sale/customer simulation in both arms.
-import { serviceRecoveryCost } from './serviceQuality.js';
+// It compares the former direct-deduction schedule with a fee-free variant while preserving the
+// exact lost-sale/customer simulation. The legacy helpers are intentionally experiment-only so
+// Task 23 can remove live punishment without erasing the evidence baseline.
+import { legacyServiceRecoveryCost } from './serviceQuality.js';
 import { serviceFrictionCost } from './serviceFriction.js';
 import { returnWasteCost } from './relief.js';
 
@@ -20,7 +21,7 @@ export const FEE_EXPERIMENT_POLICIES = Object.freeze({
 });
 
 export function measuredRecoveryFee(reason, coins, variant = FEE_VARIANTS.current) {
-  const raw = serviceRecoveryCost(reason, coins);
+  const raw = legacyServiceRecoveryCost(reason, coins);
   return { raw, charged:variant.directFees ? raw : 0 };
 }
 
