@@ -1,14 +1,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { serviceRecoveryCost, dirtyTablesBlockingSeats } from '../src/sim/serviceQuality.js';
+import { serviceRecoveryCost, legacyServiceRecoveryCost, dirtyTablesBlockingSeats } from '../src/sim/serviceQuality.js';
 
-test('service recovery costs are small, reason-specific and wallet-capped', () => {
-  assert.equal(serviceRecoveryCost('counter', 99), 5);
-  assert.equal(serviceRecoveryCost('register', 99), 7);
-  assert.equal(serviceRecoveryCost('bowl', 99), 3);
-  assert.equal(serviceRecoveryCost('table', 99), 2);
-  assert.equal(serviceRecoveryCost('register', 4), 4);
-  assert.equal(serviceRecoveryCost('unknown', 99), 0);
+test('Task 23 runtime recovery never deducts banked money', () => {
+  for (const reason of ['counter', 'register', 'bowl', 'table', 'unknown']) {
+    assert.equal(serviceRecoveryCost(reason, 999), 0);
+    assert.equal(serviceRecoveryCost(reason, 1), 0);
+  }
+});
+
+test('Task 22 retains the former reason-specific wallet-capped schedule only as measurement evidence', () => {
+  assert.equal(legacyServiceRecoveryCost('counter', 99), 5);
+  assert.equal(legacyServiceRecoveryCost('register', 99), 7);
+  assert.equal(legacyServiceRecoveryCost('bowl', 99), 3);
+  assert.equal(legacyServiceRecoveryCost('table', 99), 2);
+  assert.equal(legacyServiceRecoveryCost('register', 4), 4);
+  assert.equal(legacyServiceRecoveryCost('unknown', 99), 0);
 });
 
 test('dirty table pressure only triggers when a dirty free table is actually blocking seating', () => {
