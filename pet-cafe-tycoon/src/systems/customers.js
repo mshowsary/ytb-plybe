@@ -1,20 +1,19 @@
 // Customer render/system layer: human + named pet visitor, wish UI and pet delight moments.
 import { spawnInterval, maxCustomers, cafeLevel } from '../sim/economy.js';
 import { spawnMult, capBonus } from '../sim/day.js';
-import { stepCustomers, createCustomer, SPECIES, PATIENCE } from '../sim/customers.js';
+import { stepCustomers, createCustomer, PATIENCE } from '../sim/customers.js';
+import { createCustomerSpawnSequence } from '../sim/customerSpawn.js';
 import { serviceRecoveryCost, SERVICE_LABEL, dirtyTablesBlockingSeats } from '../sim/serviceQuality.js';
-import { PET_VARIANT_WEIGHTS, petProfile } from '../sim/petBook.js';
+import { petProfile } from '../sim/petBook.js';
 import { seatById } from '../sim/world.js';
 import { createHuman } from '../render/human.js';
 import { createPet } from '../render/pets.js';
 import { createLeash } from '../render/leash.js';
 import { itemFor } from '../render/props.js';
-import { makeRng } from '../core/rng.js';
 import { cappedVisualStep } from '../core/visualMotion.js';
 import { iconFor, treatIcon } from '../ui/icons.js';
 import { createPetMoment } from '../ui/petMoments.js';
 
-const SPAWN_SEED = 20260902;
 // Sim customers normally walk at 2.2 m/s. 2.8 leaves normal movement untouched while absorbing
 // any re-plan/rescue discontinuity into a short catch-up instead of exposing it as a visible warp.
 const GUEST_VISUAL_MAX_SPEED = 2.8;
@@ -36,9 +35,9 @@ function petSound(species) { return species === 'dog' ? 'petDog' : species === '
 export function createCustomers(G, S, ctx) {
   const { area, world, scene, hud, fx, els } = ctx;
   const price = ctx.price;
-  const rng = makeRng(SPAWN_SEED);
+  const spawns = createCustomerSpawnSequence();
   const rec = new Map();
-  let spawnT = 2, seq = 1, speciesIdx = 0, penaltyToastCd = 0;
+  let spawnT = 2, penaltyToastCd = 0;
   let cachedBuiltSize = -1, interval = 4, maxC = 6, effMaxC = 6;
   const tmpProj = { sx: 0, sy: 0, visible: true };
 
@@ -58,11 +57,10 @@ export function createCustomers(G, S, ctx) {
   }
 
   function spawn() {
-    const species = SPECIES[speciesIdx++ % SPECIES.length];
-    const petVariant = rng.pick(PET_VARIANT_WEIGHTS);
+    const next = spawns.next();
+    const { id, species, petVariant, variant } = next;
     const profile = petProfile(species, petVariant);
-    const variant = { shirt: rng.i(0, 4), hair: rng.i(0, 3), skin: rng.i(0, 2) };
-    const c = createCustomer(seq++, species, variant, area);
+    const c = createCustomer(id, species, variant, area);
     c.petVariant = petVariant;
     G.customers.push(c);
     const human = createHuman(variant, 'customer'); human.group.position.set(c.x, 0, c.z); scene.add(human.group);
