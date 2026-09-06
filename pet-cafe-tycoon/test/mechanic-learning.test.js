@@ -4,10 +4,11 @@ import {
   MECHANIC_LEARNING_VERSION,
   REFRESH_AFTER_FAILURES,
   normalizeMechanicLearning,
-  refillLessonNeed,
+  coachEscalationStage,
   selectCoachPriority,
-  urgentCustomerNeed,
-} from '../src/ui/interactionCoach.js';
+  stableContextAction,
+} from '../src/sim/mechanicLearning.js';
+import { refillLessonNeed, urgentCustomerNeed } from '../src/ui/interactionCoach.js';
 
 test('Task 29: canonical mechanic learning keeps only proven known mechanics', () => {
   const learning = normalizeMechanicLearning({
@@ -47,6 +48,22 @@ test('Task 29: object-of-booleans learning form migrates defensively', () => {
   assert.equal(REFRESH_AFTER_FAILURES, 2);
 });
 
+test('Task 29: stable contextual IDs are derived from world state, never UI copy', () => {
+  const stations = new Map([
+    ['desk', { id: 'desk', type: 'hire', active: true, front: { x: 0.8, z: 0 } }],
+    ['kiosk', { id: 'kiosk', type: 'kiosk', active: true, front: { x: 0.9, z: 0 } }],
+    ['pantry', { id: 'pantry', type: 'pantry', active: true, front: { x: 1, z: 0 } }],
+    ['return', { id: 'return', type: 'return', active: true, front: { x: 0.7, z: 0 } }],
+  ]);
+  const G = { P: { x: 0, z: 0 }, world: { stations }, carry: { sack: null, fruit: 0 }, owner: { items: [] } };
+  assert.equal(stableContextAction(G), 'pantry');
+  G.owner.items.push({});
+  assert.equal(stableContextAction(G), 'return');
+  stations.get('return').active = false;
+  stations.get('pantry').active = false;
+  assert.equal(stableContextAction(G), 'hire'); // same priority as kiosk, nearest wins
+});
+
 test('Task 29: proven refill lesson is absent from first-use detector after reload', () => {
   const coffee = { id: 'coffee1', type: 'coffee', active: true, beans: 0, front: { x: 3, z: 4 } };
   const G = {
@@ -58,6 +75,17 @@ test('Task 29: proven refill lesson is absent from first-use detector after relo
   assert.equal(firstUse.key, 'refillCoffee');
   assert.equal(firstUse.supply, 'beans');
   assert.equal(refillLessonNeed(G, new Set(['refillCoffee'])), null);
+});
+
+test('Task 30: exact adaptive escalation is natural -> pulse -> route', () => {
+  assert.equal(coachEscalationStage(0), 'natural');
+  assert.equal(coachEscalationStage(2.999), 'natural');
+  assert.equal(coachEscalationStage(3), 'pulse');
+  assert.equal(coachEscalationStage(6.999), 'pulse');
+  assert.equal(coachEscalationStage(7), 'route');
+  assert.equal(coachEscalationStage(30), 'route');
+  assert.equal(coachEscalationStage(3, true), 'static');
+  assert.equal(coachEscalationStage(30, true), 'static');
 });
 
 test('Task 30: arbitration is strict urgent -> stock -> construction -> contextual', () => {
