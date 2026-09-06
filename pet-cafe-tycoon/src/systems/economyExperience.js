@@ -9,26 +9,44 @@ import {
 } from '../sim/petPlayBreak.js';
 import { ROOMBA_SWEEP_SECONDS } from '../sim/petMess.js';
 import { makePendingEntitlement, snapshotTemporaryHelp } from '../sim/temporaryHelp.js';
+import { coinIcon, gearIcon, personIcon, treatIcon } from '../ui/icons.js';
 
 export const RUSH_CREW_REWARD_ID = 'pet-cafe-rush-crew';
 export const PET_PLAY_BREAK_REWARD_ID = 'pet-cafe-pet-play-break';
 export const ROOMBA_REWARD_ID = 'pet-cafe-roomba-sweep';
+export const REWARDED_OFFER_MIN_SESSION_SECONDS = 60;
+
+export function rewardedOfferSurfaceAllowed({ sessionTime = 0, sheetOpen = false, userPaused = false, inputActive = false } = {}) {
+  return Number(sessionTime) >= REWARDED_OFFER_MIN_SESSION_SECONDS && !sheetOpen && !userPaused && !inputActive;
+}
+
+export function compactRewardedOfferModel(model, isDev = false) {
+  if (!model) return null;
+  const badge = isDev ? 'DEV · AD' : 'AD';
+  if (model.mode === 'crew') return { icon: personIcon(), value: '+1 TIER', label: 'RUSH CREW', badge };
+  if (model.mode === 'petBreak') return { icon: treatIcon(), value: `${Math.max(0, model.duration | 0)}s`, label: 'PLAY BREAK', badge };
+  if (model.mode === 'roomba') return { icon: gearIcon(), value: `${Math.max(0, model.duration | 0)}s`, label: 'ROOMBA', badge };
+  return { icon: coinIcon(), value: `+${Math.max(0, model.reward | 0)}`, label: 'COINS', badge };
+}
 
 function ensureStyles() {
   if (document.getElementById('pet-cafe-relief-style')) return;
   const s = document.createElement('style'); s.id = 'pet-cafe-relief-style';
   s.textContent = `
-    .relief-root{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:22;width:min(92vw,360px);font-family:inherit;color:#3B2E2A;pointer-events:auto}
+    .relief-root{position:fixed;right:calc(10px + env(safe-area-inset-right,0px));left:auto;bottom:calc(78px + env(safe-area-inset-bottom,0px));transform:none;z-index:22;width:min(198px,max(112px,calc(100vw - 142px - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px))));font-family:inherit;color:#3B2E2A;pointer-events:auto}
+    .relief-root.expanded{top:calc(10px + env(safe-area-inset-top,0px));bottom:auto;width:min(330px,calc(100vw - 16px - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px)))}
     .relief-pill,.relief-card{box-sizing:border-box;width:100%;border:0;background:#FFF4E6F7;box-shadow:0 8px 26px #0003;border-radius:18px;color:inherit}
-    .relief-pill{min-height:48px;padding:8px 9px 8px 14px;display:flex;align-items:center;gap:8px;text-align:left;cursor:pointer}
-    .relief-pill-main{flex:1;min-width:0}.relief-kicker{font:900 10px/1 system-ui,sans-serif;letter-spacing:.08em;color:#B66A2D}.relief-pill-title{font:900 13px/1.15 system-ui,sans-serif;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .relief-pill{min-height:50px;padding:7px 8px;display:flex;align-items:center;gap:7px;text-align:left;cursor:pointer;border:1px solid #ffffffc4}
+    .relief-benefit-icon{width:32px;height:32px;flex:none;display:grid;place-items:center;border-radius:11px;background:#ffffffb8}.relief-benefit-icon svg{width:25px;height:25px;display:block}
+    .relief-pill-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.relief-pill-value{font:950 13px/1 system-ui,sans-serif;white-space:nowrap}.relief-pill-label{font:850 8px/1 system-ui,sans-serif;letter-spacing:.07em;opacity:.58;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .relief-pill-ad{flex:none;border:1px solid #8B7CF68f;background:#eee8ff;color:#5f50bb;border-radius:7px;padding:3px 5px;font:950 8px/1 system-ui,sans-serif;letter-spacing:.05em;white-space:nowrap}.relief-open{font:950 16px/1 system-ui,sans-serif;opacity:.45}
     .relief-close{width:48px;height:48px;flex:none;border:0;border-radius:50%;background:#0000000B;color:#3B2E2A;font:900 20px/1 system-ui,sans-serif;cursor:pointer}
-    .relief-card{padding:14px;display:grid;grid-template-columns:1fr auto;gap:10px 12px;align-items:center;border:2px solid #FFD36B}
+    .relief-card{position:relative;padding:14px 56px 14px 14px;display:grid;grid-template-columns:1fr auto;gap:10px 12px;align-items:center;border:2px solid #FFD36B}
     .relief-copy{min-width:0}.relief-title{font:950 16px/1.1 system-ui,sans-serif}.relief-why{font:700 11px/1.35 system-ui,sans-serif;opacity:.7;margin-top:5px}.relief-math{font:850 11px/1.3 system-ui,sans-serif;margin-top:7px;color:#725728}
     .relief-watch{min-width:116px;min-height:48px;border:0;border-radius:14px;padding:9px 12px;background:linear-gradient(180deg,#8B7CF6,#6F60DC);box-shadow:0 4px 0 #5145AE;color:#fff;font:950 12px/1.1 system-ui,sans-serif;cursor:pointer}.relief-watch:disabled{opacity:.55;box-shadow:none}.relief-ad{display:inline-flex;align-items:center;border:1px solid #ffffff80;border-radius:7px;padding:2px 5px;margin-right:4px;font-size:9px}
-    .relief-card .relief-close{position:absolute;right:-8px;top:-54px;background:#FFF4E6F7;box-shadow:0 4px 12px #0002}
-    @media(max-width:360px){.relief-root{width:calc(100vw - 16px);bottom:calc(10px + env(safe-area-inset-bottom,0px))}.relief-card{grid-template-columns:1fr}.relief-watch{width:100%}.relief-pill-title{font-size:12px}}
-    @media(max-height:520px){.relief-root{bottom:calc(8px + env(safe-area-inset-bottom,0px));width:min(82vw,340px)}.relief-card{padding:10px}.relief-why{display:none}}
+    .relief-card .relief-close{position:absolute;right:5px;top:5px;background:#ffffff8c}
+    @media(max-width:360px){.relief-root.expanded{right:8px;width:calc(100vw - 16px)}.relief-pill-label{display:none}.relief-card{grid-template-columns:1fr;padding:12px 56px 12px 12px}.relief-watch{width:100%}.relief-pill-value{font-size:12px}.relief-benefit-icon{width:30px;height:30px}}
+    @media(max-height:520px){.relief-root{bottom:calc(10px + env(safe-area-inset-bottom,0px))}.relief-root.expanded{top:calc(8px + env(safe-area-inset-top,0px));bottom:auto;width:min(320px,calc(100vw - 16px))}.relief-card{padding:10px 54px 10px 10px;grid-template-columns:1fr auto}.relief-why{display:none}.relief-watch{min-width:104px}}
   `;
   document.head.appendChild(s);
 }
@@ -37,29 +55,32 @@ function createReliefUI(isDev) {
   ensureStyles();
   const root = document.createElement('div'); root.className = 'relief-root hidden';
   root.innerHTML = `
-    <button type="button" class="relief-pill" aria-label="Open optional rush help">
-      <div class="relief-pill-main"><div class="relief-kicker">OPTIONAL · RUSH HELP</div><div class="relief-pill-title"></div></div>
-      <span aria-hidden="true">›</span>
+    <button type="button" class="relief-pill" aria-label="Open optional rewarded help">
+      <span class="relief-benefit-icon" aria-hidden="true"></span>
+      <span class="relief-pill-main"><span class="relief-pill-value"></span><span class="relief-pill-label"></span></span>
+      <span class="relief-pill-ad"></span><span class="relief-open" aria-hidden="true">›</span>
     </button>
     <div class="relief-card hidden" role="dialog" aria-label="Optional rewarded rush help">
       <div class="relief-copy"><div class="relief-title"></div><div class="relief-why"></div><div class="relief-math"></div></div>
-      <button type="button" class="relief-watch"><span class="relief-ad">${isDev ? 'DEV' : 'AD'}</span><span class="relief-reward"></span></button>
-      <button type="button" class="relief-close" aria-label="Dismiss rush help">×</button>
+      <button type="button" class="relief-watch"><span class="relief-ad">${isDev ? 'DEV · AD' : 'AD'}</span><span class="relief-reward"></span></button>
+      <button type="button" class="relief-close" aria-label="Dismiss rewarded help">×</button>
     </div>`;
   document.body.appendChild(root);
   const pill = root.querySelector('.relief-pill'), card = root.querySelector('.relief-card');
   const close = root.querySelector('.relief-close'), watch = root.querySelector('.relief-watch');
-  const pillTitle = root.querySelector('.relief-pill-title'), title = root.querySelector('.relief-title');
-  const why = root.querySelector('.relief-why'), math = root.querySelector('.relief-math'), reward = root.querySelector('.relief-reward');
+  const pillIcon = root.querySelector('.relief-benefit-icon'), pillValue = root.querySelector('.relief-pill-value');
+  const pillLabel = root.querySelector('.relief-pill-label'), pillAd = root.querySelector('.relief-pill-ad');
+  const title = root.querySelector('.relief-title'), why = root.querySelector('.relief-why');
+  const math = root.querySelector('.relief-math'), reward = root.querySelector('.relief-reward');
   let model = null, expanded = false;
   function render() {
-    if (!model) { root.classList.add('hidden'); return; }
-    root.classList.remove('hidden'); pill.classList.toggle('hidden', expanded); card.classList.toggle('hidden', !expanded);
+    if (!model) { root.classList.add('hidden'); root.classList.remove('expanded'); return; }
+    root.classList.remove('hidden'); root.classList.toggle('expanded', expanded);
+    pill.classList.toggle('hidden', expanded); card.classList.toggle('hidden', !expanded);
+    const compact = compactRewardedOfferModel(model, isDev);
+    pillIcon.innerHTML = compact.icon; pillValue.textContent = compact.value; pillLabel.textContent = compact.label; pillAd.textContent = compact.badge;
+    pill.setAttribute('aria-label', `Open optional ${compact.badge} offer: ${compact.label} ${compact.value}`);
     const crew = model.mode === 'crew', petBreak = model.mode === 'petBreak', roomba = model.mode === 'roomba';
-    pillTitle.textContent = crew ? `${model.label} · this rush`
-      : petBreak ? `${model.label} · ${model.duration}s`
-      : roomba ? `${model.label} · ${model.duration}s`
-      : `${model.label} · +${model.reward} coins`;
     title.textContent = crew ? `${model.label} can jump in`
       : petBreak ? `${model.label} gives breathing room`
       : roomba ? `${model.label} can clear the pet floor`
@@ -73,8 +94,12 @@ function createReliefUI(isDev) {
   pill.addEventListener('click', () => { expanded = true; render(); });
   return {
     root, watch, close,
-    setModel(next) { model = next; if (!next) expanded = false; render(); },
+    setModel(next) {
+      if (!next || !model || next.key !== model.key) expanded = false;
+      model = next; render();
+    },
     collapse() { expanded = false; render(); },
+    get expanded() { return expanded; },
     destroy() { root.remove(); },
   };
 }
@@ -162,7 +187,7 @@ export function petPlayBreakOfferFor(G, world, context = {}) {
 }
 
 export function createEconomyExperience(G, S, ctx, platform) {
-  const { world, hud, fx, audio, owner, sheets } = ctx;
+  const { world, hud, fx, audio, owner, sheets, input } = ctx;
   const ui = createReliefUI(!platform || !platform.inPlayables);
   let dismissedDay = -1, pressureKey = '', pressureT = 0, current = null, tick = 0, busy = false;
   let snapshotWrapped = false;
@@ -345,7 +370,13 @@ export function createEconomyExperience(G, S, ctx, platform) {
       const adReady = platform && (platform.rewardedAvailable || !platform.inPlayables);
       const hasPending = !!(G.temporaryHelp && G.temporaryHelp.pending);
       const operationalActive = rushCrewActive(G.boosts, d) || petPlayBreakActive(G.boosts, d) || !!(G.petMess && G.petMess.roombaActive);
-      if (!inReliefWindow || claimed || hasPending || operationalActive || dismissedDay === (d && d.day) || !adReady || G.userPaused || (sheets && sheets.isOpen)) { hide(); return; }
+      const surfaceAllowed = rewardedOfferSurfaceAllowed({
+        sessionTime: G.time,
+        sheetOpen: !!(sheets && sheets.isOpen),
+        userPaused: !!G.userPaused,
+        inputActive: !!(input && (input.active || input.pressed)),
+      });
+      if (!inReliefWindow || claimed || hasPending || operationalActive || dismissedDay === (d && d.day) || !adReady || !surfaceAllowed) { hide(); return; }
 
       let next = null;
       if (d.phase === 'rush') {
