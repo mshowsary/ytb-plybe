@@ -84,3 +84,52 @@ export function personIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="7" r="3.4" fill="#6B4A2B"/>' +
     '<path d="M5 20c0-3.9 3.1-6.4 7-6.4s7 2.5 7 6.4" fill="none" stroke="#6B4A2B" stroke-width="2.4" stroke-linecap="round"/></svg>';
 }
+
+export function giftIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11h16v10H4z" fill="#FF8A80"/><path d="M3 7h18v4H3z" fill="#FF5252"/><path d="M10 7v14h4V7z" fill="#FFD740"/><path d="M8.5 4.5c0-1.4 1.1-2.5 2.5-2.5 1.5 0 2 2 1 4-1.5 0-3.5-.5-3.5-1.5z" fill="#FFD740"/><path d="M15.5 4.5c0-1.4-1.1-2.5-2.5-2.5-1.5 0-2 2-1 4 1.5 0 3.5-.5 3.5-1.5z" fill="#FFD740"/></svg>';
+}
+
+export function calendarIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3" fill="#FFF5EB" stroke="#7A583A" stroke-width="1.6"/><path d="M3 9h18" stroke="#7A583A" stroke-width="1.6"/><rect x="3" y="5" width="18" height="4" rx="2" fill="#E55353"/><circle cx="8" cy="13" r="1.3" fill="#C97A3A"/><circle cx="12" cy="13" r="1.3" fill="#C97A3A"/><circle cx="16" cy="13" r="1.3" fill="#C97A3A"/><circle cx="8" cy="17" r="1.3" fill="#C97A3A"/><circle cx="12" cy="17" r="1.3" fill="#C97A3A"/><circle cx="16" cy="17" r="1.3" fill="#C97A3A"/><rect x="7" y="2" width="2" height="4" rx="1" fill="#7A583A"/><rect x="15" y="2" width="2" height="4" rx="1" fill="#7A583A"/></svg>';
+}
+
+export function sunIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.2" fill="#FFB300"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.2 2.2M16.9 16.9l2.2 2.2M4.9 19.1l2.2-2.2M16.9 7.1l2.2-2.2" stroke="#FFB300" stroke-width="2.2" stroke-linecap="round"/></svg>';
+}
+
+export function bellIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a4 4 0 0 0-4 4v5l-2 3h12l-2-3V7a4 4 0 0 0-4-4z" fill="#FFA000"/><path d="M10 19a2 2 0 0 0 4 0" fill="none" stroke="#FFA000" stroke-width="2" stroke-linecap="round"/><path d="M19 8a6 6 0 0 1 2 4M5 8a6 6 0 0 0-2 4" stroke="#FFB300" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg>';
+}
+
+export function moonIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3a9 9 0 1 0 8 11.8A7 7 0 0 1 13 3z" fill="#7E57C2"/><circle cx="18" cy="5" r="1.1" fill="#FFE082"/><circle cx="21" cy="9" r="0.8" fill="#FFE082"/></svg>';
+}
+
+export function sparkleIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2.5 7.5L22 12l-7.5 2.5L12 22l-2.5-7.5L2 12l7.5-2.5z" fill="#FFD700"/></svg>';
+}
+
+export function heartIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" fill="#FF5252"/></svg>';
+}
+
+export function pawIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="14.8" rx="4.8" ry="3.8" fill="#C97A3A"/><circle cx="7" cy="8.5" r="2.1" fill="#C97A3A"/><circle cx="10.4" cy="6.2" r="2.1" fill="#C97A3A"/><circle cx="13.6" cy="6.2" r="2.1" fill="#C97A3A"/><circle cx="17" cy="8.5" r="2.1" fill="#C97A3A"/></svg>';
+}
+
+export function catIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6l3 5h8l3-5v10a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4V6z" fill="#E8A87C"/><circle cx="9" cy="14" r="1.3" fill="#422918"/><circle cx="15" cy="14" r="1.3" fill="#422918"/><path d="M12 16l-1 1h2z" fill="#E27D60"/></svg>';
+}
+
+export function dogIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10c0-3.5 2.7-6 6-6s6 2.5 6 6v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4v-5z" fill="#C38D9E"/><path d="M4 9c0 3 1.5 5 2.5 5V9H4zM20 9c0 3-1.5 5-2.5 5V9H20z" fill="#9F6B7C"/><circle cx="9.5" cy="12" r="1.3" fill="#412234"/><circle cx="14.5" cy="12" r="1.3" fill="#412234"/><ellipse cx="12" cy="14.8" rx="1.6" ry="1.2" fill="#412234"/></svg>';
+}
+
+export function bunnyIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="8" cy="6.5" rx="1.8" ry="5.5" fill="#E8B4B8"/><ellipse cx="16" cy="6.5" rx="1.8" ry="5.5" fill="#E8B4B8"/><circle cx="12" cy="15" r="6" fill="#F4EAE6"/><circle cx="9.5" cy="14.2" r="1.2" fill="#4A3B32"/><circle cx="14.5" cy="14.2" r="1.2" fill="#4A3B32"/><ellipse cx="12" cy="16.5" rx="1.1" ry="0.8" fill="#E8B4B8"/></svg>';
+}
+
+export function checkIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7" fill="none" stroke="#2ECC71" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+

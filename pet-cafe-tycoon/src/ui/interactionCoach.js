@@ -289,20 +289,38 @@ export function createInteractionCoach(G = null, S = null) {
   };
   document.addEventListener('click', onAction, true);
 
-  function showTap(btn, key, routeText, dt) {
-    const stage = advanceCandidate(`tap:${key}`, dt);
-    if (stage === 'natural') { hide(); return true; }
-    currentKey = key; root.classList.remove('hold-mode'); root.dataset.mode = stage;
-    setCaption(stage === 'route' ? routeText : '');
-    placeBeside(root, btn); reveal(key, stage); return true;
+  function showTap(btn, key, routeText, dt, dwell = 0.35) {
+    const candidate = `tap:${key}`;
+    if (candidate !== candidateKey) {
+      candidateKey = candidate; candidateT = 0;
+      activeHold = null; activeHoldSnap = null;
+      hide(); return true;
+    }
+    candidateT += Math.max(0, dt);
+    if (candidateT < dwell) { hide(); return true; }
+    currentKey = key; root.classList.remove('hold-mode'); root.dataset.mode = 'tap';
+    setCaption(candidateT >= 3.0 ? routeText : '');
+    placeBeside(root, btn); reveal(key, 'pulse'); return true;
   }
 
   function showRoute(target, key, routeText, dt) {
     const station = target.stationId || target.id || '';
-    const stage = advanceCandidate(`route:${key}:${station}`, dt, distanceTo(G, target));
-    if (stage === 'natural' || !placeAtWorld(root, S, target)) { hide(); return true; }
-    currentKey = key; root.classList.remove('hold-mode'); root.dataset.mode = stage;
-    setCaption(stage === 'route' ? routeText : ''); reveal(key, stage); return true;
+    const candidate = `route:${key}:${station}`;
+    if (candidate !== candidateKey) {
+      candidateKey = candidate; candidateT = 0; candidateDistance = distanceTo(G, target);
+      activeHold = null; activeHoldSnap = null;
+      hide(); return true;
+    }
+    const dist = distanceTo(G, target);
+    if (dist != null && candidateDistance != null && dist < candidateDistance - PROGRESS_RESET_METERS) {
+      candidateT = 0; candidateDistance = dist;
+      hide(); return true;
+    }
+    candidateT += Math.max(0, dt);
+    if (dist != null && (candidateDistance == null || dist < candidateDistance)) candidateDistance = dist;
+    if (candidateT < 0.4 || !placeAtWorld(root, S, target)) { hide(); return true; }
+    currentKey = key; root.classList.remove('hold-mode'); root.dataset.mode = 'route';
+    setCaption(routeText); reveal(key, 'route'); return true;
   }
 
   const coach = {
@@ -316,14 +334,14 @@ export function createInteractionCoach(G = null, S = null) {
       const lesson = refillLessonNeed(G, suppressed);
       if (lesson && G && S) {
         const choice = pantryChoiceButton(lesson.supply);
-        if (choice) { showTap(choice, lesson.key, `PICK ${lesson.supply}`, dt); return; }
+        if (choice) { showTap(choice, lesson.key, `PICK ${lesson.supply}`, dt, 0.22); return; }
         if (overlayOpen()) { resetCandidate(); hide(); return; }
         const carryingRightSupply = G.carry.sack === lesson.supply && (G.carry.sackLeft | 0) > 0;
         if (!carryingRightSupply) {
           const pantry = pantryStation(G);
           const btn = document.querySelector('.fbtn');
           if (pantry && buttonVisible(btn) && stableContextAction(G) === 'pantry' && G.P && d2(G.P, pantry.front) < HOLD_RADIUS * HOLD_RADIUS) {
-            showTap(btn, lesson.key, 'OPEN SUPPLIES', dt); return;
+            showTap(btn, lesson.key, 'OPEN SUPPLIES', dt, 0.22); return;
           }
           if (pantry) { showRoute({ ...pantry.front, stationId: pantry.id, y: 1.15 }, lesson.key, `GET ${lesson.supply}`, dt); return; }
         } else if (G.P && d2(G.P, { x: lesson.x, z: lesson.z }) > HOLD_RADIUS * HOLD_RADIUS) {
@@ -335,11 +353,11 @@ export function createInteractionCoach(G = null, S = null) {
       // the natural stage. The refill lesson above is the richer version of that same single cue.
       const objectiveKind = G?.objectiveCueKind || null;
       const objectiveStock = ['restock', 'refill', 'supplies', 'stock'].includes(objectiveKind);
-      if (objectiveStock || objectiveKind === 'build') { resetCandidate(); hide(); return; }
+      const suppressTap = objectiveStock || objectiveKind === 'build';
 
       const btn = document.querySelector('.fbtn');
       const tapKey = buttonVisible(btn) ? stableContextAction(G) : null;
-      if (tapKey && !shouldSuppress(tapKey)) {
+      if (tapKey && !shouldSuppress(tapKey) && !suppressTap) {
         if (showTap(btn, tapKey, '', dt)) return;
       }
 
@@ -351,16 +369,14 @@ export function createInteractionCoach(G = null, S = null) {
         activeHold = hold; activeHoldSnap = snapshotHold(G, hold); hide(); return;
       }
       activeHold = hold;
-      const stage = advanceCandidate(candidate, dt, distanceTo(G, hold));
-      // advanceCandidate clears hold state only on a new key, which cannot happen in this branch.
-      activeHold = hold;
+      candidateT += Math.max(0, dt);
       if (!activeHoldSnap) activeHoldSnap = snapshotHold(G, hold);
-      if (stage === 'natural' || !placeAtWorld(root, S, hold)) { hide(); return; }
-      currentKey = hold.key; root.classList.add('hold-mode'); root.dataset.mode = stage;
-      setCaption(stage === 'route'
+      if (candidateT < 0.08 || !placeAtWorld(root, S, hold)) { hide(); return; }
+      currentKey = hold.key; root.classList.add('hold-mode'); root.dataset.mode = 'hold';
+      setCaption(candidateT >= 1.5
         ? (hold.key === 'refillCoffee' || hold.key === 'refillBowl' ? 'HOLD TO REFILL' : 'STAY HERE')
         : '');
-      reveal(hold.key, stage);
+      reveal(hold.key, 'pulse');
     },
     mark,
     fail: recordFailure,

@@ -89,6 +89,7 @@ function installStyle() {
     body.playables-tiny #wallet .coin{width:17px!important;height:17px!important}
     body.playables-tiny .pause-btn{right:calc(5px + env(safe-area-inset-right,0px))!important;top:calc(5px + env(safe-area-inset-top,0px))!important;width:48px!important;height:48px!important;border-radius:14px!important}
     body.playables-tiny #dayPill{right:calc(5px + var(--sar))!important;top:calc(58px + var(--sat))!important;min-width:98px!important;min-height:40px!important;padding:6px 8px!important;font-size:10px!important;gap:3px!important}
+    body.playables-tiny #dayPill .contract-badge{display:none!important}
     body.playables-tiny #crowd.urgent{left:calc(5px + var(--sal))!important;top:calc(58px + var(--sat))!important;min-height:40px!important;padding:5px 8px!important;font-size:11px!important}
     body.playables-tiny #crowd .picon{width:17px!important;height:17px!important}
     body.playables-tiny .meta-reputation{left:calc(5px + env(safe-area-inset-left,0px))!important;top:calc(106px + env(safe-area-inset-top,0px))!important;width:48px!important;height:44px!important;box-sizing:border-box!important;padding:5px!important;display:grid!important;place-items:center!important}

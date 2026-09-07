@@ -64,6 +64,7 @@ export function installCertificationPolish() {
       body.playables-tiny .meta-reputation{height:48px!important;min-height:48px!important}
       body.playables-tiny .meta-pawbook{height:48px!important;min-height:48px!important}
       body.playables-tiny .party-order-btn{height:48px!important;min-height:48px!important}
+      body.playables-tiny #dayPill .contract-badge{display:none!important}
       body.playables-tiny .stabs{gap:3px!important}
       body.playables-tiny .stab{padding:0 4px!important;font-size:10px!important}
       /* At 218px wide the renovation title gets two honest lines instead of a mechanical ellipsis. */

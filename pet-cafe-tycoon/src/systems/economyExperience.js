@@ -1,4 +1,4 @@
-import { rewardedClaimedForShift, markRewardedClaim } from '../sim/adPacing.js';
+import { inShiftClaimedForShift, markRewardedClaim } from '../sim/adPacing.js';
 import {
   recommendSmartRelief, recommendRushHelp, reliefClaimKey, returnWasteCost, SMART_RELIEF_REWARD_ID,
 } from '../sim/relief.js';
@@ -296,7 +296,7 @@ export function createEconomyExperience(G, S, ctx, platform) {
   async function claim() {
     if (busy || !current) return;
     const offer = current, day = G.dayState.day | 0;
-    if (rewardedClaimedForShift(G.meta, day)) { hide(); return; }
+    if (inShiftClaimedForShift(G.meta, day)) { hide(); return; }
     const operational = offer.mode === 'crew' || offer.mode === 'petBreak' || offer.mode === 'roomba';
     if (operational && (!G.dayState || G.dayState.phase !== 'rush')) { hide(); return; }
 
@@ -367,7 +367,7 @@ export function createEconomyExperience(G, S, ctx, platform) {
       const elapsed = 0.5; tick = elapsed;
       const d = G.dayState;
       const inReliefWindow = d && (d.phase === 'rush' || (d.phase === 'afternoon' && d.t < 172));
-      const claimed = d && rewardedClaimedForShift(G.meta, d.day);
+      const claimed = d && inShiftClaimedForShift(G.meta, d.day);
       const adReady = platform && (platform.rewardedAvailable || !platform.inPlayables) && platform.canRequestAd?.('rewarded') !== false;
       const hasPending = !!(G.temporaryHelp && G.temporaryHelp.pending);
       const operationalActive = rushCrewActive(G.boosts, d) || petPlayBreakActive(G.boosts, d) || !!(G.petMess && G.petMess.roombaActive);

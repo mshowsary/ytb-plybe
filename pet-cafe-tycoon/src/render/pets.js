@@ -53,10 +53,6 @@ function geosFor(species, variant = 0) {
 
   const headParts = [
     part('rbox', [s.w * 1.1, s.w * 0.95, s.w * 0.95, 0.14], s.body, { y: 0 }),
-    part('sph', [0.058, 8], s.eye, { x: -s.w * 0.25, y: 0.065, z: s.w * 0.47 }),
-    part('sph', [0.058, 8], s.eye, { x: s.w * 0.25, y: 0.065, z: s.w * 0.47 }),
-    part('sph', [0.019, 6], '#FFFFFF', { x: -s.w * 0.23, y: 0.087, z: s.w * 0.515 }),
-    part('sph', [0.019, 6], '#FFFFFF', { x: s.w * 0.27, y: 0.087, z: s.w * 0.515 }),
     part('sph', [0.05, 8], species === 'dog' ? '#5A3D30' : C.pink, { y: -0.07, z: s.w * 0.515 }),
     part('rbox', [s.w * 0.52, s.w * 0.29, s.w * 0.3, 0.065], s.belly, { y: -0.13, z: s.w * 0.405 }),
     part('box', [0.09, 0.018, 0.02], '#6F4B43', { x: -0.055, y: -0.19, z: s.w * 0.54, rz: -0.25 }),
@@ -120,6 +116,20 @@ export function createPet(species, variant = 0) {
   tail.position.set(0, 0.3 + s.h * 0.6, -s.l * 0.5); group.add(legPairA, legPairB, body, head, tail);
   const neck = new THREE.Object3D(); neck.position.set(0, -s.w * 0.35, s.w * 0.55); head.add(neck);
 
+  const eyesGroup = new THREE.Group();
+  const eyeMat = new THREE.MeshToonMaterial({ color: s.eye });
+  const pupilMat = new THREE.MeshBasicMaterial({ color: '#FFFFFF' });
+  const leftEye = new THREE.Mesh(new THREE.SphereGeometry(0.058, 8, 8), eyeMat);
+  leftEye.position.set(-s.w * 0.25, 0.065, s.w * 0.47);
+  const rightEye = new THREE.Mesh(new THREE.SphereGeometry(0.058, 8, 8), eyeMat);
+  rightEye.position.set(s.w * 0.25, 0.065, s.w * 0.47);
+  const leftPupil = new THREE.Mesh(new THREE.SphereGeometry(0.019, 6, 6), pupilMat);
+  leftPupil.position.set(-s.w * 0.23, 0.087, s.w * 0.515);
+  const rightPupil = new THREE.Mesh(new THREE.SphereGeometry(0.019, 6, 6), pupilMat);
+  rightPupil.position.set(s.w * 0.27, 0.087, s.w * 0.515);
+  eyesGroup.add(leftEye, rightEye, leftPupil, rightPupil);
+  head.add(eyesGroup);
+
   const bubble = new THREE.Group(); bubble.position.set(0, head.position.y + s.w * 0.9, 0); bubble.visible = false; group.add(bubble);
   const bWait = new THREE.Mesh(G.bWaitGeo, mat); bWait.castShadow = false; bWait.receiveShadow = true;
   const bAngry = new THREE.Mesh(G.bAngryGeo, mat); bAngry.castShadow = false; bAngry.receiveShadow = true;
@@ -129,6 +139,7 @@ export function createPet(species, variant = 0) {
   const P = {
     group, neck, height: head.position.y + s.w * 0.6, species, variant: variant | 0,
     _t: Math.random() * 6, _mood: 'none', _carried: null, _sitting: false, _face: 0, _hop: 0,
+    _blinkClock: 0, _nextBlink: 2.5 + ((variant | 0) % 3) * 0.8,
     _trait: createPetTraitMotionState((variant + 1) * 0.29), _traitClock: null, _traitActive: false,
   };
   P.setMood = m => { P._mood = m; bubble.visible = m !== 'none'; bWait.visible = m === 'wait'; bAngry.visible = m === 'angry'; bHappy.visible = m === 'happy'; };
@@ -154,6 +165,30 @@ export function createPet(species, variant = 0) {
     }
     head.rotation.z = Math.sin(P._t * 0.5) * 0.05;
     head.rotation.x = moving ? Math.sin(P._t * 0.5) * 0.035 : Math.sin(P._t * 0.32) * 0.02;
+    if (P._mood === 'happy') {
+      head.rotation.z += Math.sin(P._t * 3) * 0.08;
+      tail.rotation.y = Math.sin(P._t * 3) * 0.8;
+    }
+    // Blinking
+    P._blinkClock += dt;
+    if (P._blinkClock >= P._nextBlink) {
+      const elapsed = P._blinkClock - P._nextBlink;
+      if (elapsed < 0.12) {
+        eyesGroup.scale.y = 0.1;
+      } else {
+        eyesGroup.scale.y = 1;
+        P._blinkClock = 0;
+        P._nextBlink = 2.5 + Math.random() * 2.5;
+      }
+    }
+    // Squash and stretch
+    if (P._hop > 0) {
+      const hopRatio = Math.min(1, P._hop / 0.4);
+      const hopPhase = Math.sin(hopRatio * Math.PI);
+      body.scale.set(1 - hopPhase * 0.1, 1 + hopPhase * 0.18, 1 - hopPhase * 0.1);
+    } else {
+      body.scale.set(1, 1, 1);
+    }
     group.position.y = P._hop > 0 ? Math.sin(Math.min(1, P._hop / 0.4) * Math.PI) * 0.35 : 0;
     bubble.rotation.y += dt * 2; bubble.position.y = P.height + 0.25 + Math.sin(P._t * 0.8) * 0.04;
   };

@@ -100,6 +100,21 @@ export function createScene(canvas) {
     if (q === 'low') applyRenderScale(0.72); else if (q === 'high') applyRenderScale(1);
   };
 
+  const baseSunColor = new THREE.Color('#FFF0CF');
+  const goldenSunColor = new THREE.Color('#FFD9A0');
+  const baseHemiSky = new THREE.Color('#FFF7EA');
+  const goldenHemiSky = new THREE.Color('#FFE8C6');
+  const baseFog = new THREE.Color('#F7EDE2');
+  const goldenFog = new THREE.Color('#F7E3C4');
+
+  S.setGoldenHour = k => {
+    const factor = Math.max(0, Math.min(1, Number(k) || 0));
+    sun.color.copy(baseSunColor).lerp(goldenSunColor, factor);
+    sun.intensity = 2.05 + factor * 0.35;
+    hemi.color.copy(baseHemiSky).lerp(goldenHemiSky, factor);
+    scene.fog.color.copy(baseFog).lerp(goldenFog, factor);
+  };
+
   // Resize can fire while YouTube is host-paused (orientation/window chrome changes are common on
   // mobile). Do not mutate renderer/camera/shadow resources during that paused interval. Coalesce
   // any number of resize events into one resize using the latest viewport immediately after resume.

@@ -12,11 +12,19 @@ function ovenFx(st) {
   pane.position.set(0, 0.65, 0.655); g.add(pane);
   const halo = new THREE.Mesh(new THREE.PlaneGeometry(1.35, 0.78), glow('#FFB35F', 0.11));
   halo.position.set(0, 0.65, 0.67); g.add(halo);
-  return { g, update(t, active) {
+  const flare = new THREE.Mesh(new THREE.OctahedronGeometry(0.08, 0), glow('#FFE885', 0.92));
+  flare.position.set(0, 1.05, 0.55); flare.visible = false; g.add(flare);
+  return { g, update(t, dt, active) {
     g.visible = st.active;
     const working = active && st.stock < (st.buffer || 12);
     mat.opacity = working ? 0.5 + Math.sin(t * 4.2) * 0.12 : 0.2;
     halo.material.opacity = working ? 0.09 + Math.sin(t * 3.1) * 0.035 : 0.025;
+    const hasReady = st.active && (st.stock | 0) > 0;
+    flare.visible = hasReady;
+    if (hasReady) {
+      flare.rotation.y += dt * 3.5; flare.rotation.z += dt * 2;
+      flare.scale.setScalar(0.85 + Math.sin(t * 4.5) * 0.2);
+    }
   } };
 }
 
@@ -24,24 +32,32 @@ function coffeeFx(st) {
   const g = new THREE.Group();
   const status = new THREE.Mesh(new THREE.SphereGeometry(0.045, 7, 5), glow('#76E58A', 0.9));
   status.position.set(-0.19, 0.73, 0.345); g.add(status);
+  const stream = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.012, 0.18, 6), glow('#4A2E18', 0.88));
+  stream.position.set(0.06, 0.81, 0.12); stream.visible = false; g.add(stream);
+  const crema = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.046, 0.014, 10), glow('#DDB076', 0.9));
+  crema.position.set(0.06, 0.725, 0.12); crema.visible = false; g.add(crema);
   const steamMat = glow('#FFFFFF', 0.34);
   const steam = [];
-  for (let i = 0; i < 3; i++) {
-    const p = new THREE.Mesh(new THREE.SphereGeometry(0.045 + i * 0.014, 7, 5), steamMat.clone());
-    p.userData.seed = i * 0.83; g.add(p); steam.push(p);
+  for (let i = 0; i < 5; i++) {
+    const p = new THREE.Mesh(new THREE.SphereGeometry(0.036 + i * 0.01, 7, 5), steamMat.clone());
+    p.userData.seed = i * 0.43; g.add(p); steam.push(p);
   }
-  return { g, update(t) {
+  return { g, update(t, dt) {
     g.visible = st.active;
     const brewing = st.active && (st.beans | 0) > 0 && st.stock < (st.buffer || 8);
     status.material.color.set(brewing ? '#76E58A' : (st.beans | 0) <= 0 ? '#FF766D' : '#FFD166');
     status.scale.setScalar(0.86 + Math.sin(t * 4) * 0.12);
+    stream.visible = brewing;
+    if (brewing) stream.scale.y = 0.95 + Math.sin(t * 22) * 0.08;
+    crema.visible = brewing || (st.stock | 0) > 0;
+    if (crema.visible) crema.scale.setScalar(0.92 + Math.sin(t * 4) * 0.05);
     for (let i = 0; i < steam.length; i++) {
       const p = steam[i];
-      const k = (t * 0.42 + p.userData.seed) % 1;
+      const k = (t * 0.36 + p.userData.seed) % 1;
       p.visible = brewing;
-      p.position.set(0.06 + Math.sin(t * 2.2 + i) * 0.055, 0.98 + k * 0.5, 0.12);
-      p.scale.setScalar(0.65 + k * 0.85);
-      p.material.opacity = Math.sin(k * Math.PI) * 0.35;
+      p.position.set(0.06 + Math.sin(t * 3.1 + i * 1.2) * (0.04 + k * 0.05), 0.76 + k * 0.62, 0.12 + Math.cos(t * 2.5 + i) * 0.02);
+      p.scale.setScalar(0.5 + k * 1.1);
+      p.material.opacity = Math.sin(k * Math.PI) * 0.38;
     }
   } };
 }
@@ -53,13 +69,20 @@ function blenderFx(st) {
   liquid.position.set(0, 0.55, 0); g.add(liquid);
   const blade = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.018, 5, 14), glow('#EAF5FF', 0.82));
   blade.rotation.x = Math.PI / 2; blade.position.set(0, 0.43, 0); g.add(blade);
+  const swirl = new THREE.Mesh(new THREE.TorusGeometry(0.085, 0.02, 5, 12), glow('#E8A8FF', 0.72));
+  swirl.rotation.x = Math.PI / 2; swirl.position.set(0, 0.58, 0); swirl.visible = false; g.add(swirl);
   return { g, update(t, dt) {
     g.visible = st.active;
     const working = st.active && (st.fruit | 0) > 0 && st.stock < (st.buffer || 8);
     liquid.visible = (st.fruit | 0) > 0 || working;
     liquid.material.opacity = working ? 0.5 + Math.sin(t * 7) * 0.08 : 0.26;
-    if (working) blade.rotation.z += dt * 18;
+    if (working) {
+      blade.rotation.z += dt * 18;
+      swirl.rotation.z += dt * 24;
+      liquid.scale.y = 0.88 + Math.sin(t * 14) * 0.12;
+    }
     blade.visible = working;
+    swirl.visible = working;
   } };
 }
 

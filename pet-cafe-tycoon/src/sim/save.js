@@ -170,6 +170,7 @@ export function applySave(state, save, area = state && state.world && state.worl
         requirements: meta.partyOrders.active.requirements.map(r => ({ ...r })),
       } : null,
     },
+    ...(meta.rewards && meta.rewards.calendar ? { rewards: { calendar: { ...meta.rewards.calendar } } } : {}),
   };
   ensureReputation(state.meta);
   ensurePetBook(state.meta);

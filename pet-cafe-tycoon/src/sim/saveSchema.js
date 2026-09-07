@@ -1,5 +1,6 @@
 import { normalizeServicePolicy } from './servicePolicy.js';
 import { normalizeSocials } from './petSocials.js';
+import { normalizeCalendar } from './rewards.js';
 // Canonical save validation/migration for cloud persistence.
 // The host boundary uses this BEFORE a load becomes writable; applySave uses it again defensively.
 import { DAY_LENGTH, createDay, phaseOf } from './day.js';
@@ -224,13 +225,20 @@ function normalizeRewardedDays(raw, maxDay) {
   for (const [key, value] of Object.entries(raw)) {
     if (count >= Math.min(20_000, maxDay * 3 + 32)) break;
     if (BAD_KEYS.has(key) || !value || key.length > 40) continue;
-    const match = /^(?:relief:)?(\d+)$/.exec(key);
+    const match = /^(?:(?:relief|gift):)?(\d+)$/.exec(key);
     if (!match) continue;
     const day = Number(match[1]);
     if (!Number.isInteger(day) || day < 1 || day > maxDay) continue;
     out[key] = 1; count++;
   }
   return out;
+}
+
+function normalizeRewards(raw) {
+  if (!isRecord(raw)) return { calendar: { lastKey: null, streak: 0 } };
+  return {
+    calendar: normalizeCalendar(raw.calendar),
+  };
 }
 
 function normalizeShiftRatings(raw, maxDay) {
@@ -460,7 +468,7 @@ export function validateAndMigrateSave(raw, area = null) {
   if (!day.ok) return bad(`shape:${day.reason}`);
 
   const metaRaw = isRecord(raw.meta) ? raw.meta : {};
-  for (const key of ['rewardedDays', 'shiftRatings', 'petBook', 'petFriendship', 'career', 'partyOrders', 'settlement']) {
+  for (const key of ['rewardedDays', 'shiftRatings', 'petBook', 'petFriendship', 'career', 'partyOrders', 'settlement', 'rewards']) {
     if (has(metaRaw, key) && metaRaw[key] != null && !isRecord(metaRaw[key])) return bad(`shape:meta.${key}`);
   }
   const maxCompleted = day.dayState._ended ? day.dayState.day : Math.max(0, day.dayState.day - 1);
@@ -507,6 +515,7 @@ export function validateAndMigrateSave(raw, area = null) {
       partyOrders,
       socials: normalizeSocials(metaRaw.socials),
       servicePolicy: normalizeServicePolicy(metaRaw.servicePolicy),
+      ...(metaRaw.rewards && isRecord(metaRaw.rewards) ? { rewards: normalizeRewards(metaRaw.rewards) } : {}),
     },
     dayState: day.dayState,
     stars: normalizeStars(raw, area, buildState.builtSet),

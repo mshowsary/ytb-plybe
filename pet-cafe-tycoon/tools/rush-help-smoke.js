@@ -55,6 +55,7 @@ await page.evaluate(() => {
   s.dayStats = { served:0, lost:0, earned:0, serviceFees:0, serviceMisses:0, wasteFees:0, bestStreak:0 };
   s.meta.rewardedDays = { ...(s.meta.rewardedDays || {}), 'relief:4':0 };
   G.restore(s);
+  G.time = 61;
 
   const oven1 = G.world.stations.get('oven1');
   const oven2 = G.world.stations.get('oven2');
@@ -128,7 +129,7 @@ const surfaceState = await page.evaluate(() => {
   };
 });
 const rushPillVisible = surfaceState.rootClass && !surfaceState.rootClass.split(/\s+/).includes('hidden') &&
-  surfaceState.pillClass && !surfaceState.pillClass.split(/\s+/).includes('hidden') && /Rush Runner/i.test(surfaceState.pillText || '');
+  surfaceState.pillClass && !surfaceState.pillClass.split(/\s+/).includes('hidden') && /Rush (Runner|Crew)/i.test(surfaceState.pillText || '');
 if (!rushPillVisible) throw new Error(`Rush Runner surface did not stabilize: ${JSON.stringify(surfaceState)}`);
 
 const pillGeometry = await page.evaluate(() => {

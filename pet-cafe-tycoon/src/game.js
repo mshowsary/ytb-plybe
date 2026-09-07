@@ -3,14 +3,16 @@ import { normalizeServicePolicy, prepareServicePolicy, recordOrdinaryServiceShif
 import { normalizeSocials } from './sim/petSocials.js';
 import { createPetSocials } from './systems/petSocials.js';
 import { cafeCompletion } from './sim/completion.js';
-import { rewardedClaimedForShift, markRewardedClaim, interstitialDueAfterShift } from './sim/adPacing.js';
+import { summaryClaimedForShift, inShiftClaimedForShift, markRewardedClaim, interstitialDueAfterShift } from './sim/adPacing.js';
+import { specialForDay, saleMatchesTheme, specialProgress, specialReward, goldenHourForDay, createGoldenHourState, stepGoldenHour, goldenHourMult } from './sim/specialDays.js';
+import { normalizeCalendar } from './sim/rewards.js';
+import { familyOf, salePrice, cafeLevel } from './sim/economy.js';
 import { beginActorStep, endActorStep } from './sim/actorRoster.js';
 // src/game.js — binds simulation, rendering, UI, audio and YouTube platform services.
 import { createWorld, refreshActive, cleanSeat } from './sim/world.js';
 import { applySave } from './sim/save.js';
 import { snapshotStationState, restoreStationState } from './sim/stationState.js';
 import { snapshotOwnerState, restoreOwnerState } from './sim/ownerState.js';
-import { salePrice, cafeLevel } from './sim/economy.js';
 import { reliefClaimKey } from './sim/relief.js';
 import { ensurePartyOrders, clonePartyOrders, partyOrderProgress } from './sim/partyOrders.js';
 import { createDay, stepDay, nextDay, phaseFrac, isWeekend, isHoliday, tipMult } from './sim/day.js';
@@ -50,7 +52,7 @@ import { createIntro } from './systems/intro.js';
 import { jobTarget } from './sim/jobs.js';
 import { decide } from './sim/botDecide.js';
 
-const freshDayStats = () => ({ served: 0, lost: 0, earned: 0, serviceFees: 0, serviceMisses: 0, wasteFees: 0, bestStreak: 0 });
+const freshDayStats = () => ({ served: 0, lost: 0, earned: 0, serviceFees: 0, serviceMisses: 0, wasteFees: 0, bestStreak: 0, specialServed: 0 });
 
 export function createGame(S, area, els, platform = null) {
   const G = {
@@ -65,7 +67,10 @@ export function createGame(S, area, els, platform = null) {
     meta: {
       rewardedDays: {}, completedDays: 0, reputation: 0, perfectShifts: 0,
       bestServiceStreak: 0, shiftRatings: {}, petBook: {}, petDiscoveries: 0, settlement: null, career: {}, partyOrders: {},
+      rewards: { calendar: { lastKey: null, streak: 0 } },
     },
+    golden: createGoldenHourState(),
+    special: specialForDay(1),
     serviceStreak: { count: 0, t: 0 }, shiftBestStreak: 0,
     customers: [], staffList: [], time: 0, state: 'play', carry: createCarry(),
     hintsSeen: new Set(), intro: {}, dayState: createDay(), stars: {}, goal: null, dayStats: freshDayStats(),
@@ -135,7 +140,12 @@ export function createGame(S, area, els, platform = null) {
   G.setMove = (x, z) => { G._force = (x == null) ? null : { x, z }; }; G.debugNextTarget = () => jobTarget(world, G);
   G.botDecide = () => { G.carryKey = owner.items.length ? owner.items[0].userData.product : null; G.carryCount = owner.items.length; return decide(world, G); };
 
-  const price = (key, seated) => Math.round(salePrice(key, G.up, G.boosts, seated, Date.now(), tipMult(G.dayState)) * masteryMultiplier(G.meta, key));
+  const price = (key, seated) => {
+    const base = salePrice(key, G.up, G.boosts, seated, Date.now(), tipMult(G.dayState)) * masteryMultiplier(G.meta, key);
+    const themeBonus = (G.special && saleMatchesTheme(G.special, key, familyOf)) ? G.special.tipBonus : 0;
+    const gMult = goldenHourMult(G.golden);
+    return Math.round(base * (1 + themeBonus) * gMult);
+  };
   const ctx = { area, world, scene, hud, fx, sheets, audio, input, owner, P, price, els, vis: new Map(), hints: { oven: 0, counter: 0, cash: 0, zone: 0, refillCoffee: 0, refillBowl: 0, harvest: 0, blend: 0, clean: 0 }, firstHint: { msg: null, t: 0 } };
   ctx.discoverPet = (species, variant) => {
     const discovery = discoverPet(G.meta, species, variant); if (!discovery.isNew) return;
@@ -167,6 +177,9 @@ export function createGame(S, area, els, platform = null) {
         G.dayStats.served++; G.dayStats.earned += e.amount; G.serviceStreak.count = G.serviceStreak.t > 0 ? G.serviceStreak.count + 1 : 1; G.serviceStreak.t = 7;
         G.shiftBestStreak = Math.max(G.shiftBestStreak, G.serviceStreak.count); G.dayStats.bestStreak = G.shiftBestStreak;
         const paidCustomer = G.customers.find(c => c.id === e.id); const order = paidCustomer && paidCustomer.order || [];
+        if (G.special && order.some(p => saleMatchesTheme(G.special, p, familyOf))) {
+          G.dayStats.specialServed = (G.dayStats.specialServed || 0) + 1;
+        }
         partyOrders.onSale(order); petSocials.onSale(order);
         const levelUps = recordRecipeOrder(G.meta, order);
         for (const up of levelUps) { hud.banner(`${up.label.toUpperCase()} MASTERY ${up.level} · +${up.bonus}% VALUE`, 1900); audio.play('chime'); syncCareerPresentation(); }
@@ -182,6 +195,7 @@ export function createGame(S, area, els, platform = null) {
       else if (e.type === 'dayEnd') openDaySummary();
     }
     hud.setDay(G.dayState.day, G.dayState.phase, phaseFrac(G.dayState)); hud.setContract(G.goal, G.dayStats, G.dayState.day);
+    hud.setGoal(G.goal ? `${careerGoalLabel(G.goal)} · ${careerGoalProgress(G.goal, G.dayStats)}/${G.goal.target}` : null);
     const setIdx = Math.min(2, Math.floor(cafeLevel(G) / 5)); if (setIdx !== lastAwningSet) { lastAwningSet = setIdx; G.awning && G.awning.setSet(setIdx); }
 
     if (world.events.some(e => e.type === 'built') && cafeCompletion(G).roomComplete) {
@@ -204,6 +218,16 @@ export function createGame(S, area, els, platform = null) {
     const rating = settlement.rating, repResult = settlement.reputation, cupAward = settlement.cup;
     hud.setCoins(G.coins);
     if (fresh && cupAward && cupAward.awarded) { hud.bump(); audio.play('chime'); }
+    if (G.special) {
+      const sp = specialProgress(G.special, G.dayStats.specialServed || 0);
+      if (sp.met) {
+        const bonus = specialReward(G.special);
+        G.coins += bonus;
+        hud.setCoins(G.coins);
+        hud.bump();
+        audio.play('chime');
+      }
+    }
     const repProgress = reputationProgress(G.meta), repLevel = reputationLevel(G.meta); syncReputationPresentation(); syncCareerPresentation();
     const remaining = world.area.zones.filter(z => !world.built.has(z.id)).sort((a, b) => a.price - b.price); const nextUnlock = remaining.length ? { label: remaining[0].label, price: remaining[0].price } : null;
     const tomorrow = chooseCareerGoal(completedDay + 1, structuredClone(G.meta), G);
@@ -217,7 +241,7 @@ export function createGame(S, area, els, platform = null) {
     });
 
     const rewardAmount = met ? goal.reward : Math.max(25, Math.min(250, Math.round(settlement.stats.earned * 0.15)));
-    const rewardClaimed = rewardedClaimedForShift(G.meta, completedDay);
+    const rewardClaimed = summaryClaimedForShift(G.meta, completedDay);
     const rewardVisible = !rewardClaimed && !!platform && (platform.rewardedAvailable || !platform.inPlayables) && platform.canRequestAd?.('rewarded') !== false;
     if (rewardVisible) platform.noteAdEligible?.('rewarded', `summary:${completedDay}`);
     metaUI.decorateSummary({
@@ -226,7 +250,7 @@ export function createGame(S, area, els, platform = null) {
       rewardOffer: rewardVisible ? {
         amount: rewardAmount, claimed: rewardClaimed, liveAd: !!platform.rewardedAvailable, label: met ? 'DOUBLE CONTRACT REWARD' : 'BONUS TIP JAR',
         onClaim: async () => {
-          if (rewardedClaimedForShift(G.meta, completedDay)) return false; const ok = await platform.requestRewardedAd('pet-cafe-day-bonus-coins');
+          if (summaryClaimedForShift(G.meta, completedDay)) return false; const ok = await platform.requestRewardedAd('pet-cafe-day-bonus-coins');
           if (!ok) { metaUI.toast('Reward not completed'); return false; }
           if (!markRewardedClaim(G.meta, completedDay, 'summary')) return false; G.coins += rewardAmount; hud.setCoins(G.coins); hud.bump(); audio.play('chime'); syncCareerPresentation();
           metaUI.toast(`Bonus +${rewardAmount.toLocaleString('en-US')}`); saveNow('reward-claim'); return true;
@@ -269,6 +293,7 @@ export function createGame(S, area, els, platform = null) {
       // already changed the day while an ad was up, do not advance again.
       if (G.dayState.day !== completedDay || !G.dayState._ended) return false;
       nextDay(G.dayState); G.dayStats = freshDayStats(); G.serviceStreak = { count: 0, t: 0 }; G.shiftBestStreak = 0; G.goal = chooseCareerGoal(G.dayState.day, G.meta, G);
+      G.golden = createGoldenHourState(); G.special = specialForDay(G.dayState.day);
       syncCareerPresentation(); partyOrders.sync(false);
       const d = G.dayState.day;
       if (weekdayIndex(d) === 6) hud.banner('WEEKLY CUP SUNDAY');
@@ -304,6 +329,9 @@ export function createGame(S, area, els, platform = null) {
       partyOrders: clonePartyOrders(G.meta),
       socials: normalizeSocials(G.meta.socials),
       servicePolicy: normalizeServicePolicy(G.meta.servicePolicy),
+      rewards: {
+        calendar: { ...(G.meta.rewards && G.meta.rewards.calendar ? G.meta.rewards.calendar : { lastKey: null, streak: 0 }) },
+      },
     },
     dayState: { ...G.dayState }, stars: { ...G.stars }, goal: { ...G.goal }, dayStats: { ...G.dayStats },
   });
@@ -316,12 +344,16 @@ export function createGame(S, area, els, platform = null) {
     if (typeof G.settings.music !== 'boolean') G.settings.music = true; if (typeof G.settings.sfx !== 'boolean') G.settings.sfx = true;
     audio.setSfx(G.settings.sfx); audio.setMusic(G.settings.music); G.serviceStreak = { count: 0, t: 0 }; G.shiftBestStreak = G.dayStats.bestStreak | 0;
     ensureCareer(G.meta); ensurePartyOrders(G.meta); world.dayState = G.dayState; world.stars = G.stars; lastAwningSet = -1;
+    G.golden = createGoldenHourState();
+    G.special = specialForDay(G.dayState.day);
+    if (!G.meta.rewards) G.meta.rewards = { calendar: { lastKey: null, streak: 0 } };
+    else G.meta.rewards.calendar = normalizeCalendar(G.meta.rewards.calendar);
     customers.teardown(); staff.teardown(); G.customers = []; G.staffList = []; world.payAcc = {}; world.built.clear();
     for (const id of (canonical.builds && canonical.builds.a1) || []) world.built.add(id);
     for (const k of Object.keys(world.partial)) delete world.partial[k]; Object.assign(world.partial, canonical.partial || {});
     for (const st of world.stations.values()) st.active = !st.builtBy || world.built.has(st.builtBy);
     refreshActive(world);
-    G.goal = chooseCareerGoal(G.dayState.day, G.meta, G);
+    G.goal = G.goal?.rival ? G.goal : chooseCareerGoal(G.dayState.day, G.meta, G);
     if (!restoreStationState(world, canonical.stationState, G.stars)) return false;
     if (!restoreOwnerState(P, G.carry, owner, canonical.ownerState, area, G.up, itemFor, world)) return false;
     owner.group.position.set(P.x, 0, P.z); owner.group.rotation.y = P.rot || 0; S.snap(P.x, P.z); G._force = null; G.contextGuide = null;

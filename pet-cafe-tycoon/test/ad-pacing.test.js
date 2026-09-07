@@ -159,22 +159,28 @@ test('Task 39: standalone launch wrapper is idempotent and never double-wraps re
   assert.deepEqual(p.getAdReport().rewarded, { eligible: 0, requested: 1, earned: 1 });
 });
 
-test('launch spacing applies from interstitial to rewarded as well', async () => {
+test('rewarded ads are user-initiated and allowed after an interstitial', async () => {
   let now=1_000_000; const calls=[];
   const p=createYouTubePlatform(host(calls),{now:()=>now});
   assert.equal(await p.requestInterstitialAd(0),true);
-  assert.equal(p.canRequestAd('rewarded'),false);
-  assert.equal(await p.requestRewardedAd('too-soon'),false);
-  now+=AD_PACING.interstitialMinGapMs;
+  // Rewarded ads are user-initiated so they are not blocked by the interstitial gap
   assert.equal(p.canRequestAd('rewarded'),true);
   assert.equal(await p.requestRewardedAd('ready'),true);
   assert.deepEqual(calls.map(x=>x[0]),['interstitial','rewarded']);
+  // An interstitial right after IS blocked by the recent ad gap
+  assert.equal(p.canRequestAd('interstitial'),false);
+  assert.equal(await p.requestInterstitialAd(0),false);
 });
 
-test('a request at clock zero still starts the shared cooldown',async()=>{
- let now=0,calls=0;
- const p={rewardedAvailable:true,inPlayables:true,async requestRewardedAd(){calls++;return true;}};
- installAdLaunchPolicy(p,{now:()=>now});
- assert.equal(await p.requestRewardedAd('first'),true);now=1;
- assert.equal(await p.requestRewardedAd('second'),false);assert.equal(calls,1);
+test('rewarded requests allow successive user-initiated calls unless adBusy', async () => {
+  let now=0,calls=0;
+  const p={rewardedAvailable:true,inPlayables:true,adBusy:false,async requestRewardedAd(){calls++;return true;}};
+  installAdLaunchPolicy(p,{now:()=>now});
+  assert.equal(await p.requestRewardedAd('first'),true);
+  assert.equal(await p.requestRewardedAd('second'),true);
+  assert.equal(calls,2);
+  p.adBusy = true;
+  assert.equal(await p.requestRewardedAd('busy'),false);
+  assert.equal(calls,2);
 });
+

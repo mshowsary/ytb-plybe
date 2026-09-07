@@ -170,7 +170,7 @@ for (const [tag,width,height,dpr] of cases) {
     !smallChecks||!smallChecks.pauseFrozen||!smallChecks.musicIndependent||smallChecks.walkPaid!==0||smallChecks.earlyPaid!==0||!(smallChecks.heldPaid>0)||
     !renovation||renovation.level!==1||renovation.spent!==1800||renovation.next!=='Gallery Café'||
     !interaction||interaction.pantry.sack!=='beans'||interaction.pantry.guide!=='COFFEE'||!interaction.supply.empty||interaction.supply.delta!==0||
-    interaction.waste.fruit!==0||interaction.waste.spent<=0||interaction.waste.tracked<=0||interaction.blender.machine<=0||
+    interaction.waste.fruit!==0||interaction.waste.spent!==0||interaction.waste.tracked!==0||interaction.blender.machine<=0||
     interaction.cash.pile!==0||interaction.cash.gained!==206||interaction.cash.collectVisible||interaction.cash.cashLabel||interaction.cash.legacyCashLabel||
     interaction.cleaning.dirty||interaction.cleaning.cleanVisible||interaction.prose.hint||interaction.prose.hands||interaction.prose.goal
   );

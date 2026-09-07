@@ -19,6 +19,9 @@ import { installServiceSummary } from './ui/serviceSummary.js';
 import { createPauseMenu } from './ui/pauseMenu.js';
 import { createCashTrays } from './render/cashTrays.js';
 import { createCoffeePolish } from './render/coffeePolish.js';
+import { createButterflies } from './render/butterflies.js';
+import { createRewardsSystem } from './systems/rewardsSystem.js';
+import { bootInterstitialDue } from './sim/adPacing.js';
 import { AREA1 } from '../data/area1.js';
 
 const $ = id => document.getElementById(id);
@@ -246,6 +249,8 @@ function startGame(S, load, bootUi) {
   installCertificationPolish();
   const interactionCoach = createInteractionCoach(G, S);
   const cashTrays = createCashTrays(G.world, S.scene);
+  const butterflies = createButterflies(S.scene);
+  const rewardsSystem = createRewardsSystem(G, S, platform);
   const pauseOverlay = makePauseOverlay();
 
   if (load.status === LOAD_STATUS.LOADED && G.restore(load.data) === false) {
@@ -256,6 +261,7 @@ function startGame(S, load, bootUi) {
   platform.bindGame(G);
   petFriendship.refresh();
   coffeePolish.update();
+  rewardsSystem.refresh();
   const pauseMenu = createPauseMenu(G, platform);
   platform.sendScore(G.meta && G.meta.reputation);
   responsive.update(); shell.refresh();
@@ -330,6 +336,8 @@ function startGame(S, load, bootUi) {
       machineJuice.update(dt);
       coffeePolish.update();
       cashTrays.update(dt);
+      butterflies.update(dt);
+      rewardsSystem.update(dt);
       const uiStart = frameMetrics.running ? performance.now() : 0;
       responsive.update();
       shell.update();
@@ -351,6 +359,10 @@ function startGame(S, load, bootUi) {
       first = false;
       bootUi.hide();
       platform.gameReady();
+      if (platform && bootInterstitialDue(G.meta?.completedDays) && platform.canRequestAd?.('interstitial') !== false) {
+        platform.noteAdEligible?.('interstitial', 'boot:returning');
+        platform.requestInterstitialAd().catch(() => {});
+      }
     }
     scheduleFrame();
   }

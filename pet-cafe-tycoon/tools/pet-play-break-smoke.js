@@ -56,6 +56,7 @@ await page.evaluate(() => {
   s.dayStats = { served:0, lost:0, earned:0, serviceFees:0, serviceMisses:0, wasteFees:0, bestStreak:0 };
   s.meta.rewardedDays = { ...(s.meta.rewardedDays || {}), 'relief:8':1 };
   G.restore(s);
+  G.time = 61;
   const bowl = G.world.stations.get('bowl1'); if (bowl) bowl.stock = 0;
   for (const id of G.world.displays) { const st = G.world.stations.get(id); if (st) st.stock = 0; }
 });
@@ -139,7 +140,7 @@ const surfaceState = await page.evaluate(() => {
   };
 });
 const visible = surfaceState.rootClass && !surfaceState.rootClass.split(/\s+/).includes('hidden') &&
-  surfaceState.pillClass && !surfaceState.pillClass.split(/\s+/).includes('hidden') && /Pet Play Break/i.test(surfaceState.pillText || '');
+  surfaceState.pillClass && !surfaceState.pillClass.split(/\s+/).includes('hidden') && /(Pet Play Break|PLAY BREAK)/i.test(surfaceState.pillText || '');
 if (!visible) throw new Error(`Pet Play Break surface did not stabilize: ${JSON.stringify(surfaceState)}`);
 if (surfaceState.activeCount < 7 || surfaceState.fillerCount !== 2 || surfaceState.shadowCount !== 3 || surfaceState.guests.length !== 2) {
   throw new Error(`Pet Play Break deterministic population fixture drifted: ${JSON.stringify(surfaceState)}`);
