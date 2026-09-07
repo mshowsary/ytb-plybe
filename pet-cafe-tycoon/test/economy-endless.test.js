@@ -113,3 +113,28 @@ test('a developed café gets genuinely busier, and stays bounded', () => {
     last = iv;
   }
 });
+
+// Rewarded offers have to keep pace with the ladders, or the whole meta-economy quietly dies with
+// them: an optional ad worth 500 coins is compelling beside a 900-coin upgrade and meaningless
+// beside a 15,000-coin one, and an offer nobody accepts earns nothing for anybody.
+test('rewarded value tracks the café, and stays bounded', async () => {
+  const r = await import('../src/sim/rewards.js');
+  // Authored behaviour is untouched when no level is supplied.
+  assert.equal(r.mysteryCoinsCap(0), r.MYSTERY_COINS_MAX);
+  assert.equal(r.mysteryCoinsCap(8), r.MYSTERY_COINS_MAX);
+  for (let d = 3; d <= 20; d++) {
+    const coins = r.mysteryCoinsForDay(d, 500);
+    assert.ok(coins >= r.MYSTERY_COINS_MIN && coins <= r.MYSTERY_COINS_MAX);
+  }
+  // Past the authored build-out the ceiling rises with café level, monotonically.
+  let prev = 0;
+  for (let lvl = 8; lvl <= 80; lvl += 6) {
+    const cap = r.mysteryCoinsCap(lvl);
+    assert.ok(cap >= prev, `cap must not fall as the café grows (level ${lvl})`);
+    prev = cap;
+  }
+  assert.ok(r.mysteryCoinsCap(30) > r.mysteryCoinsCap(8));
+  // ...and is clamped, because rewarded value that outruns its own economy just inflates it.
+  assert.ok(r.mysteryCoinsCap(10_000) <= r.MYSTERY_COINS_CEILING);
+  assert.ok(r.mysteryCoinsForDay(9, 999_999, 10_000) <= r.MYSTERY_COINS_CEILING);
+});
