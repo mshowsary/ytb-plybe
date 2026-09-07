@@ -35,6 +35,7 @@ try{
   await page.evaluate(()=>{const G=window.__game,s=G.snapshot();s.meta.petFriendship={...(s.meta.petFriendship||{}),'cat:0':10};s.meta.career.renovationLevel=5;s.meta.reputation=220;if(!G.restore(s))throw new Error('Bestie fixture rejected');});
   await page.evaluate(()=>{const G=window.__game;G.P.x=8;G.P.z=4.5;window.__scene.snap(8,4.5);});
   await shot('bestie-renovated');
+  await page.locator('.meta-pawbook').click();await shot('pet-portraits');await page.locator('.meta-book-close').click();
   // Owner feedback regression: the completed crate must expose a real, payable action.
   await page.evaluate(()=>{
    const G=window.__game;

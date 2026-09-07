@@ -11,7 +11,7 @@ Local verification: 472/472 tests passed, including equal-count product replacem
 Still required:
 - Inspect actual desktop/mobile captures for silhouettes, face occlusion and button placement; obtain owner acceptance.
 - Day-10 challenge is NOT fixed. Preserve accepted first Runner 150/Staff Desk 300 prices. Design meaningful post-staffing decisions and pressure using the owner's developed save; optional completion UI is not a new gameplay loop.
-- Pet cards, pet readability/personality and pet interactions need more work. This batch is not a finished art direction overhaul.
+- Pet cards now show species-specific SVG portraits in canonical coat/collar colors plus existing traits (mobile two-column layout); pet readability/personality in the scene and pet interactions still need more work. This batch is not a finished art direction overhaul.
 - Shift-contract interaction clarity is separate from the party crate and still needs assessment.
 - Full Production, publisher certification and real-device performance remain separate gates. Batch development; do not run full Production for each minor edit.
 

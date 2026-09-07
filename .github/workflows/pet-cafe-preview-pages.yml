@@ -1,5 +1,5 @@
 name: Pet Cafe Live Preview
-# Refresh preview: distinct menu models, accurate Runner carry, pet motif and crate collection.
+# Refresh preview: distinct menu models, accurate Runner carry, pet motif, character portraits and crate collection.
 
 on:
   workflow_dispatch:
