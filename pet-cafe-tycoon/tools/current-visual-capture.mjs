@@ -45,11 +45,25 @@ try{
   });
   await page.locator('.social-launch').click();await shot('social-invitations');
   await page.locator('.social-choice').filter({hasText:'Purr & Pour'}).locator('.social-host').click();
-  await page.waitForFunction(()=>window.__game.meta.socials.active?.count>0,{},{timeout:70000}).catch(async error=>{console.log('SOCIAL_DIAGNOSTIC',JSON.stringify(await page.evaluate(()=>{const G=window.__game;return {social:G.meta.socials,day:G.dayState,staff:G.staffList.map(s=>({kind:s.kind,state:s.state,x:s.x,z:s.z})),customers:G.customers.map(c=>({id:c.id,state:c.state,wish:c.wish,order:c.order,paid:c.paid,x:c.x,z:c.z})),stocks:[...G.world.stations.values()].filter(s=>'stock'in s).map(s=>({id:s.id,stock:s.stock,beans:s.beans}))};})),errors);throw error;});
-  const resume=await page.evaluate(()=>{const G=window.__game,s=G.snapshot(),count=s.meta.socials.active.count;return {ok:G.restore(s),before:count,after:G.meta.socials.active?.count};});
-  assert.equal(resume.ok,true);assert.equal(resume.after,resume.before,'social progress survives snapshot restore');
+  async function advanceSocial(untilReady) {
+   const result=await page.evaluate(ready=>{
+    const G=window.__game;
+    for(let i=0;i<1900;i++){
+     const a=G.meta.socials.active;if(!a||(ready?a.status==='ready':a.count>0))break;
+     G.update(.05);G.finishActorStep();
+    }
+    return {active:G.meta.socials.active,day:G.dayState,customers:G.customers.map(c=>({state:c.state,wish:c.wish,order:c.order})),stocks:[...G.world.stations.values()].filter(s=>'stock'in s).map(s=>({id:s.id,stock:s.stock}))};
+   },untilReady);
+   assert.ok(untilReady?result.active?.status==='ready':result.active?.count>0,JSON.stringify(result));
+  }
+  await advanceSocial(false);
+  const midway=await page.evaluate(()=>window.__game.snapshot());
   await shot('social-in-progress');
-  await page.waitForFunction(()=>window.__game.meta.socials.active?.status==='ready',{},{timeout:95000});
+  await advanceSocial(true);
+  const completed=await page.evaluate(()=>window.__game.snapshot());
+  const resume=await page.evaluate(s=>{const G=window.__game;return {ok:G.restore(s),before:s.meta.socials.active.count,after:G.meta.socials.active?.count};},midway);
+  assert.equal(resume.ok,true);assert.equal(resume.after,resume.before,'running social progress survives snapshot restore');
+  assert.equal(await page.evaluate(s=>window.__game.restore(s),completed),true,'completed social survives restore');
   await page.locator('.social-launch').click();await shot('social-medal');
   const prize=await page.evaluate(()=>{const G=window.__game,before=G.coins,b=document.querySelector('.social-collect');b.click();b.click();return {reward:G.coins-before,medal:G.meta.socials.best.cat};});
   assert.equal(prize.reward,100);assert.equal(prize.medal,1);
