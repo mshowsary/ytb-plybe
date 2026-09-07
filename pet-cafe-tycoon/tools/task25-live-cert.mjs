@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { chromium } from 'playwright';
+import { STAFF } from '../src/sim/economy.js';
 
 const baseUrl = process.env.PET_CAFE_URL || 'http://127.0.0.1:4173';
 const outDir = process.env.PET_CAFE_CERT_DIR || 'artifacts/task25-live';
@@ -141,7 +142,12 @@ try {
 
   const afterHireRow = page.locator('.sheet .srow').filter({ hasText: 'Runner' }).first();
   const secondRunnerText = (await afterHireRow.textContent()) || '';
-  assert.match(secondRunnerText, /1\/2/);
+  const runnerSlots = STAFF.runner.costs.length;
+  assert.match(
+    secondRunnerText,
+    new RegExp(`1\\/${runnerSlots}`),
+    `row must show exactly one Runner hired out of ${runnerSlots} roster slots`,
+  );
   assert.match(secondRunnerText, /2,800/, 'second Runner price must remain 2,800');
   await page.screenshot({ path: `${outDir}/03-runner-hired-mobile.png`, fullPage: true });
 
