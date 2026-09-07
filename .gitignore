@@ -2,3 +2,7 @@ node_modules/
 shots-production/
 reports-production/
 reports-responsive/
+shots/debug/
+shots/tune/
+pet-cafe-tycoon/shots/debug/
+pet-cafe-tycoon/shots/tune/

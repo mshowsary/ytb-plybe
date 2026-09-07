@@ -257,7 +257,13 @@ while (G.dayState.day <= MAX_DAYS) {
     } else if (e.type === 'lost') {
       G.dayStats.lost++; G.serviceStreak = { count: 0, t: 0 };
     } else if (e.type === 'built') dayPurchases.push('built ' + e.zoneId);
-    else if (e.type === 'purchase') dayPurchases.push(e.kind);
+    else if (e.type === 'purchase') {
+      dayPurchases.push(e.kind);
+      // botDecide.js debits G.coins directly for hires, stars, machine and worker upgrades. Only
+      // build payments were ever recorded here, so the ledger was short by the entire value of
+      // every other purchase and its reconciliation gate failed on every single run.
+      if (e.cost > 0) ledger.record('spend', 'purchase:' + e.kind, e.cost, { meta: { kind: e.kind } });
+    }
   }
 
   const dayEvents = stepDay(G.dayState, DT);
