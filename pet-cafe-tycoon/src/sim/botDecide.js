@@ -24,6 +24,7 @@ import { emitWorld } from './events.js';
 import { activeZones } from './world.js';
 import {
   hire, hireCost, upgradeCost, buyUpgrade, machineUpgradeCost, buyMachineUpgrade, ensureLevels, carryCap,
+  workerUpgradeCost, buyWorkerUpgrade,
   familyOf, ensureStars, buyStar, STAR_IDS, nextStarCost,
 } from './economy.js';
 
@@ -270,11 +271,16 @@ function buildTarget(w, G) {
 // directly contradicting the brief's "hire in this order". Returns null once all four slots are
 // filled. Shared by tryHiresAndUpgrades (the actual purchase) and money() below (the "hold off
 // funding a big zone, save toward the pending hire instead" guard).
+const HIRE_ORDER = [
+  'cashier', 'runner', 'cleaner', 'runner',   // the authored opening four, unchanged
+  'barista', 'cashier', 'cleaner', 'runner', 'barista', 'runner',
+];
 function nextHireKind(staff) {
-  if ((staff.cashier | 0) === 0) return 'cashier';
-  if ((staff.runner | 0) === 0) return 'runner';
-  if ((staff.cleaner | 0) === 0) return 'cleaner';
-  if ((staff.runner | 0) === 1) return 'runner'; // second runner
+  const want = Object.create(null);
+  for (const kind of HIRE_ORDER) {
+    want[kind] = (want[kind] | 0) + 1;
+    if ((staff[kind] | 0) < want[kind]) return hireCost(kind, staff) == null ? null : kind;
+  }
   return null;
 }
 // M3 T6 pass 2 real bug fix: the cost of the next not-yet-filled hire slot, or null once the hire
@@ -346,13 +352,26 @@ function tryHiresAndUpgrades(w, G) {
     }
   }
   ensureLevels(G);
-  // Loop v2 Task 1: 'display' dropped from this list — display capacity is a flat 8 for now (star
-  // levels come in Task 3), so that upgrade is currently inert; don't let the bot spend on it.
-  for (const key of ['oven', 'coffee']) {
+  // 'display' is back in this list. It was dropped while display capacity was a flat 8 "for now
+  // (star levels come in Task 3)"; Task 3 shipped, so the exclusion had quietly made a whole
+  // upgrade permanently unbuyable.
+  for (const key of ['oven', 'coffee', 'display']) {
     const mc = machineUpgradeCost(key, G.machineLevels);
     if (mc != null && G.coins >= mc * 2) {
       const r = buyMachineUpgrade(G, key);
       if (r.ok) { emitWorld(w, { type: 'purchase', kind: 'machine:' + key, at: G.time || 0 }); return; }
+    }
+  }
+  // Worker speed/carry were never purchased by this loop at all -- buyWorkerUpgrade was not even
+  // imported -- so an entire ladder sat unused while coins piled up. Runner first: runners are the
+  // throughput bottleneck between production and the displays guests actually buy from.
+  for (const kind of ['runner', 'cashier', 'cleaner']) {
+    for (const key of ['carry', 'speed']) {
+      const wc = workerUpgradeCost(kind, key, G.staffLevels);
+      if (wc != null && G.coins >= wc * 2) {
+        const r = buyWorkerUpgrade(G, kind, key);
+        if (r.ok) { emitWorld(w, { type: 'purchase', kind: `worker:${kind}:${key}`, at: G.time || 0 }); return; }
+      }
     }
   }
 }

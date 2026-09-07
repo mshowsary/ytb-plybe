@@ -145,10 +145,14 @@ export function createCustomers(G, S, ctx) {
       syncRegularPlan();
       // Task 25: demand responds to productive rooms and useful front-of-house capacity, so a
       // Runner/Cashier hire must refresh pacing even though the built-set size did not change.
-      const demandKey = `${world.built.size}:${G.staff && G.staff.runner | 0}:${G.staff && G.staff.cashier | 0}`;
+      // Star tiers now feed pacing too, so buying one visibly makes the room busier. Without the
+      // level in this key a star purchase would silently leave arrival rate on its old value.
+      const level = cafeLevel(G);
+      const demandKey = `${world.built.size}:${G.staff && G.staff.runner | 0}:${G.staff && G.staff.cashier | 0}:${level}`;
       if (demandKey !== cachedDemandKey) {
         cachedDemandKey = demandKey;
-        interval = spawnInterval(world.built, G.staff); maxC = maxCustomers(world.built, G.staff);
+        interval = spawnInterval(world.built, G.staff, level);
+        maxC = maxCustomers(world.built, G.staff, level);
       }
       const d = G.dayState;
       const mult = d ? spawnMult(d) : 1;

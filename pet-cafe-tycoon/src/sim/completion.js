@@ -17,8 +17,10 @@ export function cafeCompletion(G) {
   &&STAR_IDS.every(id=>(G.stars?.[id]||0)>=3);
  const allContentComplete=roomComplete&&friendsComplete&&renovationsComplete&&masteryComplete&&upgradesComplete;
  return {roomComplete,allContentComplete,
-  title:allContentComplete?'Café collection complete':'Your café is built',
-  next:allContentComplete?'Everything authored is yours. Return for favorite pets and optional weekly cups.'
+  title:allContentComplete?'Every authored tier owned':'Your café is built',
+  // The upgrade ladders continue past the authored tiers, so this is a milestone rather than an
+  // ending. The old copy ("Everything authored is yours") told players the game was over.
+  next:allContentComplete?'Your café keeps growing: stars, staff and machines all go further.'
    :!friendsComplete?'Optional: welcome every regular and grow your friendships.'
    :!renovationsComplete?'Optional: make the room your own with renovations.'
    :!masteryComplete?'Optional: master the café menu.'

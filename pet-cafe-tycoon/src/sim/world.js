@@ -137,7 +137,12 @@ export function payZone(w, zoneId, coins, dt) {
 // 6). w.stars is an informal reference to G.stars (set once by game.js/tools/bot.js/tools/
 // strip.js — the same pattern w.rng/w.grid already use), so any caller that never sets it (every
 // pre-Task-3 test) reads every station as tier 1 and gets exactly the old, unmultiplied speed.
-function starMult(w, id) { return ((w.stars && w.stars[id]) || 1) >= 2 ? 1.5 : 1; }
+function starMult(w, id) {
+  const t = ((w.stars && w.stars[id]) || 1);
+  if (t < 2) return 1;
+  if (t <= 3) return 1.5;                              // authored tiers, unchanged
+  return 1.5 + 0.9 * (1 - Math.pow(0.8, t - 3));       // approaches 2.4
+}
 // Once a station's star tier is >= 3 AND it has a second recipe (altProduct set at creation — only
 // oven1/coffee1 do), flip its current product between the base and alt member the instant its
 // finished-goods buffer is genuinely empty and nothing is mid-bake (stock === 0 && timer === 0) —

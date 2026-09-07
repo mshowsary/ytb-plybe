@@ -64,17 +64,20 @@ test('unversioned legacy save migrates to bounded v4 without inventing unlocks o
 
   assert.equal(save.v, CURRENT_SAVE_VERSION);
   assert.equal(save.coins, 777);
-  assert.deepEqual(save.upgrades, { speed: 3, carry: 0, income: 2 });
-  assert.deepEqual(save.staff, { runner: 2, cashier: 1, cleaner: 0, barista: 1 });
+  // The guarantee is that a tampered save cannot invent UNLIMITED power, not that it clamps to a
+  // particular authored tier. Ceilings are far above anything reachable in play (the cost curve is
+  // geometric) but remain bounded, so speed:99 is still refused.
+  assert.deepEqual(save.upgrades, { speed: SAVE_LIMITS.maxUpgradeTier, carry: 0, income: 2 });
+  assert.deepEqual(save.staff, { runner: SAVE_LIMITS.maxStaffPerRole, cashier: 9, cleaner: 0, barista: 4 });
   assert.deepEqual(save.staffLevels, {
-    runner: { speed: 3, carry: 0 }, cashier: { speed: 3 }, cleaner: { speed: 0 },
+    runner: { speed: SAVE_LIMITS.maxWorkerTier, carry: 0 }, cashier: { speed: 7 }, cleaner: { speed: 0 },
   });
-  assert.deepEqual(save.machineLevels, { oven: 3, coffee: 0, display: 2 });
+  assert.deepEqual(save.machineLevels, { oven: 10, coffee: 0, display: 2 });
 
   // z_coffee is deliberately orphaned: the saved set omitted its required z_hire predecessor.
   assert.deepEqual(save.builds.a1, ['z_seats1', 'z_oven2', 'z_register2']);
   assert.deepEqual(save.partial, { z_hire: 200 });
-  assert.deepEqual(save.stars, { oven1: 3 });
+  assert.deepEqual(save.stars, { oven1: SAVE_LIMITS.maxStarTier });
 
   // Phase/_ended are derived from authoritative bounded time rather than trusted from JSON.
   assert.deepEqual(save.dayState, { day: 3, t: 70, phase: 'rush' });

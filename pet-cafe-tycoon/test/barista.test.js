@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BARISTA, baristaHireState, baristaDecision, baristaRoleSummary } from '../src/sim/barista.js';
+import { STAFF } from '../src/sim/economy.js';
 
 function world({ beans = 20, machineStock = 0, barStock = 0, barCapacity = 8, pantry = true, product = 'coffee' } = {}) {
   const stations = new Map();
@@ -20,7 +21,10 @@ test('barista is a later coffee unlock, not an early Day-3 staff purchase', () =
   assert.equal(baristaHireState(5, new Set(), 9999, 0).reason, 'coffee');
   assert.equal(baristaHireState(5, new Set(['z_coffee']), 2200, 0).reason, 'coins');
   assert.equal(baristaHireState(5, new Set(['z_coffee']), 2300, 0).available, true);
-  assert.equal(baristaHireState(8, new Set(['z_coffee']), 9999, 1).reason, 'full');
+  // A second barista is now a real late-game hire, priced from the ladder rather than costs[0].
+  assert.equal(baristaHireState(8, new Set(['z_coffee']), 9999, 1).reason, 'ready');
+  assert.equal(baristaHireState(8, new Set(['z_coffee']), 9999, 1).cost, STAFF.barista.costs[1]);
+  assert.equal(baristaHireState(8, new Set(['z_coffee']), 9999, BARISTA.cap).reason, 'full');
 });
 
 test('barista prioritizes a real Pantry bean top-up before moving drinks', () => {

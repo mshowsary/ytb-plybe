@@ -54,20 +54,55 @@ export const UPGRADES = {
   carry:  { costs: [300, 700, 1500], values: [6, 9, 12, 16] },
   income: { costs: [600, 1400, 3000] },
 };
+
+// ---------------------------------------------------------------------------------------------
+// WHY THE LADDERS CONTINUE
+// Every ladder in this file used to be a fixed array that returned null once exhausted, so the
+// whole economy terminated: sim/completion.js still ships a "Café collection complete" state.
+// Total authored spend is roughly 110k coins, and the headless bot reaches the end on day 12 --
+// which is exactly the wall players describe, and it is a design target, not an accident.
+//
+// The ladders now CONTINUE past their authored tiers instead of ending. Authored tiers are
+// returned verbatim, so days 1-12 stay bit-identical and every balance result already validated
+// against them still holds. Only the previously dead region past the end changes.
+//
+// Costs grow geometrically (an ever-larger goal) while effects approach an asymptote (bounded
+// power). That pairing is what keeps a late café worth investing in without letting the owner
+// outrun the floor they are supposed to be reading.
+export const LADDER_GROWTH = 1.85;
+export function continueLadder(costs, tier, growth = LADDER_GROWTH) {
+  if (tier < costs.length) return costs[tier];
+  const last = costs[costs.length - 1];
+  return Math.round(last * Math.pow(growth, tier - costs.length + 1) / 10) * 10;
+}
+// Approaches authoredValue(authoredTiers) + span without reaching it, so tier 40 beats tier 12
+// by a visible but bounded margin.
+function asymptote(tier, authoredTiers, authoredValue, span, decay) {
+  if (tier <= authoredTiers) return authoredValue(tier);
+  return authoredValue(authoredTiers) + span * (1 - Math.pow(decay, tier - authoredTiers));
+}
 export const BASE_SPEED = 4.6;
-export const playerSpeed = up => BASE_SPEED * (1 + 0.15 * (up.speed | 0));
-export const carryCap = up => UPGRADES.carry.values[up.carry | 0];
+// Authored 1 + 0.15t through tier 3 (= 1.45); past that it climbs toward 1.85 and stops. An owner
+// who outruns their own café stops being able to read the floor.
+export const playerSpeed = up =>
+  BASE_SPEED * asymptote(up.speed | 0, 3, t => 1 + 0.15 * t, 0.40, 0.86);
+// Carry is a capacity, so a flat +4 per tier stays legible where a curve would not.
+export const carryCap = up => {
+  const t = up.carry | 0, v = UPGRADES.carry.values;
+  return t < v.length ? v[t] : v[v.length - 1] + 4 * (t - v.length + 1);
+};
 export function incomeMult(up, boosts, now) {
   const x2 = boosts && boosts.x2Until > now ? 2 : 1;
-  return (1 + 0.2 * (up.income | 0)) * x2;
+  // Authored 1 + 0.2t through tier 3 (= 1.6); past that toward 2.2. Inflation beyond that outpaces
+  // every cost curve here and turns coins back into a meaningless number.
+  return asymptote(up.income | 0, 3, t => 1 + 0.2 * t, 0.60, 0.85) * x2;
 }
 export function salePrice(key, up, boosts, seated, now, tipMult = 1) {
   return Math.round(PRODUCTS[key].price * incomeMult(up, boosts, now) * (seated ? 2.0 : 1) * tipMult);
 }
 export function upgradeCost(key, up) {
-  const t = up[key] | 0;
-  const c = UPGRADES[key].costs;
-  return t < c.length ? c[t] : null;
+  const cfg = UPGRADES[key];
+  return cfg ? continueLadder(cfg.costs, up[key] | 0) : null;
 }
 
 // Task 25 supported demand model. The Desk itself adds ZERO traffic: arrivals rise only when the
@@ -82,15 +117,29 @@ function productiveLines(builtSet) {
 function usefulFrontCapacity(staff = {}) {
   return Math.min(2, Math.max(0, (staff.runner | 0) + (staff.cashier | 0)));
 }
-export function spawnInterval(builtSet, staff = {}) {
+// A fully built café ran 5 workers against a hard ceiling of 6 guests arriving no faster than one
+// per 4.3s. Being overwhelmed was therefore not merely unlikely, it was arithmetically impossible,
+// which is why a finished café feels like a solved puzzle rather than a busy shop.
+//
+// `level` is cafeLevel(state): the sum of station star tiers, so pressure tracks the same
+// investment the player is making. Callers that omit it get exactly the old numbers, which keeps
+// every existing test and experiment tool valid.
+export const CROWD_FLOOR_INTERVAL = 2.2;   // fastest sustained arrival, ~27 guests/minute
+export const CROWD_CEILING = 14;           // most guests on the floor at once
+export function spawnInterval(builtSet, staff = {}, level = 0) {
   const lines = productiveLines(builtSet);
   const usefulStaff = usefulFrontCapacity(staff);
-  return Math.max(4.3, 7.5 - 0.65 * (lines - 1) - 0.35 * usefulStaff);
+  const authored = Math.max(4.3, 7.5 - 0.65 * (lines - 1) - 0.35 * usefulStaff);
+  if (!(level > 8)) return authored;
+  // Past the authored build-out the room keeps getting busier, approaching the floor.
+  return Math.max(CROWD_FLOOR_INTERVAL, authored - 0.085 * (level - 8));
 }
-export function maxCustomers(builtSet, staff = {}) {
+export function maxCustomers(builtSet, staff = {}, level = 0) {
   const lines = productiveLines(builtSet);
   const usefulStaff = usefulFrontCapacity(staff);
-  return Math.min(6, 4 + (lines >= 3 ? 1 : 0) + (usefulStaff >= 2 ? 1 : 0));
+  const authored = Math.min(6, 4 + (lines >= 3 ? 1 : 0) + (usefulStaff >= 2 ? 1 : 0));
+  if (!(level > 8)) return authored;
+  return Math.min(CROWD_CEILING, authored + Math.floor((level - 8) / 5));
 }
 
 // Task 25: Task 24 measured the first Runner as the earliest useful automation because empty-display
@@ -98,10 +147,10 @@ export function maxCustomers(builtSet, staff = {}) {
 // other worker keep their existing prices, so the candidate creates an early relief moment without
 // flattening the later staffing economy.
 export const STAFF = {
-  runner:  { costs: [150, 2800], speed: 2.8, carry: 6 },
-  cashier: { costs: [1550], speed: 2.2 },
-  cleaner: { costs: [1350], speed: 2.2 },
-  barista: { costs: [2300], speed: 2.4, carry: 4 },
+  runner:  { costs: [150, 2800, 5400, 9600], speed: 2.8, carry: 6 },
+  cashier: { costs: [1550, 4200], speed: 2.2 },
+  cleaner: { costs: [1350, 3600], speed: 2.2 },
+  barista: { costs: [2300, 6000], speed: 2.4, carry: 4 },
 };
 export const REGISTER_RATE = { owner: 0.6, cashierBase: 1.0 };
 export function hireCost(kind, staffCounts) {
@@ -130,8 +179,13 @@ export const WORKER_UPGRADES = { speed: [300, 700, 1500], carry: [250, 600, 1300
 export const MACHINE_UPGRADES = { oven: [400, 900, 1800], coffee: [400, 900, 1800], display: [300, 700, 1500] };
 export const RUNNER_CARRY_LEVELS = [6, 9, 12, 16];
 export const DISPLAY_CAP_LEVELS = [12, 16, 20, 24];
-export function machineSpeedMult(machineLevels, key) { return 1 + 0.25 * (((machineLevels && machineLevels[key]) | 0)); }
-export function workerSpeedMult(staffLevels, kind) { return 1 + 0.2 * (((staffLevels && staffLevels[kind] && staffLevels[kind].speed) | 0)); }
+export function machineSpeedMult(machineLevels, key) {
+  return asymptote(((machineLevels && machineLevels[key]) | 0), 3, t => 1 + 0.25 * t, 0.70, 0.84);
+}
+export function workerSpeedMult(staffLevels, kind) {
+  const t = ((staffLevels && staffLevels[kind] && staffLevels[kind].speed) | 0);
+  return asymptote(t, 3, x => 1 + 0.2 * x, 0.55, 0.85);
+}
 
 const DEFAULT_STAFF_LEVELS = () => ({ runner: { speed: 0, carry: 0 }, cashier: { speed: 0 }, cleaner: { speed: 0 } });
 const DEFAULT_MACHINE_LEVELS = () => ({ oven: 0, coffee: 0, display: 0 });
@@ -142,15 +196,12 @@ export function ensureLevels(state) {
 export function workerUpgradeCost(kind, key, staffLevels) {
   const levels = staffLevels && staffLevels[kind];
   if (!levels || !(key in levels)) return null;
-  const costs = WORKER_UPGRADES[key];
-  const tier = levels[key] | 0;
-  return tier < costs.length ? costs[tier] : null;
+  return continueLadder(WORKER_UPGRADES[key], levels[key] | 0);
 }
 export function machineUpgradeCost(key, machineLevels) {
   const costs = MACHINE_UPGRADES[key];
   if (!costs) return null;
-  const tier = (machineLevels && machineLevels[key]) | 0;
-  return tier < costs.length ? costs[tier] : null;
+  return continueLadder(costs, (machineLevels && machineLevels[key]) | 0);
 }
 export function buyWorkerUpgrade(state, kind, key) {
   ensureLevels(state);
@@ -183,9 +234,18 @@ export function starCost(area, stationId, targetTier) {
 }
 export function nextStarCost(area, stationId, currentTier) {
   const t = (currentTier | 0) || 1;
-  return t >= 3 ? null : starCost(area, stationId, t + 1);
+  if (t < 3) return starCost(area, stationId, t + 1);
+  // A maxed station used to stop being an investment target entirely. The ladder continues from
+  // the authored tier-3 price so late coins always have somewhere to go.
+  const base = starCost(area, stationId, 3);
+  return base == null ? null : Math.round(base * Math.pow(1.8, t - 2) / 10) * 10;
 }
+// Authored through tier 3; +4 slots per tier after that.
 export const DISPLAY_STAR_CAP = { 1: 8, 2: 12, 3: 16 };
+export function displayStarCap(tier) {
+  const t = Math.max(1, tier | 0);
+  return t <= 3 ? DISPLAY_STAR_CAP[t] : 16 + 4 * (t - 3);
+}
 export function ensureStars(state, world) {
   if (!state.stars) state.stars = {};
   for (const id of STAR_IDS) {
@@ -237,6 +297,6 @@ export function buyStar(state, world, stationId) {
   const tier = cur + 1;
   state.stars[stationId] = tier;
   const st = world.stations.get(stationId);
-  if (st && st.type === 'display') st.capacity = DISPLAY_STAR_CAP[tier] || st.capacity;
+  if (st && st.type === 'display') st.capacity = displayStarCap(tier) || st.capacity;
   return { ok: true, cost, tier };
 }

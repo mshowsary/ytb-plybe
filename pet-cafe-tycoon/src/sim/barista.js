@@ -1,7 +1,7 @@
 // Barista role contract. The worker owns only the coffee lane: bean top-ups + moving finished
 // coffee/latte to the Coffee Bar. It never services ovens, cupcakes, cookies, smoothies, registers
 // or tables, preserving the Runner's broader cross-product value.
-import { familyOf, STAFF } from './economy.js';
+import { familyOf, STAFF, hireCost } from './economy.js';
 
 export const BARISTA = Object.freeze({
   unlockDay: 5,
@@ -19,10 +19,14 @@ function builtHas(built, id) {
 
 export function baristaHireState(day, built, coins = 0, count = 0) {
   const coffeeBuilt = builtHas(built, 'z_coffee');
-  if ((count | 0) >= BARISTA.cap) return { unlocked: true, available: false, reason: 'full', cost: null };
-  if (!coffeeBuilt) return { unlocked: false, available: false, reason: 'coffee', cost: BARISTA.cost };
-  if ((day | 0) < BARISTA.unlockDay) return { unlocked: false, available: false, reason: 'day', cost: BARISTA.cost };
-  return { unlocked: true, available: Number(coins) >= BARISTA.cost, reason: Number(coins) >= BARISTA.cost ? 'ready' : 'coins', cost: BARISTA.cost };
+  // Price the NEXT barista rather than always the first. A second barista is now hireable, and
+  // quoting costs[0] for it would have charged 2300 for a 6000-coin hire.
+  const cost = hireCost('barista', { barista: count | 0 });
+  if (cost == null) return { unlocked: true, available: false, reason: 'full', cost: null };
+  if (!coffeeBuilt) return { unlocked: false, available: false, reason: 'coffee', cost };
+  if ((day | 0) < BARISTA.unlockDay) return { unlocked: false, available: false, reason: 'day', cost };
+  const affordable = Number(coins) >= cost;
+  return { unlocked: true, available: affordable, reason: affordable ? 'ready' : 'coins', cost };
 }
 
 export function baristaLane(world) {

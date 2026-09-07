@@ -18,6 +18,22 @@ export const SAVE_LIMITS = Object.freeze({
   maxCounter: 1_000_000_000,
   maxShiftOutcomes: 500,
   maxShiftEarned: 2_000_000,
+
+  // Progression ceilings for restore. These used to be the authored array lengths, which was fine
+  // while the ladders ended there -- but the ladders now continue, so clamping to the array length
+  // would silently demote a player's real progress on every load: a ★5 oven would come back as ★3
+  // and the coins spent on it would be gone. That is a trust-destroying data-loss bug, not a test
+  // detail.
+  //
+  // They remain BOUNDED because restore is an untrusted input: a tampered save must not be able to
+  // invent unlimited power. The numbers are far above anything reachable in play -- the cost curves
+  // are geometric, so a tier-20 speed upgrade already prices at roughly 2e8 coins, or ~100,000 days
+  // of income -- which makes these a safety rail rather than a design limit.
+  maxUpgradeTier: 50,
+  maxStaffPerRole: 12,
+  maxWorkerTier: 50,
+  maxMachineTier: 50,
+  maxStarTier: 30,
 });
 
 const BAD_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
@@ -131,14 +147,14 @@ function normalizeDay(raw) {
 function normalizeUpgrades(raw) {
   const source = isRecord(raw.upgrades) ? raw.upgrades : (isRecord(raw.up) ? raw.up : {});
   const out = {};
-  for (const [key, def] of Object.entries(UPGRADES)) out[key] = clampInt(source[key], 0, def.costs.length, 0);
+  for (const key of Object.keys(UPGRADES)) out[key] = clampInt(source[key], 0, SAVE_LIMITS.maxUpgradeTier, 0);
   return out;
 }
 
 function normalizeStaff(raw) {
   const source = isRecord(raw.staff) ? raw.staff : {};
   const out = {};
-  for (const [key, def] of Object.entries(STAFF)) out[key] = clampInt(source[key], 0, def.costs.length, 0);
+  for (const key of Object.keys(STAFF)) out[key] = clampInt(source[key], 0, SAVE_LIMITS.maxStaffPerRole, 0);
   return out;
 }
 
@@ -151,16 +167,16 @@ function normalizeLevels(raw) {
   return {
     staffLevels: {
       runner: {
-        speed: clampInt(runner.speed, 0, WORKER_UPGRADES.speed.length, 0),
-        carry: clampInt(runner.carry, 0, WORKER_UPGRADES.carry.length, 0),
+        speed: clampInt(runner.speed, 0, SAVE_LIMITS.maxWorkerTier, 0),
+        carry: clampInt(runner.carry, 0, SAVE_LIMITS.maxWorkerTier, 0),
       },
-      cashier: { speed: clampInt(cashier.speed, 0, WORKER_UPGRADES.speed.length, 0) },
-      cleaner: { speed: clampInt(cleaner.speed, 0, WORKER_UPGRADES.speed.length, 0) },
+      cashier: { speed: clampInt(cashier.speed, 0, SAVE_LIMITS.maxWorkerTier, 0) },
+      cleaner: { speed: clampInt(cleaner.speed, 0, SAVE_LIMITS.maxWorkerTier, 0) },
     },
     machineLevels: {
-      oven: clampInt(ml.oven, 0, MACHINE_UPGRADES.oven.length, 0),
-      coffee: clampInt(ml.coffee, 0, MACHINE_UPGRADES.coffee.length, 0),
-      display: clampInt(ml.display, 0, MACHINE_UPGRADES.display.length, 0),
+      oven: clampInt(ml.oven, 0, SAVE_LIMITS.maxMachineTier, 0),
+      coffee: clampInt(ml.coffee, 0, SAVE_LIMITS.maxMachineTier, 0),
+      display: clampInt(ml.display, 0, SAVE_LIMITS.maxMachineTier, 0),
     },
   };
 }
@@ -202,7 +218,7 @@ function normalizeStars(raw, area, builtSet) {
       const st = stationById.get(id);
       if (!st || (st.builtBy && !builtSet.has(st.builtBy))) continue;
     }
-    out[id] = clampInt(src[id], 1, 3, 1);
+    out[id] = clampInt(src[id], 1, SAVE_LIMITS.maxStarTier, 1);
   }
   return out;
 }
