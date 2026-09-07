@@ -142,6 +142,10 @@ export function createPet(species, variant = 0) {
     _blinkClock: 0, _nextBlink: 2.5 + ((variant | 0) % 3) * 0.8,
     _trait: createPetTraitMotionState((variant + 1) * 0.29), _traitClock: null, _traitActive: false,
   };
+  // Pets already squash and stretch through the hop path below, and P.update never touches
+  // group.scale, so a caller may scale the group freely. pop() just borrows the hop.
+  P.setBaseScale = s => { group.scale.setScalar(Number(s) > 0 ? Number(s) : 1); };
+  P.pop = () => { P._hop = Math.max(P._hop, 0.34); };
   P.setMood = m => { P._mood = m; bubble.visible = m !== 'none'; bWait.visible = m === 'wait'; bAngry.visible = m === 'angry'; bHappy.visible = m === 'happy'; };
   P.carry = m => { if (P._carried) mouth.remove(P._carried); P._carried = m; if (m) { m.position.set(0, 0, 0); m.scale.setScalar(0.8); mouth.add(m); } };
   P.sit = () => { P._sitting = true; };

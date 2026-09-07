@@ -1,0 +1,56 @@
+name: Pet Cafe Responsive Certification
+
+# Reproduces the Playables / MediaCube technical review: the frame is resized to the smallest
+# supported viewport in both orientations and inspected for UI that overlaps, clips, escapes the
+# frame or blocks gameplay. A regression here is a store rejection, so it gates like a test.
+
+on:
+  push:
+    branches: [chatgpt/pet-cafe-production, 'claude/**']
+    paths:
+      - 'pet-cafe-tycoon/src/**'
+      - 'pet-cafe-tycoon/tools/responsive-audit.js'
+      - '.github/workflows/pet-cafe-responsive-cert.yml'
+  pull_request:
+    paths:
+      - 'pet-cafe-tycoon/src/**'
+      - 'pet-cafe-tycoon/tools/responsive-audit.js'
+  workflow_dispatch:
+
+concurrency:
+  group: pet-cafe-responsive-cert-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  responsive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: pet-cafe-tycoon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: pet-cafe-tycoon/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Responsive certification audit (13 viewports)
+        run: node tools/responsive-audit.js --shots
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: responsive-certification
+          path: |
+            pet-cafe-tycoon/reports-responsive/audit.json
+            pet-cafe-tycoon/shots/responsive/
+          if-no-files-found: warn
+          retention-days: 14

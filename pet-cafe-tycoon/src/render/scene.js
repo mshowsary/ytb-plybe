@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { damp, lerp } from '../core/tween.js';
 import { presentationScheduler } from '../core/presentationScheduler.js';
+import { createPostFX } from './post.js';
 
 const YAW = 35 * Math.PI / 180, PITCH = 52 * Math.PI / 180, FOV = 40;
 
@@ -51,6 +52,7 @@ export function createScene(canvas) {
     renderScale = next;
     renderer.setPixelRatio(basePixelRatio * renderScale);
     renderer.setSize(innerWidth, innerHeight, false);
+    if (S.post) S.post.setSize(innerWidth, innerHeight, basePixelRatio * renderScale);
   }
 
   S.resize = () => {
@@ -64,6 +66,7 @@ export function createScene(canvas) {
     S.dist = want / (2 * Math.tan(FOV * Math.PI / 360) * camera.aspect);
     const size = innerWidth < 700 ? 1024 : 2048;
     if (sun.shadow.mapSize.width !== size) { sun.shadow.mapSize.set(size, size); sun.shadow.map = null; sun.shadow.needsUpdate = true; }
+    if (S.post) S.post.setSize(w, h, basePixelRatio * renderScale);
     place();
   };
 
@@ -84,19 +87,32 @@ export function createScene(canvas) {
   S.follow = (x, z, dt) => { goal.set(x, 0, z); target.x = damp(target.x, goal.x, 6, dt); target.z = damp(target.z, goal.z, 6, dt); place(dt); };
   S.snap = (x, z) => { target.set(x, 0, z); place(); };
 
+  // The post chain tone-maps in its composite, so the renderer must not also do it on the way
+  // into the render target — that would compress highlights twice and flatten every bloom.
+  const post = createPostFX(renderer, scene, camera);
+  S.post = post;
+
   let avgDt = 1 / 60, sampleFrames = 0, cooldownFrames = 0;
   S.noteFrame = dt => {
     avgDt += (dt - avgDt) * 0.035;
     if (cooldownFrames > 0) { cooldownFrames--; return; }
     if (++sampleFrames < 120) return;
     sampleFrames = 0;
-    if (avgDt > 1 / 48 && renderScale > 0.7) { applyRenderScale(renderScale - 0.1); cooldownFrames = 180; }
-    else if (avgDt < 1 / 58 && renderScale < 0.99) { applyRenderScale(renderScale + 0.05); cooldownFrames = 240; }
+    if (avgDt > 1 / 48) {
+      // Shed resolution first (least visible), then bloom. Outlines and grade are the identity of
+      // the look and stay on at every tier: a cheap-looking game is worse than a slightly soft one.
+      if (renderScale > 0.7) { applyRenderScale(renderScale - 0.1); cooldownFrames = 180; }
+      else if (post.bloomEnabled) { post.setBloom(false); cooldownFrames = 300; }
+    } else if (avgDt < 1 / 58) {
+      if (renderScale < 0.99) { applyRenderScale(renderScale + 0.05); cooldownFrames = 240; }
+      else if (!post.bloomEnabled) { post.setBloom(true); cooldownFrames = 420; }
+    }
   };
 
-  S.render = () => renderer.render(scene, camera);
+  S.render = () => post.render();
   S.setQuality = q => {
     renderer.shadowMap.enabled = q !== 'low';
+    post.setBloom(q !== 'low');
     if (q === 'low') applyRenderScale(0.72); else if (q === 'high') applyRenderScale(1);
   };
 

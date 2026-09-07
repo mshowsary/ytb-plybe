@@ -51,7 +51,7 @@ const price = (key, seated) => Math.round(
 let customers = [], staffList = [];
 G.customers = customers;
 let spawnT = 2;
-let cachedBuiltSize = -1, interval = 4, maxC = 6;
+let cachedBuiltSize = "", interval = 4, maxC = 6;
 const spawns = createCustomerSpawnSequence();
 
 function spawnCustomer() {
@@ -187,7 +187,7 @@ let daysToComplete = null, closingAfford = 0;
 function affordableOptionsCount() {
   const coins = G.coins; let n = 0;
   for (const z of (world.activeZoneList || activeZones(world))) if ((z.price - (world.partial[z.id] || 0)) <= coins) n++;
-  for (const kind of ['cashier', 'runner', 'cleaner']) { const c = hireCost(kind, G.staff); if (c != null && c <= coins) n++;
+  for (const kind of ['cashier', 'runner', 'cleaner']) { const c = hireCost(kind, G.staff); if (c != null && c <= coins) n++; }
   for (const id of STAR_IDS) {
     const st = world.stations.get(id); if (!st || !st.active) continue;
     const c = nextStarCost(world.area, id, (G.stars && G.stars[id]) || 1); if (c != null && c <= coins) n++;
@@ -200,8 +200,14 @@ let t = 0;
 while (G.dayState.day <= MAX_DAYS) {
   G.time = t;
   G.serviceStreak.t = Math.max(0, G.serviceStreak.t - DT);
-  if (world.built.size !== cachedBuiltSize) {
-    cachedBuiltSize = world.built.size; interval = spawnInterval(world.built); maxC = maxCustomers(world.built);
+  // Mirror the live pacing key from src/systems/customers.js: built set, front-of-house staff and
+  // café level. Keying on built.size alone made the bot blind to every star purchase.
+  const paceKey = `${world.built.size}:${G.staff.runner | 0}:${G.staff.cashier | 0}:${cafeLevel(G)}`;
+  if (paceKey !== cachedBuiltSize) {
+    cachedBuiltSize = paceKey;
+    const lvl = cafeLevel(G);
+    interval = spawnInterval(world.built, G.staff, lvl);
+    maxC = maxCustomers(world.built, G.staff, lvl);
   }
   const mult = spawnMult(G.dayState);
   const effMaxC = maxC + capBonus(G.dayState) + Math.min(3, Math.floor(cafeLevel(G) / 5));
@@ -251,7 +257,13 @@ while (G.dayState.day <= MAX_DAYS) {
     } else if (e.type === 'lost') {
       G.dayStats.lost++; G.serviceStreak = { count: 0, t: 0 };
     } else if (e.type === 'built') dayPurchases.push('built ' + e.zoneId);
-    else if (e.type === 'purchase') dayPurchases.push(e.kind);
+    else if (e.type === 'purchase') {
+      dayPurchases.push(e.kind);
+      // botDecide.js debits G.coins directly for hires, stars, machine and worker upgrades. Only
+      // build payments were ever recorded here, so the ledger was short by the entire value of
+      // every other purchase and its reconciliation gate failed on every single run.
+      if (e.cost > 0) ledger.record('spend', 'purchase:' + e.kind, e.cost, { meta: { kind: e.kind } });
+    }
   }
 
   const dayEvents = stepDay(G.dayState, DT);

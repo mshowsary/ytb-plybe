@@ -58,7 +58,10 @@ test('candidate discounts only its first Runner and preserves the measured histo
 });
 
 test('Task 25 live winner is Desk 300 + first Runner 150 with later hire prices preserved', () => {
-  assert.deepEqual(STAFF.runner.costs, [150, 2800]);
+  // The authored opening prices are the thing this test protects; later entries were added so a
+  // developed café can answer a rush it can now actually face.
+  assert.equal(STAFF.runner.costs[0], 150);
+  assert.equal(STAFF.runner.costs[1], 2800);
   assert.equal(STAFF.cashier.costs[0], 1550);
   assert.equal(STAFF.cleaner.costs[0], 1350);
   assert.equal(hireCost('runner', {runner:0}), 150);

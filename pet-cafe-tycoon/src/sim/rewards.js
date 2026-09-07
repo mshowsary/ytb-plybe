@@ -99,11 +99,27 @@ export function mysteryForDay(day) {
   return { startT: 25 + Math.floor(hash01(d * 23 + 1) * 15), day: d };
 }
 
-export function mysteryCoinsForDay(day, baseline) {
-  const base = Math.max(0, Math.min(2000, baseline | 0));
+// The 500-coin ceiling and the 2000-coin baseline cap were both set while income plateaued around
+// a fully-built café. The upgrade ladders now continue past that point, so a fixed ceiling would
+// shrink to irrelevance as costs climb -- and an optional rewarded offer that is no longer worth a
+// player's attention earns nothing for anybody.
+//
+// The ceiling therefore tracks café level, which is the same investment signal that drives demand,
+// and stays BOUNDED: rewarded value that outruns its own economy just inflates it. Level is
+// optional, so every existing caller and test keeps the authored numbers exactly.
+export const MYSTERY_LEVEL_STEP = 0.055;   // per star tier past the authored build-out
+export const MYSTERY_COINS_CEILING = 2200; // hard stop regardless of level
+export function mysteryCoinsCap(level = 0) {
+  const over = Math.max(0, (level | 0) - 8);
+  return Math.min(MYSTERY_COINS_CEILING, Math.round(MYSTERY_COINS_MAX * (1 + MYSTERY_LEVEL_STEP * over)));
+}
+export function mysteryCoinsForDay(day, baseline, level = 0) {
+  const cap = mysteryCoinsCap(level);
+  // The baseline cap rises with the ceiling so the fraction can actually reach it.
+  const base = Math.max(0, Math.min(Math.round(cap / MYSTERY_COINS_FRACTION), baseline | 0));
   const roll = 0.75 + hash01((day | 0) * 29 + 3) * 0.5; // 0.75–1.25 variance
   const raw = Math.round(base * MYSTERY_COINS_FRACTION * roll);
-  return Math.max(MYSTERY_COINS_MIN, Math.min(MYSTERY_COINS_MAX, raw));
+  return Math.max(MYSTERY_COINS_MIN, Math.min(cap, raw));
 }
 
 // Reward pick: deterministic per day so a reload mid-offer cannot reroll the prize.

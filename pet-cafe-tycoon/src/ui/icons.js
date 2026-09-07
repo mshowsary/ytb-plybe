@@ -97,6 +97,25 @@ export function sunIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.2" fill="#FFB300"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.2 2.2M16.9 16.9l2.2 2.2M4.9 19.1l2.2-2.2M16.9 7.1l2.2-2.2" stroke="#FFB300" stroke-width="2.2" stroke-linecap="round"/></svg>';
 }
 
+// Sunrise and sunset complete the day-phase set (sunIcon and moonIcon already exist), so the day
+// pill can show WHEN it is instead of spelling it out.
+export function sunriseIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18h16" stroke="#E9954A" stroke-width="2.2" stroke-linecap="round"/>' +
+    '<path d="M12 5v3M5.5 8.5l2 2M18.5 8.5l-2 2" stroke="#FFB300" stroke-width="2" stroke-linecap="round"/>' +
+    '<path d="M6.5 18a5.5 5.5 0 0 1 11 0z" fill="#FFC154"/></svg>';
+}
+export function sunsetIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18h16" stroke="#C4643C" stroke-width="2.2" stroke-linecap="round"/>' +
+    '<path d="M12 11V8M5.5 13.5l2-2M18.5 13.5l-2-2" stroke="#E9954A" stroke-width="2" stroke-linecap="round"/>' +
+    '<path d="M6.5 18a5.5 5.5 0 0 1 11 0z" fill="#F0925E"/></svg>';
+}
+// A rising bar-chart glyph for the service-streak contract, which has no natural object.
+export function streakIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="14" width="4" height="6" rx="1.2" fill="#8B7CF6"/>' +
+    '<rect x="10" y="10" width="4" height="10" rx="1.2" fill="#9C8FF0"/>' +
+    '<rect x="16" y="5" width="4" height="15" rx="1.2" fill="#B7ACFB"/></svg>';
+}
+
 export function bellIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a4 4 0 0 0-4 4v5l-2 3h12l-2-3V7a4 4 0 0 0-4-4z" fill="#FFA000"/><path d="M10 19a2 2 0 0 0 4 0" fill="none" stroke="#FFA000" stroke-width="2" stroke-linecap="round"/><path d="M19 8a6 6 0 0 1 2 4M5 8a6 6 0 0 0-2 4" stroke="#FFB300" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg>';
 }

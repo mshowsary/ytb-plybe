@@ -1,4 +1,5 @@
 // src/systems/rewardsSystem.js — manages the Pawsome Gift Calendar, Mystery Paw Gift, and Golden Hour atmosphere.
+import { cafeLevel } from '../sim/economy.js';
 import {
   dayKeyFor, calendarSlotIndex, calendarRewardFor, calendarIsFinalSlot,
   advanceCalendar, CALENDAR_LENGTH, CALENDAR_REWARDS,
@@ -343,7 +344,7 @@ export function createRewardsSystem(G, S, platform) {
 
     const kind = mysteryRewardKindForDay(day, G.golden ? G.golden.active : false);
     if (kind === 'coins') {
-      const amount = mysteryCoinsForDay(day, G.dayStats.earned || 200);
+      const amount = mysteryCoinsForDay(day, G.dayStats.earned || 200, cafeLevel(G));
       G.coins += amount;
       G.hud?.setCoins?.(G.coins);
       G.hud?.bump?.();

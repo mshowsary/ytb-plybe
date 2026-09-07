@@ -128,7 +128,17 @@ export function createHuman(variant = {}, role = 'customer') {
   const bAngry = new THREE.Mesh(bAngryGeo(), mat); bAngry.castShadow = false; bAngry.receiveShadow = true;
   bubble.add(bWait, bAngry);
 
-  const H = { group, hand, stack, height: 2.04, _t: 0, _idleT: Math.random() * 6, _face: 0, _carryN: 0, _armBase: 0, _sitting: false, _tapT: 0 };
+  const H = {
+    group, hand, stack, height: 2.04, _t: 0, _idleT: Math.random() * 6, _face: 0, _carryN: 0,
+    _armBase: 0, _sitting: false, _tapT: 0,
+    // Squash and stretch. The rig already swings arms and legs, but nothing about it had WEIGHT:
+    // a character reached full speed and stopped dead at the same silhouette. One spring driven by
+    // acceleration covers both -- stretch when pushing off, squash when planting -- and it is the
+    // single cheapest thing that makes a character read as a body rather than a sliding prop.
+    _sq: 0, _sqV: 0, _lastSp: 0, _base: 1, _stepPhase: 0, onStep: null,
+  };
+  H.setBaseScale = s => { H._base = Number(s) > 0 ? Number(s) : 1; };
+  H.pop = (amount = 0.18) => { H._sqV += amount; };
   H.setCarry = n => { H._carryN = n | 0; };
   H.setMood = m => { bubble.visible = m !== 'none'; bWait.visible = m === 'wait'; bAngry.visible = m === 'angry'; };
   H.tap = () => { H._tapT = 0.2; };
@@ -151,6 +161,23 @@ export function createHuman(variant = {}, role = 'customer') {
       H._tapT = Math.max(0, H._tapT - dt);
       const k = Math.sin((1 - H._tapT / 0.2) * Math.PI);
       armR.rotation.x -= k * 0.6;
+    }
+
+    // Acceleration drives the spring; the spring drives the silhouette.
+    const accel = (sp - H._lastSp) / Math.max(dt, 1e-4);
+    H._lastSp = sp;
+    H._sqV += Math.max(-0.9, Math.min(0.9, accel * 0.0062));
+    H._sqV -= H._sq * 38 * dt;            // restoring force
+    H._sqV *= Math.exp(-7.5 * dt);        // damping, so it settles rather than wobbling
+    H._sq = Math.max(-0.16, Math.min(0.16, H._sq + H._sqV * dt));
+    const sy = 1 + H._sq, sxz = 1 - H._sq * 0.5;
+    group.scale.set(H._base * sxz, H._base * sy, H._base * sxz);
+
+    // Footfall: the leg swing crosses zero twice a stride, which is exactly when a foot lands.
+    if (moving && H.onStep) {
+      const phase = Math.sin(H._t);
+      if (H._stepPhase <= 0 && phase > 0) H.onStep(group.position);
+      H._stepPhase = phase;
     }
   };
   return H;

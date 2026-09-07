@@ -29,6 +29,7 @@ import { createCarry } from './sim/carry.js';
 import { createMaterialCheckpoint } from './sim/checkpoint.js';
 import { createInput } from './core/input.js';
 import { buildStatic, itemFor } from './render/props.js';
+import { buildEnvironment } from './render/environment.js';
 import { createAmbience } from './render/ambience.js';
 import { createRenovationDecor } from './render/renovation.js';
 import { createOwner } from './render/owner.js';
@@ -96,6 +97,8 @@ export function createGame(S, area, els, platform = null) {
   const world = createWorld(area); G.world = world; G.goal = chooseCareerGoal(1, G.meta, G); world.dayState = G.dayState; world.stars = G.stars;
   const scene = S.scene;
   const staticGroup = buildStatic(area); scene.add(staticGroup);
+  // The world past the café walls. Static, merged, never interacted with.
+  scene.add(buildEnvironment(area));
   const ambience = createAmbience(area); scene.add(ambience.group);
   const renovationDecor = createRenovationDecor(area); scene.add(renovationDecor.group);
   G.awning = staticGroup.awning; let lastAwningSet = -1;
@@ -136,6 +139,8 @@ export function createGame(S, area, els, platform = null) {
   syncReputationPresentation(); syncPetBookPresentation(); syncCareerPresentation();
 
   const owner = createOwner(); scene.add(owner.group); G.owner = owner;
+  // Footfalls: human.js signals each time a foot plants, fx turns that into a small puff.
+  owner.H.onStep = pos => fx.dust(pos.x, pos.z, 1.4);
   const P = { x: 0, z: 2.5, vx: 0, vz: 0 }; owner.group.position.set(P.x, 0, P.z); S.snap(P.x, P.z); G.P = P;
   G.setMove = (x, z) => { G._force = (x == null) ? null : { x, z }; }; G.debugNextTarget = () => jobTarget(world, G);
   G.botDecide = () => { G.carryKey = owner.items.length ? owner.items[0].userData.product : null; G.carryCount = owner.items.length; return decide(world, G); };
@@ -195,7 +200,9 @@ export function createGame(S, area, els, platform = null) {
       else if (e.type === 'dayEnd') openDaySummary();
     }
     hud.setDay(G.dayState.day, G.dayState.phase, phaseFrac(G.dayState)); hud.setContract(G.goal, G.dayStats, G.dayState.day);
-    hud.setGoal(G.goal ? `${careerGoalLabel(G.goal)} · ${careerGoalProgress(G.goal, G.dayStats)}/${G.goal.target}` : null);
+    // Pass the goal itself, not only its sentence: the pill renders a glyph plus the numeral
+    // rather than "Rival · Serve 24". The text stays as the fallback for any unmapped kind.
+    hud.setGoal(G.goal ? `${careerGoalLabel(G.goal)} · ${careerGoalProgress(G.goal, G.dayStats)}/${G.goal.target}` : null, G.goal || null);
     const setIdx = Math.min(2, Math.floor(cafeLevel(G) / 5)); if (setIdx !== lastAwningSet) { lastAwningSet = setIdx; G.awning && G.awning.setSet(setIdx); }
 
     if (world.events.some(e => e.type === 'built') && cafeCompletion(G).roomComplete) {

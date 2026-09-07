@@ -177,6 +177,7 @@ export function createStaff(G, S, ctx) {
         const r = rec.get(s); if (!r) continue;
         const safeDt = Math.max(dt, 1e-4);
         const vx = (s.x - r.px) / safeDt, vz = (s.z - r.pz) / safeDt;
+        if (!r.human.onStep) r.human.onStep = pos => fx.dust(pos.x, pos.z, 0.8);
         r.human.group.position.set(s.x, 0, s.z); r.human.update(dt, vx, vz);
         r.px = s.x; r.pz = s.z;
         if (s.kind === 'runner') {

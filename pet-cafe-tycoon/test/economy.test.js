@@ -21,7 +21,16 @@ test('upgrades scale', () => {
   assert.ok(Math.abs(playerSpeed({ ...up0, speed: 2 }) - 4.6 * 1.3) < 1e-9);
   assert.equal(carryCap({ ...up0, carry: 3 }), 16);
   assert.equal(salePrice('cupcake', { ...up0, income: 1 }, {}, false, 0), Math.round(13 * 1.2));
-  assert.equal(upgradeCost('speed', up0), 400); assert.equal(upgradeCost('speed', { ...up0, speed: 3 }), null);
+  assert.equal(upgradeCost('speed', up0), 400);
+  // The ladder no longer terminates: past the authored tiers it continues geometrically, so a
+  // developed café always has somewhere to put coins. Effects stay bounded (asserted below).
+  const t3 = upgradeCost('speed', { ...up0, speed: 3 });
+  const t4 = upgradeCost('speed', { ...up0, speed: 4 });
+  assert.ok(t3 > 1800, 'tier 3 continues past the last authored cost');
+  assert.ok(t4 > t3, 'costs keep rising');
+  // Power approaches a ceiling rather than growing without limit.
+  assert.ok(playerSpeed({ ...up0, speed: 99 }) < 4.6 * 1.9);
+  assert.ok(playerSpeed({ ...up0, speed: 8 }) > playerSpeed({ ...up0, speed: 4 }));
 });
 test('boost and seating', () => {
   assert.equal(incomeMult(up0, { x2Until: 1000 }, 500), 2);
@@ -53,8 +62,13 @@ test('buyUpgrade deducts coins and refuses when short or maxed', () => {
   assert.equal(r1.ok, true); assert.equal(r1.cost, 400);
   assert.equal(state.coins, 100); assert.equal(state.up.speed, 1);
   const r2 = buyUpgrade(state, 'speed'); assert.equal(r2.ok, false);
+  // Past the authored tiers the purchase now succeeds instead of being refused outright.
   const state2 = { coins: 100000, up: { speed: 3, carry: 0, income: 0 }, staff: { runner: 0, cashier: 0 } };
-  const r3 = buyUpgrade(state2, 'speed'); assert.equal(r3.ok, false); assert.equal(r3.cost, null);
+  const r3 = buyUpgrade(state2, 'speed');
+  assert.equal(r3.ok, true); assert.equal(state2.up.speed, 4);
+  // ...but an unaffordable one is still refused, which is what this test exists to guarantee.
+  const state3 = { coins: 10, up: { speed: 6, carry: 0, income: 0 }, staff: { runner: 0, cashier: 0 } };
+  const r4 = buyUpgrade(state3, 'speed'); assert.equal(r4.ok, false); assert.equal(state3.up.speed, 6);
 });
 test('Task 25 makes only the first Runner an early relief purchase', () => {
   assert.equal(STAFF.runner.costs[0], 150);
@@ -65,7 +79,8 @@ test('Task 25 makes only the first Runner an early relief purchase', () => {
   const h1 = hire(state, 'runner'); assert.equal(h1.ok, true); assert.equal(h1.cost, 150); assert.equal(state.staff.runner, 1);
   const h2 = hire(state, 'runner'); assert.equal(h2.ok, true); assert.equal(h2.cost, 2800); assert.equal(state.staff.runner, 2);
   const h3 = hire(state, 'cashier'); assert.equal(h3.ok, true); assert.equal(h3.cost, 1550); assert.equal(state.staff.cashier, 1);
-  const h4 = hire(state, 'cashier'); assert.equal(h4.ok, false); assert.equal(h4.cost, null);
+  // A second cashier is now hireable — register2 physically exists and used to stand unstaffable.
+  const h4 = hire(state, 'cashier'); assert.equal(h4.ok, true); assert.equal(h4.cost, STAFF.cashier.costs[1]);
   const h5 = hire(state, 'cleaner'); assert.equal(h5.ok, true); assert.equal(h5.cost, 1350);
 });
 test('early Runner is affordable while specialist hires remain savings goals', () => {
@@ -74,9 +89,13 @@ test('early Runner is affordable while specialist hires remain savings goals', (
   assert.ok(hireCost('cleaner', { cleaner: 0 }) > wallet);
   assert.ok(hireCost('cashier', { cashier: 0 }) > wallet);
 });
-test('hireCost returns null past the cost table', () => {
-  assert.equal(hireCost('runner', { runner: 2 }), null);
+test('hireCost quotes each successive hire and still terminates at the end of the table', () => {
+  // Staff ladders are deliberately FINITE and short: unlimited staff would let the café run itself,
+  // which is the opposite of the problem being fixed. They are simply longer than one entry now.
+  assert.equal(hireCost('runner', { runner: 2 }), STAFF.runner.costs[2]);
   assert.equal(hireCost('cashier', { cashier: 0 }), STAFF.cashier.costs[0]);
+  assert.equal(hireCost('runner', { runner: STAFF.runner.costs.length }), null);
+  assert.equal(hireCost('cashier', { cashier: STAFF.cashier.costs.length }), null);
 });
 
 function freshState(coins) {
@@ -98,8 +117,13 @@ test('buyWorkerUpgrade: runner Speed deducts coins and advances the tier; refuse
   const r1 = buyWorkerUpgrade(s, 'runner', 'speed');
   assert.equal(r1.ok, true); assert.equal(r1.cost, 300); assert.equal(s.coins, 0); assert.equal(s.staffLevels.runner.speed, 1);
   const r2 = buyWorkerUpgrade(s, 'runner', 'speed'); assert.equal(r2.ok, false); assert.equal(r2.cost, 700);
+  // Past the authored tiers the ladder continues, so this now succeeds.
   const s2 = freshState(100000); s2.staffLevels.runner.speed = 3;
-  const r3 = buyWorkerUpgrade(s2, 'runner', 'speed'); assert.equal(r3.ok, false); assert.equal(r3.cost, null);
+  const r3 = buyWorkerUpgrade(s2, 'runner', 'speed');
+  assert.equal(r3.ok, true); assert.equal(s2.staffLevels.runner.speed, 4);
+  // An unknown row is still refused rather than crashing.
+  const s3 = freshState(100000);
+  assert.equal(buyWorkerUpgrade(s3, 'cleaner', 'carry').ok, false);
 });
 test('buyWorkerUpgrade: cashier/cleaner have no Carry row — refused, not a crash', () => {
   const s = freshState(100000);
@@ -120,7 +144,9 @@ test('after three Carry purchases (tier 3), a runner carries up to 16', () => {
   const s = freshState(250 + 600 + 1300);
   for (let i = 0; i < 3; i++) assert.equal(buyWorkerUpgrade(s, 'runner', 'carry').ok, true);
   assert.equal(s.staffLevels.runner.carry, 3);
-  assert.equal(workerUpgradeCost('runner', 'carry', s.staffLevels), null);
+  // Carry keeps climbing past tier 3 (+4 slots a tier); the authored tier-3 value of 16 is what
+  // this test actually guards, and it is unchanged.
+  assert.ok(workerUpgradeCost('runner', 'carry', s.staffLevels) > 1300);
   const w = createWorld(AREA1, { built: ['z_seats1', 'z_oven2', 'z_register2', 'z_coffee'] });
   const oven = w.stations.get('oven1'); oven.stock = 20;
   const runner = createStaff('runner', oven.front);
@@ -165,6 +191,10 @@ test('buyMachineUpgrade: Display capacity tier costs/values still resolve', () =
 test('buyMachineUpgrade refuses when unaffordable or maxed', () => {
   const s = freshState(100);
   const r1 = buyMachineUpgrade(s, 'coffee'); assert.equal(r1.ok, false); assert.equal(r1.cost, 400);
+  // Past the authored tiers this now succeeds; the unaffordable case above is the real guarantee.
   const s2 = freshState(100000); s2.machineLevels.coffee = 3;
-  const r2 = buyMachineUpgrade(s2, 'coffee'); assert.equal(r2.ok, false); assert.equal(r2.cost, null);
+  const r2 = buyMachineUpgrade(s2, 'coffee');
+  assert.equal(r2.ok, true); assert.equal(s2.machineLevels.coffee, 4);
+  const s3 = freshState(10); s3.machineLevels.coffee = 6;
+  assert.equal(buyMachineUpgrade(s3, 'coffee').ok, false);
 });

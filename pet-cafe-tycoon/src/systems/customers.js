@@ -26,12 +26,16 @@ import { createPetMoment } from '../ui/petMoments.js';
 // any re-plan/rescue discontinuity into a short catch-up instead of exposing it as a visible warp.
 const GUEST_VISUAL_MAX_SPEED = 2.8;
 
+let _bubbleSeq = 0;
 function makeBubble(els) {
-  const wrap = document.createElement('div'); wrap.className = 'wish hidden';
+  // The bubble and its patience bar share a label group so src/ui/labelLayout.js can move the pair
+  // as one unit when it declutters the screen; solved separately they would drift apart.
+  const group = 'b' + (++_bubbleSeq);
+  const wrap = document.createElement('div'); wrap.className = 'wish hidden'; wrap.dataset.labelGroup = group;
   const icon1 = document.createElement('span'); icon1.className = 'wishIcon';
   const icon2 = document.createElement('span'); icon2.className = 'wishIcon hidden'; icon2.innerHTML = treatIcon();
   wrap.append(icon1, icon2);
-  const bar = document.createElement('div'); bar.className = 'patience hidden';
+  const bar = document.createElement('div'); bar.className = 'patience hidden'; bar.dataset.labelGroup = group;
   const fill = document.createElement('div'); fill.className = 'patienceFill';
   bar.appendChild(fill);
   els.fx.appendChild(wrap); els.fx.appendChild(bar);
@@ -141,10 +145,14 @@ export function createCustomers(G, S, ctx) {
       syncRegularPlan();
       // Task 25: demand responds to productive rooms and useful front-of-house capacity, so a
       // Runner/Cashier hire must refresh pacing even though the built-set size did not change.
-      const demandKey = `${world.built.size}:${G.staff && G.staff.runner | 0}:${G.staff && G.staff.cashier | 0}`;
+      // Star tiers now feed pacing too, so buying one visibly makes the room busier. Without the
+      // level in this key a star purchase would silently leave arrival rate on its old value.
+      const level = cafeLevel(G);
+      const demandKey = `${world.built.size}:${G.staff && G.staff.runner | 0}:${G.staff && G.staff.cashier | 0}:${level}`;
       if (demandKey !== cachedDemandKey) {
         cachedDemandKey = demandKey;
-        interval = spawnInterval(world.built, G.staff); maxC = maxCustomers(world.built, G.staff);
+        interval = spawnInterval(world.built, G.staff, level);
+        maxC = maxCustomers(world.built, G.staff, level);
       }
       const d = G.dayState;
       const mult = d ? spawnMult(d) : 1;
