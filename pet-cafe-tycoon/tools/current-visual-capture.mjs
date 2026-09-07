@@ -38,14 +38,14 @@ try{
   await page.locator('.meta-pawbook').click();await shot('pet-portraits');await page.locator('.meta-book-close').click();
   // Real event path: open the board, host through its button, serve actual guests, collect.
   await page.evaluate(()=>{
-   const G=window.__game,s=G.snapshot();s.dayState={day:8,t:20,phase:'morning',_ended:false};s.meta.socials={};
+   const G=window.__game,s=G.snapshot();s.dayState={day:8,t:20,phase:'morning',_ended:false};s.meta.socials={};s.staff={runner:2,cashier:2,cleaner:1,barista:1};
    if(!G.restore(s))throw new Error('Social fixture restore rejected');
-   for(const id of ['coffee1','barCoffee']) {const st=G.world.stations.get(id);st.stock=st.capacity;if(id==='coffee1')st.beans=60;}
+   for(const st of G.world.stations.values()){if('stock' in st)st.stock=st.capacity||st.buffer||12;if(st.type==='coffee')st.beans=60;}
    G.P.x=-1;G.P.z=2.5;window.__scene.snap(-1,2.5);
   });
   await page.locator('.social-launch').click();await shot('social-invitations');
   await page.locator('.social-choice').filter({hasText:'Purr & Pour'}).locator('.social-host').click();
-  await page.waitForFunction(()=>window.__game.meta.socials.active?.count>0,{},{timeout:70000});
+  await page.waitForFunction(()=>window.__game.meta.socials.active?.count>0,{},{timeout:70000}).catch(async error=>{console.log('SOCIAL_DIAGNOSTIC',JSON.stringify(await page.evaluate(()=>{const G=window.__game;return {social:G.meta.socials,day:G.dayState,staff:G.staffList.map(s=>({kind:s.kind,state:s.state,x:s.x,z:s.z})),customers:G.customers.map(c=>({id:c.id,state:c.state,wish:c.wish,order:c.order,paid:c.paid,x:c.x,z:c.z})),stocks:[...G.world.stations.values()].filter(s=>'stock'in s).map(s=>({id:s.id,stock:s.stock,beans:s.beans}))};})),errors);throw error;});
   const resume=await page.evaluate(()=>{const G=window.__game,s=G.snapshot(),count=s.meta.socials.active.count;return {ok:G.restore(s),before:count,after:G.meta.socials.active?.count};});
   assert.equal(resume.ok,true);assert.equal(resume.after,resume.before,'social progress survives snapshot restore');
   await shot('social-in-progress');
