@@ -44,6 +44,6 @@ test('RETURN still handles the action but cannot charge the wallet', () => {
   system.destroy();
 });
 
-test('lost-sale and dirty-table recovery reasons are permanently zero in the live cost API', () => {
+test('unqualified legacy cost calls remain zero; mature incidents require the policy ledger', () => {
   for (const reason of ['counter','register','bowl','table']) assert.equal(serviceRecoveryCost(reason, 100), 0);
 });

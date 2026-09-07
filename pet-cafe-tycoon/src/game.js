@@ -1,3 +1,5 @@
+import { createGuestCare } from './systems/guestCare.js';
+import { normalizeServicePolicy, prepareServicePolicy, recordOrdinaryServiceShift } from './sim/servicePolicy.js';
 import { normalizeSocials } from './sim/petSocials.js';
 import { createPetSocials } from './systems/petSocials.js';
 import { cafeCompletion } from './sim/completion.js';
@@ -142,13 +144,17 @@ export function createGame(S, area, els, platform = null) {
 
   const stations = createStations(G, S, ctx); const zones = createZones(G, S, ctx); const customers = createCustomers(G, S, ctx); const staff = createStaff(G, S, ctx);
   const visuals = createVisuals(G, S, ctx); const registerCash = createRegisterCash(G, S, ctx); const economyExperience = createEconomyExperience(G, S, ctx, platform);
-  const petSocials = createPetSocials(G, S, ctx); const partyOrders = createPartyOrders(G, S, ctx, platform); const objective = createObjective(G, S, ctx); const intro = createIntro(G, S, ctx);
+  G.meta.servicePolicy = normalizeServicePolicy(G.meta.servicePolicy);
+  const guestCare=createGuestCare(G,ctx); const petSocials = createPetSocials(G, S, ctx); const partyOrders = createPartyOrders(G, S, ctx, platform); const objective = createObjective(G, S, ctx); const intro = createIntro(G, S, ctx);
 
   let careerRefreshT = 0, dayTransitionPromise = null; hud.show();
   G.finishActorStep = () => endActorStep(world);
   G.update = dt => {
     updateInProgress = true;
-    G.time += dt; petSocials.update(); input.update(); stations.update(dt); zones.update(dt);
+    G.time += dt; world.servicePolicyActive = prepareServicePolicy(G);
+    const policy=G.meta.servicePolicy;
+    if(!policy.notice && G.dayState.day>=policy.enabledFrom-1){policy.notice=true;hud.banner('FROM DAY '+policy.enabledFrom+': long waits and dirty-table departures cost coins. Shift cap '+Math.floor(policy.baseline*.08)+'.',6500);G.requestCheckpoint('service-policy-notice');}
+    petSocials.update(); guestCare.update(dt); input.update(); stations.update(dt); zones.update(dt);
     customers.prepare(dt); staff.prepare();
     const barista = G.baristaWorker?.prepare();
     beginActorStep(world, G.customers, G.staffList, barista ? [barista] : []);
@@ -191,6 +197,7 @@ export function createGame(S, area, els, platform = null) {
   };
 
   function openDaySummary() {
+    recordOrdinaryServiceShift(G);
     for (const st of world.stations.values()) if (st.type === 'seat' && st.dirty) cleanSeat(world, st.id);
     const { settlement, fresh } = settleShift(G);
     const completedDay = settlement.day, goal = settlement.goal, goalProgressNow = goal.progress, met = goal.met;
@@ -296,6 +303,7 @@ export function createGame(S, area, els, platform = null) {
       },
       partyOrders: clonePartyOrders(G.meta),
       socials: normalizeSocials(G.meta.socials),
+      servicePolicy: normalizeServicePolicy(G.meta.servicePolicy),
     },
     dayState: { ...G.dayState }, stars: { ...G.stars }, goal: { ...G.goal }, dayStats: { ...G.dayStats },
   });

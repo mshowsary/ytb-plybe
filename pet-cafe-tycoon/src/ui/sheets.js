@@ -107,7 +107,8 @@ function summaryRow(label, value) {
 }
 function renderSummary(model, actions, onClose) {
   const el = shell('summary', `Day ${model.day} ✓`, onClose); const body = document.createElement('div'); body.className = 'cbody';
-  body.append(summaryRow('Earnings', fmt(model.earnings)), summaryRow('Served', model.served));
+  body.append(summaryRow('Gross sales', fmt(model.earnings)), summaryRow('Served', model.served));
+  if(model.serviceFees>0)body.append(summaryRow('Service recovery / refunds', '−'+fmt(model.serviceFees)),summaryRow('Sales less service recovery',fmt(Math.max(0,model.earnings-model.serviceFees))));
   const deductions = (model.serviceFees | 0) + (model.wasteFees | 0);
   body.setAttribute('aria-label', `Earnings ${fmt(model.earnings)} coins. Served ${model.served}. Lost ${model.lost}. Deductions ${fmt(deductions)} coins.`);
   el.append(body, actionButton('sbtn continue', 'CONTINUE', false, () => actions.continue())); return el;

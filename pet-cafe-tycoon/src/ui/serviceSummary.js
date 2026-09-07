@@ -49,7 +49,7 @@ function decorateCard(G, card) {
 
   const model = buildServiceSummaryModel(G && G.dayStats);
   const strip = document.createElement('section'); strip.className = 'service-summary-strip';
-  strip.setAttribute('aria-label', `Service summary. ${model.misses} recovery moments. ${model.lost} guests lost. ${model.returns} return actions. No service fees.`);
+  strip.setAttribute('aria-label', `Service summary. ${model.misses} recovery moments. ${model.lost} guests lost. ${model.returns} return actions. Service recovery ${n(G.dayStats.serviceFees)} coins.`);
 
   const top = document.createElement('div'); top.className = 'service-summary-top';
   const label = document.createElement('span'); label.textContent = 'SERVICE QUALITY';
@@ -62,6 +62,9 @@ function decorateCard(G, card) {
     chip(`${model.lost} left`, model.lost ? 'attn' : 'ok'),
     chip(`${model.misses} recovery ${model.misses === 1 ? 'moment' : 'moments'}`, model.misses ? 'attn' : 'ok'),
   );
+  if (n(G.dayStats.serviceFees)>0) metrics.append(chip('−'+n(G.dayStats.serviceFees)+' service recovery','attn'));
+  const p=G.meta?.servicePolicy;
+  if(p&&p.day===G.dayState.day){const cause=Object.entries(p.causes).sort((a,b)=>b[1]-a[1])[0];if(cause?.[1]>0) model.tip=({table:'Clean tables before guests finish paying.',register:'Staff both registers or reassure guests before patience runs out.',counter:'Assign Runners to empty displays before the rush.',bowl:'Keep pet bowls stocked before the rush.'})[cause[0]];if(p.spent>=Math.floor(p.baseline*.08))metrics.append(chip('Shift recovery cap reached','attn'));}
   if (model.returns > 0) metrics.append(chip(`${model.returns} returned`, 'ok'));
 
   const tip = document.createElement('div'); tip.className = 'service-summary-tip'; tip.textContent = model.tip;

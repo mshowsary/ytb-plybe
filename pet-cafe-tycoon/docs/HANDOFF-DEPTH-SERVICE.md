@@ -1,0 +1,15 @@
+# Depth Delivery A — service consequence slice
+
+Implemented: mature-service policy, financial incident deduplication, dirty-table grace/refund, contextual owner reassurance, service recap. This is PARTIAL Batch 1 plus one Batch 2 action, not Delivery A complete.
+
+- Existing mature saves receive one protected shift and a notice before activation. Early game stays protected until day 8. Policy caps direct recovery at 8% of a frozen ordinary-sales baseline (fallback 700; range 400–2,000). Social shifts are excluded from new baseline history.
+- Actual unpaid shelf/register/bowl abandonment costs 25% of frozen base wish value, clamped 4–18 coins. One financial incident per durable visit ID; bounded by remaining cap and wallet. Zero-valued incidents are consumed, preventing later surprise charges after collecting money.
+- Paid guests blocked only by dirty tables get eight simulated seconds to obtain a clean seat. Actual abandonment then refunds 25% of receipt, max 18. Occupied clean tables do not trigger a cleaning refund. Warning is attached to the waiting guest.
+- Nearby impatient guests expose Reassure. Click and remain within 1.9 world units for 1.25 seconds; regain 20% original patience once. Leaving range, departing guest, pause or sheet cancels.
+- Summary shows service deductions, sales less recovery and the highest-cost cause. Existing economic ledger still observes wallet debits; saved policy tracks individual visit incidents and cap.
+- Canonical snapshot/save/apply normalization includes servicePolicy. Six new focused tests cover safe migration, caps/deduplication/restore, paid receipt refunds, ordinary-only baseline, reassurance and real table-state grace/cleaning recovery. Existing default-cost tests are retained for unqualified legacy calls; new mature behavior has separate assertions.
+
+Remaining Batch 1: complete opening-to-closing wallet reconciliation (sales accrue into register piles, so do not present product sales as immediate wallet collections), policy detail in a persistent help surface, table-anchored warning refinement, integrated attentive/passive comparison. Existing serviceMisses also includes friction moments, so recap calls these recovery moments rather than counting them as financial incidents.
+Remaining Batch 2: service modules/loadout choices, cleaner priority if supported, pet greeting action. Batch 3 story arcs not started. Do not claim the broader money-sink problem solved by fees alone.
+
+Browser harness tools/service-depth-browser.mjs uses a prepared mature café and seeded live guest states, actual Reassure UI, production simulation steps, genuine timeout/refund transitions, duplicate-event and snapshot checks, and a summary screenshot. This is focused integration evidence, not a natural-play balance study. Check its Actions result before claiming browser verification. Preserve 483-test/full-build evidence separately from visual approval. Full release/publisher certification remains separate.

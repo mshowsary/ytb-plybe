@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { serviceRecoveryCost, legacyServiceRecoveryCost, dirtyTablesBlockingSeats } from '../src/sim/serviceQuality.js';
 
-test('Task 23 runtime recovery never deducts banked money', () => {
+test('unqualified legacy recovery API remains protected', () => {
   for (const reason of ['counter', 'register', 'bowl', 'table', 'unknown']) {
     assert.equal(serviceRecoveryCost(reason, 999), 0);
     assert.equal(serviceRecoveryCost(reason, 1), 0);

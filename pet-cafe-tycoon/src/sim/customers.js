@@ -1,3 +1,5 @@
+import { dirtyTablesBlockingSeats } from './serviceQuality.js';
+import { PRODUCTS } from './economy.js';
 import { emitWorld } from './events.js';
 // src/sim/customers.js — pure customer state machine. The sim entity is the HUMAN
 // (their pet is a render-side follower). States:
@@ -361,6 +363,7 @@ export function stepCustomers(list, w, price, dt) {
         const menu=[...w.stations.values()].find(st=>st.active&&st.type==='display'&&familyOf(st.product)===familyOf(c.socialProduct));
         if(menu) c.wish={...c.wish,product:menu.product};
       }
+      c.recoveryQuote = (PRODUCTS[c.wish.product]?.price||8)*(2-c.id%2)+(c.wish.treat?8:0);
       emitWorld(w, { type: 'wish', id: c.id, product: c.wish.product, treat: c.wish.treat });
     }
     // mask 1 (entry lane) while approaching/crossing the door; once truly on the floor, drop to
@@ -509,6 +512,7 @@ export function stepCustomers(list, w, price, dt) {
             // already be at rest — but re-affirming it here costs nothing and removes any doubt.
             c.mover.hasTarget = false;
             if (seat) { seat.occupied = true; c.seat = seat; c.seatId = seat.id; c.state = 'toSeat'; }
+            else if(w.servicePolicyActive&&dirtyTablesBlockingSeats(w)){c.state='waitSeat';c.dirtyWait=0;c.waitSeatPoint={x:c.x+.8,z:c.z+.8};}
             else { c.state = 'leave'; }
           } else if (st.serving === '') {
             setPatience(w, c, c.patience - dt);
@@ -531,6 +535,15 @@ export function stepCustomers(list, w, price, dt) {
             c.mood = 'none';
           }
         }
+        break;
+      }
+      case 'waitSeat': {
+        const seat=freeSeat(w);
+        if(seat){seat.occupied=true;c.seat=seat;c.seatId=seat.id;c.state='toSeat';c.mover.hasTarget=false;break;}
+        if(!dirtyTablesBlockingSeats(w)){c.state='leave';c.mover.hasTarget=false;break;}
+        c.dirtyWait=(c.dirtyWait||0)+dt;
+        if(c.waitSeatPoint)walkTo(c,c.waitSeatPoint.x,c.waitSeatPoint.z,w,dt);
+        if(c.dirtyWait>=8){emitWorld(w,{type:'tableRefund',id:c.id});c.state='leave';c.mover.hasTarget=false;}
         break;
       }
       case 'toSeat': {

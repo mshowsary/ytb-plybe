@@ -1,3 +1,4 @@
+import { normalizeServicePolicy } from './servicePolicy.js';
 import { normalizeSocials } from './petSocials.js';
 // Canonical save validation/migration for cloud persistence.
 // The host boundary uses this BEFORE a load becomes writable; applySave uses it again defensively.
@@ -505,6 +506,7 @@ export function validateAndMigrateSave(raw, area = null) {
       career,
       partyOrders,
       socials: normalizeSocials(metaRaw.socials),
+      servicePolicy: normalizeServicePolicy(metaRaw.servicePolicy),
     },
     dayState: day.dayState,
     stars: normalizeStars(raw, area, buildState.builtSet),

@@ -1,10 +1,11 @@
+import { serviceIncident } from '../sim/servicePolicy.js';
 import { SOCIALS } from '../sim/petSocials.js';
 // Customer render/system layer: human + named pet visitor, wish UI and pet delight moments.
 import { spawnInterval, maxCustomers, cafeLevel } from '../sim/economy.js';
 import { spawnMult, capBonus } from '../sim/day.js';
 import { stepCustomers, createCustomer, PATIENCE } from '../sim/customers.js';
 import { createCustomerSpawnSequence } from '../sim/customerSpawn.js';
-import { serviceRecoveryCost, SERVICE_LABEL, dirtyTablesBlockingSeats } from '../sim/serviceQuality.js';
+import { SERVICE_LABEL, dirtyTablesBlockingSeats } from '../sim/serviceQuality.js';
 import { petProfile } from '../sim/petBook.js';
 import {
   REGULAR_GREETING_SECONDS,
@@ -56,15 +57,16 @@ export function createCustomers(G, S, ctx) {
   let regularPlanDay = 0, regularPlan = null, regularGreetedDay = 0;
   const tmpProj = { sx: 0, sy: 0, visible: true };
 
-  function applyServicePenalty(reason, r) {
-    const fee = serviceRecoveryCost(reason, G.coins);
+  function applyServicePenalty(reason, r, c) {
+    const result = serviceIncident(G,c,reason);
+    if(result.duplicate)return;
+    const fee=result.fee;
+    G.requestCheckpoint('service-recovery');
     G.dayStats.serviceMisses = (G.dayStats.serviceMisses | 0) + 1;
     if (fee <= 0) return;
-    G.coins -= fee;
-    G.dayStats.serviceFees = (G.dayStats.serviceFees | 0) + fee;
-    G.stats.serviceFees = (G.stats.serviceFees | 0) + fee;
+
     hud.setCoins(G.coins); ctx.audio.play('penalty');
-    if (r) fx.number(r.human.group.position.x, r.human.height + 0.62, r.human.group.position.z, `-${fee}`, 'lost');
+    if (r) fx.number(r.human.group.position.x, r.human.height + 0.62, r.human.group.position.z, `${reason==='table'?'Refund':'Recovery'} −${fee}`, 'lost');
     if (penaltyToastCd <= 0) {
       penaltyToastCd = 1.8;
       hud.toast(`${SERVICE_LABEL[reason] || 'Service miss'} · recovery -${fee}`);
@@ -98,6 +100,7 @@ export function createCustomers(G, S, ctx) {
     const profile = petProfile(species, petVariant);
     const c = createCustomer(id, species, variant, area);
     if (theme) c.socialProduct = theme.product;
+    c.serviceVisitId = G.meta.servicePolicy.nextVisit++;
     c.petVariant = petVariant;
     c.petIdentityKey = identityPick.key;
     c.regularCandidate = !!(identityPick.named && preferredKey && identityPick.key === preferredKey);
@@ -176,16 +179,13 @@ export function createCustomers(G, S, ctx) {
           fx.hearts(r.pet.group.position.x, r.pet.height + 0.25, r.pet.group.position.z);
           ctx.audio.play(petSound(c.species));
         }
-        if (!r.tablePenalty && r.lastState === 'atRegister' && c.state === 'leave' && c.paid && dirtyTablesBlockingSeats(world)) {
-          r.tablePenalty = true;
-          applyServicePenalty('table', r);
-          r.identity.announce('WANTED A CLEAN TABLE', 2.2);
-        }
+        if(c.state==='waitSeat') r.identity.announce('CLEAN A TABLE · '+Math.max(0,Math.ceil(8-c.dirtyWait))+'s',1);
+
       }
 
       for (const e of world.events) {
         const r = rec.get(e.id);
-        if (e.type === 'lost') applyServicePenalty(e.reason, r || null);
+        if (e.type === 'lost'||e.type==='tableRefund') applyServicePenalty(e.type==='tableRefund'?'table':e.reason, r || null, G.customers.find(c=>c.id===e.id));
         if (!r) continue;
         if (e.type === 'took') { r.pet.carry(itemFor(e.product)); r.human.setMood('none'); }
         else if (e.type === 'pay') { G.stats.served = (G.stats.served | 0) + 1; }
@@ -296,7 +296,7 @@ export function createCustomers(G, S, ctx) {
         }
         r.leash.update();
 
-        if (c.state === 'leave' || c.done) {
+        if (c.state === 'leave' || c.state === 'waitSeat' || c.done) {
           r.bub.wrap.classList.add('hidden'); r.bub.bar.classList.add('hidden');
         } else if (!r.eating) {
           fx.project(r.px, r.human.height + 0.55, r.pz, tmpProj);

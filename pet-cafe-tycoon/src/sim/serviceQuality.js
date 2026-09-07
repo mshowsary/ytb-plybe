@@ -24,8 +24,8 @@ function boundedLegacyCost(reason, coins = Infinity) {
   return Math.max(0, Math.min(base, wallet));
 }
 
-// Live callers use this API. Direct failure fees are locked off by Task 23; callers may continue
-// recording serviceMisses and showing local dissatisfaction without needing a migration flag.
+// Legacy/unqualified calls remain fee-free. Mature financial incidents use servicePolicy.js,
+// which requires onboarding, a durable visit identity and the bounded per-shift policy.
 export function serviceRecoveryCost(_reason, _coins = Infinity) {
   return 0;
 }

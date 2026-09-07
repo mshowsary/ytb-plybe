@@ -1,3 +1,4 @@
+import { normalizeServicePolicy } from '../src/sim/servicePolicy.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { applySave } from '../src/sim/save.js';
@@ -8,6 +9,7 @@ test('old save without meta migrates to a safe modern meta + career + party-orde
   const s = state();
   applySave(s, { coins: 50, upgrades: {}, staff: {}, stats: {}, settings: {} });
   assert.deepEqual(s.meta, {
+    servicePolicy: normalizeServicePolicy(),
     completedDays: 0, rewardedDays: {}, reputation: 0, perfectShifts: 0, bestServiceStreak: 0,
     shiftRatings: {}, petBook: {}, petFriendship: {}, petDiscoveries: 0, settlement: null,
     career: {

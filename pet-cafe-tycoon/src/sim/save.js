@@ -1,3 +1,4 @@
+import { normalizeServicePolicy } from './servicePolicy.js';
 import { normalizeSocials } from './petSocials.js';
 // Pure save/restore helper shared by game.js and node tests.
 import { ensureReputation } from './reputation.js';
@@ -159,6 +160,7 @@ export function applySave(state, save, area = state && state.world && state.worl
       renovationLevel: meta.career.renovationLevel,
     },
     socials: normalizeSocials(meta.socials),
+    servicePolicy: normalizeServicePolicy(meta.servicePolicy),
     partyOrders: {
       nextId: meta.partyOrders.nextId,
       completed: meta.partyOrders.completed,

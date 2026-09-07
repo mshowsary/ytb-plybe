@@ -8,6 +8,7 @@ on:
     paths:
       - '.github/workflows/pet-cafe-visual-reference.yml'
       - 'pet-cafe-tycoon/tools/current-visual-capture.mjs'
+      - 'pet-cafe-tycoon/tools/service-depth-browser.mjs'
 
 permissions:
   contents: read
@@ -58,6 +59,9 @@ jobs:
 
       - name: Capture current café references
         run: node tools/current-visual-capture.mjs
+
+      - name: Verify service consequences and owner reassurance
+        run: node tools/service-depth-browser.mjs
 
       - name: Show preview log on failure
         if: failure()
