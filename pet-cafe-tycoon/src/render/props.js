@@ -204,14 +204,20 @@ export function bushMesh() {
 }
 export function coffeeMesh() {
   const g = new THREE.Group();
-  g.add(mesh([
-    part('rbox', [0.7, 0.9, 0.6, 0.06], C.metal, { y: 0.45 }),
-    part('box', [0.5, 0.3, 0.05], C.ink, { y: 0.65, z: 0.31 }),
-    part('box', [0.42, 0.22, 0.02], '#FFB06B', { y: 0.65, z: 0.335 }),
-    part('cyl', [0.05, 0.05, 0.25, 8], C.woodDark, { x: 0.2, y: 0.75, z: 0.25 }),
-    part('box', [0.6, 0.06, 0.5], C.woodDark, { y: 0.92 }),
-  ]));
-  return g;
+  const p = [
+    part('rbox',[.82,.66,.46,.06],'#458C87',{y:.55,z:-.08}),
+    part('box',[.74,.18,.06],C.metal,{y:.57,z:.18}),
+    part('rbox',[.85,.08,.65,.025],C.ink,{y:.08,z:.08}),
+    part('box',[.8,.05,.5],C.metal,{y:.91,z:-.04}),
+    part('cyl',[.075,.075,.025,16],C.cream,{x:0,y:.76,z:.165,rx:Math.PI/2}),
+    part('box',[.009,.055,.012],C.ink,{y:.78,z:.185,rz:-.5}),
+  ];
+  for(const x of [-.23,.23]) {
+    p.push(part('cyl',[.09,.07,.1,12],C.metal,{x,y:.43,z:.18}),part('box',[.04,.04,.2],C.ink,{x,y:.4,z:.3}),part('cyl',[.07,.055,.12,12],C.cream,{x,y:.19,z:.22}),part('cyl',[.058,.058,.005,12],'#422A20',{x,y:.253,z:.22}),part('sph',[.026,8],'#B8E5B0',{x,y:.77,z:.165}));
+  }
+  for(let x=-.3;x<=.3;x+=.1) p.push(part('box',[.018,.012,.32],C.metal,{x,y:.126,z:.12}));
+  p.push(part('cyl',[.025,.025,.35,8],C.metal,{x:.44,y:.38,z:.12,rz:-.22}));
+  g.add(mesh(p)); return g;
 }
 // Loop v2 Task 1: was storageMesh — same geometry, renamed for the 'pantry' station type.
 export function pantryMesh() {
@@ -289,12 +295,35 @@ export function dirtyMesh() {
 }
 const _itemGeo = new Map();
 export function itemGeoFor(key) {
-  if (!_itemGeo.has(key)) _itemGeo.set(key, merge([part('rbox', [0.28, 0.16, 0.28, 0.05], PRODUCTS[key].color), part('sph', [0.07, 8], C.cream, { y: 0.1 })]));
-  return _itemGeo.get(key);
+  if (_itemGeo.has(key)) return _itemGeo.get(key);
+  const color = PRODUCTS[key].color, parts = [];
+  if (key === 'cookie') {
+    parts.push(part('cyl', [.15, .15, .09, 16], color));
+    for (const [x,z] of [[-.07,-.05],[.06,-.06],[0,.06],[.09,.035],[-.085,.055]])
+      parts.push(part('sph', [.024, 6], '#563320', {x,y:.047,z,sy:.45}));
+  } else if (key === 'cupcake') {
+    parts.push(part('cyl', [.125,.085,.12,12], '#C7955D', {y:-.015}));
+    for (let i=0;i<10;i++) { const t=i*Math.PI/5; parts.push(part('box',[.018,.1,.018], '#F3D7A0',{x:Math.cos(t)*.105,y:-.015,z:Math.sin(t)*.105})); }
+    parts.push(part('sph',[.13,12],color,{y:.065,sy:.55}),part('sph',[.083,10],'#FFB4B0',{y:.12,sy:.7}),part('sph',[.031,8],'#C83955',{y:.183}));
+  } else if (key === 'coffee' || key === 'latte') {
+    parts.push(part('cyl',[.115,.09,.2,16],C.cream),part('cyl',[.099,.099,.008,16],key==='latte'?'#C99B69':'#422A20',{y:.103}));
+    parts.push(part('box',[.09,.025,.035],C.cream,{x:.14,y:.065}),part('box',[.025,.12,.035],C.cream,{x:.177}),part('box',[.09,.025,.035],C.cream,{x:.14,y:-.055}));
+    // A little milk paw distinguishes the latte from black coffee.
+    if(key==='latte') for(const [x,z,r] of [[0,.02,.032],[-.044,-.025,.015],[0,-.04,.015],[.044,-.025,.015]]) parts.push(part('cyl',[r,r,.006,10],C.cream,{x,z,y:.11}));
+  } else if (key === 'smoothie') {
+    parts.push(part('cyl',[.11,.075,.22,12],color),part('cyl',[.12,.12,.025,12],C.cream,{y:.12}),part('cyl',[.012,.012,.17,6],'#F77F9A',{x:.025,y:.19,rz:-.22}),part('sph',[.045,8],'#D54879',{x:-.065,y:.15}));
+  } else if(key === 'treat') {
+    parts.push(part('rbox',[.2,.07,.08,.025],color));
+    for(const x of [-.1,.1]) for(const z of [-.04,.04]) parts.push(part('sph',[.057,8],color,{x,z,sy:.7}));
+  } else {
+    parts.push(part('rbox',[.27,.12,.25,.02],color),part('box',[.255,.025,.235],'#46291C',{y:.07}));
+    for(const [x,z] of [[-.07,-.06],[.06,-.04],[0,.07]]) parts.push(part('box',[.04,.018,.03],'#E8C58B',{x,z,y:.09,ry:.4}));
+  }
+  const geometry = merge(parts); _itemGeo.set(key, geometry); return geometry;
 }
 export function itemFor(key) {
-  // small carried/stocked prop: skip the shadow pass (draw-call budget), it still reads fine unshadowed.
-  const m = new THREE.Mesh(itemGeoFor(key), toonMaterial()); m.castShadow = false; m.receiveShadow = true; return m;
+  const m = new THREE.Mesh(itemGeoFor(key), toonMaterial());
+  m.userData.product = key; m.castShadow = false; m.receiveShadow = true; return m;
 }
 // M3 T5: the objective arrow — a small downward chevron (two angled bars), C.coin emissive so it
 // reads over any background. src/systems/objective.js positions/bobs/rotates the returned group.

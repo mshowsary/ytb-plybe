@@ -66,7 +66,7 @@ export function createPartyOrderCrate(area) {
 
   const cue = new THREE.Group();
   cue.name = 'party-order-ready-cue'; cue.visible = false;
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.58, 0.035, 8, 32), emissiveMaterial(C.coin));
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.018, 8, 24), emissiveMaterial(C.coin));
   ring.rotation.x = Math.PI / 2; ring.position.set(0, 0.72, 0);
   const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.11, 0), emissiveMaterial(C.coin));
   gem.position.set(0, 1.02, 0);

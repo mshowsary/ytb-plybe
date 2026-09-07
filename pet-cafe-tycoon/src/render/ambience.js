@@ -1,5 +1,6 @@
 // Lightweight premium ambience: high visual density without shipping a large texture payload.
 import * as THREE from 'three';
+import { part, mesh } from './geo.js';
 
 const toon = color => new THREE.MeshToonMaterial({ color });
 const basic = (color, opacity = 1) => new THREE.MeshBasicMaterial({
@@ -46,6 +47,13 @@ export function createAmbience(area) {
     const m = new THREE.Mesh(stripeGeo, stripeMat); m.position.set(0.3, 0.055, z); group.add(m);
   }
 
+  // Large woven paw medallion: readable from the normal play camera, not hidden on a wall.
+  const emblem = [part('cyl',[1.02,1.02,.014,40],'#FFF1DE',{x:.3,y:.074,z:2.45}),
+    part('sph',[.4,20],'#B96673',{x:.3,y:.091,z:2.68,sx:1.25,sy:.025,sz:.8})];
+  for (const [x,z,r] of [[-.2,2.3,.17],[.12,2.08,.19],[.5,2.08,.19],[.8,2.3,.17]])
+    emblem.push(part('sph',[r,12],'#B96673',{x,y:.091,z,sy:.06,sz:1.2}));
+  group.add(mesh(emblem,{cast:false}));
+
   // Pendant fixtures. Emissive-looking bulbs use BasicMaterial instead of costly point lights.
   const cordGeo = new THREE.CylinderGeometry(0.018, 0.018, 1.05, 6);
   const shadeGeo = new THREE.CylinderGeometry(0.07, 0.36, 0.34, 12, 1, true);
@@ -65,8 +73,8 @@ export function createAmbience(area) {
     frame.position.set(x, 1.92, -D / 2 + 0.23); frame.castShadow = true; group.add(frame);
     const paper = new THREE.Mesh(new THREE.BoxGeometry(1.08, 0.88, 0.025), paperMat);
     paper.position.set(x, 1.92, -D / 2 + 0.285); group.add(paper);
-    const mark = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.08, 8, 18), toon(art[i]));
-    mark.rotation.x = Math.PI / 2; mark.position.set(x, 1.94, -D / 2 + 0.31); group.add(mark);
+    const mark = makePawSign();
+    mark.scale.setScalar(.8); mark.position.set(x, 1.82, -D / 2 + 0.34); group.add(mark);
   }
 
   // Warm string lights along the open fence, instanced into one draw call.

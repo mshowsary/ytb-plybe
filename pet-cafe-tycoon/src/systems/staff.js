@@ -6,7 +6,7 @@ import { staffLevelsWithRushCrew } from '../sim/rushCrew.js';
 import { snapshotStaffState } from '../sim/staffState.js';
 import { nextStaffDemoJob, STAFF_DEMO_SECONDS, STAFF_DEMO_MECHANICS } from '../sim/staffTeaching.js';
 import { createHuman } from '../render/human.js';
-import { itemFor } from '../render/props.js';
+import { syncCarriedItems } from '../render/carriedItems.js';
 import { C } from '../render/palette.js';
 
 const RUNNER_VARIANT = { shirt: 1, hair: 1, skin: 1 };
@@ -180,11 +180,7 @@ export function createStaff(G, S, ctx) {
         r.human.group.position.set(s.x, 0, s.z); r.human.update(dt, vx, vz);
         r.px = s.x; r.pz = s.z;
         if (s.kind === 'runner') {
-          while (r.itemMeshes.length < s.items.length) {
-            const key = s.items[r.itemMeshes.length]; const m = itemFor(key);
-            m.position.set(0, r.itemMeshes.length * 0.17, 0); r.human.stack.add(m); r.itemMeshes.push(m);
-          }
-          while (r.itemMeshes.length > s.items.length) { const m = r.itemMeshes.pop(); r.human.stack.remove(m); }
+          syncCarriedItems(r.human.stack, r.itemMeshes, s.items);
           r.human.setCarry(r.itemMeshes.length);
         }
       }

@@ -8,7 +8,7 @@ export function createOwner(shirtHex = C.coral) {
   const H = createHuman({ shirt: shirtHex, hair: 0, skin: 0 }, 'owner');
   const { group, stack } = H;
   const O = { group, items: [], H, headTop: 2.2, _sway: { x: 0, z: 0 }, _bob: 0 };
-  O.addItem = m => { m.position.set(0, O.items.length * 0.17, 0); m.scale.setScalar(0.01); stack.add(m); O.items.push(m); O._bob = 1; H.setCarry(O.items.length); };
+  O.addItem = m => { m.position.set(0, O.items.length * 0.25, 0); m.scale.setScalar(0.01); stack.add(m); O.items.push(m); O._bob = 1; H.setCarry(O.items.length); };
   O.popItem = () => { const m = O.items.pop(); if (m) stack.remove(m); H.setCarry(O.items.length); return m; };
   // Loop v2 Task 1: the return crate empties the whole product stack at once — pop every mesh off
   // (not just splice the array) so nothing is left orphaned, still parented to the stack, on stage.

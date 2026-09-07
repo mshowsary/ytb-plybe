@@ -55,7 +55,7 @@ function createUI(onClaim) {
 }
 
 export function createPartyOrders(G, S, ctx, platform = null) {
-  const { area, world, hud, audio } = ctx;
+  const { area, world, hud, audio, fx, sheets } = ctx;
   ensurePartyOrders(G.meta);
   let lastDay = -1, tick = 0;
   let ui;
@@ -70,6 +70,24 @@ export function createPartyOrders(G, S, ctx, platform = null) {
     sync(true); if (platform && G.snapshot) platform.save(G.snapshot()); return true;
   };
   ui = createUI(claim);
+  const collect = document.createElement('button'); collect.type = 'button';
+  collect.className = 'party-world-collect'; collect.hidden = true;
+  collect.style.cssText = 'position:fixed;z-index:16;transform:translate(-50%,-100%);min-height:44px;border:2px solid #fff7db;border-radius:16px;padding:8px 13px;background:#7654bf;color:white;font:900 13px/1.3 system-ui;box-shadow:0 4px 0 #45316e;cursor:pointer';
+  collect.addEventListener('click', () => { if (!G.userPaused && !sheets?.isOpen) claim(); });
+  document.body.appendChild(collect);
+  const projected = {};
+  function updateCollect() {
+    const active = G.meta.partyOrders?.active;
+    const ready = !!active && partyOrderComplete(active);
+    collect.hidden = !ready || !!G.userPaused || !!sheets?.isOpen;
+    if (collect.hidden) return;
+    const p = crate.group.position; fx.project(p.x, p.y + 1.15, p.z, projected);
+    collect.hidden = !projected.visible;
+    collect.style.left = Math.max(85, Math.min(innerWidth - 85, projected.sx)) + 'px';
+    collect.style.top = Math.max(60, Math.min(innerHeight - 15, projected.sy)) + 'px';
+    collect.textContent = `Collect 🪙 ${active.reward}`;
+    collect.setAttribute('aria-label', `Collect completed pet party order: ${active.reward} coins`);
+  }
 
   function sync(quiet = false) {
     const day = G.dayState.day | 0;
@@ -80,6 +98,7 @@ export function createPartyOrders(G, S, ctx, platform = null) {
     const active = ensurePartyOrders(G.meta).active;
     ui.render(active, day);
     crate.setOrder(active);
+    updateCollect();
     lastDay = day;
   }
   sync(true);
@@ -94,14 +113,15 @@ export function createPartyOrders(G, S, ctx, platform = null) {
       if (!r.changed) return;
       ui.render(r.active, G.dayState.day | 0); ui.bump();
       crate.setOrder(r.active); crate.bump();
-      if (r.completedNow) { audio.play('chime'); hud.banner('PARTY ORDER READY!', 1900); }
+      if (r.completedNow) { audio.play('chime'); hud.banner('PARTY READY · TAP COLLECT ABOVE THE CRATE', 2600); }
     },
     update(dt) {
       crate.update(dt);
+      updateCollect();
       tick -= dt;
       if (tick > 0) return; tick = 0.75;
       if ((G.dayState.day | 0) !== lastDay) sync(false);
     },
-    teardown() { ui.destroy(); S.scene.remove(crate.group); },
+    teardown() { collect.remove(); ui.destroy(); S.scene.remove(crate.group); },
   };
 }

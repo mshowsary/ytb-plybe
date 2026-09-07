@@ -35,6 +35,20 @@ try{
   await page.evaluate(()=>{const G=window.__game,s=G.snapshot();s.meta.petFriendship={...(s.meta.petFriendship||{}),'cat:0':10};s.meta.career.renovationLevel=5;s.meta.reputation=220;if(!G.restore(s))throw new Error('Bestie fixture rejected');});
   await page.evaluate(()=>{const G=window.__game;G.P.x=8;G.P.z=4.5;window.__scene.snap(8,4.5);});
   await shot('bestie-renovated');
+  // Owner feedback regression: the completed crate must expose a real, payable action.
+  await page.evaluate(()=>{
+   const G=window.__game;
+   G.meta.partyOrders.active={id:999,title:'Puppy Birthday',subtitle:'Ready for the park',createdDay:G.dayState.day,expiresDay:G.dayState.day+1,reward:260,claimed:false,requirements:[{key:'cupcake',count:4,target:4}]};
+   G.P.x=8;G.P.z=.25;window.__scene.snap(8,.25);
+  });
+  const collect=page.locator('.party-world-collect');await collect.waitFor({state:'visible'});
+  await shot('party-collect-and-menu');
+  const payout=await page.evaluate(()=>{
+   const G=window.__game,before=G.coins,button=document.querySelector('.party-world-collect');
+   button.click();button.click();return {paid:G.coins-before,hidden:button.hidden};
+  });
+  assert.equal(payout.paid,260,'completed party reward pays exactly once');
+  assert.equal(payout.hidden,true,'collected crate action disappears');
   await page.evaluate(()=>{const G=window.__game,s=G.world.stations.get('oven1');s.stock=12;G.P.x=s.front.x;G.P.z=s.front.z;window.__scene.snap(G.P.x,G.P.z);});
   await page.waitForFunction(()=>window.__game.owner.items.length>0);
   const carried=await page.evaluate(()=>window.__game.owner.items.length);
@@ -45,7 +59,7 @@ try{
   await page.keyboard.down('ArrowRight');await page.waitForTimeout(1200);await page.keyboard.up('ArrowRight');
   await page.keyboard.down('ArrowLeft');await page.waitForTimeout(1200);await page.keyboard.up('ArrowLeft');
   await page.evaluate(()=>{const G=window.__game;G.dayState.t=240;G.dayState._ended=false;});
-  await page.waitForSelector('.sheet');await shot('summary');
+  await page.waitForSelector('.card');await shot('summary');
   assert.deepEqual(errors,[],`page errors at ${label}`);
   await context.close();
  }
