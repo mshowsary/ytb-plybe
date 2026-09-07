@@ -171,3 +171,11 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE8D8;font-family:"S
   background:#0000000f;display:flex;align-items:center;justify-content:center;cursor:pointer}
 .chip svg{width:100%;height:100%;display:block}
 .chip.active{background:var(--accent)}
+
+/* --- Certification: label decluttering (src/ui/labelLayout.js) ---------------------------------
+   When the arbiter cannot find a collision-free slot for a low-priority label it marks it crowded
+   rather than letting it overlap. Fading instead of display:none keeps layout measurement stable
+   across frames, so a label can come back the instant space reappears. */
+.label-crowded{opacity:0!important;pointer-events:none!important}
+/* Labels must never be the reason text clips: give every pill room to size to its own content. */
+.demand,.objCaption,.zlabel,.zprice,.chalk,.fbtn{max-width:none}

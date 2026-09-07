@@ -10,6 +10,8 @@ import { installServiceFriction } from './systems/serviceFriction.js';
 import { createPetMess } from './systems/petMess.js';
 import { createBaristaWorker } from './systems/baristaWorker.js';
 import { createResponsivePolish } from './ui/responsive.js';
+import { createLabelLayout } from './ui/labelLayout.js';
+import { installHudLayout } from './ui/hudLayout.js';
 import { createPlayablesShell } from './ui/playablesShell.js';
 import { installCleanHud } from './ui/cleanHud.js';
 import { installCertificationPolish } from './ui/certificationPolish.js';
@@ -230,12 +232,8 @@ async function boot() {
 }
 
 function startGame(S, load, bootUi) {
-  const G = createGame(
-    S,
-    AREA1,
-    { fx: $('fx'), wallet: $('wallet'), joy: $('joy'), joyKnob: $('joyKnob') },
-    platform,
-  );
+  const els = { fx: $('fx'), wallet: $('wallet'), joy: $('joy'), joyKnob: $('joyKnob') };
+  const G = createGame(S, AREA1, els, platform);
   const machineJuice = createMachineJuice(G.world, S.scene);
   const coffeePolish = createCoffeePolish(G.world, S.scene, G.owner);
   const petFriendship = installPetFriendship(G, platform);
@@ -245,9 +243,10 @@ function startGame(S, load, bootUi) {
   const reliefAttention = installReliefAttention(G);
   const serviceSummary = installServiceSummary(G);
   const responsive = createResponsivePolish(G);
+  const labelLayout = createLabelLayout(els);
   const shell = createPlayablesShell();
   installCertificationPolish();
-  const interactionCoach = createInteractionCoach(G, S);
+  const interactionCoach = createInteractionCoach(G, S, labelLayout);
   const cashTrays = createCashTrays(G.world, S.scene);
   const butterflies = createButterflies(S.scene);
   const rewardsSystem = createRewardsSystem(G, S, platform);
@@ -262,6 +261,7 @@ function startGame(S, load, bootUi) {
   petFriendship.refresh();
   coffeePolish.update();
   rewardsSystem.refresh();
+  installHudLayout(); // last stylesheet wins: this module owns HUD placement
   const pauseMenu = createPauseMenu(G, platform);
   platform.sendScore(G.meta && G.meta.reputation);
   responsive.update(); shell.refresh();
@@ -342,6 +342,8 @@ function startGame(S, load, bootUi) {
       responsive.update();
       shell.update();
       interactionCoach.update(dt);
+      // Must run last: it reads what every label system just wrote and resolves overlap/overflow.
+      labelLayout.update();
       const uiMs = frameMetrics.running ? performance.now() - uiStart : 0;
       G.audio.setMusicPhase(G.dayState.phase);
       G.audio.musicUpdate(dt);

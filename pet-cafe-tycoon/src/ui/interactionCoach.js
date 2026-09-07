@@ -87,13 +87,17 @@ function placeBeside(root, btn) {
 }
 
 const projectTmp = new THREE.Vector3();
-function placeAtWorld(root, S, target) {
+function placeAtWorld(root, S, target, layout) {
   projectTmp.set(target.x, target.y || 1.15, target.z).project(S.camera);
   if (projectTmp.z < -1 || projectTmp.z > 1) return false;
   let x = (projectTmp.x * 0.5 + 0.5) * innerWidth;
   let y = (-projectTmp.y * 0.5 + 0.5) * innerHeight;
+  y -= 18;
+  // The coach is a 38px puck with a caption hanging below it (top:39px, up to 150px wide), so the
+  // footprint it must keep clear is far larger than the puck itself.
+  if (layout && layout.avoid) [x, y] = layout.avoid(x, y + 20, 156, 84), y -= 20;
   x = Math.max(18, Math.min(innerWidth - 18, x));
-  y = Math.max(18, Math.min(innerHeight - 52, y - 18));
+  y = Math.max(18, Math.min(innerHeight - 52, y));
   root.style.left = `${x}px`; root.style.top = `${y}px`;
   return true;
 }
@@ -195,7 +199,7 @@ function holdCompleted(G, target, snap) {
   return false;
 }
 
-export function createInteractionCoach(G = null, S = null) {
+export function createInteractionCoach(G = null, S = null, layout = null) {
   injectStyle();
   const root = document.createElement('div'); root.className = 'interaction-coach hidden'; root.setAttribute('aria-hidden', 'true');
   root.innerHTML = `<svg viewBox="0 0 38 38" aria-hidden="true"><g class="coach-hold-dots"><circle class="coach-hold-dot" cx="13" cy="5" r="1.4"/><circle class="coach-hold-dot" cx="19" cy="5" r="1.4"/><circle class="coach-hold-dot" cx="25" cy="5" r="1.4"/></g><circle class="coach-ring" cx="19" cy="19" r="10"/><path class="coach-hand" d="M17.2 26.8v-12c0-2.5 3.6-2.5 3.6 0v6.2-3.4c0-2.2 3.2-2.2 3.2 0v3.8-2.6c0-2 3-2 3 0v3.4-1.8c0-1.9 2.9-1.9 2.9 0v5.4c0 5-3.2 8.1-7.8 8.1h-1.3c-2.9 0-5.1-1.2-6.9-3.7l-2.4-3.4c-1.4-2.1 1.7-4 3.1-2.1l2.6 3.1z"/></svg><div class="coach-caption"></div>`;
@@ -318,7 +322,7 @@ export function createInteractionCoach(G = null, S = null) {
     }
     candidateT += Math.max(0, dt);
     if (dist != null && (candidateDistance == null || dist < candidateDistance)) candidateDistance = dist;
-    if (candidateT < 0.4 || !placeAtWorld(root, S, target)) { hide(); return true; }
+    if (candidateT < 0.4 || !placeAtWorld(root, S, target, layout)) { hide(); return true; }
     currentKey = key; root.classList.remove('hold-mode'); root.dataset.mode = 'route';
     setCaption(routeText); reveal(key, 'route'); return true;
   }
@@ -371,7 +375,7 @@ export function createInteractionCoach(G = null, S = null) {
       activeHold = hold;
       candidateT += Math.max(0, dt);
       if (!activeHoldSnap) activeHoldSnap = snapshotHold(G, hold);
-      if (candidateT < 0.08 || !placeAtWorld(root, S, hold)) { hide(); return; }
+      if (candidateT < 0.08 || !placeAtWorld(root, S, hold, layout)) { hide(); return; }
       currentKey = hold.key; root.classList.add('hold-mode'); root.dataset.mode = 'hold';
       setCaption(candidateT >= 1.5
         ? (hold.key === 'refillCoffee' || hold.key === 'refillBowl' ? 'HOLD TO REFILL' : 'STAY HERE')
