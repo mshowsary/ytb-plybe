@@ -139,6 +139,8 @@ export function createGame(S, area, els, platform = null) {
   syncReputationPresentation(); syncPetBookPresentation(); syncCareerPresentation();
 
   const owner = createOwner(); scene.add(owner.group); G.owner = owner;
+  // Footfalls: human.js signals each time a foot plants, fx turns that into a small puff.
+  owner.H.onStep = pos => fx.dust(pos.x, pos.z, 1.4);
   const P = { x: 0, z: 2.5, vx: 0, vz: 0 }; owner.group.position.set(P.x, 0, P.z); S.snap(P.x, P.z); G.P = P;
   G.setMove = (x, z) => { G._force = (x == null) ? null : { x, z }; }; G.debugNextTarget = () => jobTarget(world, G);
   G.botDecide = () => { G.carryKey = owner.items.length ? owner.items[0].userData.product : null; G.carryCount = owner.items.length; return decide(world, G); };

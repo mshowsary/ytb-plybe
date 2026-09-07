@@ -37,6 +37,20 @@ export function createFx(scene, camera, layer, walletEl) {
     }, 1);
     presentationScheduler.schedule(() => d.remove(), 550);
   };
+  // A small, short-lived, low puff at the feet. Deliberately faint: this fires on every stride of
+  // every character on the floor, so it has to read as contact rather than as an effect.
+  F.dust = (x, z, strength = 1) => {
+    const n = strength > 1 ? 3 : 2;
+    for (let i = 0; i < n && parts.length < MAXP; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 0.25 + Math.random() * 0.45;
+      parts.push({
+        x: x + (Math.random() - 0.5) * 0.16, y: 0.06, z: z + (Math.random() - 0.5) * 0.16,
+        vx: Math.cos(a) * sp, vy: 0.5 + Math.random() * 0.5, vz: Math.sin(a) * sp,
+        life: 0.26 + Math.random() * 0.12,
+        r: 0.86, g: 0.80, b: 0.70, sz: 0.45 + Math.random() * 0.35,
+      });
+    }
+  };
   F.number = (x, y, z, text, cls) => { F.project(x, y, z, tmp); if (!tmp.visible) return; const d = document.createElement('div'); d.className = cls ? 'fnum ' + cls : 'fnum'; d.textContent = text; d.style.left = tmp.sx + 'px'; d.style.top = tmp.sy + 'px'; layer.appendChild(d); presentationScheduler.schedule(() => d.remove(), 950); };
   F.update = dt => {
     let k = 0;
