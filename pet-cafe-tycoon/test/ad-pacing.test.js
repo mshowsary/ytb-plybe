@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { createYouTubePlatform } from '../src/platform/youtube.js';
 import { installAdLaunchPolicy } from '../src/platform/adLaunchPolicy.js';
 import {
-  AD_PACING, interstitialDueAfterShift, interstitialGapSatisfied,
+  AD_PACING, interstitialDueAfterShift, interstitialGapSatisfied, bootInterstitialDue,
   markRewardedClaim, purchaseBridgeEnabled, rewardedClaimedForShift,
+  summaryClaimedForShift, inShiftClaimedForShift,
 } from '../src/sim/adPacing.js';
 
 function host(calls, { rewardedResult = true, interstitialFails = false } = {}) {
@@ -67,32 +68,46 @@ test('preview mode never fabricates an interstitial but keeps rewarded testing u
   assert.equal(await P.requestInterstitialAd(0), false);
 });
 
-test('Task 39: either historical rewarded key consumes the one voluntary claim for that shift', () => {
-  const relief = { rewardedDays: {} };
-  assert.equal(markRewardedClaim(relief, 4, 'relief'), true);
-  assert.equal(rewardedClaimedForShift(relief, 4), true);
-  assert.equal(markRewardedClaim(relief, 4, 'summary'), false);
-  assert.equal(relief.rewardedDays[4], undefined);
+test('placement model: each placement claims once per shift, independently of the others', () => {
+  // Summary and in-shift budgets are independent: taking the summary reward never silences the
+  // in-shift helper, and each placement still refuses a second claim.
+  const s = { rewardedDays: {} };
+  assert.equal(markRewardedClaim(s, 4, 'summary'), true);
+  assert.equal(summaryClaimedForShift(s, 4), true);
+  assert.equal(inShiftClaimedForShift(s, 4), false);
+  assert.equal(markRewardedClaim(s, 4, 'summary'), false, 'summary cannot double-claim');
+  assert.equal(markRewardedClaim(s, 4, 'relief'), true, 'in-shift budget is independent of summary');
 
-  const summary = { rewardedDays: {} };
-  assert.equal(markRewardedClaim(summary, 5, 'summary'), true);
-  assert.equal(rewardedClaimedForShift(summary, 5), true);
-  assert.equal(markRewardedClaim(summary, 5, 'relief'), false);
-  assert.equal(summary.rewardedDays['relief:5'], undefined);
+  const g = { rewardedDays: {} };
+  assert.equal(markRewardedClaim(g, 5, 'relief'), true);
+  assert.equal(markRewardedClaim(g, 5, 'gift'), false, 'relief and mystery gift share the in-shift budget');
+  assert.equal(markRewardedClaim(g, 5, 'gift'), false);
+  assert.equal(rewardedClaimedForShift(g, 5), true);
+
+  const gift = { rewardedDays: {} };
+  assert.equal(markRewardedClaim(gift, 6, 'gift'), true);
+  assert.equal(markRewardedClaim(gift, 6, 'relief'), false, 'gift claim occupies the in-shift budget');
+  assert.equal(summaryClaimedForShift(gift, 6), false);
+  assert.equal(markRewardedClaim(gift, 6, 'summary'), true, 'summary stays available after a gift claim');
 });
 
 test('Task 39: legacy numeric and relief claims are both recognized without save migration', () => {
   assert.equal(rewardedClaimedForShift({ rewardedDays: { 3: 1 } }, 3), true);
   assert.equal(rewardedClaimedForShift({ rewardedDays: { 'relief:3': 1 } }, 3), true);
   assert.equal(rewardedClaimedForShift({ rewardedDays: { 3: 1 } }, 4), false);
+  assert.equal(inShiftClaimedForShift({ rewardedDays: { 'gift:3': 1 } }, 3), true, 'gift key recognized');
 });
 
-test('Task 39: launch disables purchase bridge and keeps deterministic Continue cadence', () => {
+test('launch cadence: continue-transition interstitials every second shift, boot spot for returning players', () => {
   assert.equal(AD_PACING.rewardedClaimsPerShift, 1);
   assert.equal(purchaseBridgeEnabled(), false);
   assert.equal(AD_PACING.interstitialMinGapMs, 4 * 60 * 1000);
-  for (const day of [1, 2, 4, 5, 7, 8]) assert.equal(interstitialDueAfterShift(day), false, `day ${day}`);
-  for (const day of [3, 6, 9, 12]) assert.equal(interstitialDueAfterShift(day), true, `day ${day}`);
+  for (const day of [1, 3, 5, 7, 9]) assert.equal(interstitialDueAfterShift(day), false, `day ${day}`);
+  for (const day of [2, 4, 6, 8, 12]) assert.equal(interstitialDueAfterShift(day), true, `day ${day}`);
+  assert.equal(bootInterstitialDue(0), false, 'new players get a clean first session');
+  assert.equal(bootInterstitialDue(2), false);
+  assert.equal(bootInterstitialDue(3), true, 'returning players get one boot spot');
+  assert.equal(bootInterstitialDue(30), true);
 });
 
 test('Task 39: interstitial gap arithmetic is boundary exact', () => {
