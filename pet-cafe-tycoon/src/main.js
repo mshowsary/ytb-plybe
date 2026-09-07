@@ -11,6 +11,7 @@ import { createPetMess } from './systems/petMess.js';
 import { createBaristaWorker } from './systems/baristaWorker.js';
 import { createResponsivePolish } from './ui/responsive.js';
 import { createLabelLayout } from './ui/labelLayout.js';
+import { createResidentPets } from './systems/residentPets.js';
 import { installHudLayout } from './ui/hudLayout.js';
 import { createPlayablesShell } from './ui/playablesShell.js';
 import { installCleanHud } from './ui/cleanHud.js';
@@ -249,6 +250,7 @@ function startGame(S, load, bootUi) {
   const interactionCoach = createInteractionCoach(G, S, labelLayout);
   const cashTrays = createCashTrays(G.world, S.scene);
   const butterflies = createButterflies(S.scene);
+  const residentPets = createResidentPets(S.scene);
   const rewardsSystem = createRewardsSystem(G, S, platform);
   const pauseOverlay = makePauseOverlay();
 
@@ -337,6 +339,7 @@ function startGame(S, load, bootUi) {
       coffeePolish.update();
       cashTrays.update(dt);
       butterflies.update(dt);
+      residentPets.update(dt);
       rewardsSystem.update(dt);
       const uiStart = frameMetrics.running ? performance.now() : 0;
       responsive.update();

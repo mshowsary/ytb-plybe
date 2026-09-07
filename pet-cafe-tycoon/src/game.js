@@ -29,6 +29,7 @@ import { createCarry } from './sim/carry.js';
 import { createMaterialCheckpoint } from './sim/checkpoint.js';
 import { createInput } from './core/input.js';
 import { buildStatic, itemFor } from './render/props.js';
+import { buildEnvironment } from './render/environment.js';
 import { createAmbience } from './render/ambience.js';
 import { createRenovationDecor } from './render/renovation.js';
 import { createOwner } from './render/owner.js';
@@ -96,6 +97,8 @@ export function createGame(S, area, els, platform = null) {
   const world = createWorld(area); G.world = world; G.goal = chooseCareerGoal(1, G.meta, G); world.dayState = G.dayState; world.stars = G.stars;
   const scene = S.scene;
   const staticGroup = buildStatic(area); scene.add(staticGroup);
+  // The world past the café walls. Static, merged, never interacted with.
+  scene.add(buildEnvironment(area));
   const ambience = createAmbience(area); scene.add(ambience.group);
   const renovationDecor = createRenovationDecor(area); scene.add(renovationDecor.group);
   G.awning = staticGroup.awning; let lastAwningSet = -1;
