@@ -1,5 +1,5 @@
 name: Pet Cafe Live Preview
-# Refresh preview: bounded mature service recovery, dirty-table grace and owner reassurance.
+# Refresh preview: bounded mature service recovery, dirty-table grace and owner reassurance, with protected legacy feedback.
 
 on:
   workflow_dispatch:
