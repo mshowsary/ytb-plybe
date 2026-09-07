@@ -59,7 +59,7 @@ export function createCustomers(G, S, ctx) {
 
   function applyServicePenalty(reason, r, c) {
     const result = serviceIncident(G,c,reason);
-    if(result.duplicate)return;
+    if(result.duplicate&&c?.serviceVisitId)return;
     const fee=result.fee;
     G.requestCheckpoint('service-recovery');
     G.dayStats.serviceMisses = (G.dayStats.serviceMisses | 0) + 1;
