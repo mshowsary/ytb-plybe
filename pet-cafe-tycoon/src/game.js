@@ -198,7 +198,9 @@ export function createGame(S, area, els, platform = null) {
       else if (e.type === 'dayEnd') openDaySummary();
     }
     hud.setDay(G.dayState.day, G.dayState.phase, phaseFrac(G.dayState)); hud.setContract(G.goal, G.dayStats, G.dayState.day);
-    hud.setGoal(G.goal ? `${careerGoalLabel(G.goal)} · ${careerGoalProgress(G.goal, G.dayStats)}/${G.goal.target}` : null);
+    // Pass the goal itself, not only its sentence: the pill renders a glyph plus the numeral
+    // rather than "Rival · Serve 24". The text stays as the fallback for any unmapped kind.
+    hud.setGoal(G.goal ? `${careerGoalLabel(G.goal)} · ${careerGoalProgress(G.goal, G.dayStats)}/${G.goal.target}` : null, G.goal || null);
     const setIdx = Math.min(2, Math.floor(cafeLevel(G) / 5)); if (setIdx !== lastAwningSet) { lastAwningSet = setIdx; G.awning && G.awning.setSet(setIdx); }
 
     if (world.events.some(e => e.type === 'built') && cafeCompletion(G).roomComplete) {

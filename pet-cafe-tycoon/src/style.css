@@ -179,3 +179,16 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE8D8;font-family:"S
 .label-crowded{opacity:0!important;pointer-events:none!important}
 /* Labels must never be the reason text clips: give every pill room to size to its own content. */
 .demand,.objCaption,.zlabel,.zprice,.chalk,.fbtn{max-width:none}
+
+/* --- Icon-first HUD pills -----------------------------------------------------------------------
+   "Day 3 · Rush" and "Rival · Serve 24" were the two longest permanently-visible strings in the
+   game and the widest things in the HUD. Both are now a glyph plus a numeral: the phase is a
+   picture of the sky, the contract is a picture of its verb, and numerals read in every language. */
+#dayLabel{display:flex;align-items:center;gap:6px;line-height:1}
+.dayIcon,.goalIcon{width:20px;height:20px;flex:none;display:block}
+.dayIcon svg,.goalIcon svg{width:100%;height:100%;display:block}
+.dayNum{font-weight:900;font-size:17px}
+#goalPill{display:flex;align-items:center;gap:6px}
+.goalNum{font-weight:900;font-size:15px}
+/* A small coral dot marks a rival contract — the one bit of state the glyph itself cannot carry. */
+.goalRival{width:7px;height:7px;border-radius:50%;background:var(--coral);flex:none}

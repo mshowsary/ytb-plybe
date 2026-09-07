@@ -9,6 +9,7 @@
 // redirected or nagged.
 import * as THREE from 'three';
 import { carryCap } from '../sim/economy.js';
+import { beanIcon, kibbleIcon, sackIcon, coffeeIcon, treatIcon } from './icons.js';
 import {
   MECHANIC_LEARNING_VERSION,
   REFRESH_AFTER_FAILURES,
@@ -37,7 +38,8 @@ function injectStyle() {
   s.textContent = `
     .interaction-coach{position:fixed;left:0;top:0;width:38px;height:38px;z-index:24;pointer-events:none;transform:translate(-50%,-50%);opacity:.72;filter:drop-shadow(0 3px 5px #0003);transition:opacity .16s ease,filter .16s ease}
     .interaction-coach.hidden{display:none}.interaction-coach svg{width:100%;height:100%;overflow:visible;display:block}
-    .interaction-coach .coach-caption{position:absolute;left:50%;top:39px;transform:translateX(-50%);max-width:150px;padding:5px 8px;border-radius:999px;background:#3b2e2ae8;color:#fff8ef;box-shadow:0 3px 9px #0002;font:900 9px/1 system-ui,sans-serif;letter-spacing:.045em;white-space:nowrap;text-transform:uppercase;opacity:0;transition:opacity .15s ease}
+    .interaction-coach .coach-caption{position:absolute;left:50%;top:37px;transform:translateX(-50%);width:30px;height:30px;padding:4px;box-sizing:border-box;border-radius:50%;background:#FFF8EFF2;box-shadow:0 3px 9px #00000026;opacity:0;transition:opacity .15s ease}
+    .interaction-coach .coach-caption svg{width:100%;height:100%;display:block}
     .interaction-coach.has-caption .coach-caption{opacity:.94}
     .interaction-coach .coach-ring{fill:none;stroke:#fff;stroke-width:2.3;opacity:.82;transform-origin:19px 19px;animation:coachTapRing 1.05s ease-out infinite}
     .interaction-coach .coach-hand{fill:#fff8ef;stroke:#6c554c;stroke-width:1.35;stroke-linejoin:round;stroke-linecap:round;animation:coachTapHand 1.05s ease-in-out infinite;transform-origin:20px 23px}
@@ -232,7 +234,18 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
     return n;
   }
 
-  function setCaption(text = '') { caption.textContent = text; root.classList.toggle('has-caption', !!text); }
+  function setCaption(iconHtml = '') {
+    if (caption.dataset.icon !== iconHtml) {
+      caption.dataset.icon = iconHtml;
+      caption.innerHTML = iconHtml;
+    }
+    root.classList.toggle('has-caption', !!iconHtml);
+  }
+  // Route hints name one of five things. Each has a glyph already drawn in ui/icons.js.
+  const SUPPLY_ICON = { beans: beanIcon, kibble: kibbleIcon };
+  const STATION_ICON = { COFFEE: coffeeIcon, 'PET TREATS': treatIcon };
+  const supplyIcon = supply => (SUPPLY_ICON[supply] || sackIcon)();
+  const stationIcon = label => (STATION_ICON[label] || sackIcon)();
   function resetCandidate() {
     candidateKey = null; candidateT = 0; candidateDistance = null;
     activeHold = null; activeHoldSnap = null;
@@ -338,18 +351,18 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
       const lesson = refillLessonNeed(G, suppressed);
       if (lesson && G && S) {
         const choice = pantryChoiceButton(lesson.supply);
-        if (choice) { showTap(choice, lesson.key, `PICK ${lesson.supply}`, dt, 0.22); return; }
+        if (choice) { showTap(choice, lesson.key, supplyIcon(lesson.supply), dt, 0.22); return; }
         if (overlayOpen()) { resetCandidate(); hide(); return; }
         const carryingRightSupply = G.carry.sack === lesson.supply && (G.carry.sackLeft | 0) > 0;
         if (!carryingRightSupply) {
           const pantry = pantryStation(G);
           const btn = document.querySelector('.fbtn');
           if (pantry && buttonVisible(btn) && stableContextAction(G) === 'pantry' && G.P && d2(G.P, pantry.front) < HOLD_RADIUS * HOLD_RADIUS) {
-            showTap(btn, lesson.key, 'OPEN SUPPLIES', dt, 0.22); return;
+            showTap(btn, lesson.key, sackIcon(), dt, 0.22); return;
           }
-          if (pantry) { showRoute({ ...pantry.front, stationId: pantry.id, y: 1.15 }, lesson.key, `GET ${lesson.supply}`, dt); return; }
+          if (pantry) { showRoute({ ...pantry.front, stationId: pantry.id, y: 1.15 }, lesson.key, supplyIcon(lesson.supply), dt); return; }
         } else if (G.P && d2(G.P, { x: lesson.x, z: lesson.z }) > HOLD_RADIUS * HOLD_RADIUS) {
-          showRoute(lesson, lesson.key, `RETURN TO ${lesson.label}`, dt); return;
+          showRoute(lesson, lesson.key, stationIcon(lesson.label), dt); return;
         }
       } else if (overlayOpen()) { resetCandidate(); hide(); return; }
 
@@ -377,8 +390,10 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
       if (!activeHoldSnap) activeHoldSnap = snapshotHold(G, hold);
       if (candidateT < 0.08 || !placeAtWorld(root, S, hold, layout)) { hide(); return; }
       currentKey = hold.key; root.classList.add('hold-mode'); root.dataset.mode = 'hold';
+      // The animated hold-dots above the puck already say "hold"; the caption only needs to say
+      // WHAT is being refilled. A plain stay-put hold needs no caption at all.
       setCaption(candidateT >= 1.5
-        ? (hold.key === 'refillCoffee' || hold.key === 'refillBowl' ? 'HOLD TO REFILL' : 'STAY HERE')
+        ? (hold.key === 'refillCoffee' ? beanIcon() : hold.key === 'refillBowl' ? kibbleIcon() : '')
         : '');
       reveal(hold.key, 'pulse');
     },

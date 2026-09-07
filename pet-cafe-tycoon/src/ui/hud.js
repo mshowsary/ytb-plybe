@@ -1,4 +1,5 @@
 import { createContractBadge } from './contractBadge.js';
+import { sunIcon, moonIcon, sunriseIcon, sunsetIcon, personIcon, coinIcon, streakIcon } from './icons.js';
 // src/ui/hud.js
 import { presentationScheduler } from '../core/presentationScheduler.js';
 
@@ -41,17 +42,38 @@ export function createHud() {
   const contract = createContractBadge(dayPillEl);
   H.setContract = (goal, stats, day) => contract.update(goal, stats, day);
   const goalPillEl = document.createElement('div'); goalPillEl.className = 'pill'; goalPillEl.id = 'goalPill'; hud.appendChild(goalPillEl);
-  const PHASE_LABEL = { morning: 'Morning', rush: 'Rush', afternoon: 'Afternoon', closing: 'Closing' };
-  let lastDayText = '', lastGoalText = '', lastFrac = -1;
+  // "Day 3 · Rush" was the longest permanently-visible string in the game and the widest thing in
+  // the HUD, which is what pushed the day pill into the pause button on short viewports. The phase
+  // is a picture of the sky instead, and the day is just its number -- numerals read in every
+  // language, so nothing is lost in translation and the pill is roughly a third the width.
+  const PHASE_ICON = { morning: sunriseIcon, rush: sunIcon, afternoon: sunsetIcon, closing: moonIcon };
+  let lastDayKey = '', lastGoalKey = '', lastFrac = -1;
   H.setDay = (day, phase, frac) => {
-    const text = `Day ${day} · ${PHASE_LABEL[phase] || phase}`;
-    if (text !== lastDayText) { lastDayText = text; dayLabel.textContent = text; }
+    const key = `${day}:${phase}`;
+    if (key !== lastDayKey) {
+      lastDayKey = key;
+      const icon = (PHASE_ICON[phase] || sunIcon)();
+      dayLabel.innerHTML = `<span class="dayIcon">${icon}</span><span class="dayNum">${day}</span>`;
+    }
     const pct = Math.max(0, Math.min(1, frac)) * 100;
     if (pct !== lastFrac) { lastFrac = pct; dayBarFill.style.width = pct + '%'; }
   };
-  H.setGoal = text => {
-    if (!text) { goalPillEl.classList.add('hidden'); return; }
-    if (text !== lastGoalText) { lastGoalText = text; goalPillEl.textContent = text; }
+  // Contracts are one of three verbs, each with a natural picture: guests served, coins earned,
+  // service streak. The target is a number, so the whole pill becomes glyph + numeral.
+  const GOAL_ICON = { serve: personIcon, earn: coinIcon, streak: streakIcon };
+  H.setGoal = (text, goal = null) => {
+    if (!text && !goal) { goalPillEl.classList.add('hidden'); return; }
+    const kind = goal && goal.kind;
+    const key = goal ? `${kind}:${goal.target}:${goal.rival ? 1 : 0}` : text;
+    if (key !== lastGoalKey) {
+      lastGoalKey = key;
+      if (kind && GOAL_ICON[kind]) {
+        const rival = goal.rival ? '<span class="goalRival"></span>' : '';
+        goalPillEl.innerHTML = `${rival}<span class="goalIcon">${GOAL_ICON[kind]()}</span><span class="goalNum">${goal.target}</span>`;
+      } else {
+        goalPillEl.textContent = text;
+      }
+    }
     goalPillEl.classList.remove('hidden');
   };
   // Loop v2 Task 3: a large top-centre banner ("RUSH HOUR" / "WEEKEND" / "HOLIDAY" / "CLOSING") —
