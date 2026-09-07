@@ -1,3 +1,4 @@
+import { normalizeSocials } from './petSocials.js';
 // Canonical save validation/migration for cloud persistence.
 // The host boundary uses this BEFORE a load becomes writable; applySave uses it again defensively.
 import { DAY_LENGTH, createDay, phaseOf } from './day.js';
@@ -503,6 +504,7 @@ export function validateAndMigrateSave(raw, area = null) {
       settlement: normalizeSettlement(metaRaw.settlement, day.dayState),
       career,
       partyOrders,
+      socials: normalizeSocials(metaRaw.socials),
     },
     dayState: day.dayState,
     stars: normalizeStars(raw, area, buildState.builtSet),

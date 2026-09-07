@@ -357,6 +357,10 @@ export function stepCustomers(list, w, price, dt) {
     c.hop = Math.max(0, c.hop - dt);
     if (c.wish == null) {
       c.wish = wishFor(w);
+      if(c.socialProduct) {
+        const menu=[...w.stations.values()].find(st=>st.active&&st.type==='display'&&familyOf(st.product)===familyOf(c.socialProduct));
+        if(menu) c.wish={...c.wish,product:menu.product};
+      }
       emitWorld(w, { type: 'wish', id: c.id, product: c.wish.product, treat: c.wish.treat });
     }
     // mask 1 (entry lane) while approaching/crossing the door; once truly on the floor, drop to

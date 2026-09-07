@@ -36,6 +36,24 @@ try{
   await page.evaluate(()=>{const G=window.__game;G.P.x=8;G.P.z=4.5;window.__scene.snap(8,4.5);});
   await shot('bestie-renovated');
   await page.locator('.meta-pawbook').click();await shot('pet-portraits');await page.locator('.meta-book-close').click();
+  // Real event path: open the board, host through its button, serve actual guests, collect.
+  await page.evaluate(()=>{
+   const G=window.__game,s=G.snapshot();s.dayState={day:8,t:20,phase:'morning',_ended:false};s.meta.socials={};
+   if(!G.restore(s))throw new Error('Social fixture restore rejected');
+   for(const id of ['coffee1','barCoffee']) {const st=G.world.stations.get(id);st.stock=st.capacity;if(id==='coffee1')st.beans=60;}
+   G.P.x=-1;G.P.z=2.5;window.__scene.snap(-1,2.5);
+  });
+  await page.locator('.social-launch').click();await shot('social-invitations');
+  await page.locator('.social-choice').filter({hasText:'Purr & Pour'}).locator('.social-host').click();
+  await page.waitForFunction(()=>window.__game.meta.socials.active?.count>0,{},{timeout:70000});
+  const resume=await page.evaluate(()=>{const G=window.__game,s=G.snapshot(),count=s.meta.socials.active.count;return {ok:G.restore(s),before:count,after:G.meta.socials.active?.count};});
+  assert.equal(resume.ok,true);assert.equal(resume.after,resume.before,'social progress survives snapshot restore');
+  await shot('social-in-progress');
+  await page.waitForFunction(()=>window.__game.meta.socials.active?.status==='ready',{},{timeout:95000});
+  await page.locator('.social-launch').click();await shot('social-medal');
+  const prize=await page.evaluate(()=>{const G=window.__game,before=G.coins,b=document.querySelector('.social-collect');b.click();b.click();return {reward:G.coins-before,medal:G.meta.socials.best.cat};});
+  assert.equal(prize.reward,100);assert.equal(prize.medal,1);
+  await page.locator('.social-close').click();
   // Owner feedback regression: the completed crate must expose a real, payable action.
   await page.evaluate(()=>{
    const G=window.__game;

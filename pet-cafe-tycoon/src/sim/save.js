@@ -1,3 +1,4 @@
+import { normalizeSocials } from './petSocials.js';
 // Pure save/restore helper shared by game.js and node tests.
 import { ensureReputation } from './reputation.js';
 import { ensurePetBook, normalizePetKeepsake } from './petBook.js';
@@ -157,6 +158,7 @@ export function applySave(state, save, area = state && state.world && state.worl
       bestWeekPoints: meta.career.bestWeekPoints,
       renovationLevel: meta.career.renovationLevel,
     },
+    socials: normalizeSocials(meta.socials),
     partyOrders: {
       nextId: meta.partyOrders.nextId,
       completed: meta.partyOrders.completed,

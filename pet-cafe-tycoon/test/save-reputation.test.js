@@ -16,6 +16,7 @@ test('old save without meta migrates to a safe modern meta + career + party-orde
       contractStreak: 0, bestContractStreak: 0, bestWeekPoints: 0, renovationLevel: 0,
     },
     partyOrders: { nextId: 1, completed: 0, lastOfferDay: 0, active: null },
+    socials: { lastDay: 0, best: { cat: 0, dog: 0, bunny: 0 }, active: null },
   });
 });
 

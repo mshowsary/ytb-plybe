@@ -1,3 +1,5 @@
+import { normalizeSocials } from './sim/petSocials.js';
+import { createPetSocials } from './systems/petSocials.js';
 import { cafeCompletion } from './sim/completion.js';
 import { rewardedClaimedForShift, markRewardedClaim, interstitialDueAfterShift } from './sim/adPacing.js';
 import { beginActorStep, endActorStep } from './sim/actorRoster.js';
@@ -140,13 +142,13 @@ export function createGame(S, area, els, platform = null) {
 
   const stations = createStations(G, S, ctx); const zones = createZones(G, S, ctx); const customers = createCustomers(G, S, ctx); const staff = createStaff(G, S, ctx);
   const visuals = createVisuals(G, S, ctx); const registerCash = createRegisterCash(G, S, ctx); const economyExperience = createEconomyExperience(G, S, ctx, platform);
-  const partyOrders = createPartyOrders(G, S, ctx, platform); const objective = createObjective(G, S, ctx); const intro = createIntro(G, S, ctx);
+  const petSocials = createPetSocials(G, S, ctx); const partyOrders = createPartyOrders(G, S, ctx, platform); const objective = createObjective(G, S, ctx); const intro = createIntro(G, S, ctx);
 
   let careerRefreshT = 0, dayTransitionPromise = null; hud.show();
   G.finishActorStep = () => endActorStep(world);
   G.update = dt => {
     updateInProgress = true;
-    G.time += dt; input.update(); stations.update(dt); zones.update(dt);
+    G.time += dt; petSocials.update(); input.update(); stations.update(dt); zones.update(dt);
     customers.prepare(dt); staff.prepare();
     const barista = G.baristaWorker?.prepare();
     beginActorStep(world, G.customers, G.staffList, barista ? [barista] : []);
@@ -159,7 +161,7 @@ export function createGame(S, area, els, platform = null) {
         G.dayStats.served++; G.dayStats.earned += e.amount; G.serviceStreak.count = G.serviceStreak.t > 0 ? G.serviceStreak.count + 1 : 1; G.serviceStreak.t = 7;
         G.shiftBestStreak = Math.max(G.shiftBestStreak, G.serviceStreak.count); G.dayStats.bestStreak = G.shiftBestStreak;
         const paidCustomer = G.customers.find(c => c.id === e.id); const order = paidCustomer && paidCustomer.order || [];
-        partyOrders.onSale(order);
+        partyOrders.onSale(order); petSocials.onSale(order);
         const levelUps = recordRecipeOrder(G.meta, order);
         for (const up of levelUps) { hud.banner(`${up.label.toUpperCase()} MASTERY ${up.level} · +${up.bonus}% VALUE`, 1900); audio.play('chime'); syncCareerPresentation(); }
         if (G.serviceStreak.count === 5 || (G.serviceStreak.count >= 10 && G.serviceStreak.count % 10 === 0)) { hud.banner(`${G.serviceStreak.count}x SERVICE STREAK`, 1200); audio.play('chime'); }
@@ -293,6 +295,7 @@ export function createGame(S, area, els, platform = null) {
         bestContractStreak: G.meta.career.bestContractStreak | 0, bestWeekPoints: G.meta.career.bestWeekPoints | 0, renovationLevel: G.meta.career.renovationLevel | 0,
       },
       partyOrders: clonePartyOrders(G.meta),
+      socials: normalizeSocials(G.meta.socials),
     },
     dayState: { ...G.dayState }, stars: { ...G.stars }, goal: { ...G.goal }, dayStats: { ...G.dayStats },
   });

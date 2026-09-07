@@ -14,7 +14,7 @@ export function createInput(joyEl, knobEl) {
   // card includes non-button explanatory copy, so protect its whole root rather than only controls.
   const isUi = t => t && (t.closest && (
     t.closest('button') || t.closest('.pill') || t.closest('.sheet') || t.closest('.card') ||
-    t.closest('.backdrop') || t.closest('.fbtn') || t.closest('.relief-root')
+    t.closest('.backdrop') || t.closest('.fbtn') || t.closest('.relief-root') || t.closest('.social-root')
   ));
   const reset = () => {
     pid = -1; ox = oy = jx = jy = 0; keys.clear();

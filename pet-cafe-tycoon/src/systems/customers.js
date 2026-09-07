@@ -1,3 +1,4 @@
+import { SOCIALS } from '../sim/petSocials.js';
 // Customer render/system layer: human + named pet visitor, wish UI and pet delight moments.
 import { spawnInterval, maxCustomers, cafeLevel } from '../sim/economy.js';
 import { spawnMult, capBonus } from '../sim/day.js';
@@ -81,10 +82,12 @@ export function createCustomers(G, S, ctx) {
 
   function spawn() {
     const next = spawns.next();
+    const social = G.meta.socials?.active;
+    const theme = social?.status === 'running' ? SOCIALS.find(s=>s.id===social.id) : null;
     const day = syncRegularPlan();
     const preferredKey = regularPlan && regularGreetedDay !== day ? regularPlan.key : null;
     const identityPick = resolveUniquePetIdentity(
-      next.species,
+      theme?.species || next.species,
       next.petVariant,
       activeNamedPetKeys(G.customers),
       preferredKey,
@@ -94,6 +97,7 @@ export function createCustomers(G, S, ctx) {
     const petVariant = identityPick.variant;
     const profile = petProfile(species, petVariant);
     const c = createCustomer(id, species, variant, area);
+    if (theme) c.socialProduct = theme.product;
     c.petVariant = petVariant;
     c.petIdentityKey = identityPick.key;
     c.regularCandidate = !!(identityPick.named && preferredKey && identityPick.key === preferredKey);
@@ -104,6 +108,7 @@ export function createCustomers(G, S, ctx) {
     const leash = createLeash(scene); leash.attach(human.hand, pet.neck);
     const bub = makeBubble(els);
     const identity = identityPick.named ? createPetMoment(els, profile, c.id, species) : anonymousIdentity();
+    if(theme) identity.announce('SOCIAL GUEST', 3);
     // The daily familiar face owns the quiet greeting instead of also receiving a long rarity tag.
     // Other rare/epic visitors keep their existing discovery spotlight.
     if (!c.regularCandidate && identityPick.named && (profile.rarity === 'rare' || profile.rarity === 'epic')) {

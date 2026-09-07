@@ -1,5 +1,5 @@
 name: Pet Cafe Live Preview
-# Refresh preview: distinct menu models, accurate Runner carry, pet motif, character portraits and crate collection.
+# Refresh preview: optional Pet Socials with focused menus, medals and in-world party decoration.
 
 on:
   workflow_dispatch:
