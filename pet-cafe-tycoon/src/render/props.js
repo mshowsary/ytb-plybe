@@ -4,6 +4,7 @@ import { part, mesh, merge } from './geo.js';
 import { C, toonMaterial, emissiveMaterial, gradientMap } from './palette.js';
 import { PRODUCTS } from '../sim/economy.js';
 import { Spring } from '../core/tween.js';
+import { regionEdge } from '../sim/nav.js';
 
 // The awning is one of the Paw Rating's four per-star effects (plan §3.4: "+10% arrivals, +1
 // resident slot, an awning set, a decor set"). Indexed BY STAR: entry i is the café's awning at
@@ -49,39 +50,69 @@ export function buildStatic(area) {
   P.push(part('box', [0.4, 0.5, (dz - 1.2) + D / 2], C.wallDark, { x: -W / 2, y: 0.25, z: ((dz - 1.2) + (-D / 2)) / 2 }));  // skirting north part
   P.push(part('box', [0.4, 0.5, D / 2 - (dz + 1.2)], C.wallDark, { x: -W / 2, y: 0.25, z: ((dz + 1.2) + D / 2) / 2 }));    // skirting south part
   P.push(part('box', [W, 0.5, 0.4], C.wallDark, { y: 0.25, z: -D / 2 }));
-  // low fence on the east and south edges
-  for (let z = -D / 2; z <= D / 2; z += 1.5) P.push(part('box', [0.14, 0.9, 0.14], C.cream, { x: W / 2, y: 0.45, z }));
-  P.push(part('box', [0.1, 0.12, D], C.cream, { x: W / 2, y: 0.8 }));
-  // Batch 1 — the terrace gate (plan 3.1/7.1). GATE_HALF_W mirrors src/sim/nav.js's own constant
-  // (matching gate1's fw 2.4 in data/area1.js) — the gap the fence leaves for it is carved out of
-  // the ALWAYS-solid south rail/posts here, and refilled by a small, separately-merged "gate
-  // infill" mesh below (its own draw call) that starts closed and is the only piece
-  // g.gate.setOpen() ever needs to touch.
-  const GATE_HALF_W = 1.2;
+  // Low fence on the east and south edges, each with a gate gap.
+  //
+  // Batch 1 put a gate in the SOUTH fence and hard-coded its half-width as a local 1.2 — a copy of
+  // what src/sim/nav.js's fallback constant happened to be. data/area1.js actually authors
+  // gateHalfW 2.4 for the terrace (matching gate1's fw 4.8), so the rendered gap has been half the
+  // walkable one ever since and guests have been walking through two fence posts. Batch 4b needs a
+  // second gate on the EAST fence anyway, so both gaps now come from the regions themselves
+  // (nav.js regionEdge) — one source of truth, and the third region is data here too.
+  const edgeFor = axis => {
+    for (const r of (area.regions || [])) { const e = regionEdge(r, area); if (e && e.axis === axis) return e; }
+    return null;
+  };
+  const southGate = edgeFor('z'), eastGate = edgeFor('x');
+  const inGap = (gate, v) => !!gate && Math.abs(v - gate.gapCentre) < gate.gapHalf;
+  // The solid spans of a rail that runs from `min` to `max` with `gate`'s gap punched out of it.
+  const railSpans = (min, max, gate) => {
+    if (!gate) return [[min, max]];
+    const a = gate.gapCentre - gate.gapHalf, b = gate.gapCentre + gate.gapHalf;
+    return [[min, Math.min(max, a)], [Math.max(min, b), max]].filter(([s, e]) => e - s > 0.01);
+  };
+  for (let z = -D / 2; z <= D / 2; z += 1.5) {
+    if (inGap(eastGate, z)) continue;   // spa gate gap — filled by the removable gate mesh below
+    P.push(part('box', [0.14, 0.9, 0.14], C.cream, { x: W / 2, y: 0.45, z }));
+  }
+  for (const [z0, z1] of railSpans(-D / 2, D / 2, eastGate)) {
+    P.push(part('box', [0.1, 0.12, z1 - z0], C.cream, { x: W / 2, y: 0.8, z: (z0 + z1) / 2 }));
+  }
   for (let x = -W / 2; x <= W / 2; x += 1.5) {
-    if (Math.abs(x) < GATE_HALF_W) continue; // gate gap — filled by the removable gate mesh below
+    if (inGap(southGate, x)) continue;  // terrace gate gap
     P.push(part('box', [0.14, 0.9, 0.14], C.cream, { x, y: 0.45, z: D / 2 }));
   }
-  // South rail, split around the gate gap so the two permanently-solid halves never move.
-  const railHalfSpan = (W / 2 - GATE_HALF_W) / 2;
-  P.push(part('box', [W / 2 - GATE_HALF_W, 0.12, 0.1], C.cream, { x: -GATE_HALF_W - railHalfSpan, y: 0.8, z: D / 2 }));
-  P.push(part('box', [W / 2 - GATE_HALF_W, 0.12, 0.1], C.cream, { x: GATE_HALF_W + railHalfSpan, y: 0.8, z: D / 2 }));
+  for (const [x0, x1] of railSpans(-W / 2, W / 2, southGate)) {
+    P.push(part('box', [x1 - x0, 0.12, 0.1], C.cream, { x: (x0 + x1) / 2, y: 0.8, z: D / 2 }));
+  }
   // corner plants
   for (const [x, z] of [[W / 2 - 0.8, -D / 2 + 0.8], [W / 2 - 0.8, D / 2 - 0.8], [-W / 2 + 0.8, D / 2 - 0.8]]) {
     P.push(part('cyl', [0.32, 0.26, 0.5, 10], C.coral, { x, y: 0.25, z }));
     P.push(part('sph', [0.55, 10], C.plant, { x, y: 0.95, z })); P.push(part('sph', [0.38, 10], C.plantDark, { x: x + 0.25, y: 1.25, z: z - 0.1 }));
   }
   const g = new THREE.Group(); g.add(mesh(P));
-  // Gate infill: starts CLOSED (matching the pre-terrace look — a solid, seamless fence) and is
-  // hidden by g.gate.setOpen(true) once z_terrace is bought. A separate small mesh so it never
-  // requires rebuilding the one big merged geometry above.
-  const gateMesh = mesh([
-    part('box', [0.14, 0.9, 0.14], C.cream, { x: -GATE_HALF_W * 0.55, y: 0.45, z: D / 2 }),
-    part('box', [0.14, 0.9, 0.14], C.cream, { x: GATE_HALF_W * 0.55, y: 0.45, z: D / 2 }),
-    part('box', [GATE_HALF_W * 2, 0.12, 0.1], C.cream, { y: 0.8, z: D / 2 }),
-  ]);
-  g.add(gateMesh);
-  g.gate = { setOpen(open) { gateMesh.visible = !open; } };
+  // Gate infill: starts CLOSED (matching the pre-region look — a solid, seamless fence) and is
+  // hidden by setOpen(true) once that region's zone is bought. A separate small mesh per gate so
+  // neither ever requires rebuilding the one big merged geometry above.
+  //
+  // One infill PER REGION, keyed by region id in g.gates, because the two gates open on different
+  // purchases. g.gate stays as an alias for the terrace's, so every existing caller is unchanged.
+  g.gates = {};
+  for (const r of (area.regions || [])) {
+    const e = regionEdge(r, area);
+    if (!e) continue;
+    const h = e.gapHalf, c = e.gapCentre;
+    const along = e.axis === 'z'
+      ? [[c - h * 0.55, D / 2], [c + h * 0.55, D / 2]]              // south fence: posts vary in x
+      : [[W / 2, c - h * 0.55], [W / 2, c + h * 0.55]];             // east fence: posts vary in z
+    const parts = along.map(([px, pz]) => part('box', [0.14, 0.9, 0.14], C.cream, { x: px, y: 0.45, z: pz }));
+    parts.push(e.axis === 'z'
+      ? part('box', [h * 2, 0.12, 0.1], C.cream, { x: c, y: 0.8, z: D / 2 })
+      : part('box', [0.1, 0.12, h * 2], C.cream, { x: W / 2, y: 0.8, z: c }));
+    const gateMesh = mesh(parts);
+    g.add(gateMesh);
+    g.gates[r.id] = { setOpen(open) { gateMesh.visible = !open; } };
+  }
+  g.gate = g.gates.terrace || { setOpen() {} };
   // awning over the ovens row: striped, angled. M3 T3 layout: production row spans x -6..8.
   // Split into two SEPARATE merged meshes (one per stripe parity, each its own material instance —
   // `part()`/`mesh()` bake color into vertex attributes, so a single merged mesh can't be recolored
@@ -557,24 +588,44 @@ export function buildRegion(area, region, palette = null) {
   const x0 = region.x0, x1 = region.x1, z0 = region.z0, z1 = region.z1;
   const w = x1 - x0, d = z1 - z0, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
   const parts = [];
-  // Stone border, a wide flat ring under the whole deck.
+  // Stone border, a wide flat ring under the whole floor.
   parts.push(part('rbox', [w + 0.7, 0.42, d + 0.7, 0.1], border, { x: cx, y: -0.24, z: cz }));
-  // Gap-colour base slab, then plank strips laid on top with a small reveal between them — cheaper
-  // than a separate gap box per plank and reads the same way.
+  // Gap-colour base slab, then the surface on top. `region.floor` picks which surface: 'deck' is
+  // the terrace's plank strips (unchanged, so the terrace renders byte-identically); 'tile' is the
+  // spa's — a 1 m checker, echoing buildStatic's own interior floor so the spa reads as ROOM
+  // rather than as a second deck, at the same one-merged-mesh cost.
   parts.push(part('box', [w, 0.05, d], base, { x: cx, y: -0.05, z: cz }));
-  const plankD = 0.42, gap = 0.06, step = plankD + gap;
-  const rows = Math.max(1, Math.floor((d + gap) / step));
-  const usedD = rows * step - gap;
-  const startZ = cz - usedD / 2 + plankD / 2;
-  for (let i = 0; i < rows; i++) {
-    parts.push(part('box', [w - 0.06, 0.09, plankD], plank, { x: cx, y: 0.0, z: startZ + i * step }));
+  if (region.floor === 'tile') {
+    const cols = Math.max(1, Math.round(w)), rowsT = Math.max(1, Math.round(d));
+    const tw = w / cols, td = d / rowsT;
+    for (let i = 0; i < cols; i++) {
+      for (let j = 0; j < rowsT; j++) {
+        parts.push(part('box', [tw - 0.05, 0.09, td - 0.05], (i + j) & 1 ? plank : border,
+          { x: x0 + (i + 0.5) * tw, y: 0.0, z: z0 + (j + 0.5) * td }));
+      }
+    }
+  } else {
+    const plankD = 0.42, gap = 0.06, step = plankD + gap;
+    const rows = Math.max(1, Math.floor((d + gap) / step));
+    const usedD = rows * step - gap;
+    const startZ = cz - usedD / 2 + plankD / 2;
+    for (let i = 0; i < rows; i++) {
+      parts.push(part('box', [w - 0.06, 0.09, plankD], plank, { x: cx, y: 0.0, z: startZ + i * step }));
+    }
   }
   // Corner planters, echoing buildStatic's own corner planters above. The three blooms on top are
   // new with the seasonal pass: the crowns alone are two green spheres that read the same in every
   // season, and the west pair of these planters is in frame from the deck in both orientations.
   // Skipped entirely when no palette is supplied, so the un-palettised deck is byte-identical.
+  //
+  // SKIPPED ENTIRELY on a tile floor (the spa). These pots are render-only — they contribute no
+  // nav or collision box — so a station authored near a corner sits straight through one. The
+  // terrace's corners happen to be empty; the spa's north-west corner is bath1. Rather than
+  // authoring the spa's stations around invisible geometry, the spa gets a real `planters` STATION
+  // (blocking, in the lounge corner) and this loop stands down.
   const inset = 0.9;
-  for (const [px, pz] of [[x0 + inset, z0 + inset], [x1 - inset, z0 + inset], [x0 + inset, z1 - inset], [x1 - inset, z1 - inset]]) {
+  const cornerPots = region.floor === 'tile' ? [] : [[x0 + inset, z0 + inset], [x1 - inset, z0 + inset], [x0 + inset, z1 - inset], [x1 - inset, z1 - inset]];
+  for (const [px, pz] of cornerPots) {
     parts.push(part('cyl', [0.3, 0.24, 0.46, 10], potBody, { x: px, y: 0.19, z: pz }));
     parts.push(part('sph', [0.5, 9], crownA, { x: px, y: 0.82, z: pz }));
     parts.push(part('sph', [0.35, 9], crownB, { x: px + 0.22, y: 1.08, z: pz - 0.1 }));
@@ -586,13 +637,29 @@ export function buildRegion(area, region, palette = null) {
       }
     }
   }
-  // Gate arch, straddling gate1's position (x 0, the fence line just north of z0) — matches
-  // GATE_HALF_W (this file's buildStatic, and src/sim/nav.js's own copy) of 1.2.
-  const gateX = 0, gateZ = z0 - 0.2, archH = 2.5, halfGate = 1.35;
-  parts.push(part('cyl', [0.1, 0.12, archH, 8], postColor, { x: gateX - halfGate, y: archH / 2 - 0.1, z: gateZ }));
-  parts.push(part('cyl', [0.1, 0.12, archH, 8], postColor, { x: gateX + halfGate, y: archH / 2 - 0.1, z: gateZ }));
-  parts.push(part('box', [halfGate * 2 + 0.3, 0.18, 0.18], postColor, { x: gateX, y: archH - 0.1, z: gateZ }));
-  parts.push(part('box', [halfGate * 2 + 0.2, 0.4, 0.05], archColor, { x: gateX, y: archH + 0.05, z: gateZ }));
+  // Gate arch, straddling this region's own gate. Batch 4b: derived from regionEdge rather than
+  // hard-coded to "x 0, just north of z0", so the spa's arch stands across the EAST fence facing
+  // west with no second copy of this block. halfGate is the walkable gap plus 0.15 m of post, so
+  // the posts land just OUTSIDE the lane instead of inside it — at the shipped literal 1.35 they
+  // stood in the middle of a 2.4 m half-gap and actors walked straight through them.
+  const edge = regionEdge(region, area);
+  const archH = 2.5;
+  if (edge) {
+    const halfGate = edge.gapHalf + 0.15;
+    if (edge.axis === 'z') {
+      const gateX = edge.gapCentre, gateZ = z0 - 0.2;
+      parts.push(part('cyl', [0.1, 0.12, archH, 8], postColor, { x: gateX - halfGate, y: archH / 2 - 0.1, z: gateZ }));
+      parts.push(part('cyl', [0.1, 0.12, archH, 8], postColor, { x: gateX + halfGate, y: archH / 2 - 0.1, z: gateZ }));
+      parts.push(part('box', [halfGate * 2 + 0.3, 0.18, 0.18], postColor, { x: gateX, y: archH - 0.1, z: gateZ }));
+      parts.push(part('box', [halfGate * 2 + 0.2, 0.4, 0.05], archColor, { x: gateX, y: archH + 0.05, z: gateZ }));
+    } else {
+      const gateZ = edge.gapCentre, gateX = x0 + 0.2;
+      parts.push(part('cyl', [0.1, 0.12, archH, 8], postColor, { x: gateX, y: archH / 2 - 0.1, z: gateZ - halfGate }));
+      parts.push(part('cyl', [0.1, 0.12, archH, 8], postColor, { x: gateX, y: archH / 2 - 0.1, z: gateZ + halfGate }));
+      parts.push(part('box', [0.18, 0.18, halfGate * 2 + 0.3], postColor, { x: gateX, y: archH - 0.1, z: gateZ }));
+      parts.push(part('box', [0.05, 0.4, halfGate * 2 + 0.2], archColor, { x: gateX, y: archH + 0.05, z: gateZ }));
+    }
+  }
   const g = new THREE.Group();
   g.add(mesh(parts));
   return g;
@@ -675,6 +742,122 @@ export function splashPoolMesh() {
   ]));
   return g;
 }
+// ── Spa station meshes (plan 3.9) ────────────────────────────────────────────────────────────────
+// All five are authored in LOCAL space with +z forward (the same convention every other station
+// mesh here uses, so systems/visuals.js's existing rot handling applies unchanged), and all are
+// one merged draw call each. They are sized to the fw/fd their data/area1.js rows declare, so the
+// silhouette matches the footprint nav actually blocks — the mismatch that made Batch 1's décor
+// look walkable when it wasn't.
+
+// groom1 — a raised grooming table with a brush resting on it and a hose coil beneath. The brush
+// is the read: it is the verb (plan 3.9's "brush hold"), and it is the one part high enough and
+// coloured strongly enough to be legible at the play camera's pitch.
+export function groomTableMesh() {
+  const g = new THREE.Group();
+  g.add(mesh([
+    part('rbox', [1.3, 0.12, 0.9, 0.04], '#EAF6FF', { y: 0.86 }),                 // padded top
+    part('box', [1.24, 0.06, 0.84], '#CFE7F5', { y: 0.93 }),                      // wipe-clean mat
+    part('cyl', [0.09, 0.11, 0.8, 8], C.metal, { y: 0.4 }),                       // column
+    part('cyl', [0.42, 0.42, 0.07, 12], C.metal, { y: 0.04 }),                    // base plate
+    part('rbox', [0.3, 0.09, 0.13, 0.03], C.wood, { x: 0.42, y: 1.0, z: 0.2, ry: 0.35 }),  // brush back
+    ...[-0.09, 0, 0.09].map(o => part('box', [0.2, 0.07, 0.02], C.ink, { x: 0.42 + o * 0.34, y: 0.94, z: 0.2 + o, ry: 0.35 })), // bristles
+    part('cyl', [0.19, 0.19, 0.08, 12], '#7FB8D8', { y: 0.2, z: -0.3, rx: Math.PI / 2 }),   // hose coil
+  ]));
+  return g;
+}
+// bath1 — an open tub on legs with a foam line and a raised tap. Deliberately NOT a closed box:
+// the pet has to be visible sitting in it once the content agents put one there.
+export function bathTubMesh() {
+  const g = new THREE.Group();
+  const p = [
+    part('cyl', [0.56, 0.5, 0.5, 14], '#EAF6FF', { y: 0.55 }),                    // tub body
+    part('cyl', [0.5, 0.5, 0.06, 14], '#8FD3EE', { y: 0.72 }),                    // water
+    part('cyl', [0.46, 0.46, 0.05, 14], '#FFFFFF', { y: 0.76 }),                  // foam
+    part('cyl', [0.6, 0.6, 0.06, 14], C.metal, { y: 0.8 }),                       // rim
+    part('cyl', [0.05, 0.05, 0.42, 8], C.metal, { y: 1.0, z: -0.52 }),            // tap riser
+    part('box', [0.06, 0.06, 0.26], C.metal, { y: 1.19, z: -0.4 }),               // spout
+    part('sph', [0.09, 8], '#FFFFFF', { x: 0.22, y: 0.92, z: 0.12, sy: 0.85 }),   // a stray suds blob
+  ];
+  for (const x of [-0.36, 0.36]) for (const z of [-0.36, 0.36]) {
+    p.push(part('cyl', [0.05, 0.05, 0.6, 6], C.metal, { x, y: 0.3, z }));         // legs
+  }
+  g.add(mesh(p));
+  return g;
+}
+// waterTank1 — pantryMesh's silhouette (a low plinth with two containers) rebuilt as a plumbed
+// tank, so the spa's supply point reads as a sibling of the pantry and the cold pantry rather than
+// as a new kind of object. Same trick coldPantryMesh already uses for the ice cream lane.
+export function waterTankMesh() {
+  const g = new THREE.Group();
+  g.add(mesh([
+    part('cyl', [0.34, 0.42, 0.07, 10], C.metal, { y: 0.035 }),                   // plinth
+    part('cyl', [0.3, 0.3, 0.78, 12], '#BFEFFA', { y: 0.46 }),                    // tank
+    part('cyl', [0.32, 0.32, 0.07, 12], C.metal, { y: 0.86 }),                    // lid
+    part('cyl', [0.26, 0.26, 0.05, 12], '#8FD3EE', { y: 0.83 }),                  // water line
+    part('cyl', [0.05, 0.05, 0.2, 8], C.metal, { y: 0.28, z: 0.3, rx: Math.PI / 2 }),  // spigot
+    part('box', [0.14, 0.05, 0.05], C.metal, { y: 0.34, z: 0.36 }),               // spigot handle
+  ]));
+  return g;
+}
+// boutique1 — a shop rack: a frame, two hanging rails of accessory swatches and a shelf of boxes.
+// Its own colour block (coral/violet swatches) is what separates it from the spa's blue-and-white
+// wet stations from across the hall.
+export function boutiqueRackMesh() {
+  const g = new THREE.Group();
+  const p = [
+    part('box', [1.9, 0.09, 0.7], C.wood, { y: 0.06 }),                           // base
+    part('box', [1.9, 0.08, 0.7], C.wood, { y: 0.92 }),                           // shelf
+    part('cyl', [0.05, 0.05, 1.9, 8], C.woodDark, { x: -0.9, y: 0.95 }),
+    part('cyl', [0.05, 0.05, 1.9, 8], C.woodDark, { x: 0.9, y: 0.95 }),
+    part('cyl', [0.03, 0.03, 1.8, 8], C.metal, { y: 1.5, rz: Math.PI / 2 }),      // hanging rail
+  ];
+  const swatch = ['#F08AA8', '#B48CF2', '#6EC6FF', '#FFD166', '#8FD3EE'];
+  swatch.forEach((hex, i) => {
+    const x = -0.72 + i * 0.36;
+    p.push(part('box', [0.26, 0.42, 0.04], hex, { x, y: 1.24 }));                 // hanging item
+    p.push(part('cyl', [0.05, 0.05, 0.02, 8], C.metal, { x, y: 1.48, rx: Math.PI / 2 }));  // hook
+  });
+  for (let i = 0; i < 3; i++) p.push(part('rbox', [0.4, 0.24, 0.4, 0.04], i & 1 ? C.cream : C.coral, { x: -0.6 + i * 0.6, y: 1.08 }));
+  g.add(mesh(p));
+  return g;
+}
+// planters — the spa's décor cluster (three pots of different heights). A STATION, not part of
+// buildRegion's floor, precisely so it blocks: buildRegion's own corner pots are render-only and a
+// station can be authored on top of one, which is why the tile floor skips them (see buildRegion).
+export function planterClusterMesh() {
+  const g = new THREE.Group();
+  const p = [];
+  for (const [x, z, s] of [[-0.26, -0.1, 1.0], [0.26, 0.12, 0.78], [0.02, 0.34, 0.6]]) {
+    p.push(part('cyl', [0.24 * s, 0.19 * s, 0.42 * s, 10], '#A9764E', { x, y: 0.21 * s, z }));
+    p.push(part('cyl', [0.26 * s, 0.26 * s, 0.06 * s, 10], '#C08A56', { x, y: 0.44 * s, z }));
+    p.push(part('sph', [0.34 * s, 8], C.plant, { x, y: 0.72 * s, z }));
+    p.push(part('sph', [0.22 * s, 8], C.plantDark, { x: x + 0.16 * s, y: 0.92 * s, z: z - 0.07 * s }));
+  }
+  g.add(mesh(p));
+  return g;
+}
+// spaSeat1-3 — a lounge seat for the owner waiting while their pet is pampered: a low bench with a
+// cushion and a side table, in place of the café's round table. Same local convention as
+// tableMesh (the human sits at +z 1.05, the pet waits at right 0.6), so seat.pair geometry and
+// every seated-guest system read it exactly as they read an interior table.
+export function spaLoungeMesh() {
+  const g = new THREE.Group();
+  const p = [
+    part('rbox', [1.3, 0.16, 0.66, 0.05], C.wood, { y: 0.42 }),                   // bench slab
+    part('rbox', [1.24, 0.12, 0.6, 0.05], '#EAF6FF', { y: 0.55 }),                // cushion
+    part('rbox', [1.3, 0.5, 0.12, 0.04], C.wood, { y: 0.75, z: -0.3 }),           // low back
+    part('cyl', [0.26, 0.24, 0.5, 10], C.woodDark, { x: 0.82, y: 0.25, z: 0.2 }), // side table
+    part('cyl', [0.3, 0.3, 0.06, 12], C.cream, { x: 0.82, y: 0.53, z: 0.2 }),     // its top
+    part('cyl', [0.09, 0.09, 0.12, 10], '#8FD3EE', { x: 0.82, y: 0.6, z: 0.2 }),  // a glass of water
+    part('cyl', [0.1, 0.13, 0.06, 12], C.pink, { x: 0.6, y: 0.03, z: 1.05 }),     // pet bowl, matching seat.pair.pet
+  ];
+  for (const x of [-0.52, 0.52]) for (const z of [-0.22, 0.22]) {
+    p.push(part('box', [0.1, 0.36, 0.1], C.woodDark, { x, y: 0.16, z }));         // legs
+  }
+  g.add(mesh(p));
+  return g;
+}
+
 export function cashPile(max = 60) {
   const geo = new THREE.BoxGeometry(0.32, 0.04, 0.18); const mat = new THREE.MeshToonMaterial({ color: new THREE.Color(C.cash) });
   const im = new THREE.InstancedMesh(geo, mat, max); im.castShadow = true; im.count = 0;

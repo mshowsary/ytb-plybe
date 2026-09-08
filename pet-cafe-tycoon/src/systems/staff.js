@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { stepStaff, createStaff as createStaffSim } from '../sim/staff.js';
 import { staffLevelsWithRushCrew } from '../sim/rushCrew.js';
-import { snapshotStaffState } from '../sim/staffState.js';
+import { snapshotStaffState, photographerSpawnAllowed } from '../sim/staffState.js';
 import { nextStaffDemoJob, STAFF_DEMO_SECONDS, STAFF_DEMO_MECHANICS } from '../sim/staffTeaching.js';
 import { createHuman } from '../render/human.js';
 import { syncCarriedItems } from '../render/carriedItems.js';
@@ -12,9 +12,18 @@ import { C } from '../render/palette.js';
 const RUNNER_VARIANT = { shirt: 1, hair: 1, skin: 1 };
 const CASHIER_VARIANT = { shirt: 4, hair: 2, skin: 0 };
 const CLEANER_VARIANT = { shirt: 3, hair: 3, skin: 2 };
+const PHOTOGRAPHER_VARIANT = { shirt: 2, hair: 0, skin: 1 };
 const RUNNER_SPAWN = { x: 4, z: -3 };
 const CASHIER_FALLBACK = { x: -4, z: -0.2 };
 const CLEANER_SPAWN = { x: -6, z: 4 };
+// Batch 4b: mirrors CASHIER_FALLBACK's own role — photoDesk1's own precomputed front spot (world.js
+// createWorld's st.front, the spa foundation's own verified-free derived geometry: "photoDesk1
+// front(16.00, 3.70)"), NOT the desk's raw x/z — that sits ON the desk's own collision footprint,
+// same as every station's centre does, and spawning an actor inside a blocked cell is exactly the
+// kind of start position that can confuse the pathfinder on its very first setTarget. Used only if
+// the station is somehow missing from the world (it never is in real play: the spawn is gated on
+// z_photographer being built, which is exactly what makes photoDesk1 active).
+const PHOTOGRAPHER_FALLBACK = { x: 16.0, z: 3.7 };
 // Program §6.3: how long one H.wipe call keeps the cleaner's arm sweeping. Refreshed every frame
 // the sim says 'cleaning', so this is really the tail after the seat is done, not the stroke
 // length — long enough to finish the stroke in progress, short enough that the arm is back at
@@ -107,6 +116,16 @@ export function createStaff(G, S, ctx) {
     const human = createHuman(CLEANER_VARIANT, 'cleaner'); scene.add(human.group);
     rec.set(s, { human, itemMeshes: [], px: s.x, pz: s.z });
   }
+  // Batch 4b (plan 3.9) — hired from photoDesk1, mirrors spawnCashier's own "station spot if it
+  // exists, else the fallback literal" shape. Spawns at the desk's own FRONT (free floor), not its
+  // raw x/z (its own collision footprint) — see PHOTOGRAPHER_FALLBACK's comment.
+  function spawnPhotographer() {
+    const desk = world.stations.get('photoDesk1');
+    const spawn = desk ? desk.front : PHOTOGRAPHER_FALLBACK;
+    const s = createStaffSim('photographer', spawn); G.staffList.push(s);
+    const human = createHuman(PHOTOGRAPHER_VARIANT, 'photographer'); scene.add(human.group);
+    rec.set(s, { human, itemMeshes: [], px: s.x, pz: s.z });
+  }
   function onCollect(amount, x, z) {
     G.coins += amount; G.stats.lifetimeEarned = (G.stats.lifetimeEarned | 0) + amount; hud.setCoins(G.coins);
     fx.coinArc(x, 0.3, z, Math.min(10, 2 + amount / 5 | 0), () => hud.bump());
@@ -162,11 +181,14 @@ export function createStaff(G, S, ctx) {
     teardown,
     prepare() {
       ensureSnapshotIncludesStaffChoices();
-      let runners = 0, cashiers = 0, cleaners = 0;
-      for (const s of G.staffList) { if (s.kind === 'runner') runners++; else if (s.kind === 'cashier') cashiers++; else if (s.kind === 'cleaner') cleaners++; }
+      let runners = 0, cashiers = 0, cleaners = 0, photographers = 0;
+      for (const s of G.staffList) { if (s.kind === 'runner') runners++; else if (s.kind === 'cashier') cashiers++; else if (s.kind === 'cleaner') cleaners++; else if (s.kind === 'photographer') photographers++; }
       if (runners < (G.staff.runner | 0)) spawnRunner();
       if (cashiers < (G.staff.cashier | 0)) spawnCashier();
       if (cleaners < (G.staff.cleaner | 0)) spawnCleaner();
+      // photographerSpawnAllowed: a save whose staff.photographer count outruns its own builds
+      // (see staffState.js's own comment) never materialises a worker with no home station.
+      if (photographers < (G.staff.photographer | 0) && photographerSpawnAllowed(world.built)) spawnPhotographer();
 
       const sig = assignmentSig();
       if (assignmentSignature !== null && sig !== assignmentSignature && typeof G.requestCheckpoint === 'function') {

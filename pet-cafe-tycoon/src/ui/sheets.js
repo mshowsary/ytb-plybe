@@ -1,5 +1,5 @@
 // Bottom sheets: upgrades, pantry and end-of-shift card.
-import { beanIcon, kibbleIcon, creamIcon, iconFor, checkIcon } from './icons.js';
+import { beanIcon, kibbleIcon, creamIcon, waterIcon, iconFor, checkIcon } from './icons.js';
 import { decorCatalogue } from '../../data/decor.js';
 import { presentationScheduler } from '../core/presentationScheduler.js';
 const COIN_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9.5" fill="#FFD84D" stroke="#C98A00" stroke-width="1.5"/></svg>';
@@ -36,6 +36,14 @@ function levelSubrow(name, lv, onBuy) {
 }
 
 const TABS = [{ key: 'player', label: 'Player' }, { key: 'workers', label: 'Workers' }, { key: 'machines', label: 'Machines' }, { key: 'decor', label: 'Décor' }];
+// The boutique tab (plan §3.5/§3.9) is appended only once boutique1 is active -- before that there
+// is nothing to sell and no station in the world to have opened the kiosk from in the first place,
+// so an always-present tab would dead-end into an empty grid. model.boutiqueActive is the one flag
+// that governs this (src/ui/models.js buildKioskModel), mirroring how the décor tab's OWN rows
+// (not the tab itself) are what disappear before a gate opens.
+function tabsFor(model) {
+  return model && model.boutiqueActive ? [...TABS, { key: 'boutique', label: 'Boutique' }] : TABS;
+}
 
 // --- decor tab (plan 3.12) --------------------------------------------------------------------
 // Decor is the 60-900 coin filler that fixes the measured "nothing to buy on days 2-6" gap. Its
@@ -104,6 +112,45 @@ function renderDecorTab(rows, model, actions) {
   rows.appendChild(grid);
 }
 
+// --- boutique tab (plan §3.5/§3.9) --------------------------------------------------------------
+// Same idiom as the décor tab above, deliberately: icon + price rows, no words, an owned-check in
+// place of the buy button once bought. It shares the décor tab's CSS classes rather than duplicating
+// them -- the grid, the card, the art box and the check are the same shapes for the same reason
+// (a cosmetic sink priced in coins), so re-declaring a parallel `.boutique-*` ruleset here would be
+// a distinction with no visual difference. Only DECOR_CSS's injection guard needs no boutique twin.
+//
+// Rows list every accessory NOT YET unlocked through any door (follower tier, season or an earlier
+// purchase) -- once a piece is free via one of those, it belongs to the album/equip UI, not a shelf
+// asking for coins to buy something already owned.
+export function boutiqueRows(model) {
+  if (Array.isArray(model && model.boutique)) return model.boutique;
+  const coins = (model && model.coins) || 0;
+  const items = Array.isArray(model && model.boutiqueItems) ? model.boutiqueItems : [];
+  return items.map(item => ({
+    id: item.id, price: item.price, icon: item.icon,
+    disabled: coins < item.price,
+  }));
+}
+
+function renderBoutiqueTab(rows, model, actions) {
+  ensureDecorCss();
+  const grid = document.createElement('div'); grid.className = 'decor-grid';
+  for (const r of boutiqueRows(model)) {
+    const card = document.createElement('div');
+    card.className = 'decor-card';
+    card.dataset.boutique = r.id;
+    const art = document.createElement('span'); art.className = 'decor-art'; art.innerHTML = r.icon;
+    card.appendChild(art);
+    const btn = actionButton('sbtn buy', priceContent(r.price), !!r.disabled, () => {
+      if (actions && typeof actions.buyAccessory === 'function') actions.buyAccessory(r.id);
+    });
+    btn.dataset.boutiqueBuy = r.id;
+    card.appendChild(btn);
+    grid.appendChild(card);
+  }
+  rows.appendChild(grid);
+}
+
 function renderPlayerTab(rows, model, actions) {
   for (const r of model.player) {
     const row = document.createElement('div'); row.className = 'srow';
@@ -158,11 +205,12 @@ function renderMachinesTab(rows, model, actions) {
 }
 function renderKiosk(model, actions, onClose) {
   const el = shell('kiosk', 'UPGRADES', onClose); const tabs = document.createElement('div'); tabs.className = 'stabs';
-  for (const t of TABS) { const b = document.createElement('button'); b.type = 'button'; b.className = 'stab' + (model.tab === t.key ? ' active' : ''); b.textContent = t.label; b.addEventListener('click', () => actions.setTab(t.key)); tabs.appendChild(b); }
+  for (const t of tabsFor(model)) { const b = document.createElement('button'); b.type = 'button'; b.className = 'stab' + (model.tab === t.key ? ' active' : ''); b.textContent = t.label; b.addEventListener('click', () => actions.setTab(t.key)); tabs.appendChild(b); }
   el.appendChild(tabs); const rows = document.createElement('div'); rows.className = 'srows'; el.appendChild(rows);
   if (model.tab === 'workers') renderWorkersTab(rows, model, actions);
   else if (model.tab === 'machines') renderMachinesTab(rows, model, actions);
   else if (model.tab === 'decor') renderDecorTab(rows, model, actions);
+  else if (model.tab === 'boutique' && model.boutiqueActive) renderBoutiqueTab(rows, model, actions);
   else renderPlayerTab(rows, model, actions);
   return el;
 }
@@ -178,8 +226,9 @@ const PANTRY_SUPPLY_META = {
   beans: { icon: beanIcon, label: 'Beans' },
   kibble: { icon: kibbleIcon, label: 'Kibble' },
   cream: { icon: creamIcon, label: 'Cream' },
+  water: { icon: waterIcon, label: 'Water' },
 };
-const PANTRY_SUPPLY_ORDER = ['beans', 'kibble', 'cream'];
+const PANTRY_SUPPLY_ORDER = ['beans', 'kibble', 'cream', 'water'];
 // Pure description of which pantry buttons render, in order -- kept separate from the DOM building
 // below so the button contract (count/order/enabled) is unit-testable without a document. A supply
 // gets a button iff `model` defines that key at all (undefined = "this pantry doesn't carry it"),

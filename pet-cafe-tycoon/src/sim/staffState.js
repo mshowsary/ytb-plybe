@@ -45,6 +45,22 @@ export function normalizeStaffState(raw, area, builtSet = new Set(), staff = {})
   return { ok: true, legacy: false, data: { v: STAFF_STATE_VERSION, runnerAssignments } };
 }
 
+// Batch 4b (plan 3.9): the Photographer is hired from photoDesk1, which exists only once
+// z_photographer is built. Unlike a runner — which idles harmlessly at spawn once its assigned
+// display disappears (see normalizeStaffState/activeDisplayIds above, which drops only the
+// assignment and never fabricates a replacement) — a photographer with no z_photographer built has
+// no home station to walk toward at all. systems/staff.js's prepare() calls this every tick (not
+// just once on load) to gate spawning a photographer actor on it, so a save whose staff.photographer
+// count outruns its own builds (a hand-edited save, or — in principle — a downgrade path) never
+// materialises a worker with nowhere real to go; the moment the zone is genuinely built, the very
+// next prepare() tick spawns it, the same way every other role's count is continuously reconciled.
+export function photographerSpawnAllowed(builtSet) {
+  if (!builtSet) return false;
+  if (typeof builtSet.has === 'function') return builtSet.has('z_photographer');
+  if (Array.isArray(builtSet)) return builtSet.includes('z_photographer');
+  return !!builtSet.z_photographer;
+}
+
 export function snapshotStaffState(staffList, world, fallback = null) {
   const allowed = new Set();
   if (world && Array.isArray(world.displays)) {

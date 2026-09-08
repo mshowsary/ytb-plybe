@@ -66,6 +66,17 @@ export function createWorld(area, save, seed) {
     // and gates stepPhotoBooth's auto-start below exactly like stepRegisters gates on it. `session`
     // is null when idle; see stepPhotoBooth/resolvePhotoShot/clearPhotoSession further down.
     if (s.type === 'photo') Object.assign(st, { pile: 0, serving: '', session: null });
+    // Batch 4b (plan 3.9) — the spa's two session stations mirror 'photo' exactly: a queue, a
+    // one-guest-at-a-time session and a tip pile (world.js's own addCash/collectCash already
+    // generalise over any station with a `.pile`, so no new collection code is needed here). 'bath'
+    // additionally carries its own consumable, `water` — shaped exactly like 'icecream'.cream/
+    // 'coffee'.beans (a small sack-refillable buffer, not the pantry's own supply) — see
+    // refillWater/BATH_WATER_CAP further down.
+    if (s.type === 'groom') Object.assign(st, { pile: 0, serving: '', session: null });
+    if (s.type === 'bath') Object.assign(st, { pile: 0, serving: '', session: null, water: BATH_WATER_CAP });
+    // 'boutique' is a shopfront: no queue, no session — just a register-shaped pile so a future
+    // "boutique sale" (a player UI action, out of this task's scope) has somewhere to bank into.
+    if (s.type === 'boutique') Object.assign(st, { pile: 0 });
     if (s.type === 'gate' || s.type === 'decor' || s.type === 'splash') Object.assign(st, {});
 
     const frontDist = s.front != null ? s.front : 1.3;
@@ -86,7 +97,10 @@ export function createWorld(area, save, seed) {
     // Task 2.1: 'photo' reuses this exact geometry (plan 3.2 — "reuse the register queue
     // geometry") rather than inventing its own, so photo1's line fans out and overflows past 5
     // guests (customers.js's queuePos) exactly like a register's already does.
-    if (s.type === 'display' || s.type === 'checkout' || s.type === 'photo') {
+    // Batch 4b: groom1/bath1 reuse this same geometry (plan 3.9's own queue, re-derived and proven
+    // free cell-by-cell by test/spa-foundation.test.js before this wiring landed) rather than
+    // inventing a second queue shape.
+    if (s.type === 'display' || s.type === 'checkout' || s.type === 'photo' || s.type === 'groom' || s.type === 'bath') {
       st.queue = [];
       const right = s.queueRight || 0;
       for (let i = 0; i < 5; i++) {
@@ -289,6 +303,16 @@ export function refillCream(w, id, sack = 20) {
   const room = Math.max(0, 20 - st.cream);
   const used = Math.max(0, Math.min(sack, room));
   st.cream += used;
+  return used;
+}
+// Batch 4b: bath1's water sack, same shape as refillCream/refillBeans above (room-capped, returns
+// the amount actually drawn from the sack so a 'water' carry.js sack can decrement by exactly that
+// much rather than a flat amount regardless of how much room was there).
+export function refillWater(w, id, sack = BATH_WATER_CAP) {
+  const st = w.stations.get(id);
+  const room = Math.max(0, BATH_WATER_CAP - st.water);
+  const used = Math.max(0, Math.min(sack, room));
+  st.water += used;
   return used;
 }
 // Blender fruit buffer, cap 9.
@@ -546,4 +570,192 @@ export function resolvePhotoShot(w, id, quality) {
 export function clearPhotoSession(w, id) {
   const st = w.stations.get(id);
   if (st) st.session = null;
+}
+
+// Batch 4b — the Grooming Table (plan 3.9: "brush hold — hold while a paw icon pulses, release on
+// the beat, 3 beats; score -> tip + friendship"). Shaped exactly like the photo booth above (a
+// queue + a one-guest session + a tip pile), generalised from ONE judged moment to THREE: each beat
+// is scored the same way a photo shot is (a pulse shrinks toward a target scale, release distance
+// from the target buckets into perfect/good/ok), and the three per-beat qualities are then totalled
+// into a single session quality. The friendship bonus itself lives in G.meta (petBook.js), same as
+// the photo studio's own friendship tier — sim purity here again means `tierFor` is injected, never
+// read from meta directly.
+export const GROOM_BEAT_SECONDS = 1.2;   // one paw-pulse cycle's duration — the session's tempo
+export const GROOM_BEATS = 3;
+export const GROOM_PULSE_START = 2.2;    // mirrors PHOTO_RING_START
+export const GROOM_PULSE_END = 0.6;      // mirrors PHOTO_RING_END
+export const GROOM_TARGET_SCALE = 1.0;   // mirrors PHOTO_TARGET_SCALE — "on the beat"
+export const GROOM_PERFECT_BAND = 0.08;  // mirrors PHOTO_PERFECT_BAND
+export const GROOM_GOOD_BAND = 0.22;     // mirrors PHOTO_GOOD_BAND
+// Per-beat timeout, mirroring PHOTO_AUTO_RESOLVE's role for a single shot: comfortably past
+// GROOM_BEAT_SECONDS so a real player's last-instant release is never raced by it, short enough
+// that neither the headless bot nor the in-game auto-play bot ever stalls on any one beat. Three
+// untouched beats in a row therefore always end a session as 'ok' well within 3 * GROOM_AUTO_RESOLVE
+// seconds of it starting — "ends a session nobody plays" (plan 3.9's own bot requirement).
+export const GROOM_AUTO_RESOLVE = 1.6;
+export const GROOM_BASE_TIP = 30;
+export const GROOM_TIP_PER_TIER = 15;
+export const GROOM_QUALITY_MULT = { perfect: 2, good: 1.3, ok: 1 };
+
+// Pulse scale at elapsed time `t` (seconds since the current beat started) — same shrink-toward-
+// target shape as photoRingScale, clamped past its own duration for the same late-sample reason.
+export function groomPulseScale(t) {
+  const p = Math.max(0, Math.min(1, (Number(t) || 0) / GROOM_BEAT_SECONDS));
+  return GROOM_PULSE_START + (GROOM_PULSE_END - GROOM_PULSE_START) * p;
+}
+// Perfect/good/ok bands, centered on GROOM_TARGET_SCALE — identical shape to photoJudgeQuality.
+export function groomJudgeQuality(scale) {
+  const d = Math.abs(scale - GROOM_TARGET_SCALE);
+  if (d <= GROOM_PERFECT_BAND) return 'perfect';
+  if (d <= GROOM_GOOD_BAND) return 'good';
+  return 'ok';
+}
+// tip = (30 + 15*tier) * {perfect:2, good:1.3, ok:1}, rounded — same shape as photoTipAmount, tier
+// clamped 0-3 for the same reason (a corrupt caller can't inflate it).
+export function groomTipAmount(tier, quality) {
+  const t = Math.max(0, Math.min(3, tier | 0));
+  const mult = GROOM_QUALITY_MULT[quality] || 1;
+  return Math.round((GROOM_BASE_TIP + GROOM_TIP_PER_TIER * t) * mult);
+}
+
+// Shared by resolveGroomBeat (a real judged release) and stepGroomTable's own per-beat timeout
+// (always 'ok'): records one beat's quality, advances the session, and — once all GROOM_BEATS beats
+// are in — totals them via resolveGroomSession itself, so a session can never get stuck
+// half-resolved regardless of which path fed its last beat.
+function pushGroomBeat(w, id, quality) {
+  const st = w.stations.get(id);
+  if (!st || !st.session || st.session.resolved) return null;
+  const q = quality === 'perfect' || quality === 'good' ? quality : 'ok';
+  st.session.beatScores.push(q);
+  st.session.beat = st.session.beatScores.length;
+  st.session.t = 0;
+  if (st.session.beatScores.length >= GROOM_BEATS) return resolveGroomSession(w, id);
+  return { beat: st.session.beat, quality: q };
+}
+// Called by the player's hold/release (ui's future groom mini-game, with a real scale sampled from
+// groomPulseScale) to score ONE beat against the band above. A stray call past the session's last
+// beat (already resolved) is a no-op, same idempotence guarantee as resolvePhotoShot.
+export function resolveGroomBeat(w, id, phase) {
+  const st = w.stations.get(id);
+  if (!st || !st.session || st.session.resolved) return null;
+  return pushGroomBeat(w, id, groomJudgeQuality(Number(phase)));
+}
+// Totals the session's (up to 3) per-beat qualities into one overall quality by averaging their
+// quality multipliers: all-perfect averages to the perfect multiplier itself (2), all-ok to 1; a
+// mixed set of releases buckets into whichever authored quality its average multiplier nearest
+// matches. A session with zero beats played at all (called directly, defensively) totals as 'ok'
+// rather than throwing on an empty average.
+export function resolveGroomSession(w, id) {
+  const st = w.stations.get(id);
+  if (!st || !st.session || st.session.resolved) return null;
+  const scores = st.session.beatScores.length ? st.session.beatScores : ['ok'];
+  const avgMult = scores.reduce((sum, q) => sum + (GROOM_QUALITY_MULT[q] || 1), 0) / scores.length;
+  const quality = avgMult >= GROOM_QUALITY_MULT.perfect ? 'perfect' : avgMult >= GROOM_QUALITY_MULT.good ? 'good' : 'ok';
+  const tip = groomTipAmount(st.session.tier, quality);
+  st.session.resolved = true; st.session.quality = quality; st.session.tip = tip;
+  addCash(w, id, tip);
+  emitWorld(w, { type: 'groom', id: st.session.customerId, stationId: id, quality, tip });
+  return { quality, tip };
+}
+// The guest FSM calls this once it has read a resolved session for its own customerId, freeing the
+// table for the next queued guest — mirrors clearPhotoSession exactly.
+export function clearGroomSession(w, id) {
+  const st = w.stations.get(id);
+  if (st) st.session = null;
+}
+// Advances every active grooming table by one tick — same manned/slot-0/auto-resolve shape as
+// stepPhotoBooth, generalised to GROOM_BEATS beats per session instead of one. `tierFor` mirrors
+// stepPhotoBooth's own injected friendship-tier lookup (sim purity: never reads meta directly).
+export function stepGroomTable(w, dt, tierFor) {
+  for (const st of w.stations.values()) {
+    if (st.type !== 'groom' || !st.active) continue;
+    if (st.session) {
+      if (!st.session.resolved) {
+        st.session.t += dt;
+        if (st.session.t >= GROOM_AUTO_RESOLVE) pushGroomBeat(w, st.id, 'ok');
+      }
+      continue; // a resolved-but-not-yet-cleared session still occupies the table this tick
+    }
+    if (!st.serving) continue;
+    const arr = w._groomQueues && w._groomQueues.get(st.id);
+    const q0 = st.queue && st.queue[0];
+    const head = arr && q0 && arr.find(c => c.slot === 0 && c.state === 'atGroom' && !c.mover.hasTarget && Math.hypot(c.x - q0.x, c.z - q0.z) < 0.15);
+    if (!head) continue;
+    const rawTier = typeof tierFor === 'function' ? tierFor(head) : 0;
+    const tier = Math.max(0, Math.min(3, Number.isFinite(rawTier) ? Math.trunc(rawTier) : 0));
+    st.session = {
+      customerId: head.id, species: head.species,
+      variant: typeof head.petVariant === 'number' ? head.petVariant : 0,
+      tier, beat: 0, t: 0, beatScores: [], resolved: false, quality: null, tip: 0,
+    };
+    emitWorld(w, { type: 'groomStart', id: head.id, stationId: st.id });
+  }
+  for (const st of w.stations.values()) if (st.type === 'groom') st.serving = '';
+}
+
+// Batch 4b — the Pet Bath (plan 3.9). Unlike groom/photo, no player input at all: a manned tub with
+// a waiting guest and at least 1 unit of water just runs for BATH_DURATION seconds and pays a tip.
+export const BATH_WATER_CAP = 20;        // same cap shape as coffee's beans/icecream's cream
+export const BATH_DURATION = 3.0;        // seconds, a no-input session
+export const BATH_SPARKLE_SECONDS = 20;  // how long a bathed pet's sim sparkle flag lasts
+export const BATH_BASE_TIP = 25;
+export const BATH_TIP_PER_TIER = 12;
+// tip = 25 + 12*tier, rounded, tier clamped 0-3 — same shape as groomTipAmount/photoTipAmount minus
+// the quality multiplier (there is no mini-game here to score one).
+export function bathTipAmount(tier) {
+  const t = Math.max(0, Math.min(3, tier | 0));
+  return Math.round(BATH_BASE_TIP + BATH_TIP_PER_TIER * t);
+}
+// The guest FSM calls this once it has read a resolved session for its own customerId (and stamped
+// its pet's c.sparkleUntil = w.t + BATH_SPARKLE_SECONDS — a sim flag, read by the render layer, that
+// this file never touches itself), freeing the tub for the next queued guest.
+export function clearBathSession(w, id) {
+  const st = w.stations.get(id);
+  if (st) st.session = null;
+}
+export function resolveBathSession(w, id) {
+  const st = w.stations.get(id);
+  if (!st || !st.session || st.session.resolved) return null;
+  const tip = bathTipAmount(st.session.tier);
+  st.session.resolved = true; st.session.tip = tip;
+  addCash(w, id, tip);
+  emitWorld(w, { type: 'bath', id: st.session.customerId, stationId: id, tip });
+  return { tip };
+}
+// Advances every bath tub by one tick. `w.t` is the sim's own monotonic clock (seconds) — advanced
+// unconditionally here, once per call, regardless of whether any bath station is even built yet,
+// since it is the one thing in this file whose CONSUMER (the render layer, comparing against a
+// pet's future c.sparkleUntil) needs an absolute timestamp rather than a relative countdown. If a
+// second system ever needs w.t too, this increment should move to a single shared place instead of
+// letting two steppers double-count it — today bath is the only caller, so it owns it here.
+export function stepBath(w, dt, tierFor) {
+  w.t = (w.t || 0) + dt;
+  for (const st of w.stations.values()) {
+    if (st.type !== 'bath' || !st.active) continue;
+    if (st.session) {
+      if (!st.session.resolved) {
+        st.session.t += dt;
+        if (st.session.t >= BATH_DURATION) resolveBathSession(w, st.id);
+      }
+      continue;
+    }
+    // Unmanned, or the tub is dry: the guest simply keeps waiting at slot 0 (bounded by its own
+    // patience, reusing the photo queue's exact bounded-wait shape — sim/customers.js, not this
+    // file) rather than a session ever starting. refillWater is the only way water rises again.
+    if (!st.serving || st.water <= 0) continue;
+    const arr = w._bathQueues && w._bathQueues.get(st.id);
+    const q0 = st.queue && st.queue[0];
+    const head = arr && q0 && arr.find(c => c.slot === 0 && c.state === 'atBath' && !c.mover.hasTarget && Math.hypot(c.x - q0.x, c.z - q0.z) < 0.15);
+    if (!head) continue;
+    st.water -= 1;
+    const rawTier = typeof tierFor === 'function' ? tierFor(head) : 0;
+    const tier = Math.max(0, Math.min(3, Number.isFinite(rawTier) ? Math.trunc(rawTier) : 0));
+    st.session = {
+      customerId: head.id, species: head.species,
+      variant: typeof head.petVariant === 'number' ? head.petVariant : 0,
+      tier, t: 0, resolved: false, tip: 0,
+    };
+    emitWorld(w, { type: 'bathStart', id: head.id, stationId: st.id });
+  }
+  for (const st of w.stations.values()) if (st.type === 'bath') st.serving = '';
 }

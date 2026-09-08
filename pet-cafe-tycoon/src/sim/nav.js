@@ -21,25 +21,62 @@ function footprintBoxes(world) {
   return boxes;
 }
 
-// The terrace gate gap: |x| <= this at the south fence line, matching gate1's fw 2.4 (data/area1.js).
+// Default gate gap half-width, used only by a region that authors no `gateHalfW` of its own.
+// Both shipped regions author 2.4, matching their own gate station's fw 4.8 (data/area1.js).
 const GATE_HALF_W = 1.2;
+
+// Which edge of the interior rectangle a region hangs off, DERIVED from the region's own
+// rectangle rather than authored anywhere. Batch 4b's whole difficulty was that this file knew
+// only "south": the fence was a ROW at z = halfD with its gap keyed on |x|, and nothing but a
+// region satisfying `z0 > halfD` could exist. The spa is that same idea turned 90 degrees — a
+// fence COLUMN at x = halfW with its gap keyed on |z| — so the two are now ONE code path
+// parameterised by `axis`, and the plan's fourth space (§3.10) is a row of data, not another
+// pass through this file.
+//
+//   axis      the coordinate the region is displaced ALONG ('z' = the terrace, south past the
+//             fence row; 'x' = the spa, east past the fence column)
+//   line      the interior boundary coordinate on that axis (halfD or halfW)
+//   gapCentre where the gate gap sits on the OTHER axis (`region.gateX` for a south region,
+//             `region.gateZ` for an east one) — positioned by its region, never assumed centred,
+//             because the seat rows either side of it are a wall with mostly single-cell holes
+//   gapHalf   half the gap's width, matching the gate station's own fw / 2
+//
+// Returns null for a region hung off the NORTH or WEST edge: the café has WALLS there, not
+// fences (render/props.js buildStatic), so such a region needs a door lane cut through the wall
+// — see the west margin's own door-lane code in buildGrid — which is different work, not this
+// rotation. Null leaves that region's cells inert rather than silently half-connected.
+export function regionEdge(region, area) {
+  if (!region || !area || !area.size) return null;
+  const halfW = area.size.w / 2, halfD = area.size.d / 2;
+  const gapHalf = region.gateHalfW == null ? GATE_HALF_W : region.gateHalfW;
+  // `>=`, not `>`: the terrace starts at z 7.4 (clear of the fence's own thickness) but the spa
+  // starts exactly ON x = halfW, so the fence column overlaps its westmost sliver. Harmless,
+  // because buildGrid tests the fence line BEFORE region membership.
+  if (region.z0 >= halfD) return { axis: 'z', line: halfD, gapCentre: region.gateX == null ? 0 : region.gateX, gapHalf };
+  if (region.x0 >= halfW) return { axis: 'x', line: halfW, gapCentre: region.gateZ == null ? 0 : region.gateZ, gapHalf };
+  return null;
+}
 
 // Build a static walkability grid for `area` given the current active stations in `world`.
 //
-// Batch 1 — the regions engine (plan 7.1). `area.regions` (if any) are second physical spaces
-// outside the interior rectangle — the terrace, south of the fence. The grid now spans the
-// interior UNION every region (so cells south of the fence exist in the array at all), but a
-// cell out there is only ever WALKABLE when it falls inside a region whose `builtBy` is in
-// `world.built` — so an unbuilt region's cells stay blocked exactly like solid wall, and days
-// 1-12 (no region ever built) see a byte-identical grid to before this change: neither ox, oz
-// nor the interior cell indices move, because no region in this batch extends west or north of
-// the interior (only south, past z = halfD).
+// Batch 1/4b — the regions engine (plan 7.1). `area.regions` are second physical spaces outside
+// the interior rectangle: the terrace (south of the fence row) and the spa (east of the fence
+// column). The grid spans the interior UNION every region, so those cells exist in the array at
+// all, but a cell out there is only ever WALKABLE when it falls inside a region whose `builtBy`
+// is in `world.built` — an unbuilt region's cells stay blocked exactly like solid wall.
 //
 // Origin: ox = min(-halfW, every region.x0) - 2 (the 2m street margin, for the door lanes),
-// oz = min(-halfD, every region.z0). A cell is blocked when its centre falls inside an active
-// station's expanded footprint, when it's the wall column outside the door gap, when it's the
-// fence ROW south of the interior and not the gate gap (or the region behind the gate isn't
-// built yet), or when it lies outside every region it could belong to.
+// oz = min(-halfD, every region.z0). Neither moves for either shipped region (the terrace only
+// extends south, the spa only east), so every interior cell keeps the same (gx, gz) AND the same
+// blocked/lane value it had before regions existed — proved cell by cell in test/nav-regions.
+// The spa DOES widen the array (w 44 -> 59), which necessarily re-strides the linear index
+// i = gz * w + gx; nothing persists a linear cell index (grids are rebuilt from scratch by
+// refreshActive on every build), so coordinates, not indices, are the invariant that matters.
+//
+// A cell is blocked when its centre falls inside an active station's expanded footprint, when
+// it's the west wall column outside the door gap, when it's on the south fence row or the east
+// fence column and outside every BUILT region's gate gap there, or when it lies outside the
+// interior and outside every built region.
 //
 // Door lanes (west margin only): entry cells (lane 1) at z in [door.z-1.2, door.z), exit cells
 // (lane 2) at z in [door.z, door.z+1.2).
@@ -71,9 +108,17 @@ export function buildGrid(area, world) {
   // Same tie-breaking problem, one axis over: the fence sits exactly at z = halfD, and CELL
   // divides it evenly, so a distance check ties the same way the old wall check did. fenceGz is
   // the single grid ROW whose span starts exactly at z = halfD — the row south of every ordinary
-  // interior row, and (this batch) the row the gate gap punches through once the terrace is
-  // built. Rows south of it are the region(s) themselves, tested by membership below.
+  // interior row, and the row the terrace's gate gap punches through once it is built.
   const fenceGz = Math.round((halfD - oz) / CELL);
+  // Batch 4b: the EAST fence is the same line rotated 90 degrees — the single grid COLUMN whose
+  // span starts exactly at x = halfW, east of every ordinary interior column, and the column the
+  // spa's gate gap punches through. Identical derivation, identical tie-break; note that
+  // `cxv > halfW` (the old interior test) is exactly `gx >= fenceGx`, so replacing it below is a
+  // rename, not a behaviour change.
+  const fenceGx = Math.round((halfW - ox) / CELL);
+  // Each region's edge descriptor, resolved once rather than per cell (buildGrid runs over
+  // ~2,500 cells per rebuild and rebuilds on every build/star purchase).
+  const edges = regions.map(r => regionEdge(r, area));
 
   for (let gz = 0; gz < h; gz++) {
     for (let gx = 0; gx < w; gx++) {
@@ -87,9 +132,18 @@ export function buildGrid(area, world) {
         if (Math.abs(cxv - b.x) < b.hw && Math.abs(czv - b.z) < b.hd) { isBlocked = true; break; }
       }
       if (!isBlocked) {
-        if (gz < fenceGz) {
+        // Three zones, tested in this order: the interior rectangle and its west margin, then the
+        // two fence LINES that bound it (south row, east column), then everything beyond — which
+        // is region territory. The fence lines are tested before region membership on purpose:
+        // the spa starts exactly on x = halfW, so its westmost sliver of cells IS the fence
+        // column and must stay solid except at the gate.
+        const onSouthFence = gz === fenceGz && gx < fenceGx;
+        const onEastFence = gx === fenceGx && gz < fenceGz;
+        if (gz < fenceGz && gx < fenceGx) {
           // Ordinary interior row — verbatim pre-regions logic, so every interior cell's
-          // blocked/lane value is unchanged bit-for-bit from before this task.
+          // blocked/lane value is unchanged bit-for-bit from before regions existed. (The old
+          // `cxv > halfW` arm moved into this branch's own `gx < fenceGx` guard: same cells,
+          // since a cell centre exceeds halfW exactly when gx >= fenceGx.)
           if (gx === wallGx) {
             // the single wall column: free only inside the full door gap, no lane value
             const inGap = czv >= doorZ - 1.2 && czv <= doorZ + 1.2;
@@ -99,26 +153,29 @@ export function buildGrid(area, world) {
             if (czv >= doorZ - 1.2 && czv < doorZ) laneVal = 1;
             else if (czv >= doorZ && czv < doorZ + 1.2) laneVal = 2;
             else isBlocked = true;
-          } else if (cxv > halfW || czv < -halfD) {
+          } else if (czv < -halfD) {
             isBlocked = true;
           }
-        } else if (gz === fenceGz) {
-          // The fence row itself: solid everywhere except the gate gap, and only once SOME
-          // region reachable through it has been built (today, just the terrace).
-          // The gap is positioned by its region, not centred by assumption. Measured: the lounge
-          // seat row at z~6 is a wall with mostly SINGLE-CELL (0.5m) holes, so a gate behind one of
-          // them deadlocks whatever its own width. The region places it against a real corridor.
+        } else if (onSouthFence || onEastFence) {
+          // A fence line: solid everywhere except the gate gap of a region reached through THIS
+          // line, and only once that region has actually been built. The gap is positioned by its
+          // region, not centred by assumption. Measured (Batch 1): the lounge seat row at z~6 is a
+          // wall with mostly SINGLE-CELL (0.5m) holes, so a gate behind one of them deadlocks
+          // whatever its own width — the region places its gap against a real corridor instead.
+          const wantAxis = onSouthFence ? 'z' : 'x';
+          const probe = onSouthFence ? cxv : czv;   // the gap spans the OTHER axis
           let open = false;
-          for (const r of regions) {
-            if (!(r.z0 > halfD) || !built || !built.has(r.builtBy)) continue;
-            const gx0 = r.gateX == null ? 0 : r.gateX;
-            const gh = r.gateHalfW == null ? GATE_HALF_W : r.gateHalfW;
-            if (Math.abs(cxv - gx0) <= gh) { open = true; break; }
+          for (let ri = 0; ri < regions.length; ri++) {
+            const e = edges[ri];
+            if (!e || e.axis !== wantAxis) continue;
+            if (!built || !built.has(regions[ri].builtBy)) continue;
+            if (Math.abs(probe - e.gapCentre) <= e.gapHalf) { open = true; break; }
           }
           if (!open) isBlocked = true;
         } else {
-          // South of the fence row: walkable only inside a BUILT region that actually covers
-          // this cell. An unbuilt region's cells (and any cell outside every region) block.
+          // Beyond both fence lines: walkable only inside a BUILT region that actually covers this
+          // cell. An unbuilt region's cells — and the dead corner past BOTH fences, which belongs
+          // to no region at all — block.
           let free = false;
           for (const r of regions) {
             if (built && built.has(r.builtBy) && cxv >= r.x0 && cxv <= r.x1 && czv >= r.z0 && czv <= r.z1) { free = true; break; }

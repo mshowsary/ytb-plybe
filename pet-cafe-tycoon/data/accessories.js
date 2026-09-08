@@ -20,6 +20,15 @@
 // SAVE SHAPE: `meta.equipped[petKey] = accessoryId` (src/sim/saveSchema.js normalizeEquipped) --
 // exactly one id per pet, not one per slot. `slot` here only tells the renderer which rig node
 // (head vs neck) that one id's mesh mounts to.
+//
+// THE BOUTIQUE (plan §3.5/§3.9) -- a third unlock door, "an alternative to milestones": every item
+// below also carries a `price` in coins so src/sim/economy.js's buyAccessory(state, id) can sell it
+// once z_boutique is built, regardless of follower tier or season. Prices sit inside the exact same
+// 60-900 coin band data/decor.js authored (this is cosmetic-sink content, same shelf) and climb with
+// `tier` so a player who wants to skip ahead of the follower ladder pays more for the privilege the
+// higher that tier's item would otherwise cost in followers. A bought id lands in
+// `meta.accessoriesBought` (src/sim/saveSchema.js normalizeAccessoriesBought), which
+// accessoryUnlocked() below treats as a third yes alongside the follower-tier and season doors.
 import * as THREE from 'three';
 import { part, merge } from '../src/render/geo.js';
 import { toonMaterial } from '../src/render/palette.js';
@@ -112,22 +121,65 @@ function bellCollar() {
   ]);
 }
 
+// --- icons -----------------------------------------------------------------------------------
+// Inline SVG, viewBox 0 0 24 24 -- same convention data/decor.js's icons use so a row drops into
+// the same kiosk boutique-tab boxes décor's tab already draws (icon + price, no words). A flat
+// silhouette rather than the 3D mesh's actual geometry, same reasoning décor's icons have: legible
+// at 44px, and independent of whether three.js has even loaded yet.
+const bowIcon = () => '<svg viewBox="0 0 24 24" aria-hidden="true">'
+  + '<path d="M11 12l-6-4v8z" fill="#FF6F91"/><path d="M13 12l6-4v8z" fill="#FF6F91"/>'
+  + '<circle cx="12" cy="12" r="1.6" fill="#E5406B"/></svg>';
+const collarTagIcon = () => '<svg viewBox="0 0 24 24" aria-hidden="true">'
+  + '<path d="M4 9a8 8 0 0 1 16 0" fill="none" stroke="#B9834A" stroke-width="2.2"/>'
+  + '<circle cx="12" cy="16.5" r="2.6" fill="#FFD84D"/></svg>';
+const bandanaIcon = color => '<svg viewBox="0 0 24 24" aria-hidden="true">'
+  + `<path d="M4 8a8 8 0 0 1 16 0" fill="none" stroke="${color}" stroke-width="2.2"/>`
+  + `<path d="M9 9l3 6 3-6z" fill="${color}"/></svg>`;
+const beretIcon = () => '<svg viewBox="0 0 24 24" aria-hidden="true">'
+  + '<ellipse cx="12" cy="11" rx="8" ry="6" fill="#6B4A9C"/><circle cx="14" cy="6" r="1.3" fill="#4A3468"/></svg>';
+const scarfIcon = () => '<svg viewBox="0 0 24 24" aria-hidden="true">'
+  + '<path d="M4 9a8 8 0 0 1 16 0" fill="none" stroke="#8B7CF6" stroke-width="2.2"/>'
+  + '<path d="M9 9.5l-1.6 8 3.2-1.6z" fill="#8B7CF6"/><path d="M15 9.5l1.6 7-3.2-1.8z" fill="#7E6AE8"/></svg>';
+const glassesIcon = () => '<svg viewBox="0 0 24 24" aria-hidden="true">'
+  + '<circle cx="7.5" cy="12" r="4" fill="none" stroke="#3B2E2A" stroke-width="1.8"/>'
+  + '<circle cx="16.5" cy="12" r="4" fill="none" stroke="#3B2E2A" stroke-width="1.8"/>'
+  + '<path d="M11.5 12h1" stroke="#3B2E2A" stroke-width="1.8"/></svg>';
+const bellCollarIcon = () => '<svg viewBox="0 0 24 24" aria-hidden="true">'
+  + '<path d="M4 9a8 8 0 0 1 16 0" fill="none" stroke="#E45E75" stroke-width="2.2"/>'
+  + '<circle cx="12" cy="16.5" r="2.4" fill="#FFD84D"/><circle cx="12" cy="16" r="0.6" fill="#B08A00"/></svg>';
+const flowerCrownIcon = () => '<svg viewBox="0 0 24 24" aria-hidden="true">'
+  + '<ellipse cx="12" cy="14" rx="8" ry="4" fill="none" stroke="#7BC47F" stroke-width="2"/>'
+  + '<circle cx="7" cy="10.5" r="1.6" fill="#FF8A80"/><circle cx="12" cy="8.5" r="1.6" fill="#FFD84D"/>'
+  + '<circle cx="17" cy="10.5" r="1.6" fill="#8B7CF6"/></svg>';
+const sunglassesIcon = () => '<svg viewBox="0 0 24 24" aria-hidden="true">'
+  + '<rect x="3.5" y="10" width="7" height="5" rx="1.6" fill="#2B2B2B"/>'
+  + '<rect x="13.5" y="10" width="7" height="5" rx="1.6" fill="#2B2B2B"/>'
+  + '<path d="M10.5 11.5h3" stroke="#2B2B2B" stroke-width="1.6"/></svg>';
+const partyHatIcon = () => '<svg viewBox="0 0 24 24" aria-hidden="true">'
+  + '<path d="M12 3l6 15H6z" fill="#FF6F91"/><circle cx="12" cy="3" r="1.6" fill="#FFD84D"/></svg>';
+
 // --- catalogue -------------------------------------------------------------------------------------
 // tier matches src/sim/followers.js followerMilestoneTier()'s 0..FOLLOWER_MILESTONES.length range:
 // 0 = unlocked from the start, 1..4 = that many follower milestones reached.
+// `price` sits in data/decor.js's own 60-900 coin band and rises with `tier` -- the boutique lets a
+// player buy ahead of a follower tier they have not reached yet, so the further out a tier is, the
+// more that shortcut costs. Three items per follower tier keep the same price within that tier
+// (there is nothing to differentiate them on) except where a seasonal item ALSO offers a free door
+// in, which does not change its boutique price -- the boutique price is what it costs to skip
+// waiting on EITHER other door, follower tier or season.
 export const ACCESSORIES = Object.freeze([
-  { id: 'acc_bow',            name: 'Bow',            slot: 'head', tier: 0, build: bow },
-  { id: 'acc_collar_tag',     name: 'Collar Tag',     slot: 'neck', tier: 0, build: collarTag },
-  { id: 'acc_bandana_red',    name: 'Red Bandana',    slot: 'neck', tier: 0, build: () => bandana('#E4694F') },
-  { id: 'acc_beret',          name: 'Beret',          slot: 'head', tier: 1, build: beret },
-  { id: 'acc_scarf',          name: 'Scarf',          slot: 'neck', tier: 1, build: scarf, seasonal: true },
-  { id: 'acc_bandana_blue',   name: 'Blue Bandana',   slot: 'neck', tier: 1, build: () => bandana('#6EC6FF') },
-  { id: 'acc_glasses',        name: 'Round Glasses',  slot: 'head', tier: 2, build: roundGlasses },
-  { id: 'acc_bell_collar',    name: 'Bell Collar',    slot: 'neck', tier: 2, build: bellCollar },
-  { id: 'acc_bandana_green',  name: 'Green Bandana',  slot: 'neck', tier: 2, build: () => bandana('#7BC47F') },
-  { id: 'acc_flower_crown',   name: 'Flower Crown',   slot: 'head', tier: 3, build: flowerCrown, seasonal: true },
-  { id: 'acc_sunglasses',     name: 'Sunglasses',     slot: 'head', tier: 3, build: sunglasses, seasonal: true },
-  { id: 'acc_party_hat',      name: 'Party Hat',      slot: 'head', tier: 4, build: partyHat, seasonal: true },
+  { id: 'acc_bow',            name: 'Bow',            slot: 'head', tier: 0, price: 150, build: bow,          icon: bowIcon() },
+  { id: 'acc_collar_tag',     name: 'Collar Tag',     slot: 'neck', tier: 0, price: 170, build: collarTag,    icon: collarTagIcon() },
+  { id: 'acc_bandana_red',    name: 'Red Bandana',    slot: 'neck', tier: 0, price: 190, build: () => bandana('#E4694F'), icon: bandanaIcon('#E4694F') },
+  { id: 'acc_beret',          name: 'Beret',          slot: 'head', tier: 1, price: 320, build: beret,        icon: beretIcon() },
+  { id: 'acc_scarf',          name: 'Scarf',          slot: 'neck', tier: 1, price: 350, build: scarf, seasonal: true, icon: scarfIcon() },
+  { id: 'acc_bandana_blue',   name: 'Blue Bandana',   slot: 'neck', tier: 1, price: 380, build: () => bandana('#6EC6FF'), icon: bandanaIcon('#6EC6FF') },
+  { id: 'acc_glasses',        name: 'Round Glasses',  slot: 'head', tier: 2, price: 520, build: roundGlasses, icon: glassesIcon() },
+  { id: 'acc_bell_collar',    name: 'Bell Collar',    slot: 'neck', tier: 2, price: 550, build: bellCollar,   icon: bellCollarIcon() },
+  { id: 'acc_bandana_green',  name: 'Green Bandana',  slot: 'neck', tier: 2, price: 580, build: () => bandana('#7BC47F'), icon: bandanaIcon('#7BC47F') },
+  { id: 'acc_flower_crown',   name: 'Flower Crown',   slot: 'head', tier: 3, price: 700, build: flowerCrown, seasonal: true, icon: flowerCrownIcon() },
+  { id: 'acc_sunglasses',     name: 'Sunglasses',     slot: 'head', tier: 3, price: 730, build: sunglasses, seasonal: true, icon: sunglassesIcon() },
+  { id: 'acc_party_hat',      name: 'Party Hat',      slot: 'head', tier: 4, price: 900, build: partyHat, seasonal: true, icon: partyHatIcon() },
 ]);
 
 export const ACCESSORY_BY_ID = new Map(ACCESSORIES.map(item => [item.id, item]));
@@ -202,16 +254,29 @@ export function seasonAccessoryUnlocked(id, meta, currentDay) {
   return (day - dayStart) >= SEASON_PLAYTHROUGH_DAYS;
 }
 
+// Whether `meta.accessoriesBought` (src/sim/saveSchema.js normalizeAccessoriesBought) already
+// names `id`. That normaliser is the enforcement point for "the boutique must be built before a
+// purchase can exist" -- it drops any id a save holds without z_boutique built, exactly like
+// data/decor.js's zone-gated rows -- so by the time this reads the list, membership alone is
+// sufficient; this function does not need (and, being pure catalogue data with no sim import, could
+// not take) a builtSet of its own.
+function accessoryBought(id, meta) {
+  const bought = meta && typeof meta === 'object' ? meta.accessoriesBought : null;
+  return Array.isArray(bought) && bought.includes(id);
+}
+
 // Whether `id` is unlocked for a player with this `meta` -- follower tier (unchanged, see
-// data/decor.js's decorUnlocked(item, builtSet) shape: item-first, gate-context second) OR this
-// season's signature-item path, whichever the player reaches first. `currentDay` is optional and
-// only feeds the seasonal path above.
+// data/decor.js's decorUnlocked(item, builtSet) shape: item-first, gate-context second), this
+// season's signature-item path, OR a boutique purchase (plan §3.5/§3.9's "alternative to
+// milestones") -- whichever door the player reaches first. `currentDay` is optional and only feeds
+// the seasonal path above.
 export function accessoryUnlocked(id, meta, currentDay) {
   const item = accessoryItem(id);
   if (!item) return false;
   const followers = meta && typeof meta === 'object' ? meta.followers : 0;
   if (followerTierUnlocked(item.tier, followers)) return true;
-  return seasonAccessoryUnlocked(id, meta, currentDay);
+  if (seasonAccessoryUnlocked(id, meta, currentDay)) return true;
+  return accessoryBought(id, meta);
 }
 
 export function accessoryCatalogue(meta, currentDay) {

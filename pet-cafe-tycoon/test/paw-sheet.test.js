@@ -11,6 +11,7 @@ import {
   pawSheetModel, pawSheetRow, pawRowNumerals, pawRowIcon, PAW_ROW_ICONS,
 } from '../src/ui/pawSheet.js';
 import { PAW_MAX_STAR, PAW_REQUIREMENT_KINDS, pawRatingState } from '../src/sim/pawRating.js';
+import { AREA1 } from '../data/area1.js';
 
 const state = (meta, extra = {}) => pawRatingState({ meta, stats: { served: 0 }, built: [], ...extra });
 
@@ -73,11 +74,13 @@ test('the checklist is the NEXT star\'s requirements, in the sim\'s order', () =
   assert.deepEqual(m.rows.map(r => r.kind), ['zone', 'photos', 'seatMiss']);
 });
 
-test('a SKIPPED requirement draws nothing (z_spa is not in the catalogue today, so ★4 shows two rows)', () => {
-  const s = state({ pawBest: 3 });
+test('a SKIPPED requirement draws nothing (a catalogue without z_spa shows two ★4 rows)', () => {
+  const noSpa = { ...AREA1, zones: AREA1.zones.filter(z => z.id !== 'z_spa'), regions: (AREA1.regions || []).filter(r => r.id !== 'spa') };
+  const s = state({ pawBest: 3 }, { area: noSpa });
   assert.equal(s.requirements.some(r => r.id === 'r4.spa' && r.skipped), true, 'fixture assumption: r4.spa is skipped');
-  const m = pawSheetModel(s);
-  assert.deepEqual(m.rows.map(r => r.id), ['r4.book', 'r4.cup']);
+  assert.deepEqual(pawSheetModel(s).rows.map(r => r.id), ['r4.book', 'r4.cup']);
+  // Batch 4b: with the real catalogue the row exists and IS drawn.
+  assert.deepEqual(pawSheetModel(state({ pawBest: 3 })).rows.map(r => r.id), ['r4.spa', 'r4.book', 'r4.cup']);
 });
 
 test('a row carries the numerals the sim gave it, untouched', () => {

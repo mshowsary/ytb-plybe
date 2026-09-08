@@ -14,9 +14,11 @@ test('initial world has only pre-built stations active', () => {
 // bushes + 6 seats + hire + kiosk = 24 stations, 9 zones in the chain.
 // Batch 1 (plan 7.1) appends the terrace: 15 stations (gate1, fountain1, seat7/8, icecream1,
 // barIce, coldPantry1, register3, photo1, seat9-12, wc1, splash1) across 7 new zones.
-test('AREA1 has 39 stations and 16 zones', () => {
-  assert.equal(AREA1.stations.length, 39);
-  assert.equal(AREA1.zones.length, 16);
+// Batch 4b (plan 3.9) appends the spa: 10 stations (gate2, spaSeat1-3, planters, groom1, bath1,
+// waterTank1, boutique1, photoDesk1) across 5 new zones.
+test('AREA1 has 49 stations and 21 zones', () => {
+  assert.equal(AREA1.stations.length, 49);
+  assert.equal(AREA1.zones.length, 21);
 });
 test('exactly oven1, dispCookie, register1, kiosk1, return1 are active at start (kiosk/return need no zone)', () => {
   const w = createWorld(AREA1);
@@ -32,8 +34,8 @@ test('building the whole zone chain in order activates every station and rebuild
   // world.js payZone), so fountain1 is the one station left inactive once every zone is bought.
   const inactive = [...w.stations.values()].filter(st => !st.active);
   assert.deepEqual(inactive.map(st => st.id), ['fountain1']);
-  // 39 stations - gate1 (non-blocking, never in w.boxes) - fountain1 (retired by z_splash) = 37.
-  assert.equal(w.boxes.length, 37);
+  // 49 stations - gate1/gate2 (non-blocking, never in w.boxes) - fountain1 (retired by z_splash) = 46.
+  assert.equal(w.boxes.length, 46);
 });
 test('paying a zone drains and completes', () => {
   const w = createWorld(AREA1);

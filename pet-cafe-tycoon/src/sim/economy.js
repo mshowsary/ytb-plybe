@@ -1,5 +1,6 @@
 import { isHoliday, isWeekend } from './day.js';
 import { DECOR, DECOR_BY_ID, decorUnlocked } from '../../data/decor.js';
+import { ACCESSORIES, ACCESSORY_BY_ID, accessoryUnlocked } from '../../data/accessories.js';
 // The Paw Rating owns the AUTHORED size of the arrivals bonus (+10%/star); this file owns how it
 // lands on the demand curve. pawRating.js imports only data/area1.js and sim/petBook.js, both
 // leaves, so this adds no cycle back into economy.js.
@@ -398,5 +399,75 @@ export function cheapestDecor(state, builtSet = null) {
     if (!best || item.price < best.price) best = item;
   }
   return best;
+}
+
+// ---------------------------------------------------------------------------------------------
+// BOUTIQUE (plan §3.5/§3.9) -- accessories bought for coins, "an alternative to milestones". Every
+// row in data/accessories.js already carries a follower-tier gate (and four carry a season gate);
+// this is a THIRD door, priced in the same 60-900 band decor uses, so a player who does not want to
+// wait on followers or a season can buy straight in once the boutique is built. Exactly like decor,
+// this can only ever grant a cosmetic (accessoryUnlocked's bought path) plus the ability to equip
+// it -- never followers, never a rating, never a stat -- so it cannot destabilise anything the
+// economy pass already balanced.
+function boutiqueBuilt(builtSet) {
+  if (!builtSet) return false;
+  return typeof builtSet.has === 'function' ? builtSet.has('z_boutique') : !!builtSet.z_boutique;
+}
+
+export function ownedAccessories(state) {
+  const list = state && state.meta && state.meta.accessoriesBought;
+  return Array.isArray(list) ? list : [];
+}
+export function ownsAccessory(state, id) {
+  return ownedAccessories(state).includes(id);
+}
+
+// Everything still worth buying in the boutique right now: has a boutique price, is not already
+// unlocked through ANY door (follower tier, season or an earlier purchase -- accessoryUnlocked
+// covers all three), and the boutique itself is built. Mirrors affordableDecor's "unowned, unlocked,
+// gated" shape; the kiosk's boutique tab and buyAccessory both read this one definition.
+export function boutiqueCatalogue(state, builtSet = null) {
+  const built = builtSet || (state && state.world && state.world.built) || null;
+  if (!boutiqueBuilt(built)) return [];
+  const meta = state && state.meta;
+  const day = state && state.dayState && state.dayState.day;
+  return ACCESSORIES.filter(item => typeof item.price === 'number' && !accessoryUnlocked(item.id, meta, day));
+}
+
+export function affordableAccessories(state, builtSet = null) {
+  const coins = (state && state.coins) || 0;
+  return boutiqueCatalogue(state, builtSet).filter(item => item.price <= coins);
+}
+
+// The cheapest thing still on the boutique shelf, or null. Same role as cheapestDecor for invariant
+// A's "always something in reach" gate -- see tools/bot.js's affordableOptionsCount/
+// cheapestPurchasablePrice, which are wired to add this alongside cheapestDecor as ONE option, not
+// one per item (that file is not owned here; see this task's wiringNeeded).
+export function cheapestAccessory(state, builtSet = null) {
+  let best = null;
+  for (const item of boutiqueCatalogue(state, builtSet)) {
+    if (!best || item.price < best.price) best = item;
+  }
+  return best;
+}
+
+// Same shape as buyDecor: {ok, cost}, never mutates the wallet on refusal. `meta.accessoriesBought`
+// is REPLACED with a new array on a successful buy (rule 7 -- nested save state is never mutated in
+// place), not pushed into, so G.snapshot()'s one-level-deep meta spread always sees a fresh array.
+export function buyAccessory(state, id) {
+  const item = ACCESSORY_BY_ID.get(id);
+  if (!item || typeof item.price !== 'number') return { ok: false, cost: null };
+  const builtSet = state && state.world && state.world.built ? state.world.built : null;
+  if (!boutiqueBuilt(builtSet)) return { ok: false, cost: item.price };
+  const meta = state && state.meta;
+  const day = state && state.dayState && state.dayState.day;
+  if (accessoryUnlocked(id, meta, day)) return { ok: false, cost: item.price, owned: true };
+  if (!state.meta || typeof state.meta !== 'object') state.meta = {};
+  const owned = ownedAccessories(state);
+  const cost = item.price;
+  if (!(state.coins >= cost)) return { ok: false, cost };
+  state.coins -= cost;
+  state.meta.accessoriesBought = [...owned, id];
+  return { ok: true, cost };
 }
 

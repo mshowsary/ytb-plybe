@@ -27,6 +27,15 @@ export const PRODUCTS = {
   icecream: { price: 26, make: 2.0, color: '#FFF0F5' },
   sundae:   { price: 34, make: 2.6, color: '#FFD6E7' },
   pupcup:   { price: 14, color: '#FFE4C4' },
+  // Batch 4b — the spa services (plan 3.9: "spa guests ... pay 60-90 at register3"). These are
+  // SERVICES, not stock: they have no `bake`/`make` because nothing is produced into a buffer and
+  // nothing sits on a display — a groom or a bath is a session at its own station, priced here so
+  // the register, the ledger and the career mastery counters all read one number from one place,
+  // exactly like `treat` and `pupcup` already do. 75/85 sit inside the plan's 60-90 band with the
+  // bath dearer than the groom (it also consumes a `water` sack from waterTank1).
+  // PLACEHOLDERS in the same sense as the spa's zone prices: a pacing agent re-measures both.
+  groom:    { price: 75, color: '#8FD3EE' },
+  bath:     { price: 85, color: '#BFEFFA' },
 };
 
 export const FAMILY = { cookie: 'cookie', brownie: 'cookie', coffee: 'coffee', latte: 'coffee', sundae: 'icecream' };
@@ -99,6 +108,12 @@ export const STAFF = {
   cashier: { costs: [1550, 4200], speed: 2.2 },
   cleaner: { costs: [1350, 3600], speed: 2.2 },
   barista: { costs: [2300, 6000], speed: 2.4, carry: 4 },
+  // Batch 4b — the Photographer (plan 3.9: hired at photoDesk1, auto-takes `Good` shots at
+  // photo1). Two tiers like every non-runner role, priced between the barista and the runner's own
+  // late tiers because the role is bought long after both. No `carry`: it carries nothing.
+  // A hire is offered by whatever opens the workers sheet, so this role becomes visible the moment
+  // z_photographer is built — see wiringNeeded for the systems/ side that actually takes the shot.
+  photographer: { costs: [3200, 7000], speed: 2.2 },
 };
 export const REGISTER_RATE = { owner: 0.6, cashierBase: 1.0 };
 

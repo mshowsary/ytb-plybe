@@ -83,11 +83,15 @@ test('(d) an unbuilt region stays blocked even though it already exists in area.
   // z_icecream/z_photo/etc: the terrace is walkable, but nothing about the region *definition*
   // itself grants access — this is the same grid, re-derived, so re-assert the base case too.
   const w = createWorld(AREA1);
-  assert.equal(AREA1.regions.length, 1, 'exactly one region is authored this batch');
-  assert.equal(AREA1.regions[0].id, 'terrace');
+  assert.deepEqual(AREA1.regions.map(r => r.id), ['terrace', 'spa'], 'the authored regions, in order');
   const grid = buildGrid(AREA1, w); // fresh world: nothing built at all, including z_terrace
   assert.equal(isFree(grid, idx(grid, 0, 10), 0), false, 'an unbuilt region stays blocked even though it exists in area.regions');
   assert.equal(isFree(grid, idx(grid, 5, 12), 0), false, 'unbuilt region cells stay blocked deep inside the footprint too');
+  // Batch 4b: the same rule on the OTHER axis. The spa's cells exist in the array now (the grid
+  // spans out to x 17.5) but must be as solid as wall until z_spa is bought.
+  assert.equal(isFree(grid, idx(grid, 13, 0), 0), false, 'unbuilt spa cells stay blocked (mid-region)');
+  assert.equal(isFree(grid, idx(grid, 17, -5), 0), false, 'unbuilt spa cells stay blocked (far corner)');
+  assert.equal(isFree(grid, idx(grid, 10.2, 0), 0), false, 'the east fence column is solid at the gate line until z_spa is bought');
 });
 
 test('(e) days 1-12 unchanged: with only the authored 9 zones built, the grid is byte-identical to the pre-change grid', () => {
@@ -96,17 +100,35 @@ test('(e) days 1-12 unchanged: with only the authored 9 zones built, the grid is
   const grid = buildGrid(AREA1, w);
 
   // Reconstruct the OLD (pre-regions) grid algorithm inline, verbatim, over the same area/world,
-  // and diff every interior cell (x in [-10,10], z in [-7,7]) against the new grid. `regions` must
-  // never move ox/oz/w for the interior side (no region in this batch extends west or north), so
-  // old and new interior cell indices must match, not just their blocked/lane VALUES.
+  // and diff every interior cell (x in [-10,10], z in [-7,7]) against the new grid.
+  //
+  // WHAT "BYTE-IDENTICAL" CAN AND CANNOT MEAN HERE, stated exactly. ox and oz still must not move:
+  // no region extends west of -halfW or north of -halfD, so idx() maps every world coordinate to
+  // the same (gx, gz) it always did, and every one of those cells must carry the same blocked/lane
+  // value. What CANNOT hold any more is the LINEAR index: Batch 4b's spa extends the grid EAST,
+  // which widens the array (w 44 -> 59) and therefore re-strides i = gz * w + gx. Batch 1 got to
+  // assert linear identity for free because appending rows to the south leaves the first h*w
+  // entries untouched; appending columns does not, and no amount of engine care changes that.
+  // Nothing persists or caches a linear cell index across a grid rebuild (refreshActive throws the
+  // whole grid away and rebuilds it on every build), so the coordinate mapping IS the invariant —
+  // and tools/bot.js's days 1-7 staying byte-identical is the end-to-end proof of it.
   const CELL = 0.5;
   const halfW = AREA1.size.w / 2, halfD = AREA1.size.d / 2;
   const oxOld = -halfW - 2, ozOld = -halfD;
   const wOld = Math.ceil((AREA1.size.w + 2) / CELL);
   const hOld = Math.ceil(AREA1.size.d / CELL);
-  assert.equal(grid.ox, oxOld, 'ox must not move for a batch with no west/north-extending region');
-  assert.equal(grid.oz, ozOld, 'oz must not move for a batch with no west/north-extending region');
-  assert.equal(grid.w, wOld, 'grid width (x-axis) must not change — no region extends past halfW/margin');
+  assert.equal(grid.ox, oxOld, 'ox must not move for a batch with no west-extending region');
+  assert.equal(grid.oz, ozOld, 'oz must not move for a batch with no north-extending region');
+  assert.ok(grid.w >= wOld, 'the grid may only GROW eastward, never shrink');
+  assert.equal(grid.w, Math.ceil((17.5 - -10 + 2) / CELL), 'grid width is exactly the interior+margin union the spa needs');
+  assert.equal(grid.h, Math.ceil((14 - -7) / CELL), 'grid height is unchanged by the spa (it adds no rows)');
+  // Every OLD cell keeps its OLD coordinate: same (gx, gz), same world centre.
+  for (let gz = 0; gz < hOld; gz++) {
+    for (let gx = 0; gx < wOld; gx++) {
+      const cxv = oxOld + (gx + 0.5) * CELL, czv = ozOld + (gz + 0.5) * CELL;
+      assert.equal(idx(grid, cxv, czv), gz * grid.w + gx, `idx() moved for the cell at (${cxv},${czv})`);
+    }
+  }
 
   const doorZ = AREA1.door.z;
   const wallGx = Math.round(2 / CELL);
@@ -135,7 +157,7 @@ test('(e) days 1-12 unchanged: with only the authored 9 zones built, the grid is
           isBlocked = true;
         }
       }
-      const i = gz * wOld + gx;
+      const i = gz * grid.w + gx;   // same (gx, gz), the live stride
       assert.equal(grid.blocked[i], isBlocked ? 1 : 0, `blocked mismatch at gx=${gx} gz=${gz} (x=${cxv},z=${czv})`);
       assert.equal(grid.lane[i], laneVal, `lane mismatch at gx=${gx} gz=${gz} (x=${cxv},z=${czv})`);
       compared++;

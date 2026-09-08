@@ -2,7 +2,7 @@
 import {
   UPGRADES, upgradeCost, hireCost, STAFF,
   WORKER_UPGRADES, MACHINE_UPGRADES, workerUpgradeCost, machineUpgradeCost,
-  STAR_IDS, nextStarCost, ensureStars,
+  STAR_IDS, nextStarCost, ensureStars, boutiqueCatalogue,
 } from '../sim/economy.js';
 import { BARISTA, baristaHireState } from '../sim/barista.js';
 import { pawBestStar } from '../sim/pawRating.js';
@@ -25,6 +25,7 @@ const WORKER_KINDS = [
   { kind: 'cashier', label: 'Cashier', desc: 'Mans a register so customers can pay.', hasCarry: false },
   { kind: 'cleaner', label: 'Cleaner', desc: 'Clears dirty tables after customers leave.', hasCarry: false },
   { kind: 'barista', label: 'Barista', desc: `Day ${BARISTA.unlockDay}+ · refills beans and keeps the Coffee Bar stocked.`, hasCarry: false, noLevels: true },
+  { kind: 'photographer', label: 'Photographer', desc: 'Auto-takes Good shots at the Photo Studio.', hasCarry: false, noLevels: true },
 ];
 function levelRow(key, tier, cost, coins) {
   return { tier, maxTier: WORKER_UPGRADES[key].length, cost, disabled: cost == null || coins < cost };
@@ -47,6 +48,21 @@ function buildWorkerRows(G, world) {
         hireCost: gate.cost == null ? BARISTA.cost : gate.cost,
         hireMaxed: gate.reason === 'full',
         hireDisabled: !deskBuilt || !gate.available,
+        showLevels: false, speed: null, carry: null, runners: null, displays: null,
+      };
+    }
+    if (w.kind === 'photographer') {
+      // Gated on photoDesk1 (z_photographer), not the generic hire1 deskBuilt above. No level row:
+      // there is no staffLevels.photographer ladder, and letting this kind reach the generic path
+      // below would read G.staffLevels[w.kind].speed off an undefined key and throw.
+      const pDesk = world.stations.get('photoDesk1');
+      const pDeskBuilt = !!(pDesk && pDesk.active);
+      const pCost = hireCost(w.kind, G.staff);
+      return {
+        kind: w.kind, label: w.label, desc: w.desc,
+        count, cap: STAFF.photographer.costs.length,
+        hireCost: pCost, hireMaxed: pCost === null,
+        hireDisabled: !pDeskBuilt || pCost == null || G.coins < pCost,
         showLevels: false, speed: null, carry: null, runners: null, displays: null,
       };
     }
@@ -96,6 +112,11 @@ function buildMachineRows(G, world) {
 }
 
 export function buildKioskModel(G, world, tab = 'player', focusRow = null) {
+  // Boutique tab (plan §3.5/§3.9): only appears once boutique1 is actually built -- the same gate
+  // economy.buyAccessory itself enforces, read here through world.built rather than the station's
+  // own `active` flag so this needs no station lookup (a zone id is enough, exactly like decor's
+  // `requires` gate reads a zone id rather than a station).
+  const boutiqueActive = !!(world.built && world.built.has && world.built.has('z_boutique'));
   return {
     coins: G.coins, tab, focusRow,
     player: buildPlayerRows(G),
@@ -105,5 +126,7 @@ export function buildKioskModel(G, world, tab = 'player', focusRow = null) {
     built: world.built,
     // The ratchet, so the decor tab lists a star set the moment it is earned.
     pawBest: pawBestStar(G.meta),
+    boutiqueActive,
+    boutiqueItems: boutiqueActive ? boutiqueCatalogue(G, world.built) : [],
   };
 }

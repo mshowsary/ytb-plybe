@@ -108,6 +108,7 @@ test('Task 25 progression makes Staff Desk and second register parallel after Cu
   const order = [
     'z_seats1', 'z_oven2', 'z_register2', 'z_hire', 'z_coffee', 'z_bowl', 'z_blender', 'z_garden', 'z_seats2',
     'z_terrace', 'z_icecream', 'z_register3', 'z_photo', 'z_terraceSeats', 'z_restroom', 'z_splash',
+    'z_spa', 'z_groom', 'z_bath', 'z_boutique', 'z_photographer',
   ];
   assert.deepEqual(AREA1.zones.map(z => z.id), order);
   const zones = new Map(AREA1.zones.map(z => [z.id, z]));

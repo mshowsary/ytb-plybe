@@ -242,18 +242,28 @@ special day theme (reuse `specialDays.js THEMES`), one seasonal accessory (party
 scarf, sunglasses), and a **season goal** (e.g. 40 Perfect photos) with a cup reward. Purely
 additive to the existing weekly rhythm.
 
-### 3.9 Space 3 — Pet Spa (unlock target: day ~28, 45,000, requires ★3)
+### 3.9 Space 3 — Pet Spa (unlock target: day ~28; measured: day 26)
+
+**As shipped (Batch 4b).** The prices below were re-measured by bot, exactly as the terrace's were in
+Batch 2 — the authored 45,000 was never reachable against §4.2's income curve. And the zone is
+gated on the **zone chain** (`z_spa` requires `z_splash`), not on ★3: the Paw Rating's ★4 row
+already requires the Spa to be *built* (`pawRating.js` `r4.spa`, live the moment the zone exists in
+the catalogue), so the space→star link runs from the rating's side and needs no second gate — and a
+star-gated zone could never be bought by the bot, which cannot model ★2+, so day 60 would have
+measured nothing. Measured (60-day run, deterministic): z_spa **day 26**, z_groom 27, z_bath 29,
+z_boutique 31, z_photographer 34; 240 groom sessions, 172 baths, 411 spa guests served, 9 boutique
+buys, 139 Photographer shots; invariants A–C PASS through day 60.
 
 Region east: `{ id:'spa', x0:10, x1:17.5, z0:-7, z1:7, builtBy:'z_spa', floor:'tile' }` (the east
 strip past the fence; the fence gains a second gate at z 0).
 
 | id | price | adds | verb |
 |---|---|---|---|
-| `z_spa` | 45,000 | `spaLounge` seats ×3, planters | pets' owners sit while pets are pampered |
-| `z_groom` | 14,000 | `groom1` | **brush hold** — a rhythm hold: hold while a paw icon pulses, release on the beat, 3 beats; score → tip + friendship |
-| `z_bath` | 18,000 | `bath1, waterTank1` | refill water (sack `water`), pets exit sparkling (emissive dots 20 s) |
-| `z_boutique` | 16,000 | `boutique1` | sells accessories for coins (alternative to milestones) |
-| `z_photographer` | 20,000 | hire slot | a **Photographer** staff role auto-takes `Good` shots at `photo1` |
+| `z_spa` | 14,000 *(was 45,000)* | `gate2`, `spaSeat1-3`, planters | the east region opens; lounge seats are furniture for now (spa guests do not sit — see follow-ups) |
+| `z_groom` | 6,000 | `groom1` | **brush hold** — hold while a paw icon pulses, release on the beat, 3 beats; score → tip + friendship |
+| `z_bath` | 7,000 | `bath1, waterTank1` | refill water (sack `water` from the tank), pets exit sparkling for 20 s |
+| `z_boutique` | 6,500 | `boutique1` | sells accessories for coins (a third unlock path beside follower tiers and seasons) |
+| `z_photographer` | 8,000 | `photoDesk1` (hire desk) | the **Photographer** role auto-takes `Good` shots at `photo1` |
 
 Spa guests are a new arrival type (`c.spaBound`) from day 28: they skip food, queue at `groom1`/`bath1`, pay 60–90 at `register3`, and count as served. Detailed data for this space is written when Batch 4 starts, using the terrace as the template.
 
@@ -580,7 +590,18 @@ runner arrival fix; demand bounded past a soft cap; the season save exploit clos
 | 4a.1 | **Text → icons on the play field.** 42 banner/toast call sites across 9 files, plus the "Host a Pet Social" / "MYSTERY GIFT" buttons and the coach verb captions — rule 5 was only ever applied to chalk labels (§5.5). Proper nouns and numerals stay; sentences, verbs and labels go; aria-labels survive. | `test/play-field-text.test.js` fails before / passes after; screenshots at day 1 and at the day-8 policy moment; `production-smoke` proseLeak stays false |
 | 4a.2 | **Make seasons visible from the default camera.** The palette lands on the far garden and the garland, which sit *behind* the camera; once the terrace is built the visible garden is flat deck and the four seasons are near-indistinguishable (`shots/seasons/*.png`). Seasonal planters on the deck, a garland along the fence lit in the evening, fountain tint — positions never move. | four midday + four evening screenshots with the terrace built; a stranger can name which is which |
 
-**4b** — §3.9 the Spa. Check: bot to day 60 green (`MAX_DAYS`); invariants A–C hold to day 45; audit 0/13 (now 13 viewports × 5 states).
+**4b ✅ live** — §3.9 the Spa. The regions engine is axis-generic now (`nav.js regionEdge`: a
+south fence row or an east fence column, derived from the region's own rectangle; north/west would be
+a door in a wall, deliberately `null`). Bot to day 60 green; A–C PASS through day 60; audit 0 across
+13 viewports × 5 states with the east region built.
+Found and fixed on the way: the gate-open animation had had no caller since Batch 1 (every fence drew
+closed across an open gateway); the pantry sheet ignored which pantry was tapped (cream and water were
+unreachable in the browser); adding `z_spa` demoted every returning ★4 player to ★3 at the save
+boundary — the boundary now skips zone rows exactly as the live ratchet does; and a binary
+terrace/not-terrace seat partition let ordinary guests walk through gate2 to sit in the spa.
+Follow-ups (not blocking): spa guests should sit on the lounge seats while their pet is pampered;
+`runnerStuck` recoveries run ~12/day; the 60-day bot is ~13 s (budget 25 s) and grew more than
+linearly with the wider grid — profile in Batch 5.
 
 ### Batch 5 — Franchise and hardening (1 session)
 

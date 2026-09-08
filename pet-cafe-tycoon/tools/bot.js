@@ -3,16 +3,17 @@
 // Weekly Cups, day phases, service flow and the same owner priority loop used by the browser game.
 import {
   createWorld, activeZones, payZone, stepOvens, stepMachines, takeFromOven, takeFromMachine,
-  putOnDisplay, collectCash, refillBeans, refillBowl, refillCream, harvestBush, addFruit as stationAddFruit, cleanSeat,
-  stepPhotoBooth,
+  putOnDisplay, collectCash, refillBeans, refillBowl, refillCream, refillWater, harvestBush, addFruit as stationAddFruit, cleanSeat,
+  stepPhotoBooth, stepGroomTable, stepBath,
 } from '../src/sim/world.js';
 import { createCustomer, stepCustomers } from '../src/sim/customers.js';
 import { createCustomerSpawnSequence } from '../src/sim/customerSpawn.js';
 import { createStaff, stepStaff } from '../src/sim/staff.js';
+import { photographerSpawnAllowed } from '../src/sim/staffState.js';
 import { createMover, setTarget, stepMover } from '../src/sim/mover.js';
 import {
   spawnInterval, maxCustomers, salePrice, playerSpeed, carryCap, cafeLevel,
-  ensureStars, hireCost, nextStarCost, STAR_IDS, familyOf, cheapestDecor,
+  ensureStars, hireCost, nextStarCost, STAR_IDS, familyOf, cheapestDecor, cheapestAccessory,
   upgradeCost, workerUpgradeCost, machineUpgradeCost, UPGRADES,
 } from '../src/sim/economy.js';
 import { createDay, stepDay, nextDay, spawnMult, capBonus, tipMult } from '../src/sim/day.js';
@@ -62,7 +63,10 @@ const DT = 1 / 30;
 // Batch 1 (task E3): the terrace unlocks ~day 14, so a 25-day run (the old ceiling, set when Area 1
 // was the whole game) never simulates the terrace era at all. Raised to 40 so the ice cream lane,
 // register3 and the splash pool all actually run under the bot for a meaningful number of days.
-const MAX_DAYS = 40;
+// Batch 4b (plan 4.3: "run the bot to 60 days once the spa exists"): the spa chain sits behind the
+// whole terrace chain (z_spa requires z_splash) and is itself five zones deep — 40 days left no
+// margin to observe it complete, so this now reaches the plan's own explicitly requested horizon.
+const MAX_DAYS = 60;
 const wallStart = Date.now();
 
 const world = createWorld(AREA1);
@@ -144,11 +148,16 @@ const lastPos = new Map();
 const RUNNER_SPAWN = { x: 4, z: -3 };
 const CASHIER_FALLBACK = { x: -4, z: -0.2 };
 const CLEANER_SPAWN = { x: -6, z: 4 };
+// Batch 4b: literal copy of src/systems/staff.js's own PHOTOGRAPHER_FALLBACK (photoDesk1's
+// precomputed front spot) — see that file's comment for why the desk's raw x/z (its own collision
+// footprint) is the wrong spawn point. Used only if photoDesk1 is somehow missing from the world.
+const PHOTOGRAPHER_FALLBACK = { x: 16.0, z: 3.7 };
 let anyRunnerHired = false;
 function syncStaffActors() {
-  let runners = 0, cashiers = 0, cleaners = 0;
+  let runners = 0, cashiers = 0, cleaners = 0, photographers = 0;
   for (const s of staffList) {
     if (s.kind === 'runner') runners++; else if (s.kind === 'cashier') cashiers++; else if (s.kind === 'cleaner') cleaners++;
+    else if (s.kind === 'photographer') photographers++;
   }
   // No runner `assign` (systems/staff.js only passes one when a save has a recorded
   // runnerAssignments choice; a fresh bot run has none, so null — unassigned, services every
@@ -159,6 +168,15 @@ function syncStaffActors() {
     staffList.push(createStaff('cashier', co ? co.cash : CASHIER_FALLBACK));
   }
   if (cleaners < (G.staff.cleaner | 0)) staffList.push(createStaff('cleaner', CLEANER_SPAWN));
+  // Batch 4b: mirrors src/systems/staff.js's own spawnPhotographer 1:1 — gated on
+  // photographerSpawnAllowed(world.built) (z_photographer actually built), not merely
+  // G.staff.photographer, for the exact "a save whose count outraces its own builds" reason
+  // staffState.js's own header documents. The photographer then runs itself entirely — walks to
+  // photo1, mans it, resolves shots — with zero further involvement from ownerStep/botDecide below.
+  if (photographers < (G.staff.photographer | 0) && photographerSpawnAllowed(world.built)) {
+    const desk = world.stations.get('photoDesk1');
+    staffList.push(createStaff('photographer', desk ? desk.front : PHOTOGRAPHER_FALLBACK));
+  }
 }
 
 let arrivedT = 0, lastKind = null, lastStationId = null;
@@ -185,6 +203,11 @@ function ownerStep(dt) {
     // stepPhotoBooth does the rest — including auto-resolving the shot, so the bot can never stall
     // waiting for a tap it has no way to make.
     case 'photo': return;
+    // Batch 4b: groom/bath are the same "arriving is the work" shape — stepGroomTable auto-resolves
+    // every beat nobody presses (GROOM_AUTO_RESOLVE) and stepBath needs no input at all once manned
+    // with water, so there is nothing for ownerStep to do beyond the proximity flip below.
+    case 'groom': return;
+    case 'bath': return;
     case 'fetch': {
       const st = world.stations.get(target.stationId);
       if (!st || !st.active || st.stock <= 0) return;
@@ -216,6 +239,8 @@ function ownerStep(dt) {
       if (carry.sack === 'beans') { const used = Math.min(carry.sackLeft, Math.max(0, 20 - st.beans)); refillBeans(world, st.id, used); useSack(carry, used); }
       // Batch 1: cream mirrors beans exactly (refillCream is refillBeans's own mirror in world.js).
       else if (carry.sack === 'cream') { const used = Math.min(carry.sackLeft, Math.max(0, 20 - st.cream)); refillCream(world, st.id, used); useSack(carry, used); }
+      // Batch 4b: water mirrors cream/beans exactly (refillWater is their own mirror in world.js).
+      else if (carry.sack === 'water') { const used = Math.min(carry.sackLeft, Math.max(0, 20 - st.water)); refillWater(world, st.id, used); useSack(carry, used); }
       else { const used = refillBowl(world, st.id, carry.sackLeft); useSack(carry, used); }
       return;
     }
@@ -276,6 +301,16 @@ let dayIceUnits = 0, dayRegister3Sales = 0, dayMissedSeats = 0;
 // Photo shots and the tips they bank. This bot models no friendship tiers, so every shot pays the
 // tier-0 base — the number is a floor on photo income, never an overstatement of it.
 let dayPhotoShots = 0, dayPhotoTips = 0;
+// Batch 4b: the Photographer role auto-takes shots at quality 'good' — the anonymous auto-resolve
+// timeout (PHOTO_AUTO_RESOLVE) always pays 'ok' — so a 'good' event can only ever have come from a
+// hired photographer, which is exactly the count this line separates out of dayPhotoShots above.
+let dayPhotographerShots = 0;
+// Batch 4b (plan 3.9): groom/bath sessions and their tips (same tier-0-floor caveat as photo
+// above), spa guests actually served (paid at register3 for a groom or bath, counted the same way
+// ICE_PRODUCTS counts an ice cream sale below), and boutique accessory purchases.
+const SPA_PRODUCTS = new Set(['groom', 'bath']);
+let dayGroomSessions = 0, dayGroomTips = 0, dayBathSessions = 0, dayBathTips = 0;
+let daySpaGuests = 0, dayBoutiqueBuys = 0;
 let totalRegister3Sales = 0;
 const custSpawnPhase = new Map();
 const custWaitTime = new Map();
@@ -293,6 +328,11 @@ const TERRACE_ZONE_IDS = (() => {
 })();
 const CORE_ZONE_IDS = AREA1.zones.filter(z => !TERRACE_ZONE_IDS.has(z.id)).map(z => z.id);
 let daysToComplete = null, terraceDoneDay = null, closingAfford = 0;
+// Batch 4b (plan 4.3): "report the unlock day of every spa zone" — read straight off the same
+// 'built' event payZone already emits for every other zone (below), one entry the first time each
+// id appears, so a re-priced zone's unlock day is measured, not guessed at from the price alone.
+const SPA_ZONE_IDS = ['z_spa', 'z_groom', 'z_bath', 'z_boutique', 'z_photographer'];
+const spaZoneUnlockDay = Object.create(null);
 function affordableOptionsCount() {
   const coins = G.coins; let n = 0;
   for (const z of (world.activeZoneList || activeZones(world))) if ((z.price - (world.partial[z.id] || 0)) <= coins) n++;
@@ -305,6 +345,9 @@ function affordableOptionsCount() {
   // 24 items and counting them all overshoots this metric's own "healthy target is usually 1-3"
   // (measured [0,1,2,0,0,16,21] counting all rows vs [0,1,2,0,0,2,4] counting the cheapest).
   { const d = cheapestDecor(G, world.built); if (d && d.price <= coins) n++; }
+  // Boutique accessories count as ONE option too, same reasoning as décor above (12 items, not 12
+  // counters) -- see src/sim/economy.js cheapestAccessory.
+  { const a = cheapestAccessory(G, world.built); if (a && a.price <= coins) n++; }
   return n;
 }
 
@@ -346,6 +389,8 @@ function cheapestPurchasablePrice() {
   }
   const d = cheapestDecor(G, world.built);
   if (d && d.price < best) best = d.price;
+  const a = cheapestAccessory(G, world.built);
+  if (a && a.price < best) best = a.price;
   return best === Infinity ? null : best;
 }
 // machineLevels/staffLevels are ensured lazily elsewhere (ensureLevels in economy.js is called from
@@ -503,8 +548,14 @@ while (G.dayState.day <= MAX_DAYS) {
   // No tierFor: friendship tiers live in meta, which this bot does not model, so every bot shot
   // pays the tier-0 base tip. That understates photo income rather than inventing it.
   stepPhotoBooth(world, DT);
+  // Batch 4b: same no-tierFor understatement as photo above, for the same reason — every bot groom/
+  // bath session pays its tier-0 base tip. stepBath also owns w.t (the sim's own monotonic clock,
+  // read by customers.js to stamp a bathed pet's sparkleUntil) — see world.js's own comment on why
+  // that increment lives here rather than in a second, redundant place.
+  stepGroomTable(world, DT); stepBath(world, DT);
   for (const id of world.checkouts) { const co = world.stations.get(id); if (co.active && near(owner, co.front, 1.2)) co.serving = 'owner'; }
   for (const st of world.stations.values()) if (st.type === 'photo' && st.active && near(owner, st.front, 1.2)) st.serving = true;
+  for (const st of world.stations.values()) if ((st.type === 'groom' || st.type === 'bath') && st.active && near(owner, st.front, 1.2)) st.serving = true;
   stepCustomers(customers, world, price, DT);
   // Levels was `undefined` (stepStaff's own DEFAULT_LEVELS) while staffList was always empty, so it
   // never mattered; now that gap (a) puts real actors in staffList, G.staffLevels must be passed
@@ -548,13 +599,22 @@ while (G.dayState.day <= MAX_DAYS) {
       ledger.record('sale', `service:${order.length ? order.join('+') : 'unknown'}`, e.amount, { meta:{ customerId:e.id, checkoutId:e.checkoutId || null } });
       recordRecipeOrder(G.meta, order);
       for (const item of order) if (ICE_PRODUCTS.has(item)) dayIceUnits++;
+      // Batch 4b: a spa guest's whole order IS the service ('groom' or 'bath', customers.js's own
+      // comment) — same "read it straight off the settled sale" technique as ICE_PRODUCTS above,
+      // rather than trusting a customer-object flag that may or may not still be set by pay time.
+      if (order.some(item => SPA_PRODUCTS.has(item))) daySpaGuests++;
       if (e.checkoutId === 'register3') { dayRegister3Sales += e.amount; totalRegister3Sales += e.amount; }
-    } else if (e.type === 'photo') { dayPhotoShots++; dayPhotoTips += e.tip | 0; }
+    } else if (e.type === 'photo') { dayPhotoShots++; dayPhotoTips += e.tip | 0; if (e.quality === 'good') dayPhotographerShots++; }
+    else if (e.type === 'groom') { dayGroomSessions++; dayGroomTips += e.tip | 0; }
+    else if (e.type === 'bath') { dayBathSessions++; dayBathTips += e.tip | 0; }
     else if (e.type === 'runnerStuck') runnerStuckEvents++;
     else if (e.type === 'seatMissed') dayMissedSeats++;
     else if (e.type === 'lost') {
       G.dayStats.lost++; G.serviceStreak = { count: 0, t: 0 };
-    } else if (e.type === 'built') dayPurchases.push('built ' + e.zoneId);
+    } else if (e.type === 'built') {
+      dayPurchases.push('built ' + e.zoneId);
+      if (SPA_ZONE_IDS.includes(e.zoneId) && !(e.zoneId in spaZoneUnlockDay)) spaZoneUnlockDay[e.zoneId] = G.dayState.day;
+    }
     else if (e.type === 'purchase') {
       dayPurchases.push(e.kind);
       // botDecide.js debits G.coins directly for hires, stars, machine and worker upgrades. Only
@@ -564,6 +624,7 @@ while (G.dayState.day <= MAX_DAYS) {
       const cat = String(e.kind).split(':')[0];
       recordSpend(spendByCategory, cat, e.cost || 0);
       recordSpend(curDaySpend.cat, cat, e.cost || 0);
+      if (cat === 'accessory') dayBoutiqueBuys++;
     }
   }
 
@@ -625,10 +686,15 @@ while (G.dayState.day <= MAX_DAYS) {
         goalText: careerGoalLabel(goal), goalMet: met, goalReward: met ? goal.reward : 0,
         cupReward: cup.awarded ? cup.reward : 0, afford: closingAfford, purchases: dayPurchases.slice(),
         iceUnits: dayIceUnits, register3Sales: dayRegister3Sales, missedSeats: dayMissedSeats,
-        photoShots: dayPhotoShots, photoTips: dayPhotoTips,
+        photoShots: dayPhotoShots, photoTips: dayPhotoTips, photographerShots: dayPhotographerShots,
+        groomSessions: dayGroomSessions, groomTips: dayGroomTips,
+        bathSessions: dayBathSessions, bathTips: dayBathTips,
+        spaGuests: daySpaGuests, boutiqueBuys: dayBoutiqueBuys,
       });
       checkDayInvariants(completedDay, accounting.sale, G.coins);
       dayIceUnits = 0; dayRegister3Sales = 0; dayMissedSeats = 0; dayPhotoShots = 0; dayPhotoTips = 0;
+      dayPhotographerShots = 0; dayGroomSessions = 0; dayGroomTips = 0; dayBathSessions = 0; dayBathTips = 0;
+      daySpaGuests = 0; dayBoutiqueBuys = 0;
       dayPurchases = []; G.dayStats = { served: 0, lost: 0, earned: 0, bestStreak: 0 };
       G.serviceStreak = { count: 0, t: 0 }; G.shiftBestStreak = 0;
       curDaySpend.day = completedDay; daySpend.push(curDaySpend);
@@ -674,8 +740,47 @@ console.log(`ice cream units sold (lifetime): ${dayReport.reduce((s, r) => s + (
   const firstDay = (dayReport.find(r => (r.photoShots || 0) > 0) || {}).day;
   console.log(`photo shots (lifetime): ${shots}, tips ${tips} coins, first shot day ${firstDay || '-'}`
     + (shots === 0 ? '  <-- ZERO: the booth is built but nothing reaches it (see the ice-cream lane, batch 1)' : ''));
+  const pShots = dayReport.reduce((s, r) => s + (r.photographerShots || 0), 0);
+  console.log(`  of which photographer-run shots (quality 'good', unreachable via PHOTO_AUTO_RESOLVE's own always-'ok' timeout): ${pShots}`
+    + (pShots === 0 && world.built.has('z_photographer') ? '  <-- ZERO: z_photographer is built but no photographer shot ever ran' : ''));
 }
 console.log(`missed seats (lifetime): ${dayReport.reduce((s, r) => s + (r.missedSeats || 0), 0)}`);
+
+// Batch 4b (plan 3.9/4.3): "report the unlock day of every spa zone ... and the lifetime spa
+// counters." Each ZERO line below is gated on that station's own zone actually being built THIS
+// run — an unbuilt zone reads as "not reached in time" (a pacing question), not as this task's own
+// "correct code that nothing calls" trap, which only applies once the content exists to be reached.
+console.log('--- pet spa (plan 3.9) ---');
+console.log('spa zone unlock day (this run, current data/area1.js prices):');
+for (const id of SPA_ZONE_IDS) {
+  console.log(`  ${id.padEnd(16)} ${spaZoneUnlockDay[id] != null ? 'day ' + spaZoneUnlockDay[id] : 'NOT BUILT within ' + MAX_DAYS + ' days'}`);
+}
+{
+  const sessions = dayReport.reduce((s, r) => s + (r.groomSessions || 0), 0);
+  const tips = dayReport.reduce((s, r) => s + (r.groomTips || 0), 0);
+  const firstDay = (dayReport.find(r => (r.groomSessions || 0) > 0) || {}).day;
+  console.log(`groom sessions (lifetime): ${sessions}, tips ${tips} coins, first session day ${firstDay || '-'}`
+    + (sessions === 0 && world.built.has('z_groom') ? '  <-- ZERO: groom1 is built but nothing reaches it (see the ice-cream lane, batch 1)' : ''));
+}
+{
+  const sessions = dayReport.reduce((s, r) => s + (r.bathSessions || 0), 0);
+  const tips = dayReport.reduce((s, r) => s + (r.bathTips || 0), 0);
+  const firstDay = (dayReport.find(r => (r.bathSessions || 0) > 0) || {}).day;
+  console.log(`bath sessions (lifetime): ${sessions}, tips ${tips} coins, first session day ${firstDay || '-'}`
+    + (sessions === 0 && world.built.has('z_bath') ? '  <-- ZERO: bath1 is built but nothing reaches it (see the ice-cream lane, batch 1)' : ''));
+}
+{
+  const guests = dayReport.reduce((s, r) => s + (r.spaGuests || 0), 0);
+  const firstDay = (dayReport.find(r => (r.spaGuests || 0) > 0) || {}).day;
+  console.log(`spa guests served (lifetime): ${guests}, first day ${firstDay || '-'}`
+    + (guests === 0 && (world.built.has('z_groom') || world.built.has('z_bath')) ? '  <-- ZERO: the spa is built but no guest was ever routed through it (see the ice-cream lane, batch 1)' : ''));
+}
+{
+  const buys = dayReport.reduce((s, r) => s + (r.boutiqueBuys || 0), 0);
+  const firstDay = (dayReport.find(r => (r.boutiqueBuys || 0) > 0) || {}).day;
+  console.log(`boutique buys (lifetime): ${buys}, first day ${firstDay || '-'}`
+    + (buys === 0 && world.built.has('z_boutique') ? '  <-- ZERO: the boutique is built but nothing ever bought from it (see the ice-cream lane, batch 1)' : ''));
+}
 
 function daySales(day) { const r = dayReport.find(x => x.day === day); return r ? r.sales : null; }
 const CHECKPOINTS = [
@@ -907,7 +1012,10 @@ if (ledgerMismatches.length > 0) { console.error('LEDGER FAILED TO RECONCILE WAL
 if (stalls.length > 0) { console.error(`${stalls.length} STALLS (must be 0)`); gateFail = true; }
 if (teleports > 0) { console.error(`${teleports} TELEPORTS (must be 0)`); gateFail = true; }
 if (invariantDViolations > 0) { console.error(`INVARIANT D: ${invariantDViolations} runner holds > 6s while a same-family display had room (must be 0)`); gateFail = true; }
-if (wallMs > 15000) { console.error('BOT WALL-CLOCK BUDGET EXCEEDED'); gateFail = true; }
+// 25 s: the run is 60 days now (was 40) over a grid a region wider, and measured at ~16 s here.
+// A budget is a tripwire for a runaway loop, not a performance target — but note the growth was
+// more than linear, which is worth a profile in the hardening batch.
+if (wallMs > 25000) { console.error('BOT WALL-CLOCK BUDGET EXCEEDED'); gateFail = true; }
 if (daysToComplete == null) { console.error('core café never completed within ' + MAX_DAYS + ' days'); gateFail = true; }
 if (invariantAViolations > 0) { console.error(`INVARIANT A FAILED: ${invariantAViolations} day(s) had nothing in the catalogue within 2.5x that day's income`); gateFail = true; }
 if (invariantBViolations > 0) { console.error(`INVARIANT B FAILED: content cadence gap reached ${invariantBMaxGap} days (limit 3 through day 30, 5 through day 45)`); gateFail = true; }

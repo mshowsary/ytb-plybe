@@ -36,7 +36,7 @@ test('applySave: legacy flat state is migrated onto canonical known fields', () 
   assert.ok(canonical);
   assert.equal(state.coins, 555);
   assert.deepEqual(state.up, { speed: 2, carry: 1, income: 0 });
-  assert.deepEqual(state.staff, { runner: 1, cashier: 1, cleaner: 0, barista: 0 });
+  assert.deepEqual(state.staff, { runner: 1, cashier: 1, cleaner: 0, barista: 0, photographer: 0 });
   assert.deepEqual(state.stats, {
     served: 12, lifetimeEarned: 4000, serviceFees: 0, wasteFees: 0,
     rewardedReliefCoins: 0, partyOrderCoins: 0,

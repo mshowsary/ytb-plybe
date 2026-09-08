@@ -44,6 +44,8 @@ const PLAY_FIELD_FILES = [
   'systems/partyOrders.js',
   'systems/customers.js',
   'systems/guestCare.js',
+  'systems/spa.js',
+  'ui/groomGame.js',
 ];
 
 const read = rel => fs.readFileSync(path.join(SRC, rel), 'utf8');

@@ -13,7 +13,7 @@ import { emitWorld } from './events.js';
 // of paying on arrival at the old checkout. Every walk still goes through the grid
 // (src/sim/nav.js + src/sim/mover.js); the owner (tools/bot.js) stays player-like and steers
 // with moveToward directly.
-import { takeFromDisplay, takeTreat, clearPhotoSession, PHOTO_CHANCE, PHOTO_QUEUE_CAP } from './world.js';
+import { takeFromDisplay, takeTreat, clearPhotoSession, PHOTO_CHANCE, PHOTO_QUEUE_CAP, clearGroomSession, clearBathSession, BATH_SPARKLE_SECONDS } from './world.js';
 import { wishFor, familyOf } from './economy.js';
 import { createMover, setTarget, stepMover } from './mover.js';
 export const SPECIES = ['cat', 'dog', 'bunny', 'hamster'];
@@ -68,6 +68,14 @@ export const CUSTOMER_SPEED = 2.2, EAT_TIME = 4, PATIENCE = 17;
 // reset mid-wait — see setPatience's call sites), so it's an exact, dependency-free "seconds spent
 // waiting this episode" clock without a second timer field.
 export const SETTLE_WAIT = 6;
+// Batch 4b (plan 3.9): how much of a paid guest's own visit the spa siphons off is the pacing
+// agent's call (same footnote as the zone/product prices in data/area1.js/economyConfig.js — this
+// is a placeholder, not the plan's number). The RULE, not just the number: the chance scales with
+// how much of the spa is actually open, exactly like C1's terrace-bound ratio scales with how many
+// deck tables exist — one active service line (say groom1 bought, bath1 not yet) can only clear
+// half the throughput two lines can, so it should only draw half as many spa-bound guests as a
+// fully-built spa would, or every guest it draws queues far longer than PATIENCE tolerates.
+export const SPA_CHANCE_MAX = 0.3;
 // Program §6.2: how long a paid guest stands under the "no clean table" bubble before giving up.
 // Short on purpose -- it is a beat the owner can read and act on, not a second waiting queue. The
 // mature service policy (day >= 8) still grants its own, much longer 'waitSeat' grace below.
@@ -90,6 +98,14 @@ export function createCustomer(id, species, variant, area) {
     // site below. _photoTarget is the photo station id while routed toward/waiting at it; null once
     // the detour is over (never entered, given up on, or finished).
     _photoDecided: false, _photoTarget: null, photoArrived: 0,
+    // Batch 4b (plan 3.9): spa guests. spaBound is settled once, on this customer's first tick,
+    // exactly like terraceBound — see below. _spaTarget is groom1/bath1's id while routed
+    // toward/waiting at it; null once resolved (served, given up, or never entered). sparkleUntil
+    // is a render-only sim flag this file stamps once a resolved bath session is read back
+    // (world.js's own clearBathSession comment names it) — the pet stays visually with its owner
+    // as always, this file never draws the sparkle itself, only carries the timestamp.
+    _spaDecided: false, spaBound: false, _spaTarget: null, spaArrived: 0, _spaSettled: false,
+    sparkleUntil: 0,
     mover,
   };
 }
@@ -319,10 +335,19 @@ function seatCounts(w, r) {
 // ever active yet, so `inTerrace` is false for every active seat and the interior branch degrades
 // to plain freeSeat's exact behaviour — bit-identical for every caller that never sets
 // c.terraceBound (i.e. every day before the terrace exists).
+// Batch 4b: the spa is a THIRD space, and this partition was written for two. An ordinary guest is
+// interior-only, so the test is "inside ANY built region", not "not the terrace" — otherwise a
+// plain guest walked through gate2 to sit on a spa lounge seat the moment the interior filled.
+// inTerrace is a plain rectangle test, so it serves for every region.
+function inAnyRegion(st, w) {
+  for (const reg of (w.area && w.area.regions) || []) if (inTerrace(st, reg)) return true;
+  return false;
+}
 function seatFor(w, r, wantTerrace) {
   for (const st of w.stations.values()) {
     if (st.type !== 'seat' || !st.active || st.occupied || st.dirty) continue;
-    if (inTerrace(st, r) === wantTerrace) return st;
+    if (wantTerrace ? !inTerrace(st, r) : inAnyRegion(st, w)) continue;
+    return st;
   }
   return null;
 }
@@ -386,7 +411,13 @@ function pickSideRegister(w, c, wantTerrace, r) {
 }
 function pickRegister(w, c) {
   const r = terraceRegion(w);
-  const wantTerrace = !!(c && c.terraceBound && r);
+  // Batch 4b: plan 3.9 says a spa guest pays "at register3" specifically. register3 is not a
+  // spa station — the spa authors no register of its own (see data/area1.js's ten new stations) —
+  // it is the terrace's own checkout, sitting inside the terrace rectangle. So "prefer register3"
+  // and "prefer the terrace-side register" are the exact same rule today, and reusing it here
+  // (rather than inventing a parallel "spa side" concept for a register the spa doesn't own) is
+  // what actually gets a spa guest to register3 by name.
+  const wantTerrace = !!(c && (c.terraceBound || c.spaBound) && r);
   if (!wantTerrace) return pickSideRegister(w, c, false, r) || pickAnyRegister(w, c);
   // A terrace-bound guest whose own register is at (or past) TERRACE_REGISTER_CAP settles for the
   // INTERIOR side next — cheap for whichever cashier/owner is nearby — before ever falling back to
@@ -403,6 +434,34 @@ function activeBowl(w) {
 function activePhotoBooth(w) {
   for (const st of w.stations.values()) if (st.type === 'photo' && st.active) return st;
   return null;
+}
+// Batch 4b (plan 3.9): the one active grooming table / bath, or null. Same "first active one
+// found" shape as activeBowl/activePhotoBooth — there is only ever one of each (groom1, bath1) in
+// the shipped layout, but neither this file nor the spaBound roll below hard-codes that id.
+function activeGroom(w) {
+  for (const st of w.stations.values()) if (st.type === 'groom' && st.active) return st;
+  return null;
+}
+function activeBath(w) {
+  for (const st of w.stations.values()) if (st.type === 'bath' && st.active) return st;
+  return null;
+}
+// "Whichever is active and shorter, like the register pick" (plan 3.9): the same load-then-
+// distance tie-break pickAnyRegister uses, just over (up to) two stations instead of w.checkouts.
+// w._spaTally is a fresh, per-frame "already assigned this tick" count — the exact same trick
+// w._regTally uses (computed at the top of stepCustomers, bumped immediately on assignment) so two
+// guests reaching the front door the same frame don't both pick whichever station last frame's
+// stale count called emptiest. Only one of groom1/bath1 existing degrades to "the one that
+// exists", same as pickAnyRegister degrading to the one register when only one is built.
+function pickSpaStation(w, c) {
+  const groom = activeGroom(w), bath = activeBath(w);
+  if (!groom) return bath;
+  if (!bath) return groom;
+  const gN = w._spaTally.get(groom.id) || 0, bN = w._spaTally.get(bath.id) || 0;
+  if (gN !== bN) return gN < bN ? groom : bath;
+  const gD = (groom.front.x - c.x) ** 2 + (groom.front.z - c.z) ** 2;
+  const bD = (bath.front.x - c.x) ** 2 + (bath.front.z - c.z) ** 2;
+  return gD <= bD ? groom : bath;
 }
 // C4 (plan 3.1/1.5, restroom comfort buff): the one active restroom station, or null. There is
 // only ever one (wc1) in the shipped layout, but this mirrors activeBowl's "first active one
@@ -472,6 +531,39 @@ function assignPhotoSlots(list, w) {
     arr.forEach((c, i) => c.slot = i);
   }
 }
+// Batch 4b (plan 3.9): same idea again, once per spa service so a groom1-stuck guest's slot
+// numbers never collide with a bath1 one's. Mirrors assignPhotoSlots exactly — this IS the "array
+// per station id of customers in to*/at* state, each with .slot, slot 0 head-of-line" contract
+// world.js's stepGroomTable/stepBath read (w._groomQueues/w._bathQueues), the same way
+// stepPhotoBooth reads w._photoQueues today.
+function assignGroomSlots(list, w) {
+  if (!w._groomQueues) w._groomQueues = new Map();
+  for (const arr of w._groomQueues.values()) arr.length = 0;
+  for (const c of list) {
+    if (c.state !== 'toGroom' && c.state !== 'atGroom') continue;
+    let arr = w._groomQueues.get(c._spaTarget);
+    if (!arr) { arr = []; w._groomQueues.set(c._spaTarget, arr); }
+    arr.push(c);
+  }
+  for (const arr of w._groomQueues.values()) {
+    arr.sort((a, b) => a.spaArrived - b.spaArrived);
+    arr.forEach((c, i) => c.slot = i);
+  }
+}
+function assignBathSlots(list, w) {
+  if (!w._bathQueues) w._bathQueues = new Map();
+  for (const arr of w._bathQueues.values()) arr.length = 0;
+  for (const c of list) {
+    if (c.state !== 'toBath' && c.state !== 'atBath') continue;
+    let arr = w._bathQueues.get(c._spaTarget);
+    if (!arr) { arr = []; w._bathQueues.set(c._spaTarget, arr); }
+    arr.push(c);
+  }
+  for (const arr of w._bathQueues.values()) {
+    arr.sort((a, b) => a.spaArrived - b.spaArrived);
+    arr.forEach((c, i) => c.slot = i);
+  }
+}
 // Program §6.2's post-payment seat routing, factored out so Task 2.1's post-photo guest rejoins it
 // at exactly the same behaviour (pickSeat/waitSeat/noSeat/leave), rather than a second, drifting
 // copy. Byte-identical to the logic this replaced inline in the 'atRegister' paid branch.
@@ -522,6 +614,11 @@ export function stepCustomers(list, w, price, dt) {
   if (!w._regTally) w._regTally = new Map();
   for (const id of w.checkouts) w._regTally.set(id, 0);
   for (const c of list) if (c.registerId && (c.state === 'toRegister' || c.state === 'atRegister')) w._regTally.set(c.registerId, (w._regTally.get(c.registerId) || 0) + 1);
+  // Batch 4b: the same fresh per-frame tally, over groom1/bath1 instead of w.checkouts — see
+  // pickSpaStation's own comment for why a stale, last-frame count isn't good enough.
+  if (!w._spaTally) w._spaTally = new Map();
+  for (const st of w.stations.values()) if (st.type === 'groom' || st.type === 'bath') w._spaTally.set(st.id, 0);
+  for (const c of list) if (c._spaTarget && (c.state === 'toGroom' || c.state === 'atGroom' || c.state === 'toBath' || c.state === 'atBath')) w._spaTally.set(c._spaTarget, (w._spaTally.get(c._spaTarget) || 0) + 1);
 
   for (const c of list) {
     if (c.done) continue;
@@ -546,6 +643,22 @@ export function stepCustomers(list, w, price, dt) {
       const { terrace, total } = seatCounts(w, r);
       c.terraceBound = terrace > 0 && total > 0 && seatFor(w, r, true) != null && w.rng.chance(terrace / total);
     }
+    // Batch 4b (plan 3.9): spaBound, settled once on this same first tick, independent of the wish
+    // block above (a spa guest still gets a c.wish rolled — cheaper than threading a second "skip
+    // wishFor" branch through this hot loop — it is simply never read: 'enter' below routes a
+    // spa-bound guest straight past pickDisplay, and the atRegister branch guards its own
+    // wish.holiday check off spaBound). Gated on w.dayState exactly like PHOTO_CHANCE (see that
+    // constant's own comment in world.js): every real day-driven caller sets dayState, no test that
+    // hasn't asked for one does, and the untouchable test/nav-fullhouse.test.js's buildAll() DOES
+    // build the whole spa chain now that it is real content — dayState is what actually keeps that
+    // suite on its byte-identical pre-spa path, not "the spa is unbuilt" (it demonstrably isn't).
+    // Short-circuited to zero rng draws whenever neither groom1 nor bath1 is active yet, same
+    // "no-op pre-content" shape terraceBound's own short-circuit uses.
+    if (!c._spaDecided) {
+      c._spaDecided = true;
+      const spaCount = (activeGroom(w) ? 1 : 0) + (activeBath(w) ? 1 : 0);
+      c.spaBound = !!w.dayState && spaCount > 0 && w.rng.chance(SPA_CHANCE_MAX * spaCount / 2);
+    }
     // mask 1 (entry lane) while approaching/crossing the door; once truly on the floor, drop to
     // mask 0 so the mover no longer treats the west-margin lane cells as walkable (leave() sets
     // mask 2 explicitly below, overriding this).
@@ -556,6 +669,22 @@ export function stepCustomers(list, w, price, dt) {
         const doorSpot = laneSpot(door, c._doorSlot, -1);
         if (walkTo(c, doorSpot.x, doorSpot.z, w, dt)) {
           releaseSlot(w, '_doorTaken_enter', c._doorSlot); c._doorSlot = null;
+          // Batch 4b (plan 3.9): "skip food" — a spa-bound guest never joins a display's queue at
+          // all, it heads straight for whichever service station pickSpaStation names.
+          if (c.spaBound) {
+            const spaSt = pickSpaStation(w, c);
+            if (!spaSt) { c.state = 'leave'; break; }
+            c._spaTarget = spaSt.id;
+            c.spaArrived = w.seq = (w.seq || 0) + 1;
+            w._spaTally.set(spaSt.id, (w._spaTally.get(spaSt.id) || 0) + 1);
+            // The order IS the service — 'groom'/'bath' are real economyConfig PRODUCTS keys
+            // (75/85), so the atRegister pricing/ledger code a few states down needs no change at
+            // all to charge and record this sale.
+            c.order = [spaSt.type];
+            setPatience(w, c, PATIENCE); c.mood = 'none';
+            c.state = spaSt.type === 'groom' ? 'toGroom' : 'toBath';
+            break;
+          }
           const ct = pickDisplay(w, c.wish);
           if (!ct) { c.state = 'leave'; break; }
           c.counterId = ct.id; c.arrived = w.seq = (w.seq || 0) + 1; c.state = 'queue';
@@ -676,11 +805,19 @@ export function stepCustomers(list, w, price, dt) {
           // world.js's stepRegisters just reads c.amount back, no pricing knowledge needed
           // there). Seated-ness is a snapshot of seat availability at arrival, not a reservation
           // — the actual seat is claimed for real once paid, below.
-          const seat = pickSeat(w, c); const seated = !!seat;
+          // Batch 4b: a spa guest never sits — forcing seated=false here (rather than letting
+          // pickSeat genuinely find one of the café's ordinary free seats) matters twice over:
+          // economy.js's salePrice doubles price() for a seated order, which would blow PRODUCTS.
+          // groom/bath's authored 75/85 straight past the plan's own 60-90 band, and a "seated"
+          // read here is also what the paid branch below would otherwise use to walk it to a real
+          // table it never intends to sit at.
+          const seated = !c.spaBound && !!pickSeat(w, c);
           c.amount = (c.order || []).reduce((sum, key) => sum + price(key, seated), 0);
           // Loop v2 Task 3: a holidayCupcake customer (wishFor's `holiday` flag — economy.js) pays
-          // double for its whole order, same as the design's "2x price" wording for that wish.
-          if (c.wish && c.wish.holiday) c.amount *= 2;
+          // double for its whole order. A spa guest still has a c.wish rolled (see the spaBound
+          // comment above) but it names food it never ordered, so it must never multiply the spa
+          // service's own price.
+          if (!c.spaBound && c.wish && c.wish.holiday) c.amount *= 2;
           // C4 (restroom comfort buff, plan 3.1/1.5): a seated guest tips 15% extra while wc1 is
           // active and tidy > 0.3. Rounded like every other price computation in this file (the
           // caller's own price()/economy.js's salePrice both round) so a buffed order stays whole
@@ -695,6 +832,11 @@ export function stepCustomers(list, w, price, dt) {
             // its mover reads !hasTarget AND is spatially at slot 0, so this should already be at
             // rest — but re-affirming it here costs nothing and removes any doubt.
             c.mover.hasTarget = false;
+            // Batch 4b (plan 3.9): "pay ... and count as served" is the whole flow — a spa guest
+            // already had its service (groom1/bath1, before ever reaching a register), so neither
+            // the photo detour (a food-visit bonus) nor proceedToSeatOrLeave (routes a guest to a
+            // table it never intends to sit at) applies. It just leaves.
+            if (c.spaBound) { c.state = 'leave'; break; }
             // Task 2.1 (plan 3.2): a named-pet guest, not in a rush-capped shift, gets one shot
             // (per visit — `_photoDecided`) at the photo studio before proceeding to a table.
             // Gated on `w.dayState` for the same reason BOWL_COOLDOWN/§6.2's noSeat branch above
@@ -746,7 +888,7 @@ export function stepCustomers(list, w, price, dt) {
               // settle onto a terrace register just because it happens to be idle; that is the
               // exact "least loaded, distance a tie-break only" leak pickRegister's own side
               // restriction exists to close. Restricted to the interior side for it instead.
-              const alt = c.terraceBound ? pickAnyRegister(w, c) : pickSideRegister(w, c, false, terraceRegion(w));
+              const alt = (c.terraceBound || c.spaBound) ? pickAnyRegister(w, c) : pickSideRegister(w, c, false, terraceRegion(w));
               if (alt && alt.id !== c.registerId) {
                 c._regSettled = true;
                 c.registerId = alt.id;
@@ -820,6 +962,76 @@ export function stepCustomers(list, w, price, dt) {
               emitWorld(w, { type: 'photoSkipped', id: c.id });
               c.mood = 'none';
               proceedToSeatOrLeave(w, c);
+            }
+          } else {
+            c.mood = 'none'; // behind the head of the line — not yet drawing down patience
+          }
+        }
+        break;
+      }
+      // Batch 4b (plan 3.9) — the spa. Same combined-case shape as the register/photo pairs above:
+      // walk to (then wait at) whichever service station pickSpaStation assigned, slot 0 gets
+      // special handling. Diverges from the photo detour in exactly one way, and it matters: photo
+      // is a bonus AFTER payment (giving up just proceeds to a table), but the spa service runs
+      // BEFORE payment — nobody has been charged yet, so a guest that's never served is a genuine
+      // service miss ('lost'/'angry', like an unstaffed register), not a missed bonus. A guest
+      // that IS served carries the order set back in 'enter' into the ordinary
+      // assignRegister/toRegister path below, which is what actually charges PRODUCTS.groom/bath
+      // and counts the sale — no separate spa payment code exists or is needed.
+      case 'toGroom':
+      case 'atGroom':
+      case 'toBath':
+      case 'atBath': {
+        const st = w.stations.get(c._spaTarget);
+        if (!st || !st.active) { c._spaTarget = null; c.state = 'leave'; c.mover.hasTarget = false; break; }
+        const slot = queuePos(st, c.slot);
+        const here = walkTo(c, slot.x, slot.z, w, dt);
+        if ((c.state === 'toGroom' || c.state === 'toBath') && here) {
+          c.state = c.state === 'toGroom' ? 'atGroom' : 'atBath';
+          c.mood = 'none';
+        }
+        if (c.state === 'atGroom' || c.state === 'atBath') {
+          if (st.session && st.session.customerId === c.id) {
+            if (st.session.resolved) {
+              // world.js's own clearBathSession comment: "the guest FSM ... stamps its pet's
+              // c.sparkleUntil = w.t + BATH_SPARKLE_SECONDS" — a render-only sim flag (the pet
+              // stays visually with its owner as always; this file never draws the sparkle
+              // itself, only carries the timestamp for whichever render layer does).
+              if (st.type === 'bath') { c.sparkleUntil = (w.t || 0) + BATH_SPARKLE_SECONDS; clearBathSession(w, st.id); }
+              else clearGroomSession(w, st.id);
+              c._spaTarget = null;
+              c.mover.hasTarget = false;
+              assignRegister(c, w);
+            } else {
+              c.mood = 'none'; // service in progress — resolved by the station agent's own step function
+            }
+          } else if (c.slot === 0) {
+            setPatience(w, c, c.patience - dt);
+            c.mood = 'wait';
+            // Settle-for rule (once per visit, like every other settle-for in this file): after
+            // SETTLE_WAIT seconds unserved at the front, try the OTHER spa service if one exists,
+            // rather than burning the rest of PATIENCE on a station nobody is manning.
+            if (!c._spaSettled && (PATIENCE - c.patience) >= SETTLE_WAIT) {
+              const alt = st.type === 'groom' ? activeBath(w) : activeGroom(w);
+              if (alt) {
+                c._spaSettled = true;
+                c._spaTarget = alt.id;
+                c.order = [alt.type];
+                c.spaArrived = w.seq = (w.seq || 0) + 1;
+                w._spaTally.set(alt.id, (w._spaTally.get(alt.id) || 0) + 1);
+                c.mover.hasTarget = false;
+                setPatience(w, c, PATIENCE);
+                c.mood = 'none';
+                c.state = alt.type === 'groom' ? 'toGroom' : 'toBath';
+                emitWorld(w, { type: 'settled', id: c.id, from: st.type, to: alt.type });
+                break;
+              }
+            }
+            if (c.patience <= 0) {
+              c._spaTarget = null;
+              emitWorld(w, { type: 'lost', id: c.id, reason: st.type });
+              emitWorld(w, { type: 'angry', id: c.id });
+              c.mood = 'none'; c.state = 'leave'; c.mover.hasTarget = false;
             }
           } else {
             c.mood = 'none'; // behind the head of the line — not yet drawing down patience
@@ -948,4 +1160,6 @@ export function stepCustomers(list, w, price, dt) {
   assignSlots(list, w);
   assignRegisterSlots(list, w);
   assignPhotoSlots(list, w);
+  assignGroomSlots(list, w);
+  assignBathSlots(list, w);
 }

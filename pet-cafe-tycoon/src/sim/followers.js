@@ -50,6 +50,9 @@ export function followersForShot({ isFirstPhotoOfPet = false, isPerfect = false 
 export function followersForDiscovery() { return FOLLOWER_SOURCES.firstDiscovery; }
 export function followersForBestie() { return FOLLOWER_SOURCES.bestie; }
 export function followersForGoldenPaw() { return FOLLOWER_SOURCES.goldenPaw; }
+// A finished groom or bath session. Small on purpose: a spa visit is routine care, not a moment,
+// and the photo/discovery/Bestie awards above are what should move the count.
+export function followersForSpaSession() { return 2; }
 
 // Convenience for callers that just want the next clamped total; never goes negative or over cap.
 export function addFollowers(current, delta) {

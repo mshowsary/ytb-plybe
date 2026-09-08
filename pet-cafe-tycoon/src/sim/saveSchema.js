@@ -10,7 +10,7 @@ import {
 import { MASTERY, RENOVATIONS, CUP_REWARDS } from './career.js';
 import { PET_PROFILES, PET_SPECIES, petKey } from './petBook.js';
 import { DECOR_IDS, DECOR_ID_SET, DECOR_BY_ID, decorUnlocked } from '../../data/decor.js';
-import { ACCESSORY_IDS } from '../../data/accessories.js';
+import { ACCESSORY_IDS, ACCESSORY_ID_SET } from '../../data/accessories.js';
 import { restoreSettlement } from './settlement.js';
 import {
   PAW_MAX_STAR, PAW_SEAT_WINDOW_DAYS, PAW_SEAT_WINDOW_KEEP, pawEntitlementCeiling,
@@ -332,6 +332,22 @@ function normalizeDecor(raw, builtSet = null) {
   // locked row, so a save that holds one is hand-edited -- and it must not keep the item OR the +1
   // reputation of headroom the item would otherwise buy below.
   return DECOR_IDS.filter(id => wanted.has(id) && decorUnlocked(DECOR_BY_ID.get(id), builtSet));
+}
+
+// Boutique purchases (plan §3.5/§3.9): unknown ids vanish, duplicates collapse, catalogue order for
+// byte-identical re-validation -- same shape as normalizeDecor above. The one gate is BUILT, not
+// per-item: economy.buyAccessory refuses to sell anything until z_boutique exists, so a save that
+// holds even one bought id with the boutique absent is hand-edited, and the WHOLE list is dropped
+// (there is no partial-credit "which one did you actually earn" to fall back to, unlike decor's
+// per-row `requires`). This is what makes "a hand-edited save cannot own a boutique purchase before
+// the boutique exists" hold at the save boundary, not just in the live buyAccessory() refusal.
+function normalizeAccessoriesBought(raw, builtSet = null) {
+  if (!Array.isArray(raw)) return [];
+  const boutiqueBuilt = !!(builtSet && (typeof builtSet.has === 'function' ? builtSet.has('z_boutique') : builtSet.z_boutique));
+  if (!boutiqueBuilt) return [];
+  const wanted = new Set();
+  for (const id of raw.slice(0, 128)) if (typeof id === 'string' && ACCESSORY_ID_SET.has(id)) wanted.add(id);
+  return ACCESSORY_IDS.filter(id => wanted.has(id));
 }
 
 // Album entries (plan 3.2): per pet, how many shots, the best score reached (0 Ok / 1 Good /
@@ -665,6 +681,7 @@ export function validateAndMigrateSave(raw, area = null) {
   // Pass 1: zone gate only. The star gate needs pawBest, which is not knowable yet — see the
   // cycle described at pass 2 below.
   const decorZoneGated = normalizeDecor(metaRaw.decor, buildState.builtSet);
+  const accessoriesBought = normalizeAccessoriesBought(metaRaw.accessoriesBought, buildState.builtSet);
   const rawRep = clampInt(metaRaw.reputation, 0, SAVE_LIMITS.maxDay * 3, 0);
   // When completedDays exists (all modern saves), reputation cannot exceed 3 points per settled
   // shift PLUS one point per owned decor item (economy.js buyDecor grants +1 each). The decor term
@@ -702,9 +719,14 @@ export function validateAndMigrateSave(raw, area = null) {
   // Math.min with the authored tier count is defence in depth, not decoration: the ceiling is
   // computed by another module, and a restored rating must stay inside ★1-★5 even if that module
   // ever returns something unexpected.
+  // area: null — zone-shaped requirements are SKIPPED at the boundary, on purpose. When Batch 4b
+  // added z_spa to the catalogue, ★4's spa row went from skipped to real and this ceiling demoted
+  // every returning ★4 player to ★3 on load: the retroactive requirement the live ratchet absorbs,
+  // which the boundary never absorbed. The zone rows never protected anything either — a forged
+  // save declares its build list as easily as its star — so their one real effect was that bug.
   const pawCeiling = Math.min(SAVE_LIMITS.maxPawStar, pawEntitlementCeiling({
     meta: { album, followers, petBook, petFriendship, career, pawSeatWindow },
-    stats, built: buildState.builtSet, area,
+    stats, built: buildState.builtSet, area: null,
   }));
   const pawBest = clampInt(metaRaw.pawBest, 0, Math.max(0, pawCeiling), 0);
   // Pass 2: now the rating is known, drop every star row this save has not earned. Without it the
@@ -745,6 +767,7 @@ export function validateAndMigrateSave(raw, area = null) {
       equipped: normalizeEquipped(metaRaw.equipped),
       residents: normalizeResidents(metaRaw.residents),
       decor,
+      accessoriesBought,
       goldenPaw: metaRaw.goldenPaw === true,
       pawBest,
       pawSeatWindow,

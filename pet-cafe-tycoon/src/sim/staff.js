@@ -3,7 +3,7 @@
 // cleaner (Task 4) will clean dirty tables. M3 T2: every walk goes through the grid
 // (setTarget/stepMover) instead of straight-line moveToward + push-out.
 import { STAFF, RUNNER_CARRY_LEVELS, workerSpeedMult, familyOf } from './economy.js';
-import { takeFromOven, takeFromMachine, putOnDisplay, stepRegisters, cleanSeat, beginCleanSeat } from './world.js';
+import { takeFromOven, takeFromMachine, putOnDisplay, stepRegisters, cleanSeat, beginCleanSeat, resolvePhotoShot } from './world.js';
 import { createMover, setTarget, stepMover } from './mover.js';
 // Task 0.5: emitWorld for the runnerStuck watchdog event; nav's grid readers so a wait spot is
 // only ever chosen on a cell the runner can actually stand on.
@@ -552,6 +552,77 @@ function stepCleaner(s, w, dt, rate) {
   }
 }
 
+// Batch 4b (plan 3.9): the Photographer — hired at photoDesk1, works ONLY photo1. It has no
+// queue-clearing chore of its own (nothing to fetch, nothing to sell): it just needs to stand close
+// enough to mark the booth 'serving' — the same thing the owner's own presence already does in
+// systems/photo.js — and, once a session is running, call the shot itself rather than let it ride
+// out PHOTO_AUTO_RESOLVE's full 1.6s and land as a flat, anonymous 'ok'.
+//
+// PHOTOGRAPHER_SERVE_RADIUS below is a LITERAL duplicate of systems/photo.js's own SERVE_RADIUS
+// (1.3m) — the exact same "how close counts as manning the booth" rule the owner is judged by, not
+// a new number invented for this role. It has to stay a literal: sim/ never imports from systems/
+// (that boundary is what keeps this whole file DOM-free and bot-runnable), so there is no shared
+// binding to import. Flagged in this task's own report as a value that has to be kept in sync by
+// hand if systems/photo.js's SERVE_RADIUS ever moves.
+const PHOTOGRAPHER_SERVE_RADIUS = 1.3;
+// Fixed think time before the photographer calls the shot itself, comfortably under
+// PHOTO_AUTO_RESOLVE's 1.6s so a manned booth always resolves through the photographer's own
+// 'good' first, never the anonymous timeout's 'ok'. resolvePhotoShot itself clamps anything that
+// isn't literally 'perfect' down to 'good' or 'ok' — this file only ever passes 'good', so a
+// photographer-run shot can never come back 'perfect' (that stays the player's own tap).
+//
+// Hiring the SECOND photographer (this role's own two-tier cost ladder, same shape as the
+// barista's) speeds up the one thing there is to speed up at the one booth: unlike the barista,
+// there is no second lane for a second hire to cover (only one photo booth is ever built), so its
+// value has to be faster hands instead. `total` below is the live photographer headcount, computed
+// once per tick by stepStaff exactly like it already computes cashierTotal for the cashier's own
+// count-dependent behaviour.
+export const PHOTOGRAPHER_SHOT_SECONDS = 1.0;
+export const PHOTOGRAPHER_SHOT_SECONDS_LEVEL2 = 0.6;
+
+// The one active photo booth, or null. Mirrors coffeeLane's own "first active one found is safe
+// here too since there's only ever one of each in the shipped layout" reasoning higher up this file.
+function activePhotoBooth(w) {
+  for (const st of w.stations.values()) if (st.type === 'photo' && st.active) return st;
+  return null;
+}
+// Beside the booth's front, not on it — reuses waitSpot's own beside-a-station offset (WAIT_SIDE,
+// 0.9m) so the photographer's body (r=0.30) clears both the customer queue (queue slot 0 sits only
+// 0.1m further out than st.front along the SAME forward axis — see world.js's queue-geometry
+// comment — so standing directly in front would put two r=0.30 bodies well inside the 0.6m they
+// need to separate) and wherever the owner is standing to man the booth themselves (also somewhere
+// near st.front, within the same SERVE_RADIUS). `preferLeft` lets a SECOND hired photographer (idx
+// 1 in the roster) try the opposite side first, so two of them settle on either side of the booth
+// instead of both walking onto the exact same free cell.
+function photographerSpot(w, st, preferLeft) {
+  const sides = preferLeft ? [-WAIT_SIDE, WAIT_SIDE] : [WAIT_SIDE, -WAIT_SIDE];
+  for (const side of sides) {
+    const o = rotateOffset(st.rot || 0, side, 0);
+    const p = { x: st.front.x + o.x, z: st.front.z + o.z };
+    if (!w.grid || isFree(w.grid, idx(w.grid, p.x, p.z), 0)) return p;
+  }
+  return { x: st.front.x, z: st.front.z };
+}
+function stepPhotographer(s, w, dt, idx = 0, total = 1) {
+  const st = activePhotoBooth(w);
+  // No built/active booth at all (a hand-edited or otherwise inconsistent save — the real zone
+  // chain makes z_photo a hard prerequisite of z_photographer, see this task's own report): park at
+  // spawn like every other role does with nothing to do, rather than walking toward a station that
+  // does not exist.
+  if (!st) { walkTo(s, s.spawn.x, s.spawn.z, w, dt); return; }
+  const spot = photographerSpot(w, st, (idx | 0) % 2 === 1);
+  const arrived = walkTo(s, spot.x, spot.z, w, dt);
+  // Same fallback-arrival tolerance as every other call site in this file (see ARRIVE_FALLBACK_EPS)
+  // — an exact 0.05m arrival can leave a mover circling short forever once avoidance perturbs it.
+  if (!arrived && s.mover.hasTarget && Math.hypot(spot.x - s.x, spot.z - s.z) < ARRIVE_FALLBACK_EPS) s.mover.hasTarget = false;
+  const dx = st.front.x - s.x, dz = st.front.z - s.z;
+  if (dx * dx + dz * dz < PHOTOGRAPHER_SERVE_RADIUS * PHOTOGRAPHER_SERVE_RADIUS) st.serving = true;
+  if (st.session && !st.session.resolved) {
+    const think = total >= 2 ? PHOTOGRAPHER_SHOT_SECONDS_LEVEL2 : PHOTOGRAPHER_SHOT_SECONDS;
+    if (st.session.t >= think) resolvePhotoShot(w, st.id, 'good');
+  }
+}
+
 // M3 T6: `customers`, sixth and optional, lets a runner prefer whichever product a genuinely
 // stuck customer is waiting on over blindly restocking whatever has the most raw stock (see
 // pickSource/pickCounter above) — every existing caller that omits it (test/nav-fullhouse.test.js
@@ -575,11 +646,18 @@ export function stepStaff(list, w, dt, onCollect, levels, customers) {
   let cashierTotal = 0;
   for (const s of list) if (s.kind === 'cashier') cashierTotal++;
   let cashierIdx = 0;
+  // Batch 4b: total photographer count, so stepPhotographer knows whether the second hire's
+  // shorter think time (PHOTOGRAPHER_SHOT_SECONDS_LEVEL2) applies, and idx lets a second one prefer
+  // the opposite stand spot beside the booth (see photographerSpot's own comment).
+  let photographerTotal = 0;
+  for (const s of list) if (s.kind === 'photographer') photographerTotal++;
+  let photographerIdx = 0;
   for (const s of list) {
     s.mover.speed = (STAFF[s.kind] && STAFF[s.kind].speed || 2.2) * workerSpeedMult(L, s.kind);
     if (s.kind === 'runner') stepRunner(s, w, dt, carryCap, customers);
     else if (s.kind === 'cashier') { stepCashier(s, w, dt, cashierLevel, cashierIdx, cashierTotal); cashierIdx++; }
     else if (s.kind === 'cleaner') stepCleaner(s, w, dt, cleanerRate);
+    else if (s.kind === 'photographer') { stepPhotographer(s, w, dt, photographerIdx, photographerTotal); photographerIdx++; }
   }
   // M3 T3: stepStaff is the one sim-step function every caller (the running game, the bot, the
   // nav-fullhouse acceptance test) always calls once per tick regardless of whether any staff are

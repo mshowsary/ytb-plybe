@@ -16,7 +16,7 @@ const specialFor = day => {
   return specialForDaySeasoned(day, s.id, s.dayStart);
 };
 import { normalizeCalendar } from './sim/rewards.js';
-import { familyOf, salePrice, cafeLevel } from './sim/economy.js';
+import { familyOf, salePrice, cafeLevel, STAFF } from './sim/economy.js';
 import { beginActorStep, endActorStep } from './sim/actorRoster.js';
 // src/game.js — binds simulation, rendering, UI, audio and YouTube platform services.
 import { createWorld, refreshActive, cleanSeat } from './sim/world.js';
@@ -63,6 +63,7 @@ import { createRenovationUI } from './ui/renovation.js';
 import { createAudio } from './audio/synth.js';
 import { createStations } from './systems/stations.js';
 import { createPhotoStudio } from './systems/photo.js';
+import { createSpaBridge } from './systems/spa.js';
 import { addFollowers, followersForDiscovery } from './sim/followers.js';
 import { renderPetPortrait } from './render/portrait.js';
 import { createZones } from './systems/zones.js';
@@ -83,7 +84,10 @@ export function createGame(S, area, els, platform = null) {
   const G = {
     coins: 0,
     up: { speed: 0, carry: 0, income: 0 },
-    staff: { runner: 0, cashier: 0, cleaner: 0 },
+    // Every role from STAFF, not a literal: the save boundary fills every key on restore, so a
+    // fresh game that started with three of five roles could not round-trip a snapshot unchanged
+    // (the task25 cert caught it when the Photographer landed).
+    staff: Object.fromEntries(Object.keys(STAFF).map(k => [k, 0])),
     staffLevels: { runner: { speed: 0, carry: 0 }, cashier: { speed: 0 }, cleaner: { speed: 0 } },
     machineLevels: { oven: 0, coffee: 0, display: 0 },
     boosts: {},
@@ -136,7 +140,19 @@ export function createGame(S, area, els, platform = null) {
   // read as a bug rather than as weather.
   const environment = buildEnvironment(area, seasonForDay(G.dayState.day).id);
   scene.add(environment);
-  environment.setTerraceBuilt(world.built.has('z_terrace'));
+  // Every region, by data — not the terrace by name. Two things happen per region: the reveal
+  // (floor + planting, environment.setRegionBuilt) and the gate infill (props.js gates[id]),
+  // which has had NO caller since Batch 1 — the fence drew as closed across an open gateway the
+  // whole time and nobody noticed because the arch reads as "a gate" either way.
+  const syncRegions = () => {
+    for (const reg of area.regions || []) {
+      const built = world.built.has(reg.builtBy);
+      environment.setRegionBuilt(reg.id, built);
+      const gate = staticGroup.gates && staticGroup.gates[reg.id];
+      if (gate) gate.setOpen(built);
+    }
+  };
+  syncRegions();
   const ambience = createAmbience(area); scene.add(ambience.group); G.ambience = ambience;
   const renovationDecor = createRenovationDecor(area); scene.add(renovationDecor.group);
   G.awning = staticGroup.awning; let lastAwningSet = -1;
@@ -245,6 +261,7 @@ export function createGame(S, area, els, platform = null) {
 
   const stations = createStations(G, S, ctx); const zones = createZones(G, S, ctx); const customers = createCustomers(G, S, ctx); const staff = createStaff(G, S, ctx);
   const photoStudio = createPhotoStudio(G, S, ctx);
+  const spaBridge = createSpaBridge(G, S, ctx);
   const visuals = createVisuals(G, S, ctx); const registerCash = createRegisterCash(G, S, ctx); const economyExperience = createEconomyExperience(G, S, ctx, platform);
   G.meta.servicePolicy = normalizeServicePolicy(G.meta.servicePolicy);
   const guestCare=createGuestCare(G,ctx); const petSocials = createPetSocials(G, S, ctx); const partyOrders = createPartyOrders(G, S, ctx, platform); const objective = createObjective(G, S, ctx); const intro = createIntro(G, S, ctx);
@@ -265,7 +282,7 @@ export function createGame(S, area, els, platform = null) {
     // itself lives in the shift summary sheet (src/ui/meta.js decorateSummary), where words are
     // allowed, and in this cue's aria text.
     if(!policy.notice && G.dayState.day>=policy.enabledFrom-1){policy.notice=true;const cap=Math.floor(policy.baseline*.08);hud.banner(cue([clockIcon(), tableDirtyIcon(), '→', coinMinusIcon(), '≤', cap], `From day ${policy.enabledFrom}, long waits and dirty-table departures cost coins, capped at ${cap} per shift.`),6500);G.requestCheckpoint('service-policy-notice');}
-    petSocials.update(); guestCare.update(dt); input.update(); stations.update(dt); zones.update(dt); photoStudio.update(dt);
+    petSocials.update(); guestCare.update(dt); input.update(); stations.update(dt); zones.update(dt); photoStudio.update(dt); spaBridge.update(dt);
     customers.prepare(dt); staff.prepare();
     const barista = G.baristaWorker?.prepare();
     beginActorStep(world, G.customers, G.staffList, barista ? [barista] : []);
@@ -327,7 +344,7 @@ export function createGame(S, area, els, platform = null) {
 
     // The terrace's own planting and string lights only exist once the deck is paid for, so the
     // environment has to hear about it the moment it is built — not only at load.
-    if (world.events.some(e => e.type === 'built')) environment.setTerraceBuilt(world.built.has('z_terrace'));
+    if (world.events.some(e => e.type === 'built')) syncRegions();
     if (world.events.some(e => e.type === 'built') && cafeCompletion(G).roomComplete) {
       // The building itself, ticked. A trophy would have claimed a prize that is not being given.
       hud.banner(cue([sparkleIcon(), cafeIcon(), checkIcon()], 'Your cafe is built'), 2400); audio.play('chime');
@@ -515,7 +532,6 @@ export function createGame(S, area, els, platform = null) {
     // A restored save re-enters mid-season: paint it, no rollover animation.
     G.meta.season = deriveSeasonMeta(G.dayState.day);
     environment.setSeason(seasonForDay(G.dayState.day).id);
-    environment.setTerraceBuilt(world.built.has('z_terrace'));
     if (!G.meta.rewards) G.meta.rewards = { calendar: { lastKey: null, streak: 0 } };
     else G.meta.rewards.calendar = normalizeCalendar(G.meta.rewards.calendar);
     customers.teardown(); staff.teardown(); G.customers = []; G.staffList = []; world.payAcc = {}; world.built.clear();
@@ -528,6 +544,11 @@ export function createGame(S, area, els, platform = null) {
     if (!restoreOwnerState(P, G.carry, owner, canonical.ownerState, area, G.up, itemFor, world)) return false;
     owner.group.position.set(P.x, 0, P.z); owner.group.rotation.y = P.rot || 0; S.snap(P.x, P.z); G._force = null; G.contextGuide = null;
     visuals.syncAll(); registerCash.syncAll(); zones.syncAll(); hud.setCoins(G.coins); syncReputationPresentation(); syncPetBookPresentation(); syncCareerPresentation(); syncPawPresentation(); partyOrders.sync(true);
+    // AFTER world.built is rebuilt above, not before: the first version of this call sat ahead of
+    // world.built.clear() and read the pre-restore build set, so a returning player with the spa
+    // (or the terrace) saw bare lawn until the next build event. Probed: spaBuilt true, host
+    // visible false after the first restore, true only after a second.
+    syncRegions();
     // A terminal save is already settled. Reopen that committed report as presentation only; the
     // settlement transaction itself is idempotent and cannot award coins/reputation/cups twice.
     if (G.dayState._ended) openDaySummary();

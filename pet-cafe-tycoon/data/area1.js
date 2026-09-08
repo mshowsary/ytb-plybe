@@ -11,8 +11,16 @@ export const AREA1 = {
   // `builtBy` is in world.built. Interior `size` above is UNCHANGED so every existing coordinate
   // still holds; the terrace sits south of the fence, z 7.4-14 (the 7.0-7.4 sliver is the fence's
   // own thickness plus the gate — see src/sim/nav.js's fence-row handling).
+  //
+  // Batch 4b — the spa (plan 3.9). The SECOND region, and the first one that is not south: it
+  // hangs off the EAST fence (x = halfW = 10) instead of the south fence row, with its gate gap
+  // keyed on |z| rather than |x| (`gateZ` instead of `gateX`). src/sim/nav.js's regionEdge()
+  // derives which of the two it is from the rectangle itself, so this row is the entire
+  // "engine work" for a second axis. `floor: 'tile'` picks props.js buildRegion's tile floor over
+  // the terrace's planks.
   regions: [
     { id: 'terrace', x0: -10, x1: 10, z0: 7.4, z1: 14, builtBy: 'z_terrace', floor: 'deck' , gateX: 0, gateHalfW: 2.4 },
+    { id: 'spa',     x0: 10, x1: 17.5, z0: -7, z1: 7,  builtBy: 'z_spa',     floor: 'tile', gateZ: 0, gateHalfW: 2.4 },
   ],
   stations: [
     { id: 'oven1',    type: 'oven',    x: 6.5,  z: -5.2, rot: 0, fw: 1.6, fd: 1.2, product: 'cookie',  buffer: 12 },
@@ -95,6 +103,48 @@ export const AREA1 = {
     { id: 'seat12',     type: 'seat',     x: 6.8,  z: 13.0, rot: Math.PI,      fw: 1.4, fd: 1.4, builtBy: 'z_terraceSeats' },
     { id: 'wc1',        type: 'restroom', x: 9.3,  z: 13.6, rot: -Math.PI / 2, fw: 1.6, fd: 1.4, builtBy: 'z_restroom' },
     { id: 'splash1',    type: 'splash',   x: 0.0,  z: 10.6, rot: 0,            fw: 2.4, fd: 2.4, front: 1.6, builtBy: 'z_splash' },
+
+    // ── Batch 4b — the Pet Spa (plan 3.9) ────────────────────────────────────────────────────────
+    // The spa region is x 10..17.5, z -7..7, entered through gate2's gap at |z| <= 2.4 on the east
+    // fence column (x = 10). LAYOUT RULE used throughout, learned from Batch 1's two shipped bugs
+    // (a decor piece 0.67 m from a gate killed pathfinding; a queue slot 0.1 m from its own front
+    // pinned runners for months):
+    //   - NOTHING's nav-expanded footprint (fw/2 + 0.25) enters the gate lane and its 1 m halo,
+    //     i.e. the rectangle x 10..13.4 by |z| <= 3.4. That leaves the whole middle band as one
+    //     open hall from the gate to the far wall.
+    //   - every front and every queue slot was checked against the REAL grid (CELL 0.5, ox -12,
+    //     oz -7) rather than by eye — see test/spa-foundation.test.js, which re-derives all of it.
+    // The two service queues run EAST along constant-z rows (the region is 14 m deep but only
+    // 7.5 m wide, and a 5-slot queue is 4.8 m long: east-running rows fit, north-running ones
+    // would spill straight through the gate lane).
+    { id: 'gate2',      type: 'gate',     x: 10.0, z: 0.0,  rot: Math.PI / 2,  fw: 4.8, fd: 0.4, builtBy: 'z_spa' },
+    // Lounge seats: pets are pampered, their owners sit. Centres on a 0.5 m multiple ON PURPOSE —
+    // SEAT_FORWARD (1.05) clears the nav-expanded half-depth (0.95) by only 0.10 m, so the human
+    // spot's CELL centre lands inside its own table's footprint unless the table sits on the grid
+    // the way the interior row at z 6.0 does. Same z 6.0 here, for exactly that reason.
+    { id: 'spaSeat1',   type: 'seat',     x: 11.2, z: 6.0,  rot: Math.PI,      fw: 1.4, fd: 1.4, builtBy: 'z_spa' },
+    { id: 'spaSeat2',   type: 'seat',     x: 13.4, z: 6.0,  rot: Math.PI,      fw: 1.4, fd: 1.4, builtBy: 'z_spa' },
+    { id: 'spaSeat3',   type: 'seat',     x: 15.4, z: 6.0,  rot: Math.PI,      fw: 1.4, fd: 1.4, builtBy: 'z_spa' },
+    // The planter cluster that dresses the lounge corner. Type 'decor' (blocking, no state) rather
+    // than a new type: it is fountain1's role exactly, and rule 9 says a new type costs 14 switches.
+    { id: 'planters',   type: 'decor',    x: 16.9, z: 6.0,  rot: Math.PI,      fw: 1.0, fd: 1.0, builtBy: 'z_spa' },
+    // groom1/bath1 mirror photo1's SHAPE (a queue + a per-guest session), not its numbers. Both
+    // face east so their 5-slot queues run down open rows; fd 1.0 (not photo1's 2.0) keeps the
+    // rotated depth at 0.95, which is what holds them clear of the gate halo at |z| >= 3.4.
+    { id: 'groom1',     type: 'groom',    x: 11.2, z: -4.4, rot: Math.PI / 2,  fw: 1.4, fd: 1.0, builtBy: 'z_groom' },
+    { id: 'bath1',      type: 'bath',     x: 11.2, z: -6.4, rot: Math.PI / 2,  fw: 1.4, fd: 1.0, builtBy: 'z_bath' },
+    // The bath's supply, mirroring coldPantry1's relationship to icecream1: its own pantry, its own
+    // declared supply, so nothing about the interior pantry changes. Parked east of BOTH queue
+    // rows (its nav box spans z -6.15..-4.45, which is the one band neither queue row uses).
+    { id: 'waterTank1', type: 'pantry',   x: 16.8, z: -5.3, rot: -Math.PI / 2, fw: 1.2, fd: 1.2, builtBy: 'z_bath', supplies: ['water'] },
+    // The accessory rack: no queue (you buy from it, you don't wait at it), on the far east wall
+    // facing the gate, so it is the thing you see through the arch.
+    { id: 'boutique1',  type: 'boutique', x: 16.8, z: 0.0,  rot: -Math.PI / 2, fw: 2.0, fd: 0.8, builtBy: 'z_boutique' },
+    // The Photographer's hire desk. Type 'hire' — the SAME type as hire1, deliberately: the role is
+    // staff (economyConfig STAFF.photographer), the desk is just a second place to open the workers
+    // sheet, so it needs no new type and no new switch arm anywhere. `front: 1.5` (not the default
+    // 1.3) because at 1.3 the front's cell centre sits only 0.2 m outside the desk's own nav box.
+    { id: 'photoDesk1', type: 'hire',     x: 14.5, z: 3.7,  rot: Math.PI / 2,  fw: 1.0, fd: 1.6, front: 1.5, builtBy: 'z_photographer' },
   ],
 
   zones: [
@@ -134,6 +184,31 @@ export const AREA1 = {
     { id: 'z_terraceSeats', x: 0.0,  z: 12.8, price: 4000,  adds: ['seat9', 'seat10', 'seat11', 'seat12'],             requires: 'z_register3',  label: 'Terrace tables' },
     { id: 'z_restroom',     x: 6.0,  z: 13.2, price: 3500,  adds: ['wc1'],                                            requires: 'z_terraceSeats', label: 'Restroom' },
     { id: 'z_splash',       x: 4.0,  z: 10.2, price: 4000, adds: ['splash1'],                                        requires: 'z_photo',      label: 'Splash pool' },
+
+    // Batch 4b — the spa chain (plan 3.9). A LINEAR chain on purpose (each zone requires the one
+    // before it) so content cadence past the terrace is a single measurable line rather than a
+    // branching tree the bot can wander through in any order.
+    //
+    // NO STAR GATE, and this is a decision, not an omission. Plan 3.9 says z_spa "requires ★3".
+    // But src/sim/pawRating.js's ★4 row r4.spa already requires z_spa to be BUILT, and that row
+    // goes live the moment z_spa appears in this catalogue (pawZoneInCatalogue) — so the
+    // space -> star link the plan wants is already encoded, from the rating's side. Adding a star
+    // gate on the ZONE as well would close the loop into a circle for tools/bot.js, which cannot
+    // model ★2+ (the rows above ★1 need meta the headless loop never writes — see the bot's own
+    // "WHAT THIS BOT CANNOT MEASURE" section): the spa would be unbuyable, and therefore
+    // unmeasurable, to day 60. Zone chain only.
+    //
+    // PRICES ARE PLACEHOLDERS, not the plan's 45,000. Batch 2 measured the plan's terrace prices
+    // as unreachable and re-priced the whole chain by bot (see z_terrace's own TASK 1.6c note
+    // above: 20000 -> 6500). The same measurement has to happen here; these numbers only have to
+    // be (a) above CONTENT_ZONE_PRICE (4000, economyConfig.js) so the bot's content-save policy
+    // treats them as big content, and (b) far enough past the terrace chain that the spa cannot
+    // open before it. A pacing agent replaces them.
+    { id: 'z_spa',          x: 9.0,  z: 0.8,  price: 14000, adds: ['gate2', 'spaSeat1', 'spaSeat2', 'spaSeat3', 'planters'], requires: 'z_splash',    label: 'Pet spa' },
+    { id: 'z_groom',        x: 13.5, z: -4.4, price: 6000,  adds: ['groom1'],                                                requires: 'z_spa',       label: 'Grooming table' },
+    { id: 'z_bath',         x: 13.5, z: -6.4, price: 7000,  adds: ['bath1', 'waterTank1'],                                   requires: 'z_groom',     label: 'Pet bath' },
+    { id: 'z_boutique',     x: 14.8, z: 0.0,  price: 6500,  adds: ['boutique1'],                                             requires: 'z_bath',      label: 'Boutique' },
+    { id: 'z_photographer', x: 13.0, z: 2.0,  price: 8000,  adds: ['photoDesk1'],                                            requires: 'z_boutique',  label: 'Photographer' },
   ],
 };
 

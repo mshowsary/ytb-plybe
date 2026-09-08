@@ -70,7 +70,7 @@ test('unversioned legacy save migrates to bounded v4 without inventing unlocks o
   // particular authored tier. Ceilings are far above anything reachable in play (the cost curve is
   // geometric) but remain bounded, so speed:99 is still refused.
   assert.deepEqual(save.upgrades, { speed: SAVE_LIMITS.maxUpgradeTier, carry: 0, income: 2 });
-  assert.deepEqual(save.staff, { runner: SAVE_LIMITS.maxStaffPerRole, cashier: 9, cleaner: 0, barista: 4 });
+  assert.deepEqual(save.staff, { runner: SAVE_LIMITS.maxStaffPerRole, cashier: 9, cleaner: 0, barista: 4, photographer: 0 });
   assert.deepEqual(save.staffLevels, {
     runner: { speed: SAVE_LIMITS.maxWorkerTier, carry: 0 }, cashier: { speed: 7 }, cleaner: { speed: 0 },
   });

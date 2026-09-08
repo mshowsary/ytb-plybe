@@ -1,7 +1,7 @@
 // src/systems/visuals.js — builds a mesh per station, keeps physical stock props in sync, owns the
 // Task-31 glanceable stock truth, and runs Task-32's one-shot construction reveal.
 import * as THREE from 'three';
-import { ovenMesh, counterMesh, checkoutMesh, tableMesh, hireDeskMesh, kioskMesh, bowlMesh, bushMesh, coffeeMesh, pantryMesh, crateMesh, blenderMesh, chalkboardMesh, itemFor, cashPile, dirtyMesh, zoneRing, icecreamMesh, coldPantryMesh, photoBoothMesh, restroomMesh, fountainMesh, splashPoolMesh } from '../render/props.js';
+import { ovenMesh, counterMesh, checkoutMesh, tableMesh, hireDeskMesh, kioskMesh, bowlMesh, bushMesh, coffeeMesh, pantryMesh, crateMesh, blenderMesh, chalkboardMesh, itemFor, cashPile, dirtyMesh, zoneRing, icecreamMesh, coldPantryMesh, groomTableMesh, bathTubMesh, waterTankMesh, boutiqueRackMesh, planterClusterMesh, spaLoungeMesh, photoBoothMesh, restroomMesh, fountainMesh, splashPoolMesh } from '../render/props.js';
 import { C } from '../render/palette.js';
 import { buildRevealPhase, buildRevealScale } from '../render/buildReveal.js';
 import { iconFor, treatIcon, coinIcon, sackIcon, returnIcon, leafIcon, gearIcon, personIcon, beanIcon, creamIcon } from '../ui/icons.js';
@@ -21,11 +21,20 @@ const MESH_FOR = {
   bowl: bowlMesh, bush: bushMesh, coffee: coffeeMesh, pantry: pantryMesh, return: crateMesh, blender: blenderMesh,
   icecream: icecreamMesh, photo: photoBoothMesh, restroom: restroomMesh, decor: fountainMesh, splash: splashPoolMesh,
   gate: () => new THREE.Group(),
+  // Batch 4b (plan §3.9). Without these three arms the new types fell through to tableMesh and the
+  // grooming table, the tub and the shop rack all rendered as café tables.
+  groom: groomTableMesh, bath: bathTubMesh, boutique: boutiqueRackMesh,
 };
 // coldPantry1 shares the generic 'pantry' type (so it keeps sheets.js/interactionCoach's pantry
 // plumbing for free) but wants the icy-toned mesh props.js built specifically for it; every other
 // pantry keeps the warm one. Keyed by station id, checked before the type map.
-const MESH_ID_OVERRIDE = { coldPantry1: coldPantryMesh };
+const MESH_ID_OVERRIDE = {
+  coldPantry1: coldPantryMesh,
+  // Spa pieces that reuse a generic TYPE (pantry / decor / seat) for their sim plumbing but want
+  // their own look — the same arrangement coldPantry1 has had since Batch 1.
+  waterTank1: waterTankMesh, planters: planterClusterMesh,
+  spaSeat1: spaLoungeMesh, spaSeat2: spaLoungeMesh, spaSeat3: spaLoungeMesh,
+};
 // Program §5.5. Every chalkboard used to carry an English caption -- "OVEN · cupcakes",
 // "COFFEE · needs beans", "PANTRY" -- and with one board per station that made words the most
 // repeated thing in the 3D frame. The board now says the same two things without any: WHAT it is

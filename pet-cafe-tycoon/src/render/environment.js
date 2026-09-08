@@ -392,9 +392,16 @@ function buildScenery(area, seasonId) {
   // always-visible content above. Everything else (the broader lawn outside that footprint, the
   // mid ring of hedges/trees, the far town ring) is unaffected by buying the terrace and stays in
   // `solid`/`bright` exactly as before.
-  const terrace = (area.regions || []).find(reg => reg.id === 'terrace') || null;
+  const regions = area.regions || [];
+  const terrace = regions.find(reg => reg.id === 'terrace') || null;
   const gSolid = [], gBright = [];
   const inTerrace = (x, z) => !!terrace && x >= terrace.x0 && x <= terrace.x1 && z >= terrace.z0 && z <= terrace.z1;
+  // Batch 4b: the far east flank of the tree ring used to start at the café wall (east + 4). The
+  // spa reaches to x 17.5, so trees seeded from x 14 now grow up through its tile floor. The ring
+  // starts east of the FURTHEST region edge instead — derived, so the plan's fourth space pushes
+  // it again for free. This shifts those 12 trees' x only; the rng stream is untouched (same draws
+  // in the same order), so every other piece of seeded garden layout is bit-identical.
+  const eastRing = regions.reduce((m, reg) => Math.max(m, reg.x1), east);
 
   const pick = arr => arr[(r() * arr.length) | 0];
 
@@ -572,8 +579,9 @@ function buildScenery(area, seasonId) {
     const x = -30 + r() * 62, z = south + 13.5 + r() * 10;
     treeAt(x, z, 0.85 + r() * 0.6);
   }
-  // East flank: fills the right edge in landscape, where the café stops at x = 10.
-  for (let i = 0; i < 12; i++) treeAt(east + 4 + r() * 14, -14 + r() * 26, 0.8 + r() * 0.55);
+  // East flank: fills the right edge in landscape, past whatever the world stops at out there
+  // (the café wall at x = 10 before Batch 4b, the spa's own east edge at 17.5 after it).
+  for (let i = 0; i < 12; i++) treeAt(eastRing + 4 + r() * 14, -14 + r() * 26, 0.8 + r() * 0.55);
   // A few behind the north wall so the roofline is not the last thing in the frame.
   for (let i = 0; i < 10; i++) treeAt(-30 + r() * 60, -18 - r() * 8, 0.9 + r() * 0.6);
 
@@ -840,15 +848,29 @@ export function buildEnvironment(area, seasonId = SEASON_IDS[0]) {
   // (buildRegion takes the season's palette so its planks, border, corner planters and gate arch
   // re-tint with everything else) and applySeason rebuilds its contents in place. Only
   // setTerraceBuilt ever touches deck.visible, so a re-season can never undo the terrace toggle.
-  const terrace = (area.regions || []).find(reg => reg.id === 'terrace') || null;
-  const deck = new THREE.Group();
-  deck.name = 'terraceDeck';
-  deck.visible = false;
-  group.add(deck);
+  // Batch 4b: one hideable floor group PER REGION, keyed by region id, because the two regions open
+  // on different purchases (z_terrace, z_spa) and a single flag can no longer answer for both.
+  // `group.deck` stays as the terrace's, so game.js, season-look and season-visible are unchanged;
+  // the seasonal deck DRESSING (litter, arch swag) is still terrace-only — it is near-band garden
+  // content the deck replaces, and the spa replaces lawn nobody was looking at.
+  const allRegions = area.regions || [];
+  const terrace = allRegions.find(reg => reg.id === 'terrace') || null;
+  const regionGroups = new Map();
+  for (const reg of allRegions) {
+    const g = new THREE.Group();
+    g.name = reg.id === 'terrace' ? 'terraceDeck' : reg.id + 'Floor';
+    g.visible = false;
+    group.add(g);
+    regionGroups.set(reg.id, g);
+  }
+  const deck = regionGroups.get('terrace') || new THREE.Group();
+  if (!regionGroups.has('terrace')) { deck.name = 'terraceDeck'; deck.visible = false; group.add(deck); }
   group.deck = deck;
+  group.regionFloors = regionGroups;
 
   let solidNode = null, brightNode = null, gSolidNode = null, gBrightNode = null;
-  let deckFloorNode = null, dSolidNode = null, dBrightNode = null;
+  let dSolidNode = null, dBrightNode = null;
+  const floorNodes = new Map();   // region id -> the buildRegion Group currently in its group
   let currentSeason = null;
 
   function disposeLit(node) { if (node) node.geometry.dispose(); } // shares toonMaterial() — never dispose that
@@ -870,14 +892,14 @@ export function buildEnvironment(area, seasonId = SEASON_IDS[0]) {
     disposeLit(solidNode); disposeBright(brightNode);
     disposeLit(gSolidNode); disposeBright(gBrightNode);
     disposeLit(dSolidNode); disposeBright(dBrightNode);
-    disposeFloor(deckFloorNode);
+    for (const [id, node] of floorNodes) { disposeFloor(node); const host = regionGroups.get(id); if (host) host.remove(node); }
+    floorNodes.clear();
     if (solidNode) group.remove(solidNode);
     if (brightNode) group.remove(brightNode);
     if (gSolidNode) garden.remove(gSolidNode);
     if (gBrightNode) garden.remove(gBrightNode);
     if (dSolidNode) deck.remove(dSolidNode);
     if (dBrightNode) deck.remove(dBrightNode);
-    if (deckFloorNode) deck.remove(deckFloorNode);
 
     solidNode = meshOrEmpty(data.solid, { cast: true, receive: true });
     brightNode = meshOrEmpty(data.bright, { cast: false, receive: false, material: brightMaterial() });
@@ -889,11 +911,16 @@ export function buildEnvironment(area, seasonId = SEASON_IDS[0]) {
     garden.add(gSolidNode);
     garden.add(gBrightNode);
 
+    // Every region's floor takes the season's palette; buildRegion falls back to its shipped
+    // literals when called without one, so nothing else that ever calls it changes.
+    for (const reg of allRegions) {
+      const host = regionGroups.get(reg.id);
+      if (!host) continue;
+      const node = buildRegion(area, reg, paletteForSeason(resolved));
+      host.add(node);
+      floorNodes.set(reg.id, node);
+    }
     if (terrace) {
-      // The floor takes the season's palette; buildRegion falls back to its shipped literals when
-      // called without one, so nothing else that ever calls it changes.
-      deckFloorNode = buildRegion(area, terrace, paletteForSeason(resolved));
-      deck.add(deckFloorNode);
       // Litter is toon-LIT on purpose: it lies flat on the planks and must sit inside the deck's
       // own shadow, not glow off it at dusk. The blooms and the arch's bulbs are unlit, which is
       // what carries the season after dark.
@@ -911,13 +938,18 @@ export function buildEnvironment(area, seasonId = SEASON_IDS[0]) {
   // For the same visual "pop" every other station build gets, animate deck.scale with
   // src/render/buildReveal.js's buildRevealScale the way systems/visuals.js already does; that
   // per-frame hookup lives outside this file.
-  let terraceBuilt = false;
-  group.setTerraceBuilt = built => {
+  const builtState = new Map();
+  // Batch 4b: the generic form. `garden` (the near-band scenery the deck replaces) is the
+  // TERRACE's own pre-build state, so only the terrace toggles it — the spa replaces open lawn out
+  // east, which nothing in `garden` occupies (see buildScenery's eastRing note).
+  group.setRegionBuilt = (regionId, built) => {
     built = !!built;
-    if (built === terraceBuilt) return;
-    terraceBuilt = built;
-    garden.visible = !built;
-    deck.visible = built;
+    if (builtState.get(regionId) === built) return;
+    builtState.set(regionId, built);
+    const host = regionGroups.get(regionId);
+    if (host) host.visible = built;
+    if (regionId === 'terrace') garden.visible = !built;
   };
+  group.setTerraceBuilt = built => group.setRegionBuilt('terrace', built);
   return group;
 }

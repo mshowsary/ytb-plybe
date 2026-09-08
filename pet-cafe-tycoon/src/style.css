@@ -348,3 +348,27 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE8D8;font-family:"S
    than keeping the width a word needed. */
 .objCaption.cueRow{padding:5px;border-radius:999px}
 .objCaption .cueIco{width:22px;height:22px}
+
+/* Batch 4b (plan 3.9) — the Pet Spa's brush-hold overlay (src/ui/groomGame.js), world-projected
+   over the pet at groom1 exactly like .photoRing is over photo1 (same left/top-in-JS,
+   transform-for-anchoring split — see .photoRing's own comment above). This is a TIMING game, not a
+   targeting one: none of the three pieces below (paw, pulse, pips) carries positional information,
+   so unlike .photoRing this element is simply always run through the label arbiter's avoid() with
+   no special-casing (src/ui/groomGame.js's own header explains why at more length).
+   Program rule 4/5 (no English prose on the play field): the paw is icons.js's pawIcon()
+   pictogram, the pulse is pure shape, and the three pips are undecorated dots. */
+.groomRing{position:absolute;transform:translate(-50%,-50%);left:0;top:0;width:0;height:0;z-index:2;pointer-events:none}
+.groomRing.hidden{display:none}
+/* >= 80x80 tap target (program rule for this overlay), matching .photoRingHit's own box exactly. */
+.groomRingHit{position:absolute;left:-40px;top:-40px;width:80px;height:80px;border-radius:50%;pointer-events:auto;touch-action:none}
+.groomPaw{position:absolute;left:50%;top:50%;width:34px;height:34px;margin:-17px 0 0 -17px;pointer-events:none;filter:drop-shadow(0 2px 4px #0004)}
+.groomPaw svg{width:100%;height:100%;display:block}
+/* Scaled/opacity'd from JS every frame (pawPulseScale/pawPulseOpacity, groomGame.js) — never a CSS
+   animation, so it can be paused/resumed by the same presentationScheduler pause gate every other
+   timed effect in this game already respects. */
+.groomPulse{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;background:radial-gradient(circle,#ffffff55 0%,#ffffff00 72%);pointer-events:none;will-change:transform,opacity}
+.groomPips{position:absolute;left:50%;top:100%;transform:translate(-50%,10px);display:flex;gap:6px;pointer-events:none}
+.groomPip{width:9px;height:9px;border-radius:50%;background:#ffffff40;border:1.5px solid #ffffffb0;box-sizing:border-box}
+.groomPip.active{background:#ffffffd0;box-shadow:0 0 0 3px #ffffff30}
+.groomPip.done{background:#ffd766;border-color:#ffd766}
+@media(prefers-reduced-motion:reduce){.groomPulse{transition:none}}

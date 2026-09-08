@@ -71,6 +71,14 @@ export function kibbleIcon() {
 // Batch 1 terrace (plan 3.1/7.2, D3/D4): the cream sack, third pantry supply -- coldPantry1's
 // bean-equivalent. Same "supply pictogram" convention as beanIcon/kibbleIcon above: a jug silhouette
 // so the cause (empty cream) and remedy (this glyph, in the pantry) read as the same object.
+// A single drop: the water sack for the spa's bath (waterTank1). Same 24-box and the same
+// soft-fill-plus-one-highlight construction as creamIcon, so the two sit side by side in the
+// pantry sheet as siblings.
+export function waterIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8c3.2 4.2 6 7.6 6 11.2a6 6 0 0 1-12 0c0-3.6 2.8-7 6-11.2z" fill="#BFEFFA"/>' +
+    '<path d="M12 2.8c3.2 4.2 6 7.6 6 11.2a6 6 0 0 1-12 0c0-3.6 2.8-7 6-11.2z" fill="none" stroke="#5FC4E0" stroke-width="1.2"/>' +
+    '<path d="M9.2 13.6c.1 1.6 1 2.8 2.4 3.3" stroke="#FFFFFF" stroke-width="1.3" stroke-linecap="round" fill="none"/></svg>';
+}
 export function creamIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 3h5l.8 3.4c2.1.6 3.7 2.5 3.7 4.8v6.3a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 4 17.5v-6.3c0-2.3 1.6-4.2 3.7-4.8L8.5 3z" fill="#FFF6FB"/>' +
     '<path d="M8.5 3h5l.5 2.2h-6l.5-2.2z" fill="#E9C9DC"/>' +

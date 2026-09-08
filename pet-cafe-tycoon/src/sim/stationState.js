@@ -2,6 +2,7 @@
 // customers, navigation and owner carry state: those are transient (or belong to Task 11).
 import { PRODUCTS, displayStarCap, familyOf } from './economy.js';
 import { SAVE_LIMITS } from './saveSchema.js';
+import { BATH_WATER_CAP } from './world.js';
 
 export const STATION_STATE_VERSION = 1;
 export const DEFAULT_REGISTER_PILE_LIMIT = 100_000_000;
@@ -62,7 +63,19 @@ function normalizeRow(def, row, stars, maxPile) {
     // st.session is deliberately NOT persisted: it points at a live customer id, and customers
     // intentionally restart after a reload (same reasoning as 'seat' occupied-vs-dirty below).
     case 'photo':
+    // Batch 4b: 'groom' collects exactly like the booth (pile only; its session is transient for
+    // the same reason). 'boutique' has no session at all yet — just the same pile shape, ready for
+    // a future "boutique sale" to bank into.
+    case 'groom':
+    case 'boutique':
       return { pile: boundedQuantity(row.pile, maxPile) };
+    // 'bath' additionally persists its water sack, bounded exactly like 'coffee'.beans/
+    // 'icecream'.cream — an oversized/corrupt value collapses to zero rather than to a full tank.
+    case 'bath':
+      return {
+        pile: boundedQuantity(row.pile, maxPile),
+        water: boundedQuantity(row.water, BATH_WATER_CAP),
+      };
     case 'oven':
     case 'display':
       return {
@@ -143,7 +156,19 @@ function resetRuntimeStation(st, def, stars) {
       st.pile = 0; st.serving = ''; st.procT = 0; st._watchdogT = 0;
       break;
     case 'photo':
+    case 'groom':
       st.pile = 0; st.serving = ''; st.session = null;
+      break;
+    // Batch 4b: water is durable and deliberately NOT reset here (unlike beans/cream's fixed-full
+    // baseline below) — a tampered save that omits bath1's row entirely must not manufacture a full
+    // tank the way a legacy coffee save incidentally does when its own row goes missing. It is left
+    // exactly as the live world already holds it; restoreStationState below overwrites it only when
+    // a genuine row supplies one.
+    case 'bath':
+      st.pile = 0; st.serving = ''; st.session = null;
+      break;
+    case 'boutique':
+      st.pile = 0;
       break;
     case 'oven':
       st.product = baseProduct(def); st.stock = 0; st.timer = 0;
@@ -193,7 +218,10 @@ export function restoreStationState(world, payload, stars = {}, maxPile = DEFAUL
     if (!st || !st.active) continue;
     switch (st.type) {
       case 'checkout':
-      case 'photo': st.pile = row.pile; break;
+      case 'photo':
+      case 'groom':
+      case 'boutique': st.pile = row.pile; break;
+      case 'bath': st.pile = row.pile; st.water = row.water; break;
       case 'oven':
       case 'display': st.stock = row.stock; st.product = row.product; break;
       case 'coffee': st.beans = row.beans; st.stock = row.stock; st.product = row.product; break;

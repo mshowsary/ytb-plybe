@@ -3,14 +3,14 @@ import { pushOut } from '../sim/collide.js';
 import {
   PRODUCTS, familyOf, playerSpeed, carryCap, buyUpgrade, hire as hireStaff,
   buyWorkerUpgrade, buyMachineUpgrade, machineSpeedMult, buyStar, STAR_IDS,
-  buyDecor,
+  buyDecor, buyAccessory,
 } from '../sim/economy.js';
 import {
   stepOvens, stepMachines, takeFromOven, takeFromMachine, putOnDisplay, collectCash,
   refillBeans, refillBowl, harvestBush, addFruit as stationAddFruit, ownerCleanSeat,
 } from '../sim/world.js';
 import { canTakeItems, takeSack, useSack, addFruit as carryAddFruit, returnAll } from '../sim/carry.js';
-import { areaBounds as ownerAreaBounds } from '../sim/ownerState.js';
+import { clampToArea } from '../sim/ownerState.js';
 import { heldState, destinationFor, findReturnStation, heldLabel, destinationLabel } from '../sim/interaction.js';
 import { itemFor } from '../render/props.js';
 import { C } from '../render/palette.js';
@@ -143,6 +143,11 @@ export function createStations(G, S, ctx) {
     if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); markCheckpoint('decor-buy'); }
     else { audio.play('angry'); hud.toast(NOT_ENOUGH_COINS()); }
   }
+  function doBuyAccessory(id) {
+    const r = buyAccessory(G, id);
+    if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); markCheckpoint('boutique-buy'); }
+    else { audio.play('angry'); hud.toast(NOT_ENOUGH_COINS()); }
+  }
   function doSetTab(tab) { currentTab = tab; currentFocusRow = null; refreshOpen(); }
   function doAssignRunner(index, displayId) {
     const runners = G.staffList.filter(s => s.kind === 'runner');
@@ -152,7 +157,7 @@ export function createStations(G, S, ctx) {
   }
   const sheetActions = {
     buy: doBuy, hire: doHire, buyWorker: doBuyWorker, buyMachine: doBuyMachine,
-    buyStar: doBuyStar, setTab: doSetTab, assignRunner: doAssignRunner, buyDecor: doBuyDecor,
+    buyStar: doBuyStar, setTab: doSetTab, assignRunner: doAssignRunner, buyDecor: doBuyDecor, buyAccessory: doBuyAccessory,
   };
 
   function doOpenKioskFocused(stationId) {
@@ -186,7 +191,16 @@ export function createStations(G, S, ctx) {
     let bowlActive = false;
     for (const s of world.stations.values()) if (s.type === 'bowl' && s.active) { bowlActive = true; break; }
     anchorSheet(st);
-    sheets.open('pantry', { beans: true, kibble: bowlActive }, {
+    // The model comes from THIS pantry's declared supplies (data/area1.js), not a fixed
+    // {beans, kibble}: coldPantry1 carries cream and waterTank1 carries water, and a sheet that
+    // ignored which pantry was tapped could offer neither. A pantry that declares nothing is the
+    // main one and keeps its two historical buttons, so the coach's structural two-button lookup
+    // (ui/interactionCoach.js) sees exactly what it always has.
+    const def = area.stations.find(s => s.id === st.id);
+    const supplies = def && Array.isArray(def.supplies) && def.supplies.length ? def.supplies : ['beans', 'kibble'];
+    const pantryModel = {};
+    for (const k of supplies) pantryModel[k] = k === 'kibble' ? bowlActive : true;
+    sheets.open('pantry', pantryModel, {
       pick(kind) {
         if (takeSack(carry, kind)) {
           audio.play('pop');
@@ -251,6 +265,7 @@ export function createStations(G, S, ctx) {
     const st = a.st;
     if (a.kind === 'kiosk') openKiosk(st, 'player');
     else if (a.kind === 'hire') openKiosk(st, 'workers');
+    else if (a.kind === 'boutique') openKiosk(st, 'boutique');
     else if (a.kind === 'pantry') openPantry(st);
     else if (a.kind === 'return') {
       const held = heldState(owner.items, carry);
@@ -278,9 +293,10 @@ export function createStations(G, S, ctx) {
       pushOut(P, 0.35, world.boxes);
       // Batch 1 — regions engine (plan 7.1): clamp to the interior UNION every built region (the
       // terrace), or the owner can never walk onto the deck they just bought.
-      { const b = ownerAreaBounds(area, world.built);
-        P.x = Math.max(b.minX, Math.min(b.maxX, P.x));
-        P.z = Math.max(b.minZ, Math.min(b.maxZ, P.z)); }
+      // The interior UNION built regions is an L once the spa exists, not a rectangle — a box
+      // clamp let the owner stroll into the empty south-east corner. clampToArea also confines the
+      // crossing to the gate itself; see its comment in sim/ownerState.js.
+      { const p = clampToArea(area, world.built, P.x, P.z); P.x = p.x; P.z = p.z; }
       owner.group.position.set(P.x, 0, P.z); owner.update(dt, P.vx, P.vz); S.follow(P.x, P.z, dt);
 
       if (sheetAnchorId && sheets.isOpen) {
@@ -421,11 +437,12 @@ export function createStations(G, S, ctx) {
           }
         }
 
-        if (st.type === 'kiosk' || st.type === 'hire') {
+        if (st.type === 'kiosk' || st.type === 'hire' || st.type === 'boutique') {
           const atFront = near(P, st.front, 1.35);
           noteFirstHint(st.type, atFront);
           if (atFront && !sheets.isOpen) {
-            actionCandidate = offerAction(actionCandidate, st, st.type, st.type === 'kiosk' ? 'UPGRADES' : 'STAFF', 2);
+            const label = st.type === 'kiosk' ? 'UPGRADES' : st.type === 'hire' ? 'STAFF' : 'BOUTIQUE';
+            actionCandidate = offerAction(actionCandidate, st, st.type, label, 2);
           }
         }
       }

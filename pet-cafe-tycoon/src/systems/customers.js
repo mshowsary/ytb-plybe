@@ -309,6 +309,16 @@ export function createCustomers(G, S, ctx) {
           r.px = step.x; r.pz = step.z;
           r.human.group.position.set(r.px, 0, r.pz); r.human.update(dt, vx, vz);
           r.pet.followTarget(r.px, r.pz, c.rot, dt);
+          // A pet fresh from the bath sparkles for BATH_SPARKLE_SECONDS: c.sparkleUntil is stamped
+          // by the sim against its own clock (world.t, advanced by stepBath). An interval burst
+          // rather than a per-frame particle, so twenty seconds costs a few dozen sprites.
+          if (c.sparkleUntil > (world.t || 0) && !globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+            r._sparkleT = (r._sparkleT || 0) + dt;
+            if (r._sparkleT >= 0.45) {
+              r._sparkleT = 0;
+              const pp = r.pet.group.position; fx.burst(pp.x, 0.7, pp.z, '#BFEFFA', 3);
+            }
+          }
           if (c.state === 'queue' || c.state === 'atBowl' || c.state === 'atRegister' || c.state === 'toPhoto' || c.state === 'atPhoto') r.human.setMood(c.mood === 'wait' ? 'wait' : 'none');
         }
 
