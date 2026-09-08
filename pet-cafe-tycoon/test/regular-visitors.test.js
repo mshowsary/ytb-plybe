@@ -7,10 +7,22 @@ import {
   resolveUniquePetIdentity,
   activeNamedPetKeys,
 } from '../src/sim/regularVisitors.js';
+import { PET_PROFILES } from '../src/sim/petBook.js';
 
-test('Task 34: authored identity pool is the existing 12 pet profiles', () => {
-  assert.equal(PET_IDENTITY_POOL.length, 12);
-  assert.equal(new Set(PET_IDENTITY_POOL.map(p => p.key)).size, 12);
+test('the identity pool is every unlocked coat, and never a legendary one', () => {
+  // 4 species x 5 coats = 20 authored profiles, of which the 4 legendary ones are Batch 3 reward
+  // content. They are excluded HERE rather than at the spawn roll because this pool is what decides
+  // a customer's rendered pet: resolveUniquePetIdentity's congestion fallback walks the whole pool
+  // when every other identity is on screen, so filtering only the roll leaves a working back door.
+  // A bare length check would not have caught that -- assert the property, not the number.
+  assert.equal(PET_IDENTITY_POOL.length, 16);
+  assert.equal(new Set(PET_IDENTITY_POOL.map(p => p.key)).size, 16, 'every entry is a distinct pet');
+  for (const row of PET_IDENTITY_POOL) {
+    assert.notEqual(
+      PET_PROFILES[row.species][row.variant].rarity, 'legendary',
+      row.key + ' is a locked legendary coat and must not be reachable as a walk-in identity',
+    );
+  }
   assert.ok(REGULAR_GREETING_SECONDS >= .9 && REGULAR_GREETING_SECONDS <= 1.2);
 });
 

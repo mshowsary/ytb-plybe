@@ -36,9 +36,20 @@ export function speedBuildEligible(paid, price) {
 // always get a clean first session; established players get one optional interstitial at boot.
 export const BOOT_INTERSTITIAL_MIN_COMPLETED_DAYS = 3;
 
+// Task 2.7 — `rare-visitor`: offered only in the morning phase, from day 6. Earlier days have too
+// small a Pet Book for "the next guest is rare/epic" to read as a reward rather than noise.
+export const RARE_VISITOR_MIN_DAY = 6;
+export function rareVisitorEligible(day, phase) {
+  return (day | 0) >= RARE_VISITOR_MIN_DAY && phase === 'morning';
+}
+
 export function reliefRewardKey(day) { return `relief:${Math.max(1, day | 0)}`; }
 export function giftRewardKey(day) { return `gift:${Math.max(1, day | 0)}`; }
 export function speedBuildRewardKey(day) { return `speed-build:${Math.max(1, day | 0)}`; }
+// Task 2.7 — two more placements, both sharing the existing in-shift budget (see
+// inShiftClaimedForShift below) so the café never stacks two mid-shift offers.
+export function rareVisitorRewardKey(day) { return `rare-visitor:${Math.max(1, day | 0)}`; }
+export function goldenShotRewardKey(day) { return `golden-shot:${Math.max(1, day | 0)}`; }
 
 function numericClaimed(rewarded, d) { return !!(rewarded[d] || rewarded[String(d)]); }
 function keyedClaimed(rewarded, key) { return !!rewarded[key]; }
@@ -49,14 +60,19 @@ export function summaryClaimedForShift(meta, day) {
   return numericClaimed(rewarded, Math.max(1, day | 0));
 }
 
-// The shared in-shift budget (relief helpers + mystery gift + speed-build): claimed iff any key
-// exists. This is what keeps the café from ever stacking two mid-shift ad offers at once.
+// The shared in-shift budget (relief helpers + mystery gift + speed-build + Task 2.7's
+// rare-visitor + golden-shot): claimed iff any key exists. This is what keeps the café from ever
+// stacking two mid-shift ad offers at once. Widening this set is deliberate (plan §4.4: "Both
+// share the existing in-shift budget") -- every existing caller (mystery gift, speed-build) keeps
+// its own meaning of "is the mid-shift slot free", it just now also respects two more placements.
 export function inShiftClaimedForShift(meta, day) {
   const rewarded = meta && meta.rewardedDays && typeof meta.rewardedDays === 'object' ? meta.rewardedDays : {};
   const d = Math.max(1, day | 0);
   return keyedClaimed(rewarded, reliefRewardKey(d))
     || keyedClaimed(rewarded, giftRewardKey(d))
-    || keyedClaimed(rewarded, speedBuildRewardKey(d));
+    || keyedClaimed(rewarded, speedBuildRewardKey(d))
+    || keyedClaimed(rewarded, rareVisitorRewardKey(d))
+    || keyedClaimed(rewarded, goldenShotRewardKey(d));
 }
 
 // Legacy predicate kept for older callers/tests: ANY rewarded claim this shift (summary or
@@ -82,6 +98,16 @@ export function markRewardedClaim(meta, day, placement = 'relief') {
   if (placement === 'speed-build') {
     if (inShiftClaimedForShift(meta, d)) return false;
     meta.rewardedDays[speedBuildRewardKey(d)] = 1;
+    return true;
+  }
+  if (placement === 'rare-visitor') {
+    if (inShiftClaimedForShift(meta, d)) return false;
+    meta.rewardedDays[rareVisitorRewardKey(d)] = 1;
+    return true;
+  }
+  if (placement === 'golden-shot') {
+    if (inShiftClaimedForShift(meta, d)) return false;
+    meta.rewardedDays[goldenShotRewardKey(d)] = 1;
     return true;
   }
   if (inShiftClaimedForShift(meta, d)) return false;

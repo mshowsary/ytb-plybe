@@ -97,6 +97,20 @@ function auditInPage(_unusedContent, INTERACTIVE, MIN_TAP, OVERLAP_TOLERANCE) {
   // Visibility must be evaluated through the ANCESTOR CHAIN. A child of an `opacity:0` parent still
   // reports opacity 1 for itself, so checking the element alone reports elements the player cannot
   // see -- which showed up here as false failures against labels the arbiter had already hidden.
+  // An element covered by something else — most often the rest of the UI sitting behind an open
+  // full-screen modal — is not visible to the player and cannot overlap, clip or block anything.
+  // getComputedStyle cannot detect this: occlusion is a stacking-context question, so ask the
+  // browser directly. Ancestors and descendants count as "self": elementFromPoint returns the
+  // topmost node, which for any container is normally one of its own children.
+  const occluded = el => {
+    const r = el.getBoundingClientRect();
+    const x = Math.min(vw - 1, Math.max(0, r.left + r.width / 2));
+    const y = Math.min(vh - 1, Math.max(0, r.top + r.height / 2));
+    const top = document.elementFromPoint(x, y);
+    if (!top) return false; // outside the viewport entirely; the bounds checks below own that case
+    return !(top === el || el.contains(top) || top.contains(el));
+  };
+
   const visible = el => {
     const r = el.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) return false;
@@ -110,7 +124,7 @@ function auditInPage(_unusedContent, INTERACTIVE, MIN_TAP, OVERLAP_TOLERANCE) {
       if (op < 0.05) return false;
       n = n.parentElement;
     }
-    return true;
+    return !occluded(el);
   };
 
   // Direct text: text belonging to THIS element rather than a descendant. Prevents a wrapper and
@@ -219,6 +233,38 @@ async function forceDenseCafe(page) {
   for (let i = 0; i < 90; i++) { await page.evaluate(() => window.__game && window.__game.update(0.05)); await W(12); }
 }
 
+// Force a photo session into existence. stepPhotoBooth needs the owner at the booth AND a guest
+// genuinely waiting in slot 0, which a 4.5s sim warm-up will not produce on its own — so the state
+// is built directly, exactly as forceDenseCafe builds the zone list directly rather than waiting
+// for the bot to afford it. If the booth or a guest is missing this is a no-op and the pass simply
+// measures the same thing the world pass does.
+async function forcePhotoSession(page) {
+  return page.evaluate(() => {
+    const G = window.__game;
+    if (!G || !G.world) return false;
+    const st = [...G.world.stations.values()].find(s => s.type === 'photo' && s.active);
+    const guest = (G.customers || []).find(c => c && !c.done);
+    if (!st || !guest) return false;
+    st.serving = true;
+    st.session = {
+      customerId: guest.id, species: guest.species, variant: guest.petVariant | 0,
+      tier: 0, t: 0.35, resolved: false,
+    };
+    return true;
+  });
+}
+
+async function openPetBook(page, tab) {
+  return page.evaluate(name => {
+    const btn = document.querySelector('.meta-pawbook');
+    if (btn) btn.click();
+    const t = [...document.querySelectorAll('.meta-book-tab, [data-tab]')]
+      .find(el => (el.dataset && el.dataset.tab === name) || (el.textContent || '').toLowerCase().includes(name));
+    if (t) t.click();
+    return !document.querySelector('.meta-book-root.hidden');
+  }, tab);
+}
+
 const results = [];
 const list = ONLY ? VIEWPORTS.filter(v => `${v.w}x${v.h}` === ONLY) : VIEWPORTS;
 if (!list.length) { console.error('no viewport matches ' + ONLY); process.exit(1); }
@@ -234,17 +280,37 @@ for (const vp of list) {
   await forceDenseCafe(page);
   await W(250);
 
-  const audit = await page.evaluate(
+  const runAudit = () => page.evaluate(
     ([src, c, i, t, o]) => (0, eval)('(' + src + ')')(c, i, t, o),
     [auditInPage.toString(), CONTENT, INTERACTIVE, MIN_TAP, OVERLAP_TOLERANCE],
   );
+  const tally = a => a.overflow.length + a.overlap.length + a.truncated.length + a.tapTarget.length + (a.canvas ? 1 : 0);
 
+  // State 1: the dense world, no menu — the original pass.
+  const audit = await runAudit();
   if (SHOTS) await page.screenshot({ path: `shots/responsive/${vp.tag}-${vp.w}x${vp.h}.png` });
 
-  const count = audit.overflow.length + audit.overlap.length + audit.truncated.length + audit.tapTarget.length + (audit.canvas ? 1 : 0);
-  results.push({ ...vp, audit, errors, count });
+  // State 2: a live photo session, so the ring and its 80x80 tap target are on screen.
+  const states = [];
+  if (await forcePhotoSession(page)) {
+    await page.evaluate(() => window.__game && window.__game.update(0.05));
+    await W(120);
+    states.push({ name: 'photo', audit: await runAudit() });
+    if (SHOTS) await page.screenshot({ path: `shots/responsive/${vp.tag}-${vp.w}x${vp.h}-photo.png` });
+  }
+
+  // State 3: the Pet Book overlay on its Album tab — 20 cards in a 4-column grid.
+  if (await openPetBook(page, 'album')) {
+    await W(120);
+    states.push({ name: 'album', audit: await runAudit() });
+    if (SHOTS) await page.screenshot({ path: `shots/responsive/${vp.tag}-${vp.w}x${vp.h}-album.png` });
+  }
+
+  const count = tally(audit) + states.reduce((s, st) => s + tally(st.audit), 0);
+  results.push({ ...vp, audit, states, errors, count });
   const mark = count === 0 && !errors.length ? 'PASS' : 'FAIL';
-  console.log(`${mark}  ${String(vp.w + 'x' + vp.h).padEnd(10)} ${vp.tag.padEnd(18)} violations=${count}${errors.length ? ` pageErrors=${errors.length}` : ''}`);
+  const seen = ['world', ...states.map(s => s.name)].join('+');
+  console.log(`${mark}  ${String(vp.w + 'x' + vp.h).padEnd(10)} ${vp.tag.padEnd(18)} violations=${count}  states=${seen}${errors.length ? ` pageErrors=${errors.length}` : ''}`);
   await ctx.close();
 }
 
@@ -258,6 +324,14 @@ for (const r of results) {
   total += n;
   if (!n && !r.errors.length) continue;
   console.log(`\n--- ${r.w}x${r.h} (${r.tag}) — ${n} violation(s) ---`);
+  for (const st of r.states || []) {
+    const a2 = st.audit;
+    if (a2.canvas) console.log(`  [${st.name}] CANVAS  does not fill viewport`);
+    for (const o of a2.overflow.slice(0, 6)) console.log(`  [${st.name}] OVERFLOW  ${o.el} escapes ${o.edge} by ${o.by}px`);
+    for (const t of a2.truncated.slice(0, 6)) console.log(`  [${st.name}] CLIPPED   ${t.el} text spills ${t.spill}px past its box`);
+    for (const o of a2.overlap.slice(0, 8)) console.log(`  [${st.name}] OVERLAP   ${o.a}  ><  ${o.b}  (${o.ox}x${o.oy}px)`);
+    for (const t of a2.tapTarget.slice(0, 5)) console.log(`  [${st.name}] TAPTARGET ${t.el} is ${t.w}x${t.h}, min ${MIN_TAP}`);
+  }
   if (a.canvas) console.log(`  CANVAS  does not fill viewport: ${a.canvas.w}x${a.canvas.h} vs ${a.canvas.vw}x${a.canvas.vh}`);
   for (const o of a.overflow.slice(0, 8)) console.log(`  OVERFLOW  ${o.el} escapes ${o.edge} by ${o.by}px`);
   if (a.overflow.length > 8) console.log(`            ...and ${a.overflow.length - 8} more`);
@@ -273,7 +347,10 @@ for (const r of results) {
 const summary = {
   generatedAt: new Date().toISOString(),
   totalViolations: total,
-  viewports: results.map(r => ({ size: `${r.w}x${r.h}`, tag: r.tag, violations: r.count, errors: r.errors.length, detail: r.audit })),
+  viewports: results.map(r => ({
+    size: `${r.w}x${r.h}`, tag: r.tag, violations: r.count, errors: r.errors.length,
+    detail: r.audit, states: (r.states || []).map(s => ({ name: s.name, detail: s.audit })),
+  })),
 };
 fs.mkdirSync('reports-responsive', { recursive: true });
 fs.writeFileSync('reports-responsive/audit.json', JSON.stringify(summary, null, 2));

@@ -53,14 +53,20 @@ export function createWorld(area, save, seed) {
     // state and (src/sim/nav.js footprintBoxes, and w.boxes below) never contributes a collision
     // box. 'decor' blocks (fountain/splash) but carries no state of its own. 'icecream' mirrors
     // 'coffee' exactly (cream instead of beans) so every generic machine system (stepMachines,
-    // runners' pickSource, the bot) generalises for free. 'photo' is queue+tray this batch but has
-    // NO mini-game state yet (scope note: the photo studio itself is Batch 2) — it carries no
-    // fields so a guest can queue at it but nothing consumes/produces there yet. 'restroom' is a
-    // comfort buff, not a queue: tidy drains 0.08/seated guest (owned by the seating/cleaner
-    // systems), bounded 0..1 here and by stationState.js on restore. 'splash' is decor with fx.
+    // runners' pickSource, the bot) generalises for free. 'restroom' is a comfort buff, not a
+    // queue: tidy drains 0.08/seated guest (owned by the seating/cleaner systems), bounded 0..1
+    // here and by stationState.js on restore. 'splash' is decor with fx.
     if (s.type === 'icecream') Object.assign(st, { product: 'icecream', baseProduct: 'icecream', altProduct: ALT_PRODUCT[s.id] || null, cream: 20, stock: 0, buffer: 8, timer: 0 });
     if (s.type === 'restroom') Object.assign(st, { tidy: 1 });
-    if (s.type === 'gate' || s.type === 'decor' || s.type === 'photo' || s.type === 'splash') Object.assign(st, {});
+    // Task 2.1 (photo studio): 'photo' is a queue + tip tray + a one-guest-at-a-time mini-game
+    // session — `pile` collects exactly like a register's (world.js's own addCash/collectCash are
+    // generic over any station with a `.pile` field, so no new collection code was needed there).
+    // `serving` mirrors 'checkout' — set truthy by whichever presentation/bot layer detects the
+    // owner standing at st.front (systems/photo.js in the running game, tools/bot.js headless) —
+    // and gates stepPhotoBooth's auto-start below exactly like stepRegisters gates on it. `session`
+    // is null when idle; see stepPhotoBooth/resolvePhotoShot/clearPhotoSession further down.
+    if (s.type === 'photo') Object.assign(st, { pile: 0, serving: '', session: null });
+    if (s.type === 'gate' || s.type === 'decor' || s.type === 'splash') Object.assign(st, {});
 
     const frontDist = s.front != null ? s.front : 1.3;
     const f = rotateOffset(st.rot, 0, frontDist);
@@ -77,7 +83,10 @@ export function createWorld(area, save, seed) {
     // register2 needs this: it shares hire1's blocked x band and its queue would otherwise run
     // straight through hire1's footprint (found by test/layout.test.js). Every other
     // display/register has open floor along its queue line and leaves this at its default 0.
-    if (s.type === 'display' || s.type === 'checkout') {
+    // Task 2.1: 'photo' reuses this exact geometry (plan 3.2 — "reuse the register queue
+    // geometry") rather than inventing its own, so photo1's line fans out and overflows past 5
+    // guests (customers.js's queuePos) exactly like a register's already does.
+    if (s.type === 'display' || s.type === 'checkout' || s.type === 'photo') {
       st.queue = [];
       const right = s.queueRight || 0;
       for (let i = 0; i < 5; i++) {
@@ -423,4 +432,118 @@ export function stepRegisters(w, dt) {
     }
   }
   for (const id of w.checkouts) w.stations.get(id).serving = '';
+}
+
+// Task 2.1 — the Pet Photo Studio (plan 3.2). The mini-game's timing/scoring constants live here
+// (not in ui/photoGame.js) so the headless bot and the deterministic sim test suite can drive the
+// exact same numbers as the real render layer without importing anything DOM-shaped.
+export const PHOTO_RING_START = 2.2;      // ring scale at shot start
+export const PHOTO_RING_END = 0.6;        // ring scale at the end of its shrink
+export const PHOTO_RING_DURATION = 1.4;   // seconds the ring takes to shrink start -> end
+// A shot left untouched (player skill is optional, never mandatory) resolves itself 0.2s after the
+// ring finishes shrinking — comfortably past PHOTO_RING_DURATION so a real player's last-instant tap
+// is never raced by the timeout, and short enough that neither the headless bot nor the in-game
+// auto-play bot ever stalls on it (plan 3.2's own bot requirement).
+export const PHOTO_AUTO_RESOLVE = 1.6;
+export const PHOTO_PERFECT_BAND = 0.08;
+export const PHOTO_GOOD_BAND = 0.22;
+// The ring's "home" scale — where the pet actually sits relative to the booth frame. Kept as pure
+// math (no DOM) so both ui/photoGame.js (real taps) and this file's own tests can score a shot the
+// same way without a browser.
+export const PHOTO_TARGET_SCALE = 1.0;
+
+// Ring scale at elapsed time `t` (seconds since the shot started), clamped past the shrink's own
+// duration so a caller that samples slightly late (a dropped frame, a delayed tap handler) still
+// gets a sane, in-range answer instead of extrapolating past PHOTO_RING_END.
+export function photoRingScale(t) {
+  const p = Math.max(0, Math.min(1, (Number(t) || 0) / PHOTO_RING_DURATION));
+  return PHOTO_RING_START + (PHOTO_RING_END - PHOTO_RING_START) * p;
+}
+
+// Perfect (+-0.08), Good (+-0.22), else Ok — plan 3.2's exact bands, centered on PHOTO_TARGET_SCALE.
+export function photoJudgeQuality(scale) {
+  const d = Math.abs(scale - PHOTO_TARGET_SCALE);
+  if (d <= PHOTO_PERFECT_BAND) return 'perfect';
+  if (d <= PHOTO_GOOD_BAND) return 'good';
+  return 'ok';
+}
+// Plan 3.2: 40% of eligible paid guests are offered the studio.
+export const PHOTO_CHANCE = 0.4;
+// Queue depth cap (Trap 3 discipline — an allocator that fills past its physical geometry piles
+// duplicates on the same spot). photo1's queue reuses the register's 5-slot line/overflow geometry
+// (queuePos in customers.js), but a NEW arrival stops being routed here once this many guests are
+// already headed to or waiting at the booth, so the line never grows past what one manned booth can
+// plausibly clear before everyone's patience runs out.
+export const PHOTO_QUEUE_CAP = 4;
+export const PHOTO_BASE_TIP = 40;
+export const PHOTO_TIP_PER_TIER = 20;
+export const PHOTO_QUALITY_MULT = { perfect: 2, good: 1.3, ok: 1 };
+
+// tips = (40 + 20 * friendshipTier) * {perfect:2, good:1.3, ok:1} (plan 3.2), rounded to a whole
+// coin like every other price computation in this codebase. `tier` is clamped 0-3 (petBook.js's
+// PET_FRIENDSHIP_TIERS never exceeds 3) so a corrupt/out-of-range caller can't inflate a tip.
+export function photoTipAmount(tier, quality) {
+  const t = Math.max(0, Math.min(3, tier | 0));
+  const mult = PHOTO_QUALITY_MULT[quality] || 1;
+  return Math.round((PHOTO_BASE_TIP + PHOTO_TIP_PER_TIER * t) * mult);
+}
+
+// Advances every active photo booth by one tick: starts a fresh session at an idle, manned booth
+// whose slot-0 guest is genuinely at rest there (the same "hasTarget false AND spatially at the
+// slot" gate stepRegisters uses for its own head customer — see that function's own long comment
+// for exactly why both halves are needed), and auto-resolves a session as 'ok' once it's run past
+// PHOTO_AUTO_RESOLVE seconds with nobody having called resolvePhotoShot for it yet.
+//
+// Sim purity: this file never reads meta (friendship tiers live in G.meta, not `w`). `tierFor`,
+// when given, maps a queued sim customer to a 0-3 friendship tier; the browser's systems/photo.js
+// passes a real petBook-backed lookup, tools/bot.js and every test may omit it (tier 0 throughout —
+// still a full, correctly-scored mini-game, just without the friendship bonus).
+export function stepPhotoBooth(w, dt, tierFor) {
+  for (const st of w.stations.values()) {
+    if (st.type !== 'photo' || !st.active) continue;
+    if (st.session) {
+      if (!st.session.resolved) {
+        st.session.t += dt;
+        if (st.session.t >= PHOTO_AUTO_RESOLVE) resolvePhotoShot(w, st.id, 'ok');
+      }
+      continue; // a resolved-but-not-yet-cleared session still occupies the booth this tick
+    }
+    if (!st.serving) continue;
+    const arr = w._photoQueues && w._photoQueues.get(st.id);
+    const q0 = st.queue && st.queue[0];
+    const head = arr && q0 && arr.find(c => c.slot === 0 && c.state === 'atPhoto' && !c.mover.hasTarget && Math.hypot(c.x - q0.x, c.z - q0.z) < 0.15);
+    if (!head) continue;
+    const rawTier = typeof tierFor === 'function' ? tierFor(head) : 0;
+    const tier = Math.max(0, Math.min(3, Number.isFinite(rawTier) ? Math.trunc(rawTier) : 0));
+    st.session = {
+      customerId: head.id,
+      species: head.species,
+      variant: typeof head.petVariant === 'number' ? head.petVariant : 0,
+      tier, t: 0, resolved: false, quality: null, tip: 0,
+    };
+    emitWorld(w, { type: 'photoStart', id: head.id, stationId: st.id });
+  }
+  for (const st of w.stations.values()) if (st.type === 'photo') st.serving = '';
+}
+
+// Called either by the player's tap/hold (ui/photoGame.js, with a real 'perfect'|'good'|'ok' judged
+// from ring timing) or by stepPhotoBooth's own timeout above (always 'ok'). Idempotent past the
+// first call for a given session — a stray double-resolve (e.g. a tap racing the timeout) cannot
+// double-pay the same shot.
+export function resolvePhotoShot(w, id, quality) {
+  const st = w.stations.get(id);
+  if (!st || !st.session || st.session.resolved) return null;
+  const q = quality === 'perfect' || quality === 'good' ? quality : 'ok';
+  const tip = photoTipAmount(st.session.tier, q);
+  st.session.resolved = true; st.session.quality = q; st.session.tip = tip;
+  addCash(w, id, tip);
+  emitWorld(w, { type: 'photo', id: st.session.customerId, stationId: id, quality: q, tip });
+  return { quality: q, tip };
+}
+
+// The guest FSM (sim/customers.js) calls this once it has read a resolved session for ITS OWN
+// customerId, freeing the booth for the next queued guest.
+export function clearPhotoSession(w, id) {
+  const st = w.stations.get(id);
+  if (st) st.session = null;
 }

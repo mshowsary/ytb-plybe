@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   discoverPet, petBookProgress, petProfile, allPetCards,
   petFriendship, recordPetVisit, ensurePetBook,
+  legendaryUnlocked, isLegendaryProfile,
 } from '../src/sim/petBook.js';
 
 test('pet discovery is idempotent and persistent-shaped', () => {
@@ -19,15 +20,35 @@ test('pet discovery is idempotent and persistent-shaped', () => {
   assert.equal(meta.petDiscoveries, 1);
 });
 
-test('visitor book exposes 12 cards and progress', () => {
+// Plan §3.7 (task 2.6) grows the book from 12 to 20 pets: a fourth species (hamster) plus one
+// legendary coat per species (variant index 4). The intent this assertion encodes changed from "12
+// authored pets" to "20 authored pets" -- updated here rather than left green by accident.
+test('visitor book exposes 20 cards and progress', () => {
   const meta = { petBook: { 'cat:0': 1, 'dog:1': 1, 'bunny:2': 1 } };
   const p = petBookProgress(meta);
-  assert.deepEqual(p, { found: 3, total: 12, frac: 0.25 });
+  assert.deepEqual(p, { found: 3, total: 20, frac: 0.15 });
   const cards = allPetCards(meta);
-  assert.equal(cards.length, 12);
+  assert.equal(cards.length, 20);
   assert.equal(cards.filter(c => c.found).length, 3);
   assert.equal(cards.find(c => c.key === 'dog:1').friendship.label, 'New Face');
   assert.equal(petProfile('bunny', 2).name, 'Lilac');
+});
+
+test('hamster is a fourth species and every species carries a legendary coat at variant 4', () => {
+  const cards = allPetCards({});
+  assert.equal(cards.filter(c => c.species === 'hamster').length, 5);
+  assert.equal(petProfile('hamster', 0).name, 'Peanut');
+  assert.equal(petProfile('hamster', 3).rarity, 'epic');
+  for (const species of ['cat', 'dog', 'bunny', 'hamster']) {
+    assert.equal(petProfile(species, 4).rarity, 'legendary');
+  }
+});
+
+test('legendary coats are gated behind a predicate that is deliberately false pre-Batch-3', () => {
+  assert.equal(legendaryUnlocked({}), false);
+  assert.equal(legendaryUnlocked({ stars: 99 }), false);
+  assert.equal(isLegendaryProfile(petProfile('cat', 4)), true);
+  assert.equal(isLegendaryProfile(petProfile('cat', 0)), false);
 });
 
 test('successful visits promote New Face to Regular, Friend and Bestie at bounded milestones', () => {

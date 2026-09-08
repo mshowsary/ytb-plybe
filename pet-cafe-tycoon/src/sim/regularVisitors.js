@@ -1,11 +1,19 @@
 // Task 34: named regulars are a cosmetic identity layer only. No wish, patience, traffic, price or
 // queue value is read or written here.
-import { PET_PROFILES, PET_SPECIES, petKey } from './petBook.js';
+import { PET_PROFILES, PET_SPECIES, petKey, isLegendaryProfile, legendaryUnlocked } from './petBook.js';
 
 export const REGULAR_GREETING_SECONDS = 1.05;
 
+// Legendary coats are a Batch 3 reward, not part of the ordinary identity rotation. They are
+// excluded HERE rather than at the spawn roll because this pool is what actually decides a
+// customer's rendered pet: resolveUniquePetIdentity's congestion fallback walks the entire pool
+// when every other identity is on screen, and systems/customers.js renders whatever it returns.
+// Filtering only the spawn roll would leave that fallback as a working back door.
 export const PET_IDENTITY_POOL = Object.freeze(PET_SPECIES.flatMap(species =>
-  PET_PROFILES[species].map((_, variant) => Object.freeze({ key: petKey(species, variant), species, variant }))
+  PET_PROFILES[species]
+    .map((profile, variant) => ({ profile, variant }))
+    .filter(({ profile }) => !isLegendaryProfile(profile) || legendaryUnlocked())
+    .map(({ variant }) => Object.freeze({ key: petKey(species, variant), species, variant }))
 ));
 const BY_KEY = new Map(PET_IDENTITY_POOL.map(row => [row.key, row]));
 

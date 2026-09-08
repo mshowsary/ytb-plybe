@@ -2,6 +2,7 @@ import { serviceIncident } from '../sim/servicePolicy.js';
 import { SOCIALS } from '../sim/petSocials.js';
 // Customer render/system layer: human + named pet visitor, wish UI and pet delight moments.
 import { spawnInterval, maxCustomers, cafeLevel } from '../sim/economy.js';
+import { spawnIntervalMultiplier } from '../sim/followers.js';
 import { spawnMult, capBonus } from '../sim/day.js';
 import { stepCustomers, createCustomer, PATIENCE } from '../sim/customers.js';
 import { createCustomerSpawnSequence } from '../sim/customerSpawn.js';
@@ -87,14 +88,20 @@ export function createCustomers(G, S, ctx) {
   }
 
   function spawn() {
-    const next = spawns.next();
+    const next = spawns.next(G.meta.followers);
     const social = G.meta.socials?.active;
     const theme = social?.status === 'running' ? SOCIALS.find(s=>s.id===social.id) : null;
     const day = syncRegularPlan();
     const preferredKey = regularPlan && regularGreetedDay !== day ? regularPlan.key : null;
+    // The rare-visitor rewarded ad promises the NEXT guest is a rare or epic pet, so it overrides
+    // the rolled variant for exactly one spawn. Math.random is safe here and only here: this branch
+    // runs solely after a live ad claim, which no headless bot ever performs, so it cannot desync
+    // sim/customerSpawn.js's seeded stream. The flag is cleared whether or not an identity was free.
+    const forcedVariant = G.rareVisitorPending ? (Math.random() < 0.5 ? 2 : 3) : null;
+    if (forcedVariant != null) G.rareVisitorPending = false;
     const identityPick = resolveUniquePetIdentity(
       theme?.species || next.species,
-      next.petVariant,
+      forcedVariant != null ? forcedVariant : next.petVariant,
       activeNamedPetKeys(G.customers),
       preferredKey,
     );
@@ -151,7 +158,7 @@ export function createCustomers(G, S, ctx) {
       const demandKey = `${world.built.size}:${G.staff && G.staff.runner | 0}:${G.staff && G.staff.cashier | 0}:${level}`;
       if (demandKey !== cachedDemandKey) {
         cachedDemandKey = demandKey;
-        interval = spawnInterval(world.built, G.staff, level);
+        interval = spawnInterval(world.built, G.staff, level) * spawnIntervalMultiplier(G.meta.followers);
         maxC = maxCustomers(world.built, G.staff, level);
       }
       const d = G.dayState;
@@ -278,7 +285,7 @@ export function createCustomers(G, S, ctx) {
           r.px = step.x; r.pz = step.z;
           r.human.group.position.set(r.px, 0, r.pz); r.human.update(dt, vx, vz);
           r.pet.followTarget(r.px, r.pz, c.rot, dt);
-          if (c.state === 'queue' || c.state === 'atBowl' || c.state === 'atRegister') r.human.setMood(c.mood === 'wait' ? 'wait' : 'none');
+          if (c.state === 'queue' || c.state === 'atBowl' || c.state === 'atRegister' || c.state === 'toPhoto' || c.state === 'atPhoto') r.human.setMood(c.mood === 'wait' ? 'wait' : 'none');
         }
 
         const traitTarget = r.profile.name === 'Marmalade' ? world.stations.get('oven1')
@@ -304,7 +311,10 @@ export function createCustomers(G, S, ctx) {
         }
         r.leash.update();
 
-        if (c.state === 'leave' || c.state === 'waitSeat' || c.state === 'noSeat' || c.done) {
+        // toPhoto/atPhoto join this list because the guest's order is already paid for by then —
+        // leaving the wish bubble up would float a resolved order over their head all through the
+        // photo detour.
+        if (c.state === 'leave' || c.state === 'waitSeat' || c.state === 'noSeat' || c.state === 'toPhoto' || c.state === 'atPhoto' || c.done) {
           r.bub.wrap.classList.add('hidden'); r.bub.bar.classList.add('hidden');
         } else if (!r.eating) {
           fx.project(r.px, r.human.height + 0.55, r.pz, tmpProj);

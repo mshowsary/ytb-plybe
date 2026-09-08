@@ -212,7 +212,9 @@ test('v5 keeps legitimate values and clamps every tampered one', () => {
       completedDays: 5,
       reputation: 9,
       followers: 4210,
-      album: { 'cat:0': 7, 'dog:1': 2 },
+      // 'cat:0' is the legacy Batch 0/1 shape (a bare shot count); 'dog:1' is the Photo Studio
+      // (plan 3.2) object shape { shots, best, poseId, accessoryId }. Both must survive intact.
+      album: { 'cat:0': 7, 'dog:1': { shots: 2, best: 2, poseId: 'loaf', accessoryId: 'bow' } },
       equipped: { 'cat:0': DECOR_IDS[0] },
       residents: ['dog:1', 'cat:0'],
       decor: [DECOR_IDS[2], DECOR_IDS[0]],
@@ -224,7 +226,10 @@ test('v5 keeps legitimate values and clamps every tampered one', () => {
   assert.equal(result.ok, true);
   const meta = result.data.meta;
   assert.equal(meta.followers, 4210);
-  assert.deepEqual(meta.album, { 'cat:0': 7, 'dog:1': 2 });
+  assert.deepEqual(meta.album, {
+    'cat:0': { shots: 7, best: 0, poseId: null, accessoryId: null },
+    'dog:1': { shots: 2, best: 2, poseId: 'loaf', accessoryId: 'bow' },
+  });
   assert.deepEqual(meta.equipped, { 'cat:0': DECOR_IDS[0] });
   assert.deepEqual(meta.residents, ['cat:0', 'dog:1']);
   // decor is emitted in catalogue order so re-validating is a no-op
@@ -238,7 +243,10 @@ test('v5 keeps legitimate values and clamps every tampered one', () => {
       completedDays: 5,
       reputation: 9,
       followers: 9e12,
-      album: { 'cat:0': 9e9, 'dragon:9': 5, nope: 3, __proto__: 4 },
+      album: {
+        'cat:0': { shots: 9e9, best: 99, poseId: 'DROP TABLE;', accessoryId: 123 },
+        'dragon:9': 5, nope: 3, __proto__: 4,
+      },
       equipped: { 'cat:0': 'crown-of-infinite-power', 'dragon:9': DECOR_IDS[0], 'dog:0': 12 },
       residents: ['cat:0', 'cat:0', 'dragon:9', 42, 'dog:0'],
       decor: [DECOR_IDS[1], DECOR_IDS[1], 'free-money', 7, DECOR_IDS[0]],
@@ -250,7 +258,10 @@ test('v5 keeps legitimate values and clamps every tampered one', () => {
   assert.equal(tampered.ok, true);
   const bad = tampered.data.meta;
   assert.equal(bad.followers, CORE_LIMITS.maxFollowers);
-  assert.deepEqual(bad.album, { 'cat:0': CORE_LIMITS.maxAlbumShots });   // unknown pets dropped
+  // unknown pets dropped; the known entry's shots clamp and its malformed pose/accessory drop to null
+  assert.deepEqual(bad.album, {
+    'cat:0': { shots: CORE_LIMITS.maxAlbumShots, best: 2, poseId: null, accessoryId: null },
+  });
   assert.deepEqual(bad.equipped, {});                                    // no known cosmetic id on a real pet
   assert.deepEqual(bad.residents, ['cat:0', 'dog:0']);                   // deduped, unknown keys dropped
   assert.deepEqual(bad.decor, [DECOR_IDS[0], DECOR_IDS[1]]);             // deduped, unknown ids dropped

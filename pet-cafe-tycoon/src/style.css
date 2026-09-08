@@ -205,3 +205,34 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE8D8;font-family:"S
 .goalNum{font-weight:900;font-size:15px}
 /* A small coral dot marks a rival contract — the one bit of state the glyph itself cannot carry. */
 .goalRival{width:7px;height:7px;border-radius:50%;background:var(--coral);flex:none}
+
+/* Task 2.1 — the Pet Photo Studio (plan 3.2). Both classes are world-projected (src/ui/photoGame.js
+   sets style.left/top in raw px every frame, exactly like .fbtn/.wish already do) so they follow
+   the same "anchor via CSS transform, position via JS left/top" split every other managed label in
+   this file uses — see src/ui/labelLayout.js's own ANCHORS comment. `.photoRing` and `.polaroid`
+   are NOT yet in that file's ANCHORS/PRIORITY tables (labelLayout.js is owned by a different task
+   this batch) — see this task's handoff for the exact entries needed. `.photoRing` in particular
+   must stay pinned exactly over the pet for the mini-game to make sense, so it may need special-
+   casing (e.g. "never nudge") rather than a plain HIDEABLE/PRIORITY entry — a judgment call left to
+   that file's owner.
+   Program rule 5 (no English prose on the play field): both are pure shape/numerals. */
+.photoRing{position:absolute;transform:translate(-50%,-50%);left:0;top:0;width:0;height:0;z-index:2;pointer-events:none}
+.photoRing.hidden{display:none}
+.photoRingHit{position:absolute;left:-40px;top:-40px;width:80px;height:80px;border-radius:50%;pointer-events:auto;touch-action:none}
+.photoRingBand{position:absolute;left:50%;top:50%;border-radius:50%;border:2px solid #ffffff4a;box-sizing:border-box;transform:translate(-50%,-50%)}
+.photoRingBand.good{width:56px;height:56px}
+.photoRingBand.perfect{width:40px;height:40px;border-color:#ffd76699}
+.photoRingShot{position:absolute;left:50%;top:50%;width:64px;height:64px;margin:-32px 0 0 -32px;border-radius:50%;border:4px solid #fff;box-shadow:0 0 0 2px #00000030,0 4px 14px #0004;box-sizing:border-box;will-change:transform}
+/* Bottom-centre anchor (matches .wish) — the card visually "slides out of the booth", so it should
+   read as emerging upward from the booth's own floor point, same as an order bubble emerges above
+   a table. Motion toward the Pet Book button is a plain `left`/`top` transition on THIS element
+   (never `transform`, which the anchor rule above already owns); the inner .polaroidFrame carries
+   its own shrink/rotate/fade so the two never fight over the same CSS property. */
+.polaroid{position:absolute;transform:translate(-50%,-100%);left:0;top:0;width:46px;height:58px;
+  z-index:2;border-radius:4px;background:#fffdf8;box-shadow:0 6px 16px #0004;padding:3px 3px 11px;
+  box-sizing:border-box;pointer-events:none;
+  transition:left 1s cubic-bezier(.2,.7,.2,1),top 1s cubic-bezier(.2,.7,.2,1),opacity .3s ease .8s;opacity:1}
+.polaroid.flying{opacity:0}
+.polaroidFrame{width:100%;height:100%;border-radius:2px;background:#e9dfce;transition:transform 1s cubic-bezier(.2,.7,.2,1)}
+.polaroidFrame.shrink{transform:scale(.4) rotate(12deg)}
+@media(prefers-reduced-motion:reduce){.polaroid{transition:opacity .3s ease}.polaroidFrame{transition:none}}

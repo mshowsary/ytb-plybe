@@ -15,7 +15,7 @@ test('Task 36: keepsake IDs are stable authored pet keys only', () => {
   assert.equal(parsePetKey('cat:0').profile.name, 'Marmalade');
   assert.equal(parsePetKey('dog:3').profile.name, 'Bluebell');
   assert.equal(parsePetKey('bunny:2').profile.name, 'Lilac');
-  for (const bad of ['cat:9', 'hamster:0', 'cat:-1', 'cat:1:2', '', null, 12]) assert.equal(parsePetKey(bad), null);
+  for (const bad of ['cat:9', 'ferret:0', 'cat:-1', 'cat:1:2', '', null, 12]) assert.equal(parsePetKey(bad), null);
 });
 
 test('Task 36: deterministic legacy migration chooses the first authored Bestie only', () => {

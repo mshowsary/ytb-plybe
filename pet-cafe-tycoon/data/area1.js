@@ -111,18 +111,29 @@ export const AREA1 = {
     { id: 'z_garden',    x: 6.0,   z: 4.2,  price: 1400, adds: ['bush2', 'bush3'],                        requires: 'z_blender',label: 'Garden expansion' },
     { id: 'z_seats2',    x: 0.8,   z: 4.3,  price: 1750, adds: ['seat3', 'seat4', 'seat5', 'seat6'],      requires: 'z_garden', label: 'Pet lounge' },
 
-    // Batch 1 — the terrace chain (plan 3.1/7.1). Prices are INITIAL; balance is tuned later by the
-    // bot. z_terrace's own circle sits in the INTERIOR (the region doesn't exist yet, so its cells
-    // are still blocked) just north of the pet lounge, by the gap between seat4 and seat5 where the
-    // gate will open; every zone after it sits on the deck itself, clear of stations and the gate
-    // lane (|x| <= 1.2 near z 7.0-7.4).
-    { id: 'z_terrace',      x: 0.75, z: 5.0,  price: 20000, adds: ['gate1', 'fountain1', 'seat7', 'seat8'],            requires: 'z_seats2',     label: 'Terrace' },
-    { id: 'z_icecream',     x: 7.4,  z: 9.5,  price: 9500,  adds: ['icecream1', 'barIce', 'coldPantry1'],              requires: 'z_terrace',    label: 'Ice cream lane' },
-    { id: 'z_register3',    x: -5.0, z: 9.6,  price: 6000,  adds: ['register3'],                                      requires: 'z_icecream',   label: 'Terrace register' },
-    { id: 'z_photo',        x: -9.0, z: 8.6,  price: 12000, adds: ['photo1'],                                         requires: 'z_terrace',    label: 'Pet photo studio' },
-    { id: 'z_terraceSeats', x: 0.0,  z: 12.8, price: 8500,  adds: ['seat9', 'seat10', 'seat11', 'seat12'],             requires: 'z_register3',  label: 'Terrace tables' },
-    { id: 'z_restroom',     x: 6.0,  z: 13.2, price: 7500,  adds: ['wc1'],                                            requires: 'z_terraceSeats', label: 'Restroom' },
-    { id: 'z_splash',       x: 4.0,  z: 10.2, price: 11000, adds: ['splash1'],                                        requires: 'z_photo',      label: 'Splash pool' },
+    // Batch 1 — the terrace chain (plan 3.1/7.1). z_terrace's own circle sits in the INTERIOR (the
+    // region doesn't exist yet, so its cells are still blocked) just north of the pet lounge, by the
+    // gap between seat4 and seat5 where the gate will open; every zone after it sits on the deck
+    // itself, clear of stations and the gate lane (|x| <= 1.2 near z 7.0-7.4).
+    //
+    // TASK 1.6c: prices below are re-tuned from their Batch 1 originals (z_terrace 20000, z_icecream
+    // 9500, z_register3 6000, z_photo 12000, z_terraceSeats 8500, z_restroom 7500, z_splash 11000).
+    // Measured (tools/bot.js, 40-day run): at the original prices the terrace unlocked day 25 and
+    // only 3/7 chain zones were bought within 40 days, against the plan's day 14-16 / ~day 30
+    // targets (plan 4.2/4.3). The save-vs-spend fix in botDecide.js (see its CONTENT_SAVE_AFFORD_
+    // MULTIPLIER comment) closes most of the gap on its own but the core café's income ceiling
+    // (bounded by the existing demand/friction model, out of this task's scope — see the plan's own
+    // "PRICE IS NOT THE CAUSE" framing) can't fund a 20k save in ~4 days; these prices are the
+    // "then prices last" lever, applied only after confirming the policy fix alone wasn't enough.
+    // Days 1-12 stay sales-for-sales identical (see tools/bot.js's day table) — the terrace zone
+    // only ever becomes active starting day 12, so no earlier day reads any of these numbers.
+    { id: 'z_terrace',      x: 0.75, z: 5.0,  price: 6500, adds: ['gate1', 'fountain1', 'seat7', 'seat8'],            requires: 'z_seats2',     label: 'Terrace' },
+    { id: 'z_icecream',     x: 7.4,  z: 9.5,  price: 4500,  adds: ['icecream1', 'barIce', 'coldPantry1'],              requires: 'z_terrace',    label: 'Ice cream lane' },
+    { id: 'z_register3',    x: -5.0, z: 9.6,  price: 4000,  adds: ['register3'],                                      requires: 'z_icecream',   label: 'Terrace register' },
+    { id: 'z_photo',        x: -9.0, z: 8.6,  price: 4500, adds: ['photo1'],                                         requires: 'z_terrace',    label: 'Pet photo studio' },
+    { id: 'z_terraceSeats', x: 0.0,  z: 12.8, price: 4000,  adds: ['seat9', 'seat10', 'seat11', 'seat12'],             requires: 'z_register3',  label: 'Terrace tables' },
+    { id: 'z_restroom',     x: 6.0,  z: 13.2, price: 3500,  adds: ['wc1'],                                            requires: 'z_terraceSeats', label: 'Restroom' },
+    { id: 'z_splash',       x: 4.0,  z: 10.2, price: 4000, adds: ['splash1'],                                        requires: 'z_photo',      label: 'Splash pool' },
   ],
 };
 

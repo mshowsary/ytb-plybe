@@ -3,16 +3,20 @@ import { PRODUCTS } from './economy.js';
 import { emitWorld } from './events.js';
 // src/sim/customers.js — pure customer state machine. The sim entity is the HUMAN
 // (their pet is a render-side follower). States:
-// enter → queue (counter) → [toBowl → atBowl] → toRegister → atRegister → (toSeat → eating) → leave → done
+// enter → queue (counter) → [toBowl → atBowl] → toRegister → atRegister → [toPhoto → atPhoto] →
+//   (toSeat → eating) → leave → done
+// Task 2.1: the optional [toPhoto → atPhoto] detour (plan 3.2) is decided once, right after
+// payment, and always rejoins the same post-payment seat routing (proceedToSeatOrLeave) whether it
+// ran or not.
 // M3 T3: wish bubbles + patience replace the flat WAIT_LIMIT, and payment moves to the manned
 // register (world.js's stepRegisters processes the queue head while st.serving is set) instead
 // of paying on arrival at the old checkout. Every walk still goes through the grid
 // (src/sim/nav.js + src/sim/mover.js); the owner (tools/bot.js) stays player-like and steers
 // with moveToward directly.
-import { takeFromDisplay, takeTreat } from './world.js';
+import { takeFromDisplay, takeTreat, clearPhotoSession, PHOTO_CHANCE, PHOTO_QUEUE_CAP } from './world.js';
 import { wishFor, familyOf } from './economy.js';
 import { createMover, setTarget, stepMover } from './mover.js';
-export const SPECIES = ['cat', 'dog', 'bunny'];
+export const SPECIES = ['cat', 'dog', 'bunny', 'hamster'];
 // The interior's south edge. A guest past this line is on the terrace deck, and leaves by the
 // deck's own street exit rather than walking the full width of the café back through the fence gap.
 const FENCE_Z = 7;
@@ -82,6 +86,10 @@ export function createCustomer(id, species, variant, area) {
     _settled: false, _treatGivenUp: false, _regSettled: false, // M3 T6 pass 2: settle-for rule, once per visit each
     noSeatT: 0, // Program §6.2: seconds spent under the "no clean table" bubble
     terraceBound: false, // C1 (plan 3.1/7.1): settled once, on this customer's first tick — see below
+    // Task 2.1 (photo studio): decided once, right after payment — see proceedToSeatOrLeave's call
+    // site below. _photoTarget is the photo station id while routed toward/waiting at it; null once
+    // the detour is over (never entered, given up on, or finished).
+    _photoDecided: false, _photoTarget: null, photoArrived: 0,
     mover,
   };
 }
@@ -390,6 +398,12 @@ function activeBowl(w) {
   for (const st of w.stations.values()) if (st.type === 'bowl' && st.active) return st;
   return null;
 }
+// Task 2.1 (photo studio, plan 3.2): the one active photo booth, or null. Mirrors activeBowl's
+// "first active one found" shape — there is only ever one (photo1) in the shipped layout.
+function activePhotoBooth(w) {
+  for (const st of w.stations.values()) if (st.type === 'photo' && st.active) return st;
+  return null;
+}
 // C4 (plan 3.1/1.5, restroom comfort buff): the one active restroom station, or null. There is
 // only ever one (wc1) in the shipped layout, but this mirrors activeBowl's "first active one
 // found" shape rather than hard-coding the id.
@@ -441,6 +455,33 @@ function assignRegisterSlots(list, w) {
     arr.sort((a, b) => a.regArrived - b.regArrived);
     arr.forEach((c, i) => c.slot = i);
   }
+}
+// Task 2.1 (photo studio): same slot-assignment idea as assignRegisterSlots above, for the photo
+// booth's own queue — covers both 'toPhoto' (still walking in) and 'atPhoto' (arrived/waiting).
+function assignPhotoSlots(list, w) {
+  if (!w._photoQueues) w._photoQueues = new Map();
+  for (const arr of w._photoQueues.values()) arr.length = 0;
+  for (const c of list) {
+    if (c.state !== 'toPhoto' && c.state !== 'atPhoto') continue;
+    let arr = w._photoQueues.get(c._photoTarget);
+    if (!arr) { arr = []; w._photoQueues.set(c._photoTarget, arr); }
+    arr.push(c);
+  }
+  for (const arr of w._photoQueues.values()) {
+    arr.sort((a, b) => a.photoArrived - b.photoArrived);
+    arr.forEach((c, i) => c.slot = i);
+  }
+}
+// Program §6.2's post-payment seat routing, factored out so Task 2.1's post-photo guest rejoins it
+// at exactly the same behaviour (pickSeat/waitSeat/noSeat/leave), rather than a second, drifting
+// copy. Byte-identical to the logic this replaced inline in the 'atRegister' paid branch.
+function proceedToSeatOrLeave(w, c) {
+  const seat = pickSeat(w, c);
+  c.mover.hasTarget = false;
+  if (seat) { seat.occupied = true; c.seat = seat; c.seatId = seat.id; c.state = 'toSeat'; return; }
+  if (w.servicePolicyActive && dirtyTablesBlockingSeats(w)) { c.state = 'waitSeat'; c.dirtyWait = 0; c.waitSeatPoint = { x: c.x + .8, z: c.z + .8 }; return; }
+  if (w.dayState && dirtyTablesBlockingSeats(w)) { c.state = 'noSeat'; c.noSeatT = 0; c.mood = 'wait'; c.noSeatPoint = { x: c.x + .8, z: c.z + .8 }; return; }
+  c.state = 'leave';
 }
 // Loop v2 Task 1: rebalance() (moving a customer between two counters holding the same product)
 // is gone — with one dedicated display per product there is no longer a second counter with the
@@ -649,33 +690,46 @@ export function stepCustomers(list, w, price, dt) {
         if (c.state === 'atRegister') {
           if (c.paid) {
             c.registerId = null;
-            const seat = pickSeat(w, c);
-            // Defensive hasTarget clear on both exits (matches the patience-loss branch below and
-            // the 'toSeat' handler's own clear on arrival): world.js's stepRegisters only pays a
-            // customer once its mover reads !hasTarget AND is spatially at slot 0, so this should
-            // already be at rest — but re-affirming it here costs nothing and removes any doubt.
+            // Defensive hasTarget clear (matches the patience-loss branch below and the 'toSeat'
+            // handler's own clear on arrival): world.js's stepRegisters only pays a customer once
+            // its mover reads !hasTarget AND is spatially at slot 0, so this should already be at
+            // rest — but re-affirming it here costs nothing and removes any doubt.
             c.mover.hasTarget = false;
-            if (seat) { seat.occupied = true; c.seat = seat; c.seatId = seat.id; c.state = 'toSeat'; }
-            else if(w.servicePolicyActive&&dirtyTablesBlockingSeats(w)){c.state='waitSeat';c.dirtyWait=0;c.waitSeatPoint={x:c.x+.8,z:c.z+.8};}
+            // Task 2.1 (plan 3.2): a named-pet guest, not in a rush-capped shift, gets one shot
+            // (per visit — `_photoDecided`) at the photo studio before proceeding to a table.
+            // Gated on `w.dayState` for the same reason BOWL_COOLDOWN/§6.2's noSeat branch above
+            // are (read BOWL_COOLDOWN's own comment in full): every real run sets it, no test that
+            // hasn't asked for it does, so w.rng draws exactly zero extra values on any of those —
+            // test/nav-fullhouse.test.js's own buildAll() DOES build z_photo, but never sets
+            // w.dayState, so it stays on the untouched pre-2.1 path byte-for-byte.
+            let wentToPhoto = false;
+            if (!c._photoDecided) {
+              c._photoDecided = true;
+              const photoSt = activePhotoBooth(w);
+              const rushCapped = !!(w.dayState && w.dayState.phase === 'rush');
+              const queued = photoSt && w._photoQueues && w._photoQueues.get(photoSt.id);
+              const hasRoom = !queued || queued.length < PHOTO_QUEUE_CAP;
+              // "a guest whose pet is named" — every spawned customer's pet has a name (petBook.js's
+              // profiles cover every species/petVariant combination); this just guards against a
+              // caller that never set petVariant at all (this file's own pre-Task-2.1 tests, which
+              // never touch the photo path anyway since w.dayState is unset there).
+              const petNamed = typeof c.petVariant === 'number';
+              if (w.dayState && photoSt && !rushCapped && hasRoom && petNamed && w.rng.chance(PHOTO_CHANCE)) {
+                c._photoTarget = photoSt.id;
+                c.photoArrived = w.seq = (w.seq || 0) + 1;
+                setPatience(w, c, PATIENCE);
+                c.mood = 'none';
+                c.state = 'toPhoto';
+                wentToPhoto = true;
+              }
+            }
             // Program §6.2 root cause: until now a paid guest with nowhere clean to sit dropped
             // straight into 'leave' -- no bubble, no event, no stat -- so a filthy cafe cost the
             // player nothing he could see, and the owner reported exactly that ("uncleaned tables
             // does not result in anything, the flow continues"). Only the dirty-table case is
             // caught here: an honestly FULL cafe (every seat clean and taken) is not a service
-            // failure and still leaves silently, as it always did.
-            //
-            // Gated on `w.dayState` for the same reason BOWL_COOLDOWN above is (read that comment
-            // in full): w.dayState is set by every real run -- game.js, tools/bot.js,
-            // tools/runtime-bot-parity.js -- and by no test that has not asked for it, so the
-            // untouchable test/nav-fullhouse.test.js keeps replaying the exact pre-§6.2 code path.
-            // This is not cosmetic caution. Holding a guest for even 1.2 s shifts every downstream
-            // arrival by 1.2 s, and that detector fails on any sustained 0.15m crowding anywhere in
-            // 20 simulated minutes: the first attempt parked the guest on register slot 0 (a real
-            // defect, fixed by the step-aside below), and the second, with the step-aside, still
-            // tripped an unrelated 0.23m brush between a leaving guest and the cleaner at t=496.
-            // test/dirty-tables.test.js sets w.dayState and covers the behaviour directly.
-            else if (w.dayState && dirtyTablesBlockingSeats(w)) { c.state = 'noSeat'; c.noSeatT = 0; c.mood = 'wait'; c.noSeatPoint = { x: c.x + .8, z: c.z + .8 }; }
-            else { c.state = 'leave'; }
+            // failure and still leaves silently, as it always did. (proceedToSeatOrLeave, above.)
+            if (!wentToPhoto) proceedToSeatOrLeave(w, c);
           } else if (st.serving === '') {
             // C1/C2 settle-for-register (same idea as the counter's settle-for rule above, adapted
             // to a register): a guest stuck unserved for SETTLE_WAIT seconds gives up on ITS
@@ -724,6 +778,51 @@ export function stepCustomers(list, w, price, dt) {
             }
           } else {
             c.mood = 'none';
+          }
+        }
+        break;
+      }
+      // Task 2.1 — the Pet Photo Studio (plan 3.2). Walk to (then wait at) photo1's queue, exactly
+      // like a register's toRegister/atRegister pair above — the same combined-case, "queuePos +
+      // walkTo, slot 0 gets special handling" shape. The owner starting/running the mini-game and
+      // the player's tap all happen OUTSIDE this file (systems/photo.js, ui/photoGame.js): this FSM
+      // only ever reads st.session back to see whether ITS OWN customerId has a resolved result.
+      case 'toPhoto':
+      case 'atPhoto': {
+        const st = w.stations.get(c._photoTarget);
+        if (!st || !st.active) { c._photoTarget = null; proceedToSeatOrLeave(w, c); break; }
+        const slot = queuePos(st, c.slot);
+        const here = walkTo(c, slot.x, slot.z, w, dt);
+        if (c.state === 'toPhoto' && here) { c.state = 'atPhoto'; c.mood = 'none'; }
+        if (c.state === 'atPhoto') {
+          if (st.session && st.session.customerId === c.id) {
+            if (st.session.resolved) {
+              const quality = st.session.quality;
+              clearPhotoSession(w, st.id);
+              c._photoTarget = null;
+              c.mover.hasTarget = false;
+              emitWorld(w, { type: 'photoDone', id: c.id, quality });
+              proceedToSeatOrLeave(w, c);
+            } else {
+              c.mood = 'none'; // mini-game in progress — resolved by a tap or stepPhotoBooth's own timeout
+            }
+          } else if (c.slot === 0) {
+            // Waiting at the front, but nobody has started a session for this guest yet (the booth
+            // isn't manned). Same bounded-wait idea as every other queue in this file: patience
+            // (reset to full on entry above) runs out and the guest simply proceeds to a table —
+            // never 'lost'/'angry' (this is a missed bonus, not a service failure; the meal is
+            // already paid for).
+            setPatience(w, c, c.patience - dt);
+            c.mood = 'wait';
+            if (c.patience <= 0) {
+              c._photoTarget = null;
+              c.mover.hasTarget = false;
+              emitWorld(w, { type: 'photoSkipped', id: c.id });
+              c.mood = 'none';
+              proceedToSeatOrLeave(w, c);
+            }
+          } else {
+            c.mood = 'none'; // behind the head of the line — not yet drawing down patience
           }
         }
         break;
@@ -848,4 +947,5 @@ export function stepCustomers(list, w, price, dt) {
   }
   assignSlots(list, w);
   assignRegisterSlots(list, w);
+  assignPhotoSlots(list, w);
 }

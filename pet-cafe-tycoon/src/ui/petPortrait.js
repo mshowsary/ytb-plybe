@@ -2,7 +2,9 @@
 export function petPortrait(species, profile) {
   const safe = value => /^#[0-9a-f]{6}$/i.test(value || '') ? value : '#D9A066';
   const body=safe(profile.body), belly=safe(profile.belly), accent=safe(profile.accent);
-  const ears = species === 'bunny'
+  const ears = species === 'hamster'
+    ? `<circle cx="25" cy="27" r="12" fill="${body}"/><circle cx="55" cy="27" r="12" fill="${body}"/><circle cx="25" cy="27" r="6" fill="#F5B2BE"/><circle cx="55" cy="27" r="6" fill="#F5B2BE"/>`
+    : species === 'bunny'
     ? `<ellipse cx="28" cy="23" rx="8" ry="21" fill="${body}" transform="rotate(-12 28 23)"/><ellipse cx="53" cy="23" rx="8" ry="21" fill="${body}" transform="rotate(12 53 23)"/><ellipse cx="28" cy="23" rx="3" ry="14" fill="#F5B2BE"/><ellipse cx="53" cy="23" rx="3" ry="14" fill="#F5B2BE"/>`
     : species === 'dog'
     ? `<ellipse cx="17" cy="43" rx="11" ry="21" fill="${accent}" transform="rotate(16 17 43)"/><ellipse cx="63" cy="43" rx="11" ry="21" fill="${accent}" transform="rotate(-16 63 43)"/>`

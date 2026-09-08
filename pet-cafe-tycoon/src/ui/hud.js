@@ -1,5 +1,7 @@
 import { createContractBadge } from './contractBadge.js';
-import { sunIcon, moonIcon, sunriseIcon, sunsetIcon, personIcon, coinIcon, streakIcon } from './icons.js';
+import {
+  sunIcon, moonIcon, sunriseIcon, sunsetIcon, personIcon, coinIcon, streakIcon, heartIcon,
+} from './icons.js';
 // src/ui/hud.js
 import { presentationScheduler } from '../core/presentationScheduler.js';
 
@@ -13,6 +15,19 @@ export function createHud() {
   // different product's station with a non-empty single-product carry (systems/stations.js).
   const handsFullEl = document.createElement('div'); handsFullEl.className = 'pill hidden'; handsFullEl.id = 'handsFull'; hud.appendChild(handsFullEl);
   H.setHandsFull = text => { if (!text) { handsFullEl.classList.add('hidden'); return; } if (handsFullEl.textContent !== text) handsFullEl.textContent = text; handsFullEl.classList.remove('hidden'); };
+
+  // Followers pill (plan 3.3): icon + numeral only, no prose. Position comes entirely from
+  // hudLayout.js (the tall-column default AND the short-viewport row reflow), so this file only
+  // creates the element and its content.
+  const followersEl = document.createElement('div'); followersEl.className = 'pill'; followersEl.id = 'followers';
+  followersEl.innerHTML = '<span class="picon">' + heartIcon() + '</span><span class="followersNum">0</span>';
+  hud.appendChild(followersEl);
+  const followersNum = followersEl.querySelector('.followersNum');
+  let lastFollowers = -1;
+  H.setFollowers = n => {
+    const v = Math.max(0, Math.min(1_000_000, Math.trunc(n) || 0));
+    if (v !== lastFollowers) { lastFollowers = v; followersNum.textContent = v.toLocaleString('en-US'); }
+  };
   H.setCoins = n => { from = shown; target = n; t0 = performance.now(); };
   let bumpT = null;
   H.bump = () => {

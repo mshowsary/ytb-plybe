@@ -10,6 +10,7 @@ import {
 import { MASTERY, RENOVATIONS, CUP_REWARDS } from './career.js';
 import { PET_PROFILES, PET_SPECIES, petKey } from './petBook.js';
 import { DECOR_IDS, DECOR_ID_SET, DECOR_BY_ID, decorUnlocked } from '../../data/decor.js';
+import { ACCESSORY_IDS } from '../../data/accessories.js';
 import { restoreSettlement } from './settlement.js';
 
 export const CURRENT_SAVE_VERSION = 5;
@@ -259,7 +260,10 @@ function normalizeRewardedDays(raw, maxDay) {
   for (const [key, value] of Object.entries(raw)) {
     if (count >= Math.min(20_000, maxDay * 3 + 32)) break;
     if (BAD_KEYS.has(key) || !value || key.length > 40) continue;
-    const match = /^(?:(?:relief|gift):)?(\d+)$/.exec(key);
+    // Every reason prefix adPacing.js can mint. A key shape missing from this list is not a
+    // cosmetic omission: the claim silently evaporates on reload and the ad can be re-offered, so
+    // this list and adPacing.js's *RewardKey exporters must be changed together.
+    const match = /^(?:(?:relief|gift|speed-build|rare-visitor|golden-shot):)?(\d+)$/.exec(key);
     if (!match) continue;
     const day = Number(match[1]);
     if (!Number.isInteger(day) || day < 1 || day > maxDay) continue;
@@ -322,21 +326,48 @@ function normalizeDecor(raw, builtSet = null) {
   return DECOR_IDS.filter(id => wanted.has(id) && decorUnlocked(DECOR_BY_ID.get(id), builtSet));
 }
 
-// Album shot counts, keyed by the same PET_PROFILES-derived keys as the Pet Book.
+// Album entries (plan 3.2): per pet, how many shots, the best score reached (0 Ok / 1 Good /
+// 2 Perfect) and the pose+accessory shown in that best shot. `poseId` references a
+// petTraitMotion clip (loaf / sit-tilt / ear-up / cheeks, one per species) and `accessoryId` a
+// data/accessories.js catalogue entry -- neither module exports its id list yet (both are being
+// authored alongside this one), so a shape-level slug pattern stands in for a real catalogue
+// membership check. That is still a real bound: a tampered id can at worst name a well-formed slug
+// that resolves to nothing at render time, never an id that grants owned content the player did
+// not earn. Tighten both patterns to `include(idSet)` checks once those modules land.
+const SLUG_RE = /^[a-z][a-z0-9-]{0,23}$/;
+const safeSlug = value => typeof value === 'string' && SLUG_RE.test(value) ? value : null;
+
+// A pre-Photo-Studio v5 save (Batch 0/1) could only ever have written a bare shot count. Migrating
+// it into `{ shots, best: 0, poseId: null, accessoryId: null }` keeps those shots on load instead
+// of discarding them the first time this schema meets richer data.
+function normalizeAlbumEntry(raw) {
+  const isLegacyCount = finiteNumber(raw);
+  if (!isLegacyCount && !isRecord(raw)) return null;
+  const shots = clampInt(isLegacyCount ? raw : raw.shots, 0, SAVE_LIMITS.maxAlbumShots, 0);
+  if (shots <= 0) return null;
+  return {
+    shots,
+    best: isLegacyCount ? 0 : clampInt(raw.best, 0, 2, 0),
+    poseId: isLegacyCount ? null : safeSlug(raw.poseId),
+    accessoryId: isLegacyCount ? null : safeSlug(raw.accessoryId),
+  };
+}
+
 function normalizeAlbum(raw) {
   if (!isRecord(raw)) return {};
   const out = {};
   for (const key of PET_KEYS) {
-    const shots = clampInt(raw[key], 0, SAVE_LIMITS.maxAlbumShots, 0);
-    if (shots > 0) out[key] = shots;
+    if (!has(raw, key)) continue;
+    const entry = normalizeAlbumEntry(raw[key]);
+    if (entry) out[key] = entry;
   }
   return out;
 }
 
-// Equipped cosmetics: pet key -> catalogue id. The accessory catalogue does not exist yet, so the
-// only ids this can accept today are decor ids; Batch 2 widens EQUIPPABLE_IDS when accessories
-// land. Anything unrecognised is dropped, which is why a forged "equipped" cannot render content.
-const EQUIPPABLE_IDS = new Set(DECOR_IDS);
+// Equipped cosmetics: pet key -> catalogue id. Both catalogues are equippable: decor ids were the
+// placeholder before data/accessories.js landed, and the 12 accessories are what a pet actually
+// wears. Anything unrecognised is dropped, which is why a forged "equipped" cannot render content.
+const EQUIPPABLE_IDS = new Set([...DECOR_IDS, ...ACCESSORY_IDS]);
 function normalizeEquipped(raw) {
   if (!isRecord(raw)) return {};
   const out = {};

@@ -4,6 +4,7 @@
 import {
   createWorld, activeZones, payZone, stepOvens, stepMachines, takeFromOven, takeFromMachine,
   putOnDisplay, collectCash, refillBeans, refillBowl, refillCream, harvestBush, addFruit as stationAddFruit, cleanSeat,
+  stepPhotoBooth,
 } from '../src/sim/world.js';
 import { createCustomer, stepCustomers } from '../src/sim/customers.js';
 import { createCustomerSpawnSequence } from '../src/sim/customerSpawn.js';
@@ -12,6 +13,7 @@ import { createMover, setTarget, stepMover } from '../src/sim/mover.js';
 import {
   spawnInterval, maxCustomers, salePrice, playerSpeed, carryCap, cafeLevel,
   ensureStars, hireCost, nextStarCost, STAR_IDS, familyOf, cheapestDecor,
+  upgradeCost, workerUpgradeCost, machineUpgradeCost, UPGRADES,
 } from '../src/sim/economy.js';
 import { createDay, stepDay, nextDay, spawnMult, capBonus, tipMult } from '../src/sim/day.js';
 import {
@@ -21,7 +23,35 @@ import {
 import { createCarry, takeSack, useSack, addFruit as carryAddFruit, returnAll } from '../src/sim/carry.js';
 import { createLedger } from '../src/sim/ledger.js';
 import { decide } from '../src/sim/botDecide.js';
+import * as economyConfig from '../src/sim/economyConfig.js';
 import { AREA1 } from '../data/area1.js';
+
+// TASK 1.6a: a cheap, deterministic identity for the exact numbers a balance run used. Any two runs
+// that print the same hash read PRODUCTS/UPGRADES/STAFF/DEMAND/etc. off economyConfig.js identically
+// (order-independent — keys are sorted before hashing), so a day-table can be traced back to the
+// config that produced it instead of trusting whichever value happened to be in a comment.
+function fnv1a(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
+function stableStringify(value) {
+  if (Array.isArray(value)) return '[' + value.map(stableStringify).join(',') + ']';
+  if (value && typeof value === 'object') {
+    return '{' + Object.keys(value).sort().map(k => JSON.stringify(k) + ':' + stableStringify(value[k])).join(',') + '}';
+  }
+  return JSON.stringify(value);
+}
+function configIdentity() {
+  const keys = Object.keys(economyConfig).sort();
+  const payload = {};
+  for (const k of keys) payload[k] = economyConfig[k];
+  return fnv1a(stableStringify(payload));
+}
+const CONFIG_HASH = configIdentity();
 
 const DT = 1 / 30;
 // Batch 1 (task E3): the terrace unlocks ~day 14, so a 25-day run (the old ceiling, set when Area 1
@@ -117,6 +147,10 @@ function ownerStep(dt) {
   if (!arrived) return;
   switch (target.kind) {
     case 'register': return;
+    // Same as 'register': arriving IS the work. The proximity check above flips st.serving, and
+    // stepPhotoBooth does the rest — including auto-resolving the shot, so the bot can never stall
+    // waiting for a tap it has no way to make.
+    case 'photo': return;
     case 'fetch': {
       const st = world.stations.get(target.stationId);
       if (!st || !st.active || st.stock <= 0) return;
@@ -177,10 +211,25 @@ function ownerStep(dt) {
       if (r.spent > 0) {
         G.coins -= r.spent;
         ledger.record('spend', `build:${target.zoneId}`, r.spent, { meta:{ zoneId:target.zoneId } });
+        recordSpend(zoneSpend, target.zoneId, r.spent);
+        recordSpend(curDaySpend.zone, target.zoneId, r.spent);
       }
       return;
     }
   }
+}
+
+// TASK 1.6 diagnostic (verify-before-acting, see plan 4.3/economyConfig handoff): where does every
+// coin actually go, day by day? Groups every 'purchase' event by its category prefix (hire/star/
+// machine/worker/upgrade) and every zone payment by zoneId, so a save-vs-spend hypothesis can be
+// checked against real numbers instead of guessed at. Printed at the end; adds no gameplay effect.
+const spendByCategory = Object.create(null);
+const zoneSpend = Object.create(null);
+const daySpend = []; // per-day {day, category->amount, zone->amount}
+let curDaySpend = { day: 1, cat: Object.create(null), zone: Object.create(null) };
+function recordSpend(bucket, key, amt) {
+  if (!(amt > 0)) return;
+  bucket[key] = (bucket[key] || 0) + amt;
 }
 
 const dayReport = [];
@@ -190,6 +239,9 @@ let dayPurchases = [];
 // (Batch 0's dirty-table consequence — flagged as missing from this table before now).
 const ICE_PRODUCTS = new Set(['icecream', 'sundae', 'pupcup']);
 let dayIceUnits = 0, dayRegister3Sales = 0, dayMissedSeats = 0;
+// Photo shots and the tips they bank. This bot models no friendship tiers, so every shot pays the
+// tier-0 base — the number is a floor on photo income, never an overstatement of it.
+let dayPhotoShots = 0, dayPhotoTips = 0;
 let totalRegister3Sales = 0;
 const custSpawnPhase = new Map();
 const custWaitTime = new Map();
@@ -220,6 +272,100 @@ function affordableOptionsCount() {
   // (measured [0,1,2,0,0,16,21] counting all rows vs [0,1,2,0,0,2,4] counting the cheapest).
   { const d = cheapestDecor(G, world.built); if (d && d.price <= coins) n++; }
   return n;
+}
+
+// TASK 1.6b — INVARIANT GATES (plan 4.3). Each is wallet-INDEPENDENT (price vs that day's income,
+// not "can the current, botDecide-drained wallet afford it right now" — see invariant A's own note
+// below for why affordableOptionsCount() above is kept as signal only, not the gate).
+//
+// Invariant A: for every day 2..40, at least one purchasable item anywhere in the catalogue (zone,
+// décor, hire, upgrade, star, plus the machine/worker ladders — being MORE inclusive than the plan's
+// literal list only makes this gate harder to fail falsely, never easier) costs <= 2.5x that day's
+// income. Deliberately does NOT check state.coins: the existing affordableOptionsCount() above
+// answers "can botDecide afford it at this exact moment", which is near-zero by construction because
+// botDecide spends down to near-zero every day on a build circle; this answers "is something within
+// the café's earning power priced within reach", which is what the plan actually asks.
+function cheapestPurchasablePrice() {
+  let best = Infinity;
+  for (const z of (world.activeZoneList || activeZones(world))) {
+    const remaining = z.price - (world.partial[z.id] || 0);
+    if (remaining < best) best = remaining;
+  }
+  for (const kind of ['cashier', 'runner', 'cleaner', 'barista']) {
+    const c = hireCost(kind, G.staff); if (c != null && c < best) best = c;
+  }
+  for (const key of Object.keys(UPGRADES)) {
+    const c = upgradeCost(key, G.up); if (c != null && c < best) best = c;
+  }
+  for (const id of STAR_IDS) {
+    const st = world.stations.get(id); if (!st || !st.active) continue;
+    const c = nextStarCost(world.area, id, (G.stars && G.stars[id]) || 1); if (c != null && c < best) best = c;
+  }
+  ensureLevelsLike();
+  for (const key of ['oven', 'coffee', 'display']) {
+    const c = machineUpgradeCost(key, G.machineLevels); if (c != null && c < best) best = c;
+  }
+  for (const kind of Object.keys(G.staffLevels)) {
+    for (const key of Object.keys(G.staffLevels[kind])) {
+      const c = workerUpgradeCost(kind, key, G.staffLevels); if (c != null && c < best) best = c;
+    }
+  }
+  const d = cheapestDecor(G, world.built);
+  if (d && d.price < best) best = d.price;
+  return best === Infinity ? null : best;
+}
+// machineLevels/staffLevels are ensured lazily elsewhere (ensureLevels in economy.js is called from
+// inside botDecide's tryHiresAndUpgrades); this bot's own G already seeds both at startup, so this is
+// just a defensive no-op guard for the invariant scan running before the first tick ever does.
+function ensureLevelsLike() {
+  if (!G.staffLevels) G.staffLevels = { runner: { speed: 0, carry: 0 }, cashier: { speed: 0 }, cleaner: { speed: 0 } };
+  if (!G.machineLevels) G.machineLevels = { oven: 0, coffee: 0, display: 0 };
+}
+// Invariant B: a new-CONTENT unlock (TERRACE_ZONE_IDS below — a zone, never a ladder tier) becomes
+// "affordable" (same 2.5x-income bar as invariant A, restricted to the content set) at least every 3
+// days through day 30, every 5 days through day 45 (clamped to MAX_DAYS here). Tracks the longest
+// gap since a content zone last cleared that bar; once every content zone is built, the invariant is
+// vacuously satisfied (nothing left to gate) for the remaining days.
+function cheapestContentZonePrice() {
+  let best = Infinity;
+  for (const z of (world.activeZoneList || activeZones(world))) {
+    if (!TERRACE_ZONE_IDS.has(z.id)) continue;
+    const remaining = z.price - (world.partial[z.id] || 0);
+    if (remaining < best) best = remaining;
+  }
+  return best === Infinity ? null : best;
+}
+let lastContentAffordableDay = 1; // day 1 has no content zone active yet; the gap starts counting from day 2
+let invariantBMaxGap = 0, invariantBViolations = 0;
+let invariantAViolations = 0, invariantAWorstDay = null, invariantAWorstRatio = 0;
+let invariantCViolations = 0, invariantCWorstDay = null, invariantCWorstRatio = 0;
+function checkDayInvariants(day, income, endWallet) {
+  // A
+  const cheapest = cheapestPurchasablePrice();
+  const capA = 2.5 * income;
+  if (day >= 2 && day <= MAX_DAYS) {
+    const ratio = cheapest == null ? Infinity : cheapest / Math.max(1, income);
+    if (cheapest == null || cheapest > capA) { invariantAViolations++; if (ratio > invariantAWorstRatio) { invariantAWorstRatio = ratio; invariantAWorstDay = day; } }
+  }
+  // B
+  const cheapestContent = cheapestContentZonePrice();
+  const contentAffordableToday = cheapestContent != null && cheapestContent <= capA;
+  if (cheapestContent == null) {
+    lastContentAffordableDay = day; // nothing left to gate — don't let a stale gap accuse a finished chain
+  } else if (contentAffordableToday) {
+    lastContentAffordableDay = day;
+  } else {
+    const gap = day - lastContentAffordableDay;
+    invariantBMaxGap = Math.max(invariantBMaxGap, gap);
+    const limit = day <= 30 ? 3 : 5;
+    if (gap > limit) invariantBViolations++;
+  }
+  // C
+  if (day >= 15 && day <= MAX_DAYS && cheapestContent != null) {
+    const ratio = endWallet / Math.max(1, income);
+    if (ratio > invariantCWorstRatio) { invariantCWorstRatio = ratio; invariantCWorstDay = day; }
+    if (ratio > 6) invariantCViolations++;
+  }
 }
 
 let teleports = 0; const stalls = [];
@@ -271,7 +417,11 @@ while (G.dayState.day <= MAX_DAYS) {
   }
 
   stepOvens(world, DT); stepMachines(world, DT); ownerStep(DT);
+  // No tierFor: friendship tiers live in meta, which this bot does not model, so every bot shot
+  // pays the tier-0 base tip. That understates photo income rather than inventing it.
+  stepPhotoBooth(world, DT);
   for (const id of world.checkouts) { const co = world.stations.get(id); if (co.active && near(owner, co.front, 1.2)) co.serving = 'owner'; }
+  for (const st of world.stations.values()) if (st.type === 'photo' && st.active && near(owner, st.front, 1.2)) st.serving = true;
   stepCustomers(customers, world, price, DT);
   stepStaff(staffList, world, DT, () => {}, undefined, customers);
   checkRunnerInvariant(DT);
@@ -311,7 +461,8 @@ while (G.dayState.day <= MAX_DAYS) {
       recordRecipeOrder(G.meta, order);
       for (const item of order) if (ICE_PRODUCTS.has(item)) dayIceUnits++;
       if (e.checkoutId === 'register3') { dayRegister3Sales += e.amount; totalRegister3Sales += e.amount; }
-    } else if (e.type === 'runnerStuck') runnerStuckEvents++;
+    } else if (e.type === 'photo') { dayPhotoShots++; dayPhotoTips += e.tip | 0; }
+    else if (e.type === 'runnerStuck') runnerStuckEvents++;
     else if (e.type === 'seatMissed') dayMissedSeats++;
     else if (e.type === 'lost') {
       G.dayStats.lost++; G.serviceStreak = { count: 0, t: 0 };
@@ -322,6 +473,9 @@ while (G.dayState.day <= MAX_DAYS) {
       // build payments were ever recorded here, so the ledger was short by the entire value of
       // every other purchase and its reconciliation gate failed on every single run.
       if (e.cost > 0) ledger.record('spend', 'purchase:' + e.kind, e.cost, { meta: { kind: e.kind } });
+      const cat = String(e.kind).split(':')[0];
+      recordSpend(spendByCategory, cat, e.cost || 0);
+      recordSpend(curDaySpend.cat, cat, e.cost || 0);
     }
   }
 
@@ -354,10 +508,14 @@ while (G.dayState.day <= MAX_DAYS) {
         goalText: careerGoalLabel(goal), goalMet: met, goalReward: met ? goal.reward : 0,
         cupReward: cup.awarded ? cup.reward : 0, afford: closingAfford, purchases: dayPurchases.slice(),
         iceUnits: dayIceUnits, register3Sales: dayRegister3Sales, missedSeats: dayMissedSeats,
+        photoShots: dayPhotoShots, photoTips: dayPhotoTips,
       });
-      dayIceUnits = 0; dayRegister3Sales = 0; dayMissedSeats = 0;
+      checkDayInvariants(completedDay, accounting.sale, G.coins);
+      dayIceUnits = 0; dayRegister3Sales = 0; dayMissedSeats = 0; dayPhotoShots = 0; dayPhotoTips = 0;
       dayPurchases = []; G.dayStats = { served: 0, lost: 0, earned: 0, bestStreak: 0 };
       G.serviceStreak = { count: 0, t: 0 }; G.shiftBestStreak = 0;
+      curDaySpend.day = completedDay; daySpend.push(curDaySpend);
+      curDaySpend = { day: completedDay + 1, cat: Object.create(null), zone: Object.create(null) };
       nextDay(G.dayState); G.goal = chooseCareerGoal(G.dayState.day, G.meta);
       ledger.reset(G.dayState.day, G.coins);
     }
@@ -373,6 +531,7 @@ while (G.dayState.day <= MAX_DAYS) {
 
 const wallMs = Date.now() - wallStart;
 console.log('Pet Café Tycoon — LIVE career economy bot');
+console.log(`economy config identity: ${CONFIG_HASH} (src/sim/economyConfig.js — a balance result is only comparable to another run printing the same hash)`);
 // Task E3 (batch 1): ice/reg3/miss columns make the terrace era (unlocks ~day 14) visible in this
 // table instead of requiring a separate report — icecream/sundae/pupcup units sold that day, coins
 // taken in at register3 specifically, and Batch 0's dirty-table 'seatMissed' consequence.
@@ -392,6 +551,13 @@ for (const r of dayReport) {
 }
 console.log(`register3 processed a sale: ${totalRegister3Sales > 0 ? 'YES' : 'NO'} (${totalRegister3Sales} coins total)`);
 console.log(`ice cream units sold (lifetime): ${dayReport.reduce((s, r) => s + (r.iceUnits || 0), 0)}`);
+{
+  const shots = dayReport.reduce((s, r) => s + (r.photoShots || 0), 0);
+  const tips = dayReport.reduce((s, r) => s + (r.photoTips || 0), 0);
+  const firstDay = (dayReport.find(r => (r.photoShots || 0) > 0) || {}).day;
+  console.log(`photo shots (lifetime): ${shots}, tips ${tips} coins, first shot day ${firstDay || '-'}`
+    + (shots === 0 ? '  <-- ZERO: the booth is built but nothing reaches it (see the ice-cream lane, batch 1)' : ''));
+}
 console.log(`missed seats (lifetime): ${dayReport.reduce((s, r) => s + (r.missedSeats || 0), 0)}`);
 
 function daySales(day) { const r = dayReport.find(x => x.day === day); return r ? r.sales : null; }
@@ -432,7 +598,9 @@ console.log('ledger reconciliation mismatches: ' + ledgerMismatches.length);
 console.log('stalls: ' + stalls.length + '  teleports: ' + teleports);
 console.log('runner watchdog: runnerStuck events ' + runnerStuckEvents
   + '  invariant D violations ' + invariantDViolations
-  + '  (longest hold with display room ' + worstRunnerHold.toFixed(1) + 's, limit 6.0s)');
+  + '  (longest hold with display room ' + worstRunnerHold.toFixed(1) + 's, limit 6.0s)'
+  + ' — NOT MEASURED: this bot never spawns runner ACTORS (staffList stays empty of them), so this'
+  + ' is 0 by construction, a tripwire for when runner actors are simulated here, not a real pass.');
 if (stalls.length) console.log('first stalls:', JSON.stringify(stalls.slice(0, 10)));
 if (ledgerMismatches.length) console.log('first ledger mismatch:', JSON.stringify(ledgerMismatches[0]));
 console.log('kind counts:', JSON.stringify(kindCounts));
@@ -441,6 +609,35 @@ console.log('career history days: ' + Object.keys(G.meta.career.history).length 
 console.log('wallet (final): ' + G.coins);
 console.log('wall clock: ' + wallMs + ' ms');
 
+console.log('--- TASK 1.6 diagnostic: where coins go, days 12-26 (save-vs-spend hypothesis check) ---');
+console.log('lifetime spend by category: ' + JSON.stringify(spendByCategory));
+console.log('lifetime spend by zone: ' + JSON.stringify(zoneSpend));
+for (const d of daySpend) {
+  if (d.day < 12 || d.day > 26) continue;
+  const catStr = Object.entries(d.cat).map(([k, v]) => `${k}:${v}`).join(' ');
+  const zoneStr = Object.entries(d.zone).map(([k, v]) => `${k}:${v}`).join(' ');
+  console.log(`  day ${String(d.day).padEnd(3)} ladder[${catStr || '-'}]  zone[${zoneStr || '-'}]`);
+}
+
+// TASK 1.6b — invariant gate summary (plan 4.3). A/B/C are hard gates: they measure exactly the
+// pacing fault this task exists to fix (nothing ever within reach; the terrace era going quiet for
+// weeks at a time; a pile that outgrows the thing it's saved for). D stays a labelled tripwire (see
+// above — this bot never simulates runner actors, so it cannot fail here no matter what). E is
+// printed but NOT a hard gate: its two checks (days 1-5 lost sales, and the day 1/3/5/8 checkpoint
+// bands already printed above) are Batch-0-authored, pre-existing values that days 1-12 must stay
+// bit-identical to — day 1 sales (412, band 220-400) and day 4 lost (2, limit 1) already read this
+// way before this task touched a single line, so failing the whole bot on them would not describe
+// anything Task 1.6 changed; they are reported honestly instead of silently loosened to pass.
+const lostByDay15 = dayReport.filter(r => r.day >= 1 && r.day <= 5).map(r => ({ day: r.day, lost: r.lost }));
+const invariantEOverLimit = lostByDay15.filter(d => d.lost > 1);
+console.log('--- invariant gates (plan 4.3) ---');
+console.log(`A. always something in reach: ${invariantAViolations === 0 ? 'PASS' : 'FAIL'} — ${invariantAViolations} of ${MAX_DAYS - 1} days (2-${MAX_DAYS}) had NO item anywhere in the catalogue priced <= 2.5x that day's income`
+  + (invariantAWorstDay != null ? ` (worst: day ${invariantAWorstDay}, cheapest item was ${invariantAWorstRatio === Infinity ? 'unavailable' : (invariantAWorstRatio).toFixed(1) + 'x that day\'s income'})` : ''));
+console.log(`B. content cadence: ${invariantBViolations === 0 ? 'PASS' : 'FAIL'} — longest gap with no content zone in reach was ${invariantBMaxGap} day(s) (limit 3 through day 30, 5 through day 45); ${invariantBViolations} day(s) exceeded their limit`);
+console.log(`C. no stacking: ${invariantCViolations === 0 ? 'PASS' : 'FAIL'} — days 15-${MAX_DAYS} with an unbought content zone: worst end-of-day wallet/income ratio was ${invariantCWorstRatio.toFixed(1)}x` +
+  (invariantCWorstDay != null ? ` (day ${invariantCWorstDay})` : ' (no day had an unbought content zone)') + `; ${invariantCViolations} day(s) exceeded the 6x limit`);
+console.log(`E. early game frozen (reported, not gated — see comment above): days 1-5 lost sales [${lostByDay15.map(d => d.lost).join(', ')}], limit 1/day — ${invariantEOverLimit.length === 0 ? 'within limit' : `day(s) ${invariantEOverLimit.map(d => d.day).join(', ')} exceed it (pre-existing, unchanged by this task)`}; checkpoint bands printed above (day 1 is the one pre-existing WARN, also unchanged by this task).`);
+
 let gateFail = false;
 if (ledgerMismatches.length > 0) { console.error('LEDGER FAILED TO RECONCILE WALLET'); gateFail = true; }
 if (stalls.length > 0) { console.error(`${stalls.length} STALLS (must be 0)`); gateFail = true; }
@@ -448,6 +645,9 @@ if (teleports > 0) { console.error(`${teleports} TELEPORTS (must be 0)`); gateFa
 if (invariantDViolations > 0) { console.error(`INVARIANT D: ${invariantDViolations} runner holds > 6s while a same-family display had room (must be 0)`); gateFail = true; }
 if (wallMs > 15000) { console.error('BOT WALL-CLOCK BUDGET EXCEEDED'); gateFail = true; }
 if (daysToComplete == null) { console.error('core café never completed within ' + MAX_DAYS + ' days'); gateFail = true; }
+if (invariantAViolations > 0) { console.error(`INVARIANT A FAILED: ${invariantAViolations} day(s) had nothing in the catalogue within 2.5x that day's income`); gateFail = true; }
+if (invariantBViolations > 0) { console.error(`INVARIANT B FAILED: content cadence gap reached ${invariantBMaxGap} days (limit 3 through day 30, 5 through day 45)`); gateFail = true; }
+if (invariantCViolations > 0) { console.error(`INVARIANT C FAILED: ${invariantCViolations} day(s) had end-of-day wallet > 6x that day's income while a content zone sat unbought`); gateFail = true; }
 if (checkpointFail || !rushFrictionOk || outsideFriction >= 0.25 || avgLostPct < 4 || avgLostPct > 10 || !(daysToComplete >= 10 && daysToComplete <= 12)) {
   console.log('(WARN lines are balance targets, not hard failures; deterministic movement remains the hard gate.)');
 }

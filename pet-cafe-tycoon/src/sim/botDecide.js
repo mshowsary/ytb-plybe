@@ -27,6 +27,7 @@ import {
   workerUpgradeCost, buyWorkerUpgrade,
   familyOf, ensureStars, buyStar, STAR_IDS, nextStarCost,
 } from './economy.js';
+import { CONTENT_ZONE_PRICE, AFFORD_MULTIPLIER, CONTENT_SAVE_AFFORD_MULTIPLIER } from './economyConfig.js';
 
 function registerNeedingService(w) {
   for (const id of w.checkouts) {
@@ -284,6 +285,22 @@ function harvestTarget(w, G) {
 }
 // Priority 6: collect cash once a pile is worth the trip.
 function totalPile(w) { let s = 0; for (const id of w.checkouts) s += w.stations.get(id).pile; return s; }
+// The photo booth needs the owner standing at it before stepPhotoBooth will start a session, in
+// exactly the way a register needs the owner before it will serve. Without this the booth is built,
+// guests queue at it, and nothing ever happens — so every headless measurement of the studio would
+// read zero and look like a balance result rather than a missing caller.
+function photoNeedingService(w) {
+  for (const st of w.stations.values()) {
+    if (st.type !== 'photo' || !st.active || st.session) continue;
+    const arr = w._photoQueues && w._photoQueues.get(st.id);
+    if (arr && arr.some(c => c.slot === 0 && c.state === 'atPhoto')) return st;
+  }
+  return null;
+}
+function photoTarget(w) {
+  const st = photoNeedingService(w);
+  return st ? { x: st.front.x, z: st.front.z, kind: 'photo', stationId: st.id } : null;
+}
 function cashTarget(w) {
   if (totalPile(w) < 20) return null;
   let best = null, bestPile = -1;
@@ -364,14 +381,27 @@ function tryHiresAndUpgrades(w, G) {
   const kiosk = w.stations.get('kiosk1');
   if (!kiosk || !kiosk.active) return;
   const coins = G.coins;
+  const zoneList = w.activeZoneList || activeZones(w);
   let pressing = false;
-  for (const z of (w.activeZoneList || activeZones(w))) { if ((z.price - (w.partial[z.id] || 0)) <= coins) { pressing = true; break; } }
+  for (const z of zoneList) { if ((z.price - (w.partial[z.id] || 0)) <= coins) { pressing = true; break; } }
   if (!pressing && hireDeskActive) {
     for (const kind of ['cashier', 'runner', 'cleaner']) { const c = hireCost(kind, G.staff); if (c != null && c <= coins) { pressing = true; break; } }
   }
   if (pressing) return;
+  // TASK 1.6c: measured (tools/bot.js's spend-by-category diagnostic) that once the core café is
+  // done, ladder purchases fired almost never — 920 coins across 13 days against ~1,450/day of
+  // income — because buildTarget's own partial-payment fallback claims any wallet balance over 15
+  // coins the instant a money-window opens, so the wallet essentially never reached 2x a cheap
+  // star's cost before the next zone trip drained it again. Café-level growth (and the
+  // spawnInterval/maxCustomers gains it unlocks) stalled for the entire multi-day save, so income
+  // never rose to fund the save any faster either. While an unbought zone this expensive is active,
+  // a cheap throughput tier buys the moment it's affordable (1x cost) instead of needing 2x banked
+  // — exactly how a player saving for a big room still tops up cheap upgrades along the way. Days
+  // 1-12 are untouched: no zone that expensive is ever active that early, so `afford` stays 2x.
+  const savingForContent = zoneList.some(z => z.price >= CONTENT_ZONE_PRICE && !w.built.has(z.id));
+  const afford = savingForContent ? CONTENT_SAVE_AFFORD_MULTIPLIER : AFFORD_MULTIPLIER;
   const incCost = upgradeCost('income', G.up);
-  if (incCost != null && coins >= incCost * 2) {
+  if (incCost != null && coins >= incCost * afford) {
     const r = buyUpgrade(G, 'income');
     if (r.ok) emitWorld(w, { type: 'purchase', kind: 'upgrade:income', cost: r.cost, at: G.time || 0 });
     return;
@@ -387,7 +417,7 @@ function tryHiresAndUpgrades(w, G) {
       const st = w.stations.get(id);
       if (!st || !st.active) continue;
       const cost = nextStarCost(w.area, id, (G.stars && G.stars[id]) || 1);
-      if (cost != null && coins >= cost * 2) {
+      if (cost != null && coins >= cost * afford) {
         const r = buyStar(G, w, id);
         if (r.ok) { emitWorld(w, { type: 'purchase', kind: 'star:' + id, cost: r.cost, at: G.time || 0 }); return; }
       }
@@ -399,7 +429,7 @@ function tryHiresAndUpgrades(w, G) {
   // upgrade permanently unbuyable.
   for (const key of ['oven', 'coffee', 'display']) {
     const mc = machineUpgradeCost(key, G.machineLevels);
-    if (mc != null && G.coins >= mc * 2) {
+    if (mc != null && G.coins >= mc * afford) {
       const r = buyMachineUpgrade(G, key);
       if (r.ok) { emitWorld(w, { type: 'purchase', kind: 'machine:' + key, cost: r.cost, at: G.time || 0 }); return; }
     }
@@ -410,7 +440,7 @@ function tryHiresAndUpgrades(w, G) {
   for (const kind of ['runner', 'cashier', 'cleaner']) {
     for (const key of ['carry', 'speed']) {
       const wc = workerUpgradeCost(kind, key, G.staffLevels);
-      if (wc != null && G.coins >= wc * 2) {
+      if (wc != null && G.coins >= wc * afford) {
         const r = buyWorkerUpgrade(G, kind, key);
         if (r.ok) { emitWorld(w, { type: 'purchase', kind: `worker:${kind}:${key}`, cost: r.cost, at: G.time || 0 }); return; }
       }
@@ -448,6 +478,9 @@ function continueLeg(w, G, kind, stationId) {
     return (t && kind === 'blend' && t.kind === 'harvest') ? null : t;
   }
   if (kind === 'clean') return cleanTarget(w, G, stationId);
+  // Hold the booth until the session it started has actually resolved, rather than abandoning a
+  // guest mid-pose the first tick another chore looks more urgent.
+  if (kind === 'photo') return photoTarget(w);
   if (kind === 'cash') return cashTarget(w);
   if (kind === 'build') return buildTarget(w, G);
   if (kind === 'register') return registerTarget(w, G); // "stay until the queue is empty"
@@ -480,7 +513,7 @@ export function decide(w, G) {
   const now = G.time || 0;
   if (B.lastMoneyT == null) B.lastMoneyT = now;
   const moneyDue = now - B.lastMoneyT > 15;
-  const chores = () => restockTarget(w, G) || returnTarget(w, G, B) || refillTarget(w, G) || cleanTarget(w, G) || harvestTarget(w, G);
+  const chores = () => restockTarget(w, G) || returnTarget(w, G, B) || photoTarget(w) || refillTarget(w, G) || cleanTarget(w, G) || harvestTarget(w, G);
   // M3 T6 pass 2 real bug fix: build BEFORE cash, not the other way around. cashTarget only needs
   // a pile >= 20 to fire — trivially true almost every time the register has processed even one or
   // two seated customers, especially with pass 2's higher menu prices — so `cash || build` let a

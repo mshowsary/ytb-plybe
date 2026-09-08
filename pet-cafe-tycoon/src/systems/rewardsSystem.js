@@ -9,7 +9,8 @@ import {
   specialForDay, saleMatchesTheme, specialProgress, specialReward,
   goldenHourForDay, createGoldenHourState, stepGoldenHour, goldenHourMult,
 } from '../sim/specialDays.js';
-import { inShiftClaimedForShift, markRewardedClaim } from '../sim/adPacing.js';
+import { inShiftClaimedForShift, markRewardedClaim, rareVisitorEligible } from '../sim/adPacing.js';
+import { subscribeWorld } from '../sim/events.js';
 import {
   calendarIcon, giftIcon, sunIcon, pawIcon, coinIcon, checkIcon,
   sparkleIcon, catIcon, dogIcon, bunnyIcon, coffeeIcon, cupcakeIcon, smoothieIcon, treatIcon,
@@ -178,6 +179,64 @@ function injectRewardsStyle() {
       50% { transform: scale(1.05); }
     }
 
+    /* Task 2.7 -- Rare Visitor / Golden Shot chips: same fixed-corner, icon+numeral convention as
+       the speed-build chip above (no labelLayout registration needed for the same reason). Each
+       sits one slot higher so up to three of these can never occupy the same pixels; only one is
+       ever visible at once in practice because they all share the in-shift budget. */
+    .rare-visitor-chip {
+      position: fixed;
+      right: calc(12px + env(safe-area-inset-right, 0px));
+      bottom: calc(206px + env(safe-area-inset-bottom, 0px));
+      z-index: 18;
+      min-height: 48px;
+      height: 48px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #EDE0FF, #B99BF0);
+      color: #35225C;
+      font: 950 13px/1 system-ui;
+      box-shadow: 0 4px 0 #5A3D9944, 0 8px 22px #8B7CF655;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      animation: speedBuildPulse 1.6s infinite ease-in-out;
+      backdrop-filter: blur(4px);
+    }
+    .rare-visitor-chip.hidden { display: none; }
+    .rare-visitor-chip svg { width: 18px; height: 18px; }
+    .golden-shot-chip {
+      position: fixed;
+      right: calc(12px + env(safe-area-inset-right, 0px));
+      bottom: calc(264px + env(safe-area-inset-bottom, 0px));
+      z-index: 18;
+      min-height: 48px;
+      height: 48px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #FFE89C, #FFC107);
+      color: #4A3300;
+      font: 950 13px/1 system-ui;
+      box-shadow: 0 4px 0 #A9760044, 0 8px 22px #FFC10755;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      animation: speedBuildPulse 1.6s infinite ease-in-out;
+      backdrop-filter: blur(4px);
+    }
+    .golden-shot-chip.hidden { display: none; }
+    .golden-shot-chip svg { width: 18px; height: 18px; }
+    @media(max-width: 240px) {
+      .rare-visitor-chip, .golden-shot-chip {
+        font-size: 10px !important;
+        padding: 0 8px !important;
+        max-width: calc(100vw - 20px) !important;
+      }
+    }
+
     /* Golden Hour HUD Indicator */
     .golden-indicator {
       display: flex; align-items: center; gap: 4px;
@@ -291,6 +350,31 @@ export function createRewardsSystem(G, S, platform) {
   document.body.appendChild(speedBuildChip);
   const speedBuildNum = speedBuildChip.querySelector('.speed-build-num');
 
+  // 3c/3d. Task 2.7's two new rewarded placements. Icon-only (no prose) per the HUD convention
+  // above: rare-visitor pairs a paw with a sparkle (the pet album is the reward); golden-shot
+  // pairs a sparkle with a "x2" multiplier numeral, the same notation goldenChip already uses
+  // below for the (unrelated) Golden Hour bonus.
+  const rareVisitorChip = document.createElement('button');
+  rareVisitorChip.type = 'button';
+  rareVisitorChip.className = 'rare-visitor-chip hidden';
+  rareVisitorChip.setAttribute('aria-label', 'Rare visitor next');
+  rareVisitorChip.innerHTML = `
+    <span style="width:18px;height:18px;display:inline-block">${pawIcon()}</span>
+    <span style="width:15px;height:15px;display:inline-block">${sparkleIcon()}</span>
+  `;
+  document.body.appendChild(rareVisitorChip);
+
+  const goldenShotChip = document.createElement('button');
+  goldenShotChip.type = 'button';
+  goldenShotChip.className = 'golden-shot-chip hidden';
+  goldenShotChip.setAttribute('aria-label', 'Double photo tips this shift');
+  goldenShotChip.innerHTML = `
+    <span style="width:18px;height:18px;display:inline-block">${sparkleIcon()}</span>
+    <span>&times;2</span>
+  `;
+  document.body.appendChild(goldenShotChip);
+  if (G.goldenShotMult == null) G.goldenShotMult = 1;
+
   // 4. Special and Golden chips in day top pill
   const dayTop = document.querySelector('.dayTop');
   const specialChip = document.createElement('div');
@@ -306,6 +390,7 @@ export function createRewardsSystem(G, S, platform) {
 
   let goldenLerp = 0;
   let mysteryOffered = false;
+  let rareVisitorOffered = false;
   let lastDayEvaluated = -1;
 
   function refreshCalendarDot() {
@@ -456,6 +541,61 @@ export function createRewardsSystem(G, S, platform) {
     G.requestCheckpoint?.('speed-build-claim');
   });
 
+  // Rare Visitor click handler (Task 2.7). Claiming sets G.rareVisitorPending -- the flag the next
+  // customer spawn (systems/customers.js) must consult to force the guest's pet to a rare/epic
+  // variant and then clear. See this file's wiring contract note at the bottom.
+  rareVisitorChip.addEventListener('click', async () => {
+    const day = G.dayState.day | 0;
+    if (inShiftClaimedForShift(G.meta, day)) {
+      rareVisitorChip.classList.add('hidden');
+      return;
+    }
+    let earned = true;
+    if (platform && platform.rewardedAvailable) {
+      earned = await platform.requestRewardedAd('pet-cafe-rare-visitor');
+    }
+    if (!earned) {
+      G.hud?.toast?.('Rare Visitor unavailable');
+      return;
+    }
+    markRewardedClaim(G.meta, day, 'rare-visitor');
+    rareVisitorChip.classList.add('hidden');
+    G.rareVisitorPending = true;
+    G.requestCheckpoint?.('rare-visitor-claim');
+  });
+
+  // Golden Shot click handler (Task 2.7). Claiming doubles G.goldenShotMult for the rest of the
+  // shift; see the wiring contract note at the bottom of this file for where that multiplier must
+  // be applied to a resolved photo's tip.
+  goldenShotChip.addEventListener('click', async () => {
+    const day = G.dayState.day | 0;
+    if (inShiftClaimedForShift(G.meta, day)) {
+      goldenShotChip.classList.add('hidden');
+      return;
+    }
+    let earned = true;
+    if (platform && platform.rewardedAvailable) {
+      earned = await platform.requestRewardedAd('pet-cafe-golden-shot');
+    }
+    if (!earned) {
+      G.hud?.toast?.('Golden Shot unavailable');
+      return;
+    }
+    markRewardedClaim(G.meta, day, 'golden-shot');
+    goldenShotChip.classList.add('hidden');
+    G.goldenShotMult = 2;
+    G.requestCheckpoint?.('golden-shot-claim');
+  });
+
+  // Task 2.7 -- golden-shot is offered "on the first photo of a shift" (plan §4.4): detected by
+  // subscribing to the sim's own 'photo' event (emitted by sim/world.js's resolvePhotoShot) rather
+  // than polling world.events, because game.js drains world.events to length 0 before this file's
+  // update() runs each frame (same reason systems/petFriendship.js subscribes instead of polling).
+  let goldenShotSeenPhoto = false;
+  subscribeWorld(G.world, event => {
+    if (event && event.type === 'photo') goldenShotSeenPhoto = true;
+  }, 5);
+
   refreshCalendarDot();
 
   return {
@@ -464,6 +604,9 @@ export function createRewardsSystem(G, S, platform) {
       if (day !== lastDayEvaluated) {
         lastDayEvaluated = day;
         mysteryOffered = false;
+        rareVisitorOffered = false;
+        goldenShotSeenPhoto = false;
+        G.goldenShotMult = 1;
         refreshCalendarDot();
       }
 
@@ -523,6 +666,22 @@ export function createRewardsSystem(G, S, platform) {
       } else {
         speedBuildChip.classList.add('hidden');
       }
+
+      // Rare Visitor offer (Task 2.7): morning only, from day 6, once offered per shift, shares
+      // the in-shift budget with the placements above.
+      if (!rareVisitorOffered && rareVisitorEligible(day, G.dayState.phase) && !inShiftClaimedForShift(G.meta, day)) {
+        rareVisitorOffered = true;
+        rareVisitorChip.classList.remove('hidden');
+      }
+      if (inShiftClaimedForShift(G.meta, day)) rareVisitorChip.classList.add('hidden');
+
+      // Golden Shot offer (Task 2.7): appears once the first photo of the shift has resolved,
+      // shares the same in-shift budget.
+      if (goldenShotSeenPhoto && !inShiftClaimedForShift(G.meta, day)) {
+        goldenShotChip.classList.remove('hidden');
+      } else {
+        goldenShotChip.classList.add('hidden');
+      }
     },
     refresh() {
       refreshCalendarDot();
@@ -540,3 +699,49 @@ function starIcon() {
 function boltIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="13 2 4 14 11 14 10 22 20 9 13 9" fill="#123D28"/></svg>';
 }
+
+// --- Task 2.7 wiring contract -------------------------------------------------------------------
+// Both new placements set a flag/multiplier on G when claimed. This file owns the offer, the ad
+// request, and the shared in-shift budget key; it does NOT own the systems that must read the
+// result, because those systems (systems/customers.js, sim/world.js) belong to other batches.
+//
+// `G.rareVisitorPending` (boolean, false by default): set true on a rare-visitor claim. The next
+// customer spawn (systems/customers.js, inside spawn(), right before it builds `identityPick`)
+// must force that one guest's pet to a rare or epic variant and then clear the flag, e.g.:
+//
+//   const forcedVariant = G.rareVisitorPending ? (Math.random() < 0.5 ? 2 : 3) : null;
+//   const identityPick = resolveUniquePetIdentity(
+//     theme?.species || next.species,
+//     forcedVariant != null ? forcedVariant : next.petVariant,
+//     activeNamedPetKeys(G.customers),
+//     preferredKey,
+//   );
+//   if (forcedVariant != null) G.rareVisitorPending = false;
+//
+// Math.random() here is safe: this branch only runs when a live rewarded-ad claim set the flag,
+// which never happens during tools/bot.js's deterministic replay (the flag defaults to false and
+// nothing in the bot ever claims a rewarded ad), so it cannot desync sim/customerSpawn.js's seeded
+// rng stream. It also lives in systems/ (render layer), not sim/, so it is outside the "no
+// Math.random in sim paths" rule.
+//
+// `G.goldenShotMult` (number, 1 by default, reset to 1 at the top of this file's own day-boundary
+// check): set to 2 on a golden-shot claim, for the rest of that shift. The multiplier must be
+// applied at the point a photo's tip actually becomes coins. As of this commit that point is
+// `collectTray()` in src/systems/photo.js (Task 2.1, landed concurrently with this task -- not an
+// owned file here): it reads `collectCash(world, st.id)` and adds the result straight to G.coins
+// with no multiplier applied yet:
+//
+//   const amt = collectCash(world, st.id);
+//   ...
+//   G.coins = (G.coins || 0) + amt;
+//
+// needs to become:
+//
+//   const amt = Math.round(collectCash(world, st.id) * (G.goldenShotMult || 1));
+//
+// systems/photo.js is itself not yet wired into src/game.js's frame loop as of this commit (its
+// own header says so), so verify that landed and re-check this call site before assuming the fix
+// above is still the right one -- both files were mid-flight from other agents while this task ran.
+// Until the multiplier is applied somewhere on this path, a claimed golden-shot marks the in-shift
+// budget spent but has no visible effect on coins -- flagged here rather than silently shipped as
+// if it already worked.

@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { part, merge } from './geo.js';
 import { C, toonMaterial, emissiveMaterial } from './palette.js';
 import { damp } from '../core/tween.js';
-import { petProfile } from '../sim/petBook.js';
+import { petProfile, isLegendaryProfile } from '../sim/petBook.js';
 import {
   createPetTraitMotionState,
   petTraitContextActive,
@@ -15,8 +15,16 @@ const SPEC = {
   cat:   { body: C.cat,   belly: C.cream, earCol: '#E6A5A0', tail: 'long',  eye: C.ink, w: 0.5, h: 0.42, l: 0.8, accent: '#F3C16B' },
   dog:   { body: C.dog,   belly: C.cream, earCol: '#B98C64', tail: 'short', eye: C.ink, w: 0.56, h: 0.48, l: 0.9, accent: '#75BCE8' },
   bunny: { body: C.bunny, belly: C.pink,  earCol: C.pink,  tail: 'puff',  eye: C.ink, w: 0.46, h: 0.4, l: 0.7, accent: '#9B82E8' },
+  // Task 2.6 (plan §3.7): round body, cheek pouches, tiny round ears, no visible tail. 'none' tail
+  // kind resolves to a near-invisible geometry below (geosFor) rather than skipping the tail mesh
+  // entirely, so every downstream P.update() branch that touches `tail.*` keeps working unchanged.
+  hamster: { body: '#C9955B', belly: '#FFE9C6', earCol: '#EFC9A0', tail: 'none', eye: C.ink, w: 0.3, h: 0.26, l: 0.34, accent: '#B9834A' },
 };
 const _heartMat = emissiveMaterial(C.coral);
+// One shared emissive material for every legendary pet's sparkle-dot overlay (plan §3.7: "a unique
+// accent with sparkle emissive dots"). Cached like _heartMat so N legendary instances cost one
+// material, not N.
+const _sparkleMat = emissiveMaterial('#FFFFFF');
 const _geoCache = new Map();
 // Length of one stretch/yawn clip (see P.idleLife). Long enough to read at this camera distance,
 // short enough that a resident is never mid-yawn in most frames.
@@ -87,6 +95,16 @@ function geosFor(species, variant = 0) {
       part('rbox', [s.w * 0.34, s.w * 0.11, 0.025, 0.02], s.accent, { x: -s.w * 0.17, y: 0.24, z: s.w * 0.46, rz: -0.2 }),
     );
   }
+  if (species === 'hamster') {
+    headParts.push(
+      // chubby cheek pouches, bulging low on either side of the muzzle
+      part('sph', [s.w * 0.34, 10], s.body, { x: -s.w * 0.52, y: -0.05, z: s.w * 0.16 }),
+      part('sph', [s.w * 0.34, 10], s.body, { x: s.w * 0.52, y: -0.05, z: s.w * 0.16 }),
+      // tiny round ears, low-poly hemispheres so they read as small rather than as flags
+      part('sph', [s.w * 0.2, 8], s.earCol, { x: -s.w * 0.32, y: s.w * 0.6, z: -s.w * 0.05 }),
+      part('sph', [s.w * 0.2, 8], s.earCol, { x: s.w * 0.32, y: s.w * 0.6, z: -s.w * 0.05 }),
+    );
+  }
   const headGeo = merge(headParts);
 
   let tailGeo;
@@ -98,11 +116,31 @@ function geosFor(species, variant = 0) {
     part('cyl', [0.06, 0.075, 0.32, 8], s.body, { y: 0.15, rx: 0.9 }),
     part('sph', [0.07, 8], s.belly, { y: 0.26, z: -0.08 }),
   ]);
+  // Hamsters (plan §3.7: "no visible tail") still get a real mesh here -- every P.update() branch
+  // below reads/writes `tail.rotation.*` unconditionally -- but it is sized to effectively nothing
+  // (a handful of triangles at a hair's width) so it never reads on screen.
+  else if (s.tail === 'none') tailGeo = part('sph', [0.001, 4], s.body);
   else tailGeo = merge([part('sph', [0.13, 10], C.white), part('sph', [0.07, 8], '#F4E8E1', { y: 0.05, z: 0.08 })]);
 
   const bWaitGeo = merge([part('sph', [0.06, 8], C.white, { x: -0.15 }), part('sph', [0.06, 8], C.white), part('sph', [0.06, 8], C.white, { x: 0.15 })]);
   const bAngryGeo = merge([part('rbox', [0.08, 0.3, 0.08, 0.03], '#FF3B3B', { y: 0.05 }), part('sph', [0.06, 8], '#FF3B3B', { y: -0.2 })]);
-  const g = { legPairAGeo, legPairBGeo, bodyGeo, headGeo, tailGeo, bWaitGeo, bAngryGeo };
+
+  // Legendary coat (variant index 4, every species): a scatter of small emissive dots across the
+  // back, rendered as a separate mesh (own material) that rides along as a child of `body`. Built
+  // only for the legendary profile so the other 16 pets pay nothing for it.
+  let sparkleGeo = null;
+  if (isLegendaryProfile(petProfile(species, variant))) {
+    const top = 0.3 + s.h;
+    sparkleGeo = merge([
+      part('sph', [0.026, 6], '#FFFFFF', { x: 0, y: top * 0.98, z: s.l * 0.22 }),
+      part('sph', [0.022, 6], '#FFFFFF', { x: -s.w * 0.22, y: top * 0.88, z: -s.l * 0.05 }),
+      part('sph', [0.022, 6], '#FFFFFF', { x: s.w * 0.22, y: top * 0.9, z: -s.l * 0.12 }),
+      part('sph', [0.02, 6], '#FFFFFF', { x: 0, y: top * 0.7, z: -s.l * 0.32 }),
+      part('sph', [0.02, 6], '#FFFFFF', { x: -s.w * 0.14, y: top * 0.95, z: -s.l * 0.18 }),
+    ]);
+  }
+
+  const g = { legPairAGeo, legPairBGeo, bodyGeo, headGeo, tailGeo, bWaitGeo, bAngryGeo, sparkleGeo };
   _geoCache.set(cacheKey, g);
   return g;
 }
@@ -119,6 +157,7 @@ export function createPet(species, variant = 0) {
   head.position.set(0, 0.3 + s.h + s.w * 0.35, s.l * 0.45);
   const tail = new THREE.Mesh(G.tailGeo, mat); tail.castShadow = false; tail.receiveShadow = true;
   tail.position.set(0, 0.3 + s.h * 0.6, -s.l * 0.5); group.add(legPairA, legPairB, body, head, tail);
+  if (G.sparkleGeo) { const sparkle = new THREE.Mesh(G.sparkleGeo, _sparkleMat); sparkle.castShadow = false; sparkle.receiveShadow = false; body.add(sparkle); }
   const neck = new THREE.Object3D(); neck.position.set(0, -s.w * 0.35, s.w * 0.55); head.add(neck);
 
   const eyesGroup = new THREE.Group();
@@ -141,8 +180,13 @@ export function createPet(species, variant = 0) {
   const bHappy = new THREE.Mesh(heartGeo(), _heartMat); bHappy.scale.setScalar(0.5);
   bubble.add(bWait, bAngry, bHappy);
   const mouth = new THREE.Group(); mouth.position.set(0, -0.05, s.w * 0.7); head.add(mouth);
+  const isHamster = species === 'hamster';
+  // Task 2.4 (plan §3.5): accessory mount points. One attachment per node at a time -- re-equipping
+  // a slot cleanly detaches whatever mesh was there before mounting the new one, so a caller never
+  // has to track what it previously attached.
+  const _attached = { head: null, neck: null };
   const P = {
-    group, neck, height: head.position.y + s.w * 0.6, species, variant: variant | 0,
+    group, neck, head, height: head.position.y + s.w * 0.6, species, variant: variant | 0,
     _t: Math.random() * 6, _mood: 'none', _carried: null, _sitting: false, _face: 0, _hop: 0,
     _blinkClock: 0, _nextBlink: 2.5 + ((variant | 0) % 3) * 0.8,
     // Real-time clock (P._t is a gait clock that speeds up 6x while walking, so it cannot drive
@@ -194,6 +238,15 @@ export function createPet(species, variant = 0) {
   };
   P.setMood = m => { P._mood = m; bubble.visible = m !== 'none'; bWait.visible = m === 'wait'; bAngry.visible = m === 'angry'; bHappy.visible = m === 'happy'; };
   P.carry = m => { if (P._carried) mouth.remove(P._carried); P._carried = m; if (m) { m.position.set(0, 0, 0); m.scale.setScalar(0.8); mouth.add(m); } };
+  // Task 2.4: mount (or clear, when mesh is falsy) one accessory on the 'head' or 'neck' node. The
+  // pet rig owns the mount points; data/accessories.js owns what gets built and unlock rules.
+  P.attach = (node, mesh) => {
+    const key = node === 'neck' ? 'neck' : 'head';
+    const target = key === 'neck' ? neck : head;
+    if (_attached[key]) { target.remove(_attached[key]); _attached[key] = null; }
+    if (mesh && mesh.isObject3D) { _attached[key] = mesh; target.add(mesh); }
+    return _attached[key];
+  };
   P.sit = () => { P._sitting = true; };
   P.stand = () => { P._sitting = false; };
   P.setHop = h => { P._hop = h; };
@@ -204,7 +257,11 @@ export function createPet(species, variant = 0) {
     if (hop !== undefined) P._hop = hop;
     P._t += dt * (moving ? 12 : 2);
     P._life += dt;
-    if (P._sitting) {
+    // Task 2.6 (plan §3.7): hamsters sit up on their hind legs at idle rather than standing flat --
+    // reuse the existing fold pose below (only ever previously entered by an explicit P.sit()) for
+    // that stance, gated on species so cat/dog/bunny locomotion is untouched.
+    const hamsterIdle = isHamster && !moving && !P._sitting;
+    if (P._sitting || hamsterIdle) {
       // A sit that keeps every paw above whatever the pet is sitting ON. The old pose rotated BOTH
       // leg pairs by -1.2 rad, and because each pair holds one FRONT and one REAR leg that swung
       // the front legs up into the chest and drove the rear legs 0.27 m below y = 0. Hidden by
@@ -215,6 +272,9 @@ export function createPet(species, variant = 0) {
       const fold = damp(legPairA.scale.y, 0.6, 10, dt);
       legPairA.scale.y = fold; legPairB.scale.y = fold;
       body.position.y = damp(body.position.y, -0.12, 10, dt);
+      // Lean the body upright on the haunches -- the "sits up on hind legs" silhouette. Only ever
+      // written for hamster, so cat/dog/bunny's body.rotation.x stays untouched at its default 0.
+      if (isHamster) body.rotation.x = damp(body.rotation.x, -0.16, 8, dt);
       tail.rotation.y = damp(tail.rotation.y, Math.sin(P._life * 0.9) * 0.16, 6, dt);
       if (CURLS_TAIL) {
         // The cat's 'long' tail is a 0.62 m rod, and straight in the sit pose it read as a loose
@@ -229,6 +289,19 @@ export function createPet(species, variant = 0) {
         tail.rotation.x = damp(tail.rotation.x, -0.9 - P._tailLift, 10, dt);
         tail.rotation.z = damp(tail.rotation.z, 0, 10, dt);
       }
+    } else if (isHamster) {
+      // Hop gait (plan §3.7): both leg pairs tuck together on each bound instead of the
+      // alternating diagonal trot every other species uses, and the body bounces on each hop.
+      const hopPhase = Math.abs(Math.sin(P._t * 0.9));
+      legPairA.rotation.x = -0.5 * hopPhase; legPairB.rotation.x = -0.5 * hopPhase;
+      if (legPairA.scale.y !== 1) {
+        let unfold = damp(legPairA.scale.y, 1, 10, dt);
+        if (Math.abs(unfold - 1) < 0.004) unfold = 1;
+        legPairA.scale.y = unfold; legPairB.scale.y = unfold;
+      }
+      body.position.y = damp(body.position.y, hopPhase * 0.1, 10, dt);
+      body.rotation.x = damp(body.rotation.x, 0, 8, dt);
+      tail.rotation.y = Math.sin(P._t * 1.3) * 0.3;
     } else {
       const sw = moving ? Math.sin(P._t) * 0.7 : 0;
       legPairA.rotation.x = sw; legPairB.rotation.x = -sw;

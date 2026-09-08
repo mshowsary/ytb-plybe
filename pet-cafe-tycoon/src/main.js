@@ -248,12 +248,15 @@ function startGame(S, load, bootUi) {
   const serviceSummary = installServiceSummary(G);
   const responsive = createResponsivePolish(G);
   const labelLayout = createLabelLayout(els);
+  // The photo studio's ring is built inside createGame, which already ran, so it reaches the label
+  // arbiter through G rather than through its constructor (see systems/photo.js's avoid hook).
+  G.labelLayout = labelLayout;
   const shell = createPlayablesShell();
   installCertificationPolish();
   const interactionCoach = createInteractionCoach(G, S, labelLayout);
   const cashTrays = createCashTrays(G.world, S.scene);
   const butterflies = createButterflies(S.scene);
-  const residentPets = createResidentPets(S.scene, G.P);
+  const residentPets = createResidentPets(S, G, els);
   const rewardsSystem = createRewardsSystem(G, S, platform);
   const pauseOverlay = makePauseOverlay();
   // Time of day owns sun/hemi/sky/fog/grade and the after-dark interior glow. Created here (not in

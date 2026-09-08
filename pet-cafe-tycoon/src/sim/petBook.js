@@ -1,28 +1,72 @@
 // Persistent Pet Visitor Book. Discovery + friendship are cosmetic/meta only and never gate core progression.
+//
+// Plan §3.7 (task 2.6): a fourth species (hamster) plus one legendary coat per species (variant
+// index 4) bring the book from 12 to 20 pets. Legendary spawning is gated on the Paw Rating
+// reaching star 4 (plan §3.4), which is Batch 3 work that does not exist yet -- see
+// `legendaryUnlocked` below for exactly how that gate is (deliberately) held closed today.
 export const PET_PROFILES = {
   cat: [
     { name: 'Marmalade', rarity: 'common', trait: 'Sunbeam seeker', body: '#D6A35F', belly: '#FFF0D5', accent: '#E0B34F' },
     { name: 'Tuxedo', rarity: 'common', trait: 'Counter inspector', body: '#4A4548', belly: '#FFF4E6', accent: '#E45E75' },
     { name: 'Lavender', rarity: 'rare', trait: 'Quiet-window dreamer', body: '#A89AC2', belly: '#F5ECFF', accent: '#7E6AE8' },
     { name: 'Calico', rarity: 'epic', trait: 'Treat critic', body: '#E9D5BC', belly: '#FFF4E6', accent: '#EF8B67' },
+    { name: 'Nebula', rarity: 'legendary', trait: 'Midnight stargazer', body: '#2B2A4A', belly: '#F3E9FF', accent: '#FFD84D' },
   ],
   dog: [
     { name: 'Biscuit', rarity: 'common', trait: 'Everyone is a friend', body: '#C9A276', belly: '#FFF0D7', accent: '#71B8E4' },
     { name: 'Cocoa', rarity: 'common', trait: 'Chair-side napper', body: '#7B5947', belly: '#E9C8A9', accent: '#E6A742' },
     { name: 'Cloud', rarity: 'rare', trait: 'Professional greeter', body: '#E6DDD3', belly: '#FFF9F0', accent: '#E88CA6' },
     { name: 'Bluebell', rarity: 'epic', trait: 'Zoomie expert', body: '#8298AC', belly: '#EAF4FF', accent: '#8B7CF6' },
+    { name: 'Comet', rarity: 'legendary', trait: 'Trail of stardust', body: '#3A4460', belly: '#EAF4FF', accent: '#FFD84D' },
   ],
   bunny: [
     { name: 'Snowdrop', rarity: 'common', trait: 'Garden watcher', body: '#EFE8E3', belly: '#FFC5D2', accent: '#D99BE8' },
     { name: 'Mocha', rarity: 'common', trait: 'Crumb detective', body: '#A77B63', belly: '#EBC9B2', accent: '#E7A644' },
     { name: 'Lilac', rarity: 'rare', trait: 'Soft-seat connoisseur', body: '#C8B8DD', belly: '#F2D8EA', accent: '#8B7CF6' },
     { name: 'Honey', rarity: 'epic', trait: 'Tiny café celebrity', body: '#E7C47E', belly: '#FFF0D0', accent: '#D99542' },
+    { name: 'Aurora', rarity: 'legendary', trait: 'Borealis dreamer', body: '#EDEAFB', belly: '#FFFFFF', accent: '#8B7CF6' },
+  ],
+  hamster: [
+    { name: 'Peanut', rarity: 'common', trait: 'Cheek-pouch hoarder', body: '#C9955B', belly: '#FFE9C6', accent: '#B9834A' },
+    { name: 'Clove', rarity: 'common', trait: 'Wheel-spin champion', body: '#6E4B39', belly: '#E9C9A9', accent: '#8E6236' },
+    { name: 'Marble', rarity: 'rare', trait: 'Tunnel architect', body: '#B5A8C7', belly: '#F1EAF7', accent: '#8B7CF6' },
+    { name: 'Saffron', rarity: 'epic', trait: 'Sunflower-seed connoisseur', body: '#E8A83C', belly: '#FFF3D0', accent: '#C9781E' },
+    { name: 'Cosmo', rarity: 'legendary', trait: 'Nebula napper', body: '#4B3F72', belly: '#FDEBC8', accent: '#FFD84D' },
   ],
 };
 
-export const PET_SPECIES = ['cat', 'dog', 'bunny'];
+export const PET_SPECIES = ['cat', 'dog', 'bunny', 'hamster'];
+// A rng.pick() "bag": each authored value is a variant INDEX, repeated by relative pick weight.
+// Deliberately contains only 0-3 -- index 4 (every species' legendary coat) can never be drawn by
+// this bag no matter how it is reweighted by followers (src/sim/followers.js
+// weightedVariantWeights only ever redistributes counts between EXISTING tier values). That is
+// half of the legendary gate; see `legendaryUnlocked` for the half this module owns directly, and
+// its comment for the one spawn path that bypasses both.
 export const PET_VARIANT_WEIGHTS = [0, 0, 0, 1, 1, 1, 2, 2, 3];
 export const PET_KEEPSAKE_VERSION = 1;
+
+// Every species now authors exactly 5 profiles (4 base + 1 legendary at index 4).
+export const LEGENDARY_VARIANT_INDEX = 4;
+
+// Batch 3 (plan §3.4, Paw Rating) is what actually unlocks legendary coats at star 4. That system
+// does not exist yet, so this predicate is DELIBERATELY always false today -- Batch 3 replaces the
+// body with a real `meta`-derived star-tier check and nothing else in this module needs to change.
+//
+// KNOWN GAP this predicate does NOT close on its own: src/sim/regularVisitors.js's
+// PET_IDENTITY_POOL is built from every PET_PROFILES entry (via PET_SPECIES.flatMap), including
+// legendary ones, and systems/customers.js renders whatever species/variant
+// resolveUniquePetIdentity() returns for a spawned customer's pet -- so its congestion fallback
+// (walking the full pool when every other identity is already active) can hand a legendary coat to
+// a customer today with NO star-4 check at all. Closing that requires filtering
+// `rarity !== 'legendary'` in regularVisitors.js's PET_IDENTITY_POOL (or in
+// resolveUniquePetIdentity's fallback loop) until this predicate is real; see this task's handoff.
+export function legendaryUnlocked(/* meta */) {
+  return false;
+}
+
+export function isLegendaryProfile(profile) {
+  return !!profile && profile.rarity === 'legendary';
+}
 
 // Relationship pacing is intentionally short enough to become visible during normal repeat play,
 // but it never modifies prices, patience, spawn odds, navigation or ad availability.
@@ -35,7 +79,8 @@ export const PET_FRIENDSHIP_TIERS = [
 export const PET_BESTIE_VISITS = PET_FRIENDSHIP_TIERS[PET_FRIENDSHIP_TIERS.length - 1].minVisits;
 
 export function petKey(species, variant) {
-  return `${species}:${Math.max(0, Math.min(3, variant | 0))}`;
+  const maxVariant = (PET_PROFILES[species] || PET_PROFILES.cat).length - 1;
+  return `${species}:${Math.max(0, Math.min(maxVariant, variant | 0))}`;
 }
 
 export function petProfile(species, variant) {
@@ -45,7 +90,7 @@ export function petProfile(species, variant) {
 
 export function parsePetKey(key) {
   if (typeof key !== 'string') return null;
-  const match = /^(cat|dog|bunny):(\d+)$/.exec(key);
+  const match = /^(cat|dog|bunny|hamster):(\d+)$/.exec(key);
   if (!match) return null;
   const species = match[1], variant = Number(match[2]);
   if (!Number.isInteger(variant) || variant < 0 || variant >= PET_PROFILES[species].length) return null;

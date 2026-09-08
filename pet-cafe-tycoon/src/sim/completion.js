@@ -1,12 +1,15 @@
 import { UPGRADES, STAFF, WORKER_UPGRADES, MACHINE_UPGRADES, STAR_IDS } from './economy.js';
 import { MASTERY, RENOVATIONS } from './career.js';
-import { PET_SPECIES, PET_PROFILES, petKey, PET_BESTIE_VISITS } from './petBook.js';
+import { PET_SPECIES, PET_PROFILES, petKey, PET_BESTIE_VISITS, isLegendaryProfile, legendaryUnlocked } from './petBook.js';
 // Derived entirely from durable progress; no new reward, currency, or completion-save flag.
 export function cafeCompletion(G) {
  const zones=G.world?.area?.zones||[],built=G.world?.built;
  const roomComplete=zones.length>0&&zones.every(z=>built?.has(z.id));
  const career=G.meta?.career||{};
- const friendsComplete=PET_SPECIES.every(s=>PET_PROFILES[s].every((_,v)=>(G.meta?.petFriendship?.[petKey(s,v)]||0)>=PET_BESTIE_VISITS));
+ // Only pets that can actually walk in count. A locked legendary is unreachable content, and
+ // counting it would make "you have befriended everyone" permanently unachievable rather than hard.
+ const friendsComplete=PET_SPECIES.every(s=>PET_PROFILES[s].every((p,v)=>
+  (isLegendaryProfile(p)&&!legendaryUnlocked())||(G.meta?.petFriendship?.[petKey(s,v)]||0)>=PET_BESTIE_VISITS));
  const renovationsComplete=(career.renovationLevel||0)>=RENOVATIONS.length;
  const masteryComplete=Object.entries(MASTERY).every(([key,cfg])=>(career.recipeSales?.[key]||0)>=cfg.thresholds.at(-1));
  const upgradesComplete=Object.entries(UPGRADES).every(([key,cfg])=>(G.up?.[key]||0)>=cfg.costs.length)

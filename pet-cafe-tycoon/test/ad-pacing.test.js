@@ -7,6 +7,7 @@ import {
   markRewardedClaim, purchaseBridgeEnabled, rewardedClaimedForShift,
   summaryClaimedForShift, inShiftClaimedForShift,
   SPEED_BUILD_MIN_PAID_RATIO, speedBuildEligible, speedBuildRewardKey,
+  RARE_VISITOR_MIN_DAY, rareVisitorEligible, rareVisitorRewardKey, goldenShotRewardKey,
 } from '../src/sim/adPacing.js';
 
 function host(calls, { rewardedResult = true, interstitialFails = false } = {}) {
@@ -223,5 +224,49 @@ test('rewarded requests allow successive user-initiated calls unless adBusy', as
   p.adBusy = true;
   assert.equal(await p.requestRewardedAd('busy'),false);
   assert.equal(calls,2);
+});
+
+test('Task 2.7: rare-visitor is morning-only from day 6', () => {
+  assert.equal(RARE_VISITOR_MIN_DAY, 6);
+  assert.equal(rareVisitorEligible(5, 'morning'), false, 'too early');
+  assert.equal(rareVisitorEligible(6, 'morning'), true);
+  assert.equal(rareVisitorEligible(20, 'morning'), true);
+  assert.equal(rareVisitorEligible(6, 'rush'), false, 'morning only');
+  assert.equal(rareVisitorEligible(6, 'afternoon'), false);
+  assert.equal(rareVisitorEligible(6, 'closing'), false);
+});
+
+test('Task 2.7: rare-visitor and golden-shot share the in-shift budget with everything else', () => {
+  const s = { rewardedDays: {} };
+  assert.equal(inShiftClaimedForShift(s, 8), false);
+  assert.equal(markRewardedClaim(s, 8, 'rare-visitor'), true);
+  assert.equal(inShiftClaimedForShift(s, 8), true);
+  assert.equal(markRewardedClaim(s, 8, 'rare-visitor'), false, 'rare-visitor cannot double-claim');
+  // Occupies the shared budget: relief/gift/speed-build/golden-shot all refuse afterward.
+  assert.equal(markRewardedClaim(s, 8, 'relief'), false);
+  assert.equal(markRewardedClaim(s, 8, 'gift'), false);
+  assert.equal(markRewardedClaim(s, 8, 'speed-build'), false);
+  assert.equal(markRewardedClaim(s, 8, 'golden-shot'), false);
+  // Summary stays independent in either direction.
+  assert.equal(summaryClaimedForShift(s, 8), false);
+  assert.equal(markRewardedClaim(s, 8, 'summary'), true);
+
+  const g = { rewardedDays: {} };
+  assert.equal(markRewardedClaim(g, 9, 'golden-shot'), true);
+  assert.equal(inShiftClaimedForShift(g, 9), true);
+  assert.equal(markRewardedClaim(g, 9, 'golden-shot'), false, 'golden-shot cannot double-claim');
+  assert.equal(markRewardedClaim(g, 9, 'rare-visitor'), false, 'golden-shot claim occupies rare-visitor too');
+
+  const relief = { rewardedDays: {} };
+  assert.equal(markRewardedClaim(relief, 9, 'relief'), true);
+  assert.equal(markRewardedClaim(relief, 9, 'rare-visitor'), false, 'relief claim occupies rare-visitor too');
+  assert.equal(markRewardedClaim(relief, 9, 'golden-shot'), false, 'relief claim occupies golden-shot too');
+
+  // Per-shift, not global.
+  const fresh = { rewardedDays: { [rareVisitorRewardKey(8)]: 1, [goldenShotRewardKey(9)]: 1 } };
+  assert.equal(inShiftClaimedForShift(fresh, 8), true);
+  assert.equal(inShiftClaimedForShift(fresh, 9), true);
+  assert.equal(inShiftClaimedForShift(fresh, 10), false);
+  assert.equal(markRewardedClaim(fresh, 10, 'rare-visitor'), true);
 });
 

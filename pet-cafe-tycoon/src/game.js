@@ -42,6 +42,9 @@ import { createCareerUI } from './ui/career.js';
 import { createRenovationUI } from './ui/renovation.js';
 import { createAudio } from './audio/synth.js';
 import { createStations } from './systems/stations.js';
+import { createPhotoStudio } from './systems/photo.js';
+import { addFollowers, followersForDiscovery } from './sim/followers.js';
+import { renderPetPortrait } from './render/portrait.js';
 import { createZones } from './systems/zones.js';
 import { createCustomers } from './systems/customers.js';
 import { createStaff } from './systems/staff.js';
@@ -129,7 +132,26 @@ export function createGame(S, area, els, platform = null) {
     metaUI.setReputation({ rep: G.meta.reputation, title: reputationTitle(G.meta), frac: progress.frac, nextTitle: REPUTATION_TITLES[level + 1] || null });
   }
   function syncPetBookPresentation() {
-    ensurePetBook(G.meta); const progress = petBookProgress(G.meta); metaUI.setPetBook({ ...progress, cards: allPetCards(G.meta) });
+    ensurePetBook(G.meta); const progress = petBookProgress(G.meta); const cards = allPetCards(G.meta);
+    metaUI.setPetBook({ ...progress, cards });
+    // The Album tab reads the same card list, joined against the two v5 meta surfaces the Pet Book
+    // itself does not care about: how the pet has been photographed, and what it is wearing.
+    metaUI.setAlbum({
+      cards: cards.map(c => ({
+        ...c,
+        album: (G.meta.album || {})[c.key] || null,
+        equippedId: (G.meta.equipped || {})[c.key] || null,
+      })),
+      renderPortrait: (petKeyStr, poseId, accessoryId) => renderPetPortrait(S.renderer, {
+        petKey: petKeyStr, poseId, accessoryId,
+      }),
+      onEquip: (key, accessoryId) => {
+        // Replaced rather than mutated, for the same snapshot-aliasing reason systems/photo.js
+        // rebuilds meta.album instead of incrementing through it.
+        G.meta.equipped = { ...(G.meta.equipped || {}), [key]: accessoryId };
+        syncPetBookPresentation(); saveNow('accessory-equip');
+      },
+    });
   }
   function syncCareerPresentation() {
     const career = ensureCareer(G.meta), rep = reputationProgress(G.meta), level = reputationLevel(G.meta), week = weeklyCupState(G.meta, G.dayState.day);
@@ -157,12 +179,20 @@ export function createGame(S, area, els, platform = null) {
     return Math.round(base * (1 + themeBonus) * gMult);
   };
   const ctx = { area, world, scene, hud, fx, sheets, audio, input, owner, P, price, els, vis: new Map(), hints: { oven: 0, counter: 0, cash: 0, zone: 0, refillCoffee: 0, refillBowl: 0, harvest: 0, blend: 0, clean: 0 }, firstHint: { msg: null, t: 0 } };
+  ctx.syncPetBook = syncPetBookPresentation;
+  // The portrait renderer needs the game's single WebGLRenderer, which only main.js's createScene
+  // owns — passed as a callback so systems/photo.js never imports the render layer directly.
+  ctx.renderPortrait = (petKeyStr, poseId) => renderPetPortrait(S.renderer, {
+    petKey: petKeyStr, poseId, accessoryId: (G.meta.equipped || {})[petKeyStr] || null,
+  });
   ctx.discoverPet = (species, variant) => {
     const discovery = discoverPet(G.meta, species, variant); if (!discovery.isNew) return;
+    G.meta.followers = addFollowers(G.meta.followers, followersForDiscovery());
     syncPetBookPresentation(); metaUI.announcePet(discovery); audio.play('ding'); saveNow('pet-discovery');
   };
 
   const stations = createStations(G, S, ctx); const zones = createZones(G, S, ctx); const customers = createCustomers(G, S, ctx); const staff = createStaff(G, S, ctx);
+  const photoStudio = createPhotoStudio(G, S, ctx);
   const visuals = createVisuals(G, S, ctx); const registerCash = createRegisterCash(G, S, ctx); const economyExperience = createEconomyExperience(G, S, ctx, platform);
   G.meta.servicePolicy = normalizeServicePolicy(G.meta.servicePolicy);
   const guestCare=createGuestCare(G,ctx); const petSocials = createPetSocials(G, S, ctx); const partyOrders = createPartyOrders(G, S, ctx, platform); const objective = createObjective(G, S, ctx); const intro = createIntro(G, S, ctx);
@@ -174,7 +204,7 @@ export function createGame(S, area, els, platform = null) {
     G.time += dt; world.servicePolicyActive = prepareServicePolicy(G);
     const policy=G.meta.servicePolicy;
     if(!policy.notice && G.dayState.day>=policy.enabledFrom-1){policy.notice=true;hud.banner('FROM DAY '+policy.enabledFrom+': long waits and dirty-table departures cost coins. Shift cap '+Math.floor(policy.baseline*.08)+'.',6500);G.requestCheckpoint('service-policy-notice');}
-    petSocials.update(); guestCare.update(dt); input.update(); stations.update(dt); zones.update(dt);
+    petSocials.update(); guestCare.update(dt); input.update(); stations.update(dt); zones.update(dt); photoStudio.update(dt);
     customers.prepare(dt); staff.prepare();
     const barista = G.baristaWorker?.prepare();
     beginActorStep(world, G.customers, G.staffList, barista ? [barista] : []);
@@ -214,6 +244,7 @@ export function createGame(S, area, els, platform = null) {
       else if (e.type === 'dayEnd') openDaySummary();
     }
     hud.setDay(G.dayState.day, G.dayState.phase, phaseFrac(G.dayState)); hud.setContract(G.goal, G.dayStats, G.dayState.day);
+    hud.setFollowers(G.meta.followers);
     // Pass the goal itself, not only its sentence: the pill renders a glyph plus the numeral
     // rather than "Rival · Serve 24". The text stays as the fallback for any unmapped kind.
     hud.setGoal(G.goal ? `${careerGoalLabel(G.goal)} · ${careerGoalProgress(G.goal, G.dayStats)}/${G.goal.target}` : null, G.goal || null);

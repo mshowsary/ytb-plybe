@@ -30,6 +30,7 @@ const ANCHORS = [
   ['.zlabel', 0.5, 0.5],
   ['.zprice', 0.5, 0.5],
   ['.fbtn', 0.5, 0.5],
+  ['.polaroid', 0.5, 1.0],
 ];
 
 // Higher wins ties and is placed first. Interactive controls outrank everything: they are tap
@@ -38,6 +39,9 @@ const PRIORITY = [
   ['.fbtn', 100],
   ['.wish', 80],
   ['.patience', 78],
+  // The developed photo, on its way to the Pet Book button. Ranked with .zprice: it is a reward
+  // readout the player should not lose, but it must yield to a wish bubble and to any tap target.
+  ['.polaroid', 60],
   ['.zprice', 60],
   ['.zlabel', 58],
   ['.demand', 55],
@@ -51,7 +55,7 @@ const PRIORITY = [
 const HIDEABLE = new Set(['.chalk', '.demand']);
 
 // HUD furniture that world labels must not sit under. Measured live so it tracks content changes.
-const HUD_KEEPOUT = '#wallet,#crowd,#dayPill,#goalPill,#hint,#banner,#handsFull,.meta-reputation,'
+const HUD_KEEPOUT = '#wallet,#crowd,#dayPill,#goalPill,#hint,#banner,#handsFull,#followers,.meta-reputation,'
   + '.meta-pawbook,.contractBadge,.skipPill,#joy,.pause-btn,.rewards-cal-btn,.meta-toast,'
   + '.coach-caption,.friendship-toast,.golden-indicator,.toast,.build-intent-progress';
 

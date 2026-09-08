@@ -58,6 +58,10 @@ function normalizeRow(def, row, stars, maxPile) {
   if (!isRecord(row)) return null;
   switch (def.type) {
     case 'checkout':
+    // The photo booth's tray collects exactly like a register's, so it persists the same way.
+    // st.session is deliberately NOT persisted: it points at a live customer id, and customers
+    // intentionally restart after a reload (same reasoning as 'seat' occupied-vs-dirty below).
+    case 'photo':
       return { pile: boundedQuantity(row.pile, maxPile) };
     case 'oven':
     case 'display':
@@ -138,6 +142,9 @@ function resetRuntimeStation(st, def, stars) {
     case 'checkout':
       st.pile = 0; st.serving = ''; st.procT = 0; st._watchdogT = 0;
       break;
+    case 'photo':
+      st.pile = 0; st.serving = ''; st.session = null;
+      break;
     case 'oven':
       st.product = baseProduct(def); st.stock = 0; st.timer = 0;
       break;
@@ -185,7 +192,8 @@ export function restoreStationState(world, payload, stars = {}, maxPile = DEFAUL
     const st = world.stations.get(id);
     if (!st || !st.active) continue;
     switch (st.type) {
-      case 'checkout': st.pile = row.pile; break;
+      case 'checkout':
+      case 'photo': st.pile = row.pile; break;
       case 'oven':
       case 'display': st.stock = row.stock; st.product = row.product; break;
       case 'coffee': st.beans = row.beans; st.stock = row.stock; st.product = row.product; break;

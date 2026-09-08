@@ -25,9 +25,18 @@ export function installHudLayout() {
   const s = document.createElement('style');
   s.id = ID;
   s.textContent = `
-/* ---------- Short viewports: reflow the left column into two top rows ----------
+/* Followers pill (plan 3.3/7.4): icon + numeral, appended below the pawbook in the tall column.
+   Content lives in src/ui/hud.js; every position (this default plus both media queries below)
+   lives here so hudLayout.js stays the one place that decides where HUD furniture sits. 296px
+   clears meta-pawbook's fixed top:238 (see src/ui/meta.js) plus its ~44px height with headroom to
+   spare, and the whole column still fits well inside COLUMN_MIN_HEIGHT. */
+#followers{left:calc(12px + var(--sal));top:calc(296px + var(--sat));font-size:16px}
+#followers .picon{width:20px;height:20px;flex:none;color:var(--ink)}
+
+/* ---------- Short viewports: reflow the left column into three top rows ----------
    Row 1: wallet · crowd · hands-full          (right: day pill)
    Row 2: reputation · paw book                (right: goal pill)
+   Row 3: followers
    Every offset is horizontal here, so vertical room stops being the binding constraint. */
 @media (max-height:${COLUMN_MIN_HEIGHT - 1}px){
   #wallet{left:calc(10px + var(--sal))!important;top:calc(8px + var(--sat))!important}
@@ -37,6 +46,8 @@ export function installHudLayout() {
     min-width:0!important;max-width:130px!important}
   .meta-pawbook{left:calc(148px + var(--sal))!important;
     top:calc(62px + var(--sat))!important;min-height:44px!important}
+  #followers{left:calc(10px + var(--sal))!important;top:calc(116px + var(--sat))!important;
+    font-size:14px!important}
   /* The top-right corner is already owned by the pause (right:12) and calendar (right:68)
      buttons, both 48px tall at top:12. Day and goal pills take the rows BELOW them. */
   #dayPill{top:calc(66px + var(--sat))!important;min-width:0!important}
@@ -56,6 +67,7 @@ export function installHudLayout() {
   #dayPill{min-width:0!important;font-size:13px!important}
   #goalPill{font-size:12px!important}
   .meta-reputation{max-width:124px!important}
+  #followers{font-size:14px!important}
 }
 
 /* Tap targets stay at the platform minimum at every size. */

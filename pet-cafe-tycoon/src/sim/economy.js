@@ -1,26 +1,21 @@
 import { isHoliday, isWeekend } from './day.js';
 import { DECOR, DECOR_BY_ID, decorUnlocked } from '../../data/decor.js';
-
-// Base menu value. The starter bakery remains intentionally modest; later product lines earn more
-// so the economy can reduce raw customer volume without making the developed café feel poorer.
-export const PRODUCTS = {
-  cookie:   { price: 8,  bake: 1.2, color: '#D9A066' },
-  cupcake:  { price: 13, bake: 1.6, color: '#FF8A80' },
-  coffee:   { price: 12, make: 2.5, color: '#6B4A2B' },
-  smoothie: { price: 24, make: 2.0, color: '#8B7CF6' },
-  treat:    { price: 8,  color: '#C97A3A' },
-  brownie:  { price: 13, bake: 1.2, color: '#6B4023' },
-  latte:    { price: 19, make: 2.5, color: '#C9A877' },
-  // Batch 1 — the ice cream lane (plan 3.1). icecream1 mirrors coffee1 exactly, so sundae is its
-  // alt recipe (world.js ALT_PRODUCT) the same way latte is coffee1's. pupcup is a pet-treat
-  // variant dispensed at icecream1 (plan: wishFor gives terrace-bound pet wishes a pupcup instead
-  // of a treat) — it has no `make`/`bake` because it costs 1 cream directly, not a buffer slot.
-  icecream: { price: 26, make: 2.0, color: '#FFF0F5' },
-  sundae:   { price: 34, make: 2.6, color: '#FFD6E7' },
-  pupcup:   { price: 14, color: '#FFE4C4' },
-};
-
-export const FAMILY = { cookie: 'cookie', brownie: 'cookie', coffee: 'coffee', latte: 'coffee', sundae: 'icecream' };
+// TASK 1.6a: every tunable number below (menu prices, ladders, growth constants, the demand curve,
+// star-cost formula) now lives in economyConfig.js. This file is the BEHAVIOUR — the formulas that
+// read those numbers — economyConfig.js is the DATA. Re-exporting the config's own names here (the
+// `export { X } from` lines) keeps every existing `import { PRODUCTS } from './economy.js'` call
+// site elsewhere in the codebase working unchanged; only this file's internals were touched.
+import {
+  PRODUCTS, FAMILY, BASE_TREAT_CHANCE, UPGRADES, LADDER_GROWTH, BASE_SPEED,
+  SPEED_ASYMPTOTE, INCOME_ASYMPTOTE, MACHINE_ASYMPTOTE, WORKER_ASYMPTOTE, DEMAND,
+  STAFF, REGISTER_RATE, WORKER_UPGRADES, MACHINE_UPGRADES, RUNNER_CARRY_LEVELS, DISPLAY_CAP_LEVELS,
+  STARTER_STAR_COSTS, ZONE_STAR_MULT, STAR_LADDER_GROWTH, DISPLAY_STAR_CAP, DISPLAY_STAR_CAP_GROWTH_PER_TIER,
+} from './economyConfig.js';
+export {
+  PRODUCTS, FAMILY, UPGRADES, LADDER_GROWTH, BASE_SPEED,
+  STAFF, REGISTER_RATE, WORKER_UPGRADES, MACHINE_UPGRADES, RUNNER_CARRY_LEVELS, DISPLAY_CAP_LEVELS,
+  DISPLAY_STAR_CAP,
+} from './economyConfig.js';
 export const familyOf = key => FAMILY[key] || key;
 
 export function availableWishProducts(w) {
@@ -48,7 +43,6 @@ function bowlIsActive(w) {
   return false;
 }
 
-const BASE_TREAT_CHANCE = 0.3;
 export function wishFor(w) {
   const products = availableWishProducts(w);
   const day = w.dayState;
@@ -61,12 +55,6 @@ export function wishFor(w) {
   const treat = bowlIsActive(w) && ((day && isWeekend(day.day)) || w.rng.chance(baseTreatChance));
   return { product, treat };
 }
-
-export const UPGRADES = {
-  speed:  { costs: [400, 900, 1800] },
-  carry:  { costs: [300, 700, 1500], values: [6, 9, 12, 16] },
-  income: { costs: [600, 1400, 3000] },
-};
 
 // ---------------------------------------------------------------------------------------------
 // WHY THE LADDERS CONTINUE
@@ -82,7 +70,6 @@ export const UPGRADES = {
 // Costs grow geometrically (an ever-larger goal) while effects approach an asymptote (bounded
 // power). That pairing is what keeps a late café worth investing in without letting the owner
 // outrun the floor they are supposed to be reading.
-export const LADDER_GROWTH = 1.85;
 export function continueLadder(costs, tier, growth = LADDER_GROWTH) {
   if (tier < costs.length) return costs[tier];
   const last = costs[costs.length - 1];
@@ -94,11 +81,10 @@ function asymptote(tier, authoredTiers, authoredValue, span, decay) {
   if (tier <= authoredTiers) return authoredValue(tier);
   return authoredValue(authoredTiers) + span * (1 - Math.pow(decay, tier - authoredTiers));
 }
-export const BASE_SPEED = 4.6;
 // Authored 1 + 0.15t through tier 3 (= 1.45); past that it climbs toward 1.85 and stops. An owner
 // who outruns their own café stops being able to read the floor.
 export const playerSpeed = up =>
-  BASE_SPEED * asymptote(up.speed | 0, 3, t => 1 + 0.15 * t, 0.40, 0.86);
+  BASE_SPEED * asymptote(up.speed | 0, SPEED_ASYMPTOTE.authoredTiers, t => 1 + SPEED_ASYMPTOTE.coef * t, SPEED_ASYMPTOTE.span, SPEED_ASYMPTOTE.decay);
 // Carry is a capacity, so a flat +4 per tier stays legible where a curve would not.
 export const carryCap = up => {
   const t = up.carry | 0, v = UPGRADES.carry.values;
@@ -108,7 +94,7 @@ export function incomeMult(up, boosts, now) {
   const x2 = boosts && boosts.x2Until > now ? 2 : 1;
   // Authored 1 + 0.2t through tier 3 (= 1.6); past that toward 2.2. Inflation beyond that outpaces
   // every cost curve here and turns coins back into a meaningless number.
-  return asymptote(up.income | 0, 3, t => 1 + 0.2 * t, 0.60, 0.85) * x2;
+  return asymptote(up.income | 0, INCOME_ASYMPTOTE.authoredTiers, t => 1 + INCOME_ASYMPTOTE.coef * t, INCOME_ASYMPTOTE.span, INCOME_ASYMPTOTE.decay) * x2;
 }
 export function salePrice(key, up, boosts, seated, now, tipMult = 1) {
   return Math.round(PRODUCTS[key].price * incomeMult(up, boosts, now) * (seated ? 2.0 : 1) * tipMult);
@@ -137,35 +123,24 @@ function usefulFrontCapacity(staff = {}) {
 // `level` is cafeLevel(state): the sum of station star tiers, so pressure tracks the same
 // investment the player is making. Callers that omit it get exactly the old numbers, which keeps
 // every existing test and experiment tool valid.
-export const CROWD_FLOOR_INTERVAL = 2.2;   // fastest sustained arrival, ~27 guests/minute
-export const CROWD_CEILING = 14;           // most guests on the floor at once
+export const CROWD_FLOOR_INTERVAL = DEMAND.CROWD_FLOOR_INTERVAL;   // fastest sustained arrival, ~27 guests/minute
+export const CROWD_CEILING = DEMAND.CROWD_CEILING;                 // most guests on the floor at once
 export function spawnInterval(builtSet, staff = {}, level = 0) {
   const lines = productiveLines(builtSet);
   const usefulStaff = usefulFrontCapacity(staff);
-  const authored = Math.max(4.3, 7.5 - 0.65 * (lines - 1) - 0.35 * usefulStaff);
-  if (!(level > 8)) return authored;
+  const authored = Math.max(DEMAND.MIN_INTERVAL, DEMAND.BASE_INTERVAL - DEMAND.INTERVAL_PER_LINE * (lines - 1) - DEMAND.INTERVAL_PER_STAFF * usefulStaff);
+  if (!(level > DEMAND.LEVEL_GATE)) return authored;
   // Past the authored build-out the room keeps getting busier, approaching the floor.
-  return Math.max(CROWD_FLOOR_INTERVAL, authored - 0.085 * (level - 8));
+  return Math.max(CROWD_FLOOR_INTERVAL, authored - DEMAND.INTERVAL_PER_LEVEL * (level - DEMAND.LEVEL_GATE));
 }
 export function maxCustomers(builtSet, staff = {}, level = 0) {
   const lines = productiveLines(builtSet);
   const usefulStaff = usefulFrontCapacity(staff);
-  const authored = Math.min(6, 4 + (lines >= 3 ? 1 : 0) + (usefulStaff >= 2 ? 1 : 0));
-  if (!(level > 8)) return authored;
-  return Math.min(CROWD_CEILING, authored + Math.floor((level - 8) / 5));
+  const authored = Math.min(DEMAND.MAX_CEILING_AUTHORED, DEMAND.BASE_MAX + (lines >= 3 ? DEMAND.MAX_LINE_BONUS : 0) + (usefulStaff >= 2 ? DEMAND.MAX_STAFF_BONUS : 0));
+  if (!(level > DEMAND.LEVEL_GATE)) return authored;
+  return Math.min(CROWD_CEILING, authored + Math.floor((level - DEMAND.LEVEL_GATE) / DEMAND.LEVEL_PER_MAX_STEP));
 }
 
-// Task 25: Task 24 measured the first Runner as the earliest useful automation because empty-display
-// pressure dominated the early café. Only that first slot changes: the second Runner and every
-// other worker keep their existing prices, so the candidate creates an early relief moment without
-// flattening the later staffing economy.
-export const STAFF = {
-  runner:  { costs: [150, 2800, 5400, 9600], speed: 2.8, carry: 6 },
-  cashier: { costs: [1550, 4200], speed: 2.2 },
-  cleaner: { costs: [1350, 3600], speed: 2.2 },
-  barista: { costs: [2300, 6000], speed: 2.4, carry: 4 },
-};
-export const REGISTER_RATE = { owner: 0.6, cashierBase: 1.0 };
 export function hireCost(kind, staffCounts) {
   const n = (staffCounts && staffCounts[kind]) | 0;
   const def = STAFF[kind];
@@ -188,16 +163,12 @@ export function hire(state, kind) {
   return { ok: true, cost };
 }
 
-export const WORKER_UPGRADES = { speed: [300, 700, 1500], carry: [250, 600, 1300] };
-export const MACHINE_UPGRADES = { oven: [400, 900, 1800], coffee: [400, 900, 1800], display: [300, 700, 1500] };
-export const RUNNER_CARRY_LEVELS = [6, 9, 12, 16];
-export const DISPLAY_CAP_LEVELS = [12, 16, 20, 24];
 export function machineSpeedMult(machineLevels, key) {
-  return asymptote(((machineLevels && machineLevels[key]) | 0), 3, t => 1 + 0.25 * t, 0.70, 0.84);
+  return asymptote(((machineLevels && machineLevels[key]) | 0), MACHINE_ASYMPTOTE.authoredTiers, t => 1 + MACHINE_ASYMPTOTE.coef * t, MACHINE_ASYMPTOTE.span, MACHINE_ASYMPTOTE.decay);
 }
 export function workerSpeedMult(staffLevels, kind) {
   const t = ((staffLevels && staffLevels[kind] && staffLevels[kind].speed) | 0);
-  return asymptote(t, 3, x => 1 + 0.2 * x, 0.55, 0.85);
+  return asymptote(t, WORKER_ASYMPTOTE.authoredTiers, x => 1 + WORKER_ASYMPTOTE.coef * x, WORKER_ASYMPTOTE.span, WORKER_ASYMPTOTE.decay);
 }
 
 const DEFAULT_STAFF_LEVELS = () => ({ runner: { speed: 0, carry: 0 }, cashier: { speed: 0 }, cleaner: { speed: 0 } });
@@ -240,10 +211,10 @@ export function zonePriceFor(area, stationId) {
   return z ? z.price : null;
 }
 export function starCost(area, stationId, targetTier) {
-  if (STARTER_STATIONS.has(stationId)) return targetTier === 2 ? 240 : targetTier === 3 ? 480 : null;
+  if (STARTER_STATIONS.has(stationId)) return targetTier === 2 ? STARTER_STAR_COSTS.tier2 : targetTier === 3 ? STARTER_STAR_COSTS.tier3 : null;
   const zp = zonePriceFor(area, stationId);
   if (zp == null) return null;
-  return targetTier === 2 ? zp * 2 : targetTier === 3 ? zp * 4 : null;
+  return targetTier === 2 ? zp * ZONE_STAR_MULT.tier2 : targetTier === 3 ? zp * ZONE_STAR_MULT.tier3 : null;
 }
 export function nextStarCost(area, stationId, currentTier) {
   const t = (currentTier | 0) || 1;
@@ -251,13 +222,12 @@ export function nextStarCost(area, stationId, currentTier) {
   // A maxed station used to stop being an investment target entirely. The ladder continues from
   // the authored tier-3 price so late coins always have somewhere to go.
   const base = starCost(area, stationId, 3);
-  return base == null ? null : Math.round(base * Math.pow(1.8, t - 2) / 10) * 10;
+  return base == null ? null : Math.round(base * Math.pow(STAR_LADDER_GROWTH, t - 2) / 10) * 10;
 }
-// Authored through tier 3; +4 slots per tier after that.
-export const DISPLAY_STAR_CAP = { 1: 8, 2: 12, 3: 16 };
+// Authored through tier 3; +DISPLAY_STAR_CAP_GROWTH_PER_TIER slots per tier after that.
 export function displayStarCap(tier) {
   const t = Math.max(1, tier | 0);
-  return t <= 3 ? DISPLAY_STAR_CAP[t] : 16 + 4 * (t - 3);
+  return t <= 3 ? DISPLAY_STAR_CAP[t] : DISPLAY_STAR_CAP[3] + DISPLAY_STAR_CAP_GROWTH_PER_TIER * (t - 3);
 }
 export function ensureStars(state, world) {
   if (!state.stars) state.stars = {};

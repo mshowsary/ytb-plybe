@@ -5,6 +5,8 @@ import { subscribeWorld } from '../sim/events.js';
 import { allPetCards, awardFirstBestieKeepsake, ensurePetBook, recordPetVisit } from '../sim/petBook.js';
 import { getActiveRenovationDecor } from '../render/renovation.js';
 import { presentationScheduler } from '../core/presentationScheduler.js';
+import { admitResident, currentResidentStars } from './residentPets.js';
+import { addFollowers, followersForBestie } from '../sim/followers.js';
 
 const STYLE_ID = 'pet-cafe-friendship-style';
 
@@ -136,6 +138,12 @@ export function installPetFriendship(G, platform = null) {
 
       let keepsakeAwarded = false;
       if (result.promoted && result.friendship.max) {
+        // Task 2.5: the instant a pet reaches the Bestie tier it is offered the next open resident
+        // slot -- true first-come-first-served, since promotions happen in real play order. A
+        // no-op once every slot is filled or this pet already lives here. residentPets.js does not
+        // render the move-in until the next in-game morning (see that module's header).
+        admitResident(G.meta, result.key, currentResidentStars(G));
+        G.meta.followers = addFollowers(G.meta.followers, followersForBestie());
         const award = awardFirstBestieKeepsake(G.petKeepsake, result.key);
         if (award.changed) {
           G.petKeepsake = award.data;
