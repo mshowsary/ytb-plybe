@@ -3,10 +3,11 @@ import { pushOut } from '../sim/collide.js';
 import {
   PRODUCTS, familyOf, playerSpeed, carryCap, buyUpgrade, hire as hireStaff,
   buyWorkerUpgrade, buyMachineUpgrade, machineSpeedMult, buyStar, STAR_IDS,
+  buyDecor,
 } from '../sim/economy.js';
 import {
   stepOvens, stepMachines, takeFromOven, takeFromMachine, putOnDisplay, collectCash,
-  refillBeans, refillBowl, harvestBush, addFruit as stationAddFruit, cleanSeat,
+  refillBeans, refillBowl, harvestBush, addFruit as stationAddFruit, ownerCleanSeat,
 } from '../sim/world.js';
 import { canTakeItems, takeSack, useSack, addFruit as carryAddFruit, returnAll } from '../sim/carry.js';
 import { heldState, destinationFor, findReturnStation, heldLabel, destinationLabel } from '../sim/interaction.js';
@@ -114,6 +115,11 @@ export function createStations(G, S, ctx) {
     if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); markCheckpoint('station-star'); }
     else { audio.play('angry'); hud.toast('Not enough coins'); }
   }
+  function doBuyDecor(id) {
+    const r = buyDecor(G, id);
+    if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); markCheckpoint('decor-buy'); }
+    else { audio.play('angry'); hud.toast('Not enough coins'); }
+  }
   function doSetTab(tab) { currentTab = tab; currentFocusRow = null; refreshOpen(); }
   function doAssignRunner(index, displayId) {
     const runners = G.staffList.filter(s => s.kind === 'runner');
@@ -123,7 +129,7 @@ export function createStations(G, S, ctx) {
   }
   const sheetActions = {
     buy: doBuy, hire: doHire, buyWorker: doBuyWorker, buyMachine: doBuyMachine,
-    buyStar: doBuyStar, setTab: doSetTab, assignRunner: doAssignRunner,
+    buyStar: doBuyStar, setTab: doSetTab, assignRunner: doAssignRunner, buyDecor: doBuyDecor,
   };
 
   function doOpenKioskFocused(stationId) {
@@ -375,8 +381,12 @@ export function createStations(G, S, ctx) {
         if (st.type === 'seat') {
           // Dirty tables are maintenance, so proximity itself is the interaction.
           if (st.dirty && near(P, st.front, AUTO_CLEAN_RADIUS) && !sheets.isOpen) {
-            cleanSeat(world, st.id); hints.clean = 1; audio.play('clean');
-            fx.burst(st.x, 0.8, st.z, C.cream, 8);
+            // Program §6.3: one call emits 'cleaning' then 'cleaned', so the owner's wipe runs the
+            // SAME ring, sparkle, table pop and crumb fade a cleaner's does. The burst and the
+            // chime that used to live here moved into systems/visuals.js with the rest of that
+            // presentation — a second copy here is what made one actor's wipe look like a
+            // different mechanic from the other's.
+            ownerCleanSeat(world, st.id); hints.clean = 1;
           }
         }
 

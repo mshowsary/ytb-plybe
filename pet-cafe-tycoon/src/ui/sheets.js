@@ -1,5 +1,6 @@
 // Bottom sheets: upgrades, pantry and end-of-shift card.
-import { beanIcon, kibbleIcon, iconFor } from './icons.js';
+import { beanIcon, kibbleIcon, iconFor, checkIcon } from './icons.js';
+import { decorCatalogue } from '../../data/decor.js';
 import { presentationScheduler } from '../core/presentationScheduler.js';
 const COIN_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9.5" fill="#FFD84D" stroke="#C98A00" stroke-width="1.5"/></svg>';
 const CHEVRON_DOWN_SVG = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -34,7 +35,75 @@ function levelSubrow(name, lv, onBuy) {
   return sub;
 }
 
-const TABS = [{ key: 'player', label: 'Player' }, { key: 'workers', label: 'Workers' }, { key: 'machines', label: 'Machines' }];
+const TABS = [{ key: 'player', label: 'Player' }, { key: 'workers', label: 'Workers' }, { key: 'machines', label: 'Machines' }, { key: 'decor', label: 'Décor' }];
+
+// --- decor tab (plan 3.12) --------------------------------------------------------------------
+// Decor is the 60-900 coin filler that fixes the measured "nothing to buy on days 2-6" gap. Its
+// rows are ICON + NUMERAL only: a glyph of the piece, its price, a buy button and an owned check.
+// No item names, so the tab needs no localisation and reads exactly like the wish bubbles do.
+//
+// The CSS is injected from here rather than added to style.css, so this tab owns its own
+// presentation and cannot collide with another surface's rules.
+const DECOR_CSS = [
+  '.decor-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:8px;padding:2px 0}',
+  '.decor-card{display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 6px;border-radius:14px;background:rgba(255,255,255,.72);box-shadow:inset 0 0 0 2px rgba(59,46,42,.10)}',
+  '.decor-card.is-owned{background:rgba(127,214,154,.22);box-shadow:inset 0 0 0 2px rgba(46,204,113,.45)}',
+  '.decor-card .decor-art{width:44px;height:44px;display:block}',
+  '.decor-card .decor-art svg{width:100%;height:100%;display:block}',
+  '.decor-card .sbtn{min-width:74px;justify-content:center}',
+  '.decor-check{width:26px;height:26px;display:block}',
+  '.decor-check svg{width:100%;height:100%;display:block}',
+].join('\n');
+let decorCssInjected = false;
+function ensureDecorCss() {
+  if (decorCssInjected || typeof document === 'undefined' || !document.head) return;
+  decorCssInjected = true;
+  const style = document.createElement('style');
+  style.dataset.sheet = 'decor';
+  style.textContent = DECOR_CSS;
+  document.head.appendChild(style);
+}
+
+// Rows come from the kiosk model when it supplies them; otherwise they are derived here from the
+// catalogue plus the owned-id list, so the tab lists correctly even before that wiring lands.
+// Terrace rows never appear: decorCatalogue() drops anything whose gating zone is not built.
+export function decorRows(model) {
+  if (Array.isArray(model && model.decor)) return model.decor;
+  const owned = new Set(Array.isArray(model && model.decorOwned) ? model.decorOwned : []);
+  const coins = (model && model.coins) || 0;
+  return decorCatalogue((model && model.built) || null).map(item => ({
+    id: item.id, price: item.price, icon: item.icon,
+    owned: owned.has(item.id),
+    disabled: owned.has(item.id) || coins < item.price,
+  }));
+}
+
+function renderDecorTab(rows, model, actions) {
+  ensureDecorCss();
+  const grid = document.createElement('div'); grid.className = 'decor-grid';
+  for (const r of decorRows(model)) {
+    const card = document.createElement('div');
+    card.className = 'decor-card' + (r.owned ? ' is-owned' : '');
+    card.dataset.decor = r.id;
+    const art = document.createElement('span'); art.className = 'decor-art'; art.innerHTML = r.icon;
+    card.appendChild(art);
+    if (r.owned) {
+      const done = document.createElement('span');
+      done.className = 'decor-check'; done.innerHTML = checkIcon();
+      done.setAttribute('aria-label', 'Owned');
+      card.appendChild(done);
+    } else {
+      const btn = actionButton('sbtn buy', priceContent(r.price), !!r.disabled, () => {
+        if (actions && typeof actions.buyDecor === 'function') actions.buyDecor(r.id);
+      });
+      btn.dataset.decorBuy = r.id;
+      card.appendChild(btn);
+    }
+    grid.appendChild(card);
+  }
+  rows.appendChild(grid);
+}
+
 function renderPlayerTab(rows, model, actions) {
   for (const r of model.player) {
     const row = document.createElement('div'); row.className = 'srow';
@@ -91,7 +160,10 @@ function renderKiosk(model, actions, onClose) {
   const el = shell('kiosk', 'UPGRADES', onClose); const tabs = document.createElement('div'); tabs.className = 'stabs';
   for (const t of TABS) { const b = document.createElement('button'); b.type = 'button'; b.className = 'stab' + (model.tab === t.key ? ' active' : ''); b.textContent = t.label; b.addEventListener('click', () => actions.setTab(t.key)); tabs.appendChild(b); }
   el.appendChild(tabs); const rows = document.createElement('div'); rows.className = 'srows'; el.appendChild(rows);
-  if (model.tab === 'workers') renderWorkersTab(rows, model, actions); else if (model.tab === 'machines') renderMachinesTab(rows, model, actions); else renderPlayerTab(rows, model, actions);
+  if (model.tab === 'workers') renderWorkersTab(rows, model, actions);
+  else if (model.tab === 'machines') renderMachinesTab(rows, model, actions);
+  else if (model.tab === 'decor') renderDecorTab(rows, model, actions);
+  else renderPlayerTab(rows, model, actions);
   return el;
 }
 function renderPantry(model, actions, onClose) {

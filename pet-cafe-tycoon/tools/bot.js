@@ -11,7 +11,7 @@ import { createStaff, stepStaff } from '../src/sim/staff.js';
 import { createMover, setTarget, stepMover } from '../src/sim/mover.js';
 import {
   spawnInterval, maxCustomers, salePrice, playerSpeed, carryCap, cafeLevel,
-  ensureStars, hireCost, nextStarCost, STAR_IDS,
+  ensureStars, hireCost, nextStarCost, STAR_IDS, familyOf, cheapestDecor,
 } from '../src/sim/economy.js';
 import { createDay, stepDay, nextDay, spawnMult, capBonus, tipMult } from '../src/sim/day.js';
 import {
@@ -192,10 +192,41 @@ function affordableOptionsCount() {
     const st = world.stations.get(id); if (!st || !st.active) continue;
     const c = nextStarCost(world.area, id, (G.stars && G.stars[id]) || 1); if (c != null && c <= coins) n++;
   }
+  // Décor counts as ONE option (the cheapest affordable row), not one per item: the catalogue is
+  // 24 items and counting them all overshoots this metric's own "healthy target is usually 1-3"
+  // (measured [0,1,2,0,0,16,21] counting all rows vs [0,1,2,0,0,2,4] counting the cheapest).
+  { const d = cheapestDecor(G, world.built); if (d && d.price <= coins) n++; }
   return n;
 }
 
 let teleports = 0; const stalls = [];
+// Invariant D (plan section 4.3): "no runner holds items for > 6s while a same-family display has
+// free capacity". Measured straight off sim state every tick, deliberately INDEPENDENT of
+// src/sim/staff.js's own watchdog (which force-routes a delivery at the same threshold and emits
+// runnerStuck) so this stays an outside check rather than a restatement of the implementation.
+// Note for whoever reads a run of 0 here: this bot models staff as PACING modifiers only — hire()
+// increments G.staff counts and spawnInterval/maxCustomers read them, but no runner ACTOR is ever
+// pushed into `staffList`, so with today's bot both counters are 0 by construction. The gate is
+// wired now so it starts biting the moment runner actors are simulated here; the behavioural gate
+// for section 6.1 today is test/staff-runner-need.test.js.
+const runnerHoldT = new Map();
+let invariantDViolations = 0, runnerStuckEvents = 0, worstRunnerHold = 0;
+function displayForFamily(product) {
+  const fam = familyOf(product);
+  for (const id of world.displays) { const st = world.stations.get(id); if (familyOf(st.product) === fam) return st; }
+  return null;
+}
+function checkRunnerInvariant(dt) {
+  for (const s of staffList) {
+    if (s.kind !== 'runner') continue;
+    if (!(s.items && s.items.length > 0)) { runnerHoldT.set(s, 0); continue; }
+    const ct = s.assign ? world.stations.get(s.assign) : displayForFamily(s.items[0]);
+    if (!(ct && ct.active && ct.stock < ct.capacity)) { runnerHoldT.set(s, 0); continue; }
+    const held = (runnerHoldT.get(s) || 0) + dt;
+    worstRunnerHold = Math.max(worstRunnerHold, held);
+    if (held > 6) { invariantDViolations++; runnerHoldT.set(s, 0); } else runnerHoldT.set(s, held);
+  }
+}
 let t = 0;
 while (G.dayState.day <= MAX_DAYS) {
   G.time = t;
@@ -220,6 +251,7 @@ while (G.dayState.day <= MAX_DAYS) {
   for (const id of world.checkouts) { const co = world.stations.get(id); if (co.active && near(owner, co.front, 1.2)) co.serving = 'owner'; }
   stepCustomers(customers, world, price, DT);
   stepStaff(staffList, world, DT, () => {}, undefined, customers);
+  checkRunnerInvariant(DT);
 
   for (const c of customers) {
     if (c.mood === 'wait') custWaitTime.set(c.id, (custWaitTime.get(c.id) || 0) + DT);
@@ -254,7 +286,8 @@ while (G.dayState.day <= MAX_DAYS) {
       const order = paid && paid.order || [];
       ledger.record('sale', `service:${order.length ? order.join('+') : 'unknown'}`, e.amount, { meta:{ customerId:e.id, checkoutId:e.checkoutId || null } });
       recordRecipeOrder(G.meta, order);
-    } else if (e.type === 'lost') {
+    } else if (e.type === 'runnerStuck') runnerStuckEvents++;
+    else if (e.type === 'lost') {
       G.dayStats.lost++; G.serviceStreak = { count: 0, t: 0 };
     } else if (e.type === 'built') dayPurchases.push('built ' + e.zoneId);
     else if (e.type === 'purchase') {
@@ -354,6 +387,9 @@ const affordVals = dayReport.filter(r => r.day >= 2 && r.day <= 8).map(r => r.af
 console.log(`affordable options at closing (days 2-8): [${affordVals.join(', ')}] — healthy target is usually 1-3, not everything at once`);
 console.log('ledger reconciliation mismatches: ' + ledgerMismatches.length);
 console.log('stalls: ' + stalls.length + '  teleports: ' + teleports);
+console.log('runner watchdog: runnerStuck events ' + runnerStuckEvents
+  + '  invariant D violations ' + invariantDViolations
+  + '  (longest hold with display room ' + worstRunnerHold.toFixed(1) + 's, limit 6.0s)');
 if (stalls.length) console.log('first stalls:', JSON.stringify(stalls.slice(0, 10)));
 if (ledgerMismatches.length) console.log('first ledger mismatch:', JSON.stringify(ledgerMismatches[0]));
 console.log('kind counts:', JSON.stringify(kindCounts));
@@ -366,6 +402,7 @@ let gateFail = false;
 if (ledgerMismatches.length > 0) { console.error('LEDGER FAILED TO RECONCILE WALLET'); gateFail = true; }
 if (stalls.length > 0) { console.error(`${stalls.length} STALLS (must be 0)`); gateFail = true; }
 if (teleports > 0) { console.error(`${teleports} TELEPORTS (must be 0)`); gateFail = true; }
+if (invariantDViolations > 0) { console.error(`INVARIANT D: ${invariantDViolations} runner holds > 6s while a same-family display had room (must be 0)`); gateFail = true; }
 if (wallMs > 15000) { console.error('BOT WALL-CLOCK BUDGET EXCEEDED'); gateFail = true; }
 if (daysToComplete == null) { console.error('area 1 never completed within ' + MAX_DAYS + ' days'); gateFail = true; }
 if (checkpointFail || !rushFrictionOk || outsideFriction >= 0.25 || avgLostPct < 4 || avgLostPct > 10 || !(daysToComplete >= 10 && daysToComplete <= 12)) {

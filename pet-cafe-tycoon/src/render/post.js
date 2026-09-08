@@ -64,6 +64,7 @@ uniform float bloomAmount;
 uniform float exposure;
 uniform float saturation;
 uniform float vignetteAmount;
+uniform float gradeWarmth;
 uniform vec3  shadowTint;
 uniform vec3  highlightTint;
 uniform float edgeLo;
@@ -107,8 +108,13 @@ void main() {
   col = aces(col * exposure);
   float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
   col = mix(vec3(luma), col, saturation);
-  // Warm the shadows and cream the highlights: the café's whole identity is "afternoon sun".
+  // Shadow/highlight tints are NEUTRAL by default (plan §5.2). The whole frame used to be pushed
+  // toward cream here, which is where most of the sepia came from. daylight.js only cools the
+  // shadow tint late in the day, when a low sun genuinely makes shadows blue.
   col = mix(col * shadowTint, col * highlightTint, smoothstep(0.15, 0.95, luma));
+  // Time-of-day warmth from render/daylight.js: a tiny R/B counter-shift, negative (cool) in
+  // the morning, positive (warm) at sunset. Never a fixed cast.
+  col *= vec3(1.0 + gradeWarmth, 1.0, 1.0 - gradeWarmth);
 
   float d = distance(vUv, vec2(0.5)) * 1.414;
   col *= 1.0 - smoothstep(0.55, 1.25, d) * vignetteAmount;
@@ -189,10 +195,11 @@ export function createPostFX(renderer, scene, camera) {
       outlineColor: { value: new THREE.Color('#43302B') }, // warm ink, never pure black
       bloomAmount: { value: 0.5 },
       exposure: { value: 1.06 },
-      saturation: { value: 1.09 },
-      vignetteAmount: { value: 0.20 },
-      shadowTint: { value: new THREE.Color('#FFE9D2') },
-      highlightTint: { value: new THREE.Color('#FFFBF2') },
+      saturation: { value: 1.12 },
+      vignetteAmount: { value: 0.10 },
+      gradeWarmth: { value: 0 },
+      shadowTint: { value: new THREE.Color('#FFFFFF') },
+      highlightTint: { value: new THREE.Color('#FFFFFF') },
       edgeLo: { value: 0.013 },
       edgeHi: { value: 0.048 },
       debugMode: { value: 0 },

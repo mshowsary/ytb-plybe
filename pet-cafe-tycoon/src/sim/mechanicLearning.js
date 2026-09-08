@@ -13,6 +13,13 @@ export const MECHANIC_IDS = Object.freeze([
 ]);
 const KNOWN = new Set(MECHANIC_IDS);
 
+// Task 0.8 half credit. These live here, beside the canonical payload, because the save boundary
+// (sim/save.js -> normalizeMechanicLearning) and the coach must agree on exactly one bound.
+export const REFILL_LESSON_KEYS = Object.freeze(['refillCoffee', 'refillBowl']);
+/** Refills of any supply after which every refill lesson counts as proven. */
+export const REFILLS_TO_MASTER = 2;
+const SACK_MARKS = new Set(REFILL_LESSON_KEYS.map(key => `${key}:sack`));
+
 function isRecord(value) { return !!value && typeof value === 'object' && !Array.isArray(value); }
 
 function addEvidence(proven, evidence) {
@@ -27,10 +34,30 @@ function addEvidence(proven, evidence) {
   if (Object.values(evidence?.upgrades || evidence?.up || {}).some(n => Number(n) > 0)) proven.add('kiosk');
 }
 
+/**
+ * Bounded half-credit payload. Restore is untrusted input, so only the two known `<key>:sack` marks
+ * survive (de-duplicated, sorted) and the tally is clamped to an integer in 0..REFILLS_TO_MASTER.
+ * Nothing here can unlock content: it only decides whether a tutorial hand is shown again.
+ */
+export function normalizeRefillProgress(raw) {
+  const sack = new Set();
+  if (isRecord(raw) && Array.isArray(raw.sack)) {
+    for (const entry of raw.sack.slice(0, REFILL_LESSON_KEYS.length * 2)) {
+      if (typeof entry === 'string' && SACK_MARKS.has(entry)) sack.add(entry);
+    }
+  }
+  const tally = isRecord(raw) ? Math.trunc(Number(raw.refills)) : NaN;
+  return {
+    sack: [...sack].sort(),
+    refills: Number.isFinite(tally) ? Math.max(0, Math.min(REFILLS_TO_MASTER, tally)) : 0,
+  };
+}
+
 /** Canonical Task-29 payload: only demonstrated, known mechanic IDs survive. */
 export function normalizeMechanicLearning(raw, evidence = null) {
   const proven = new Set();
-  if (isRecord(raw) && raw.v === MECHANIC_LEARNING_VERSION) {
+  const versioned = isRecord(raw) && raw.v === MECHANIC_LEARNING_VERSION;
+  if (versioned) {
     if (Array.isArray(raw.proven)) {
       for (const key of raw.proven.slice(0, MECHANIC_IDS.length * 2)) if (KNOWN.has(key)) proven.add(key);
     } else if (isRecord(raw.proven)) {
@@ -38,7 +65,14 @@ export function normalizeMechanicLearning(raw, evidence = null) {
     }
   }
   addEvidence(proven, evidence);
-  return { v: MECHANIC_LEARNING_VERSION, proven: [...proven].sort() };
+  const out = { v: MECHANIC_LEARNING_VERSION, proven: [...proven].sort() };
+  // Task 0.8: half credit rides inside this same canonical payload, so it survives a real host
+  // save/load round trip and not merely an in-memory snapshot. Both fields are omitted while empty,
+  // so a save that never touched a refill lesson still serializes exactly as it did before.
+  const half = normalizeRefillProgress(versioned ? raw : null);
+  if (half.sack.length) out.sack = half.sack;
+  if (half.refills > 0) out.refills = half.refills;
+  return out;
 }
 
 export function mechanicIsKnown(key) { return KNOWN.has(key); }

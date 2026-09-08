@@ -42,7 +42,7 @@ test('applySave: legacy flat state is migrated onto canonical known fields', () 
     rewardedReliefCoins: 0, partyOrderCoins: 0,
   });
   assert.deepEqual(state.settings, { sfx: false, music: true });
-  assert.equal(canonical.v, 4);
+  assert.equal(canonical.v, 5);
 });
 
 test('applySave: a falsy or non-object save is a no-op', () => {

@@ -12,6 +12,11 @@ test('old save without meta migrates to a safe modern meta + career + party-orde
     servicePolicy: normalizeServicePolicy(),
     completedDays: 0, rewardedDays: {}, reputation: 0, perfectShifts: 0, bestServiceStreak: 0,
     shiftRatings: {}, petBook: {}, petFriendship: {}, petDiscoveries: 0, settlement: null,
+    // Save v5 (plan 7.3) adds eight meta fields. They belong in this deep-equal because the point of
+    // the test is to guard the migrated meta SHAPE: a v4 save must come back with a bounded default
+    // for every one of them, and nothing may quietly appear here that a fresh save did not earn.
+    decor: [], followers: 0, album: {}, equipped: {}, residents: [],
+    goldenPaw: false, season: { index: 0, dayStart: 1 }, franchise: { level: 0 },
     career: {
       history: {}, weeklyCups: {}, trophies: { bronze: 0, silver: 0, gold: 0 },
       recipeSales: { cookie: 0, cupcake: 0, coffee: 0, smoothie: 0, treat: 0 },

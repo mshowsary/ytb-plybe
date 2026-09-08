@@ -266,11 +266,37 @@ export function refillBowl(w, id, kibble) {
   st.stock += used;
   return used;
 }
-// Clears a dirty seat (owner standing in its front circle for 1.0 s, or a cleaner after 1.6 s —
-// see systems/stations.js and sim/staff.js). No-op (and no event) if the seat wasn't dirty.
+// Clears a dirty seat (the owner stepping into its front circle, or a cleaner after 1.6 s — see
+// systems/stations.js and sim/staff.js). No-op (and no event) if the seat wasn't dirty.
 export function cleanSeat(w, id) {
   const st = w.stations.get(id);
   if (st && st.dirty) { st.dirty = false; emitWorld(w, { type: 'cleaned', seatId: id }); }
+}
+// Program §6.3. 'cleaned' told the presentation layer a wipe FINISHED and nothing told it one had
+// STARTED, so the cleaner's 1.6 s of work was invisible — the crumbs simply popped off at the end
+// — while a table the owner walked past at least got a burst. That asymmetry is exactly the
+// owner's report: "cleaning animation seems some tables have it, some are not". This is the
+// missing half. `by` lets a listener tell the two actors apart (they get the SAME presentation,
+// but the cleaner's is worth an arm animation too) and `seconds` is how long the progress ring
+// has to fill. Emitted only when there is genuinely something to wipe, so a stray call cannot
+// leave systems/visuals.js holding a ring over an already clean table.
+export function beginCleanSeat(w, id, by, seconds) {
+  const st = w.stations.get(id);
+  if (!st || !st.dirty) return false;
+  emitWorld(w, { type: 'cleaning', seatId: id, by, seconds });
+  return true;
+}
+// The owner's wipe is instantaneous in simulation terms: systems/stations.js clears the seat on
+// the frame the owner enters its front circle, and this task deliberately does NOT turn that into
+// a hold — days 1-12 balance stays bit-identical. So start and end land in the same frame and
+// OWNER_WIPE_SECONDS is a PRESENTATION length only (how long systems/visuals.js sweeps the ring),
+// never a duration the player has to stand through. Both halves are emitted from this one place
+// so they can never drift apart again the way they did when only 'cleaned' existed.
+export const OWNER_WIPE_SECONDS = 0.35;
+export function ownerCleanSeat(w, id, seconds = OWNER_WIPE_SECONDS) {
+  if (!beginCleanSeat(w, id, 'owner', seconds)) return false;
+  cleanSeat(w, id);
+  return true;
 }
 
 // M3 T3: manned-register processing. `st.serving` ('' | 'owner' | 'cashier') is set every frame

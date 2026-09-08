@@ -5,7 +5,13 @@ on:
   workflow_dispatch:
   push:
     branches: [chatgpt/pet-cafe-production]
-    paths: ['.github/workflows/pet-cafe-preview-pages.yml']
+    paths:
+      - '.github/workflows/pet-cafe-preview-pages.yml'
+      - 'pet-cafe-tycoon/src/**'
+      - 'pet-cafe-tycoon/data/**'
+      - 'pet-cafe-tycoon/index.html'
+      - 'pet-cafe-tycoon/package.json'
+      - 'pet-cafe-tycoon/package-lock.json'
 
 permissions:
   contents: read

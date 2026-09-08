@@ -1,6 +1,7 @@
 // Durable mid-shift station persistence. This intentionally excludes timers, occupancy, serving,
 // customers, navigation and owner carry state: those are transient (or belong to Task 11).
-import { PRODUCTS, DISPLAY_STAR_CAP, familyOf } from './economy.js';
+import { PRODUCTS, displayStarCap, familyOf } from './economy.js';
+import { SAVE_LIMITS } from './saveSchema.js';
 
 export const STATION_STATE_VERSION = 1;
 export const DEFAULT_REGISTER_PILE_LIMIT = 100_000_000;
@@ -35,8 +36,16 @@ function compatibleProduct(def, value) {
 
 function outputCapacity(def, stars = {}) {
   if (def.type === 'display') {
-    const tier = Number.isFinite(stars[def.id]) ? Math.max(1, Math.min(3, Math.trunc(stars[def.id]))) : 1;
-    return DISPLAY_STAR_CAP[tier] || def.capacity || 8;
+    // Display star tiers are open-ended past the authored tier 3 (economy.js displayStarCap adds 4
+    // slots per tier). Clamping the tier to 3 here pinned this bound at 16, so boundedQuantity()
+    // rejected the legitimate stock of a full tier-4+ display and restored it EMPTY - losing both the
+    // goods and the coins spent on the star. The remaining ceiling is the highest tier a valid save
+    // may carry, so a tampered tier still cannot turn a display into an unbounded container.
+    const raw = stars[def.id];
+    const tier = Number.isFinite(raw)
+      ? Math.max(1, Math.min(SAVE_LIMITS.maxStarTier, Math.trunc(raw)))
+      : 1;
+    return displayStarCap(tier) || def.capacity || 8;
   }
   if (def.type === 'oven') return def.buffer || 12;
   if (def.type === 'coffee' || def.type === 'blender') return def.buffer || 8;

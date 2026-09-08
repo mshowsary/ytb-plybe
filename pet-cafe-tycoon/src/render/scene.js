@@ -18,31 +18,51 @@ export function createScene(canvas) {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog('#F7EDE2', 42, 88);
+  // Every colour below is the MORNING keyframe of render/daylight.js. Nothing here is a permanent
+  // look any more: daylight.update() owns sun/hemi/fog/sky/grade from the first frame of a shift.
+  // These values only decide what one pre-game render (the renderer smoke test in main.js) shows.
+  scene.fog = new THREE.Fog('#F2F6F9', 42, 88);
   const camera = new THREE.PerspectiveCamera(FOV, 1, 0.5, 200);
 
-  {
+  // The sky is a two-colour vertex gradient on a back-faced sphere. It used to be baked once; the
+  // colour attribute is now repainted on demand so time of day can move it (325 verts, ~4 KB).
+  const repaintSky = (() => {
     const g = new THREE.SphereGeometry(90, 24, 12), n = g.getAttribute('position').count;
-    const col = new Float32Array(n * 3), top = new THREE.Color('#CDEEFF'), hor = new THREE.Color('#FFF0DE'), c = new THREE.Color();
-    for (let i = 0; i < n; i++) {
-      const y = g.getAttribute('position').getY(i) / 90;
-      c.copy(hor).lerp(top, Math.max(0, Math.min(1, y * 1.6 + 0.1)));
-      col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
-    }
+    const col = new Float32Array(n * 3), pos = g.getAttribute('position'), c = new THREE.Color();
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    const attr = g.getAttribute('color');
     const sky = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, depthWrite: false, fog: false, toneMapped: false }));
     sky.renderOrder = -1; scene.add(sky);
-  }
+    return (top, hor) => {
+      for (let i = 0; i < n; i++) {
+        const y = pos.getY(i) / 90;
+        c.copy(hor).lerp(top, Math.max(0, Math.min(1, y * 1.6 + 0.1)));
+        col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+      }
+      attr.needsUpdate = true;
+    };
+  })();
+  repaintSky(new THREE.Color('#9FCBFF'), new THREE.Color('#E8F2FF'));
 
-  const hemi = new THREE.HemisphereLight('#FFF7EA', '#E7BFA5', 0.78); scene.add(hemi);
-  const sun = new THREE.DirectionalLight('#FFF0CF', 2.05); sun.castShadow = true;
+  const hemi = new THREE.HemisphereLight('#EAF3FF', '#D6E2CC', 0.82); scene.add(hemi);
+  const sun = new THREE.DirectionalLight('#FFFFFF', 2.3); sun.castShadow = true;
   sun.shadow.camera.left = -14; sun.shadow.camera.right = 14; sun.shadow.camera.top = 14; sun.shadow.camera.bottom = -14;
   sun.shadow.camera.near = 1; sun.shadow.camera.far = 60; sun.shadow.bias = -0.00035; sun.shadow.normalBias = 0.025;
   scene.add(sun); scene.add(sun.target);
   const fill = new THREE.DirectionalLight('#D9E8FF', 0.32); fill.position.set(-8, 7, -10); scene.add(fill);
 
   const target = new THREE.Vector3(0, 0, 0), goal = new THREE.Vector3();
-  const S = { renderer, scene, camera, sun, target, dist: 20 };
+  // The sun's offset from the camera target. daylight.js rewrites it so the shadow direction
+  // travels east → west across the shift instead of being pinned to one afternoon angle.
+  const sunOffset = new THREE.Vector3();
+  const S = { renderer, scene, camera, sun, hemi, fill, target, dist: 20, goldenHour: 0 };
+  S.setSunAngles = (elevationDeg, azimuthDeg, dist = 16) => {
+    const el = elevationDeg * Math.PI / 180, az = azimuthDeg * Math.PI / 180, ch = Math.cos(el);
+    sunOffset.set(Math.sin(az) * ch * dist, Math.sin(el) * dist, Math.cos(az) * ch * dist);
+    sun.position.copy(target).add(sunOffset);
+  };
+  S.setSky = (top, hor) => repaintSky(top, hor);
+  S.setSunAngles(40, 78);
   let shakeAmt = 0;
   S.shake = amount => { shakeAmt = Math.max(shakeAmt, amount); };
 
@@ -81,7 +101,7 @@ export function createScene(canvas) {
       camera.position.z += Math.sin(ang) * shakeAmt;
     }
     camera.lookAt(target.x, target.y + 0.4, target.z);
-    sun.position.set(target.x + 7, target.y + 13, target.z + 5); sun.target.position.copy(target);
+    sun.position.copy(target).add(sunOffset); sun.target.position.copy(target);
   }
 
   S.follow = (x, z, dt) => { goal.set(x, 0, z); target.x = damp(target.x, goal.x, 6, dt); target.z = damp(target.z, goal.z, 6, dt); place(dt); };
@@ -116,20 +136,10 @@ export function createScene(canvas) {
     if (q === 'low') applyRenderScale(0.72); else if (q === 'high') applyRenderScale(1);
   };
 
-  const baseSunColor = new THREE.Color('#FFF0CF');
-  const goldenSunColor = new THREE.Color('#FFD9A0');
-  const baseHemiSky = new THREE.Color('#FFF7EA');
-  const goldenHemiSky = new THREE.Color('#FFE8C6');
-  const baseFog = new THREE.Color('#F7EDE2');
-  const goldenFog = new THREE.Color('#F7E3C4');
-
-  S.setGoldenHour = k => {
-    const factor = Math.max(0, Math.min(1, Number(k) || 0));
-    sun.color.copy(baseSunColor).lerp(goldenSunColor, factor);
-    sun.intensity = 2.05 + factor * 0.35;
-    hemi.color.copy(baseHemiSky).lerp(goldenHemiSky, factor);
-    scene.fog.color.copy(baseFog).lerp(goldenFog, factor);
-  };
+  // Golden Hour is no longer its own palette — it would have overwritten whatever the clock said
+  // and pinned the room to one orange. It now only records how strong the boost should be;
+  // daylight.js layers it on top of the current keyframe on the next update.
+  S.setGoldenHour = k => { S.goldenHour = Math.max(0, Math.min(1, Number(k) || 0)); };
 
   // Resize can fire while YouTube is host-paused (orientation/window chrome changes are common on
   // mobile). Do not mutate renderer/camera/shadow resources during that paused interval. Coalesce

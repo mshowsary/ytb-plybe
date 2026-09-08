@@ -2,13 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   MECHANIC_LEARNING_VERSION,
+  REFILLS_TO_MASTER,
   REFRESH_AFTER_FAILURES,
   normalizeMechanicLearning,
+  normalizeRefillProgress,
   coachEscalationStage,
   selectCoachPriority,
   stableContextAction,
 } from '../src/sim/mechanicLearning.js';
-import { refillLessonNeed, urgentCustomerNeed } from '../src/ui/interactionCoach.js';
+import { createRefillProgress, refillLessonNeed, urgentCustomerNeed } from '../src/ui/interactionCoach.js';
 
 test('Task 29: canonical mechanic learning keeps only proven known mechanics', () => {
   const learning = normalizeMechanicLearning({
@@ -75,6 +77,58 @@ test('Task 29: proven refill lesson is absent from first-use detector after relo
   assert.equal(firstUse.key, 'refillCoffee');
   assert.equal(firstUse.supply, 'beans');
   assert.equal(refillLessonNeed(G, new Set(['refillCoffee'])), null);
+});
+
+test('Task 0.8: half credit and the refill tally survive the canonical save boundary', () => {
+  const progress = createRefillProgress();
+  progress.creditRefill('refillCoffee'); // a pour also credits the sack that fed it
+  progress.creditSack('refillBowl');
+
+  // Exactly what the coach hands the save layer, through exactly the save layer's normalizer.
+  const payload = normalizeMechanicLearning({
+    v: MECHANIC_LEARNING_VERSION, proven: ['pantry'], ...progress.snapshot(),
+  });
+  assert.deepEqual(payload.proven, ['pantry']);
+  assert.deepEqual(payload.sack, ['refillBowl:sack', 'refillCoffee:sack']);
+  assert.equal(payload.refills, 1);
+
+  const restored = createRefillProgress();
+  restored.restore(normalizeMechanicLearning(JSON.parse(JSON.stringify(payload))));
+  assert.equal(restored.hasSack('refillCoffee'), true);
+  assert.equal(restored.hasSack('refillBowl'), true);
+  assert.equal(restored.refills, 1);
+  restored.creditRefill('refillBowl');
+  assert.deepEqual(restored.masteredKeys().sort(), ['refillBowl', 'refillCoffee']);
+});
+
+test('Task 0.8: an untouched refill lesson adds nothing to the canonical payload', () => {
+  const learning = normalizeMechanicLearning({
+    v: MECHANIC_LEARNING_VERSION, proven: ['pantry'], ...createRefillProgress().snapshot(),
+  });
+  assert.deepEqual(learning, { v: MECHANIC_LEARNING_VERSION, proven: ['pantry'] });
+});
+
+test('Task 0.8: a tampered half-credit payload is bounded, never inflated', () => {
+  const learning = normalizeMechanicLearning({
+    v: MECHANIC_LEARNING_VERSION,
+    proven: [],
+    sack: ['refillCoffee:sack', 'refillCoffee:sack', 'move:sack', 'refillBowl', 42, {}, null],
+    refills: 9999,
+  });
+  assert.deepEqual(learning.sack, ['refillCoffee:sack'], 'only known, de-duplicated sack marks');
+  assert.equal(learning.refills, REFILLS_TO_MASTER, 'the tally is clamped, never trusted');
+
+  assert.deepEqual(normalizeRefillProgress({ refills: -5 }), { sack: [], refills: 0 });
+  assert.deepEqual(normalizeRefillProgress({ refills: 1.9 }), { sack: [], refills: 1 });
+  assert.deepEqual(normalizeRefillProgress({ refills: 'lots', sack: 'all' }), { sack: [], refills: 0 });
+  assert.deepEqual(normalizeRefillProgress(null), { sack: [], refills: 0 });
+});
+
+test('Task 0.8: half credit from a foreign payload version is dropped with its proven list', () => {
+  const learning = normalizeMechanicLearning({
+    v: 999, proven: ['refillCoffee'], sack: ['refillCoffee:sack'], refills: 2,
+  });
+  assert.deepEqual(learning, { v: MECHANIC_LEARNING_VERSION, proven: [] });
 });
 
 test('Task 30: exact adaptive escalation is natural -> pulse -> route', () => {

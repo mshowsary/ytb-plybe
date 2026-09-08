@@ -18,6 +18,9 @@ const SPEC = {
 };
 const _heartMat = emissiveMaterial(C.coral);
 const _geoCache = new Map();
+// Length of one stretch/yawn clip (see P.idleLife). Long enough to read at this camera distance,
+// short enough that a resident is never mid-yawn in most frames.
+const STRETCH_DUR = 1.5;
 
 function specFor(species, variant = 0) {
   const base = SPEC[species] || SPEC.cat;
@@ -106,6 +109,8 @@ function geosFor(species, variant = 0) {
 
 export function createPet(species, variant = 0) {
   const s = specFor(species, variant); const group = new THREE.Group();
+  // Only the cat's 'long' tail needs the sit-pose curl below; 'short' and 'puff' already sit clear.
+  const CURLS_TAIL = s.tail === 'long';
   const G = geosFor(species, variant); const mat = toonMaterial();
   const legPairA = new THREE.Mesh(G.legPairAGeo, mat); legPairA.castShadow = false; legPairA.receiveShadow = true;
   const legPairB = new THREE.Mesh(G.legPairBGeo, mat); legPairB.castShadow = false; legPairB.receiveShadow = true;
@@ -140,12 +145,53 @@ export function createPet(species, variant = 0) {
     group, neck, height: head.position.y + s.w * 0.6, species, variant: variant | 0,
     _t: Math.random() * 6, _mood: 'none', _carried: null, _sitting: false, _face: 0, _hop: 0,
     _blinkClock: 0, _nextBlink: 2.5 + ((variant | 0) % 3) * 0.8,
+    // Real-time clock (P._t is a gait clock that speeds up 6x while walking, so it cannot drive
+    // breathing). _tailLift is written by idleLife and READ by update as part of its damp target —
+    // idleLife must never add to tail.rotation itself, because update damps from the tail's own
+    // previous value and an additive offset would feed back into it every frame.
+    _life: Math.random() * 7, _tailLift: 0, _lookY: 0,
+    _stretchT: Math.random() * 17, _stretchEvery: 13 + Math.random() * 7,
     _trait: createPetTraitMotionState((variant + 1) * 0.29), _traitClock: null, _traitActive: false,
   };
   // Pets already squash and stretch through the hop path below, and P.update never touches
   // group.scale, so a caller may scale the group freely. pop() just borrows the hop.
   P.setBaseScale = s => { group.scale.setScalar(Number(s) > 0 ? Number(s) : 1); };
   P.pop = () => { P._hop = Math.max(P._hop, 0.34); };
+  // Residents (systems/residentPets.js) never walk, so everything that reads as alive has to come
+  // out of this rig. setLifePhase pins every one of its clocks to a caller-chosen offset, so a row
+  // of decorative pets never blinks, breathes or stretches in lockstep AND stays reproducible
+  // across reloads — unlike the Math.random seeds a customer's short-lived pet is happy with.
+  P.setLifePhase = phase => {
+    const v = Math.abs(Number(phase) || 0);
+    P._life = v; P._t = v * 1.7;
+    P._blinkClock = v % 2.4; P._nextBlink = 2.5 + (v % 2.5);
+    P._stretchT = v % 17; P._stretchEvery = 13 + (v % 7);
+  };
+  // Layered on top of whatever pose P.update just wrote, so it must be called immediately AFTER it.
+  // Two cues update() cannot own: an occasional stretch/yawn, and a head turn toward something
+  // nearby. `lookYaw` is the target bearing already expressed relative to this pet's own facing —
+  // the caller owns the world transform (residents are parented under a furniture perch, so
+  // group.position is not their world position), this only owns the pose.
+  P.idleLife = (dt, opts = {}) => {
+    const step = Math.min(0.12, Math.max(0, Number(dt) || 0));
+    P._stretchT += step;
+    while (P._stretchT >= P._stretchEvery) P._stretchT -= P._stretchEvery;
+    let lift = 0;
+    if (!opts.reducedMotion && P._stretchT < STRETCH_DUR) {
+      const p = P._stretchT / STRETCH_DUR, e = Math.sin(p * Math.PI) ** 2;
+      head.rotation.x -= 0.36 * e;                                   // nose up — the yawn
+      head.rotation.z += Math.sin(p * Math.PI * 2) * 0.11 * e;
+      body.scale.y *= 1 + 0.06 * e;                                  // ribcage lengthens
+      body.scale.z *= 1 + 0.05 * e;
+      lift = 0.3 * e;
+    }
+    P._tailLift = lift;
+    const yaw = Number(opts.lookYaw);
+    const want = opts.reducedMotion || !Number.isFinite(yaw) ? 0 : Math.max(-0.7, Math.min(0.7, yaw));
+    P._lookY = damp(P._lookY, want, 3.5, step);
+    head.rotation.y += P._lookY;
+    body.rotation.z += P._lookY * 0.05;
+  };
   P.setMood = m => { P._mood = m; bubble.visible = m !== 'none'; bWait.visible = m === 'wait'; bAngry.visible = m === 'angry'; bHappy.visible = m === 'happy'; };
   P.carry = m => { if (P._carried) mouth.remove(P._carried); P._carried = m; if (m) { m.position.set(0, 0, 0); m.scale.setScalar(0.8); mouth.add(m); } };
   P.sit = () => { P._sitting = true; };
@@ -157,15 +203,48 @@ export function createPet(species, variant = 0) {
     body.rotation.z = 0;
     if (hop !== undefined) P._hop = hop;
     P._t += dt * (moving ? 12 : 2);
+    P._life += dt;
     if (P._sitting) {
-      legPairA.rotation.x = damp(legPairA.rotation.x, -1.2, 10, dt); legPairB.rotation.x = damp(legPairB.rotation.x, -1.2, 10, dt);
+      // A sit that keeps every paw above whatever the pet is sitting ON. The old pose rotated BOTH
+      // leg pairs by -1.2 rad, and because each pair holds one FRONT and one REAR leg that swung
+      // the front legs up into the chest and drove the rear legs 0.27 m below y = 0. Hidden by
+      // opaque café tiles; glaring the moment a resident sits on a 1.2 m windowsill. The pose is
+      // now a fold — legs shorten to 60 %, tuck 0.12 rad, the body drops the same 0.12 as before
+      // (which is what keeps the head meeting the shoulders) — and nothing dips past y = -0.05.
+      legPairA.rotation.x = damp(legPairA.rotation.x, -0.12, 10, dt); legPairB.rotation.x = damp(legPairB.rotation.x, -0.12, 10, dt);
+      const fold = damp(legPairA.scale.y, 0.6, 10, dt);
+      legPairA.scale.y = fold; legPairB.scale.y = fold;
       body.position.y = damp(body.position.y, -0.12, 10, dt);
-      tail.rotation.y = damp(tail.rotation.y, 0, 10, dt); tail.rotation.x = damp(tail.rotation.x, -0.9, 10, dt);
+      tail.rotation.y = damp(tail.rotation.y, Math.sin(P._life * 0.9) * 0.16, 6, dt);
+      if (CURLS_TAIL) {
+        // The cat's 'long' tail is a 0.62 m rod, and straight in the sit pose it read as a loose
+        // line hanging off the back of the pet — the stray line in the owner's resident screenshot.
+        // Curl it around the flank and shorten it to 72 %: Euler order XYZ applies Rz before Rx, so
+        // the z swings the tail out to the side first and the x then brings it forward, landing the
+        // tip beside the hip at about y 0.47 / z -0.14 instead of out behind the rump at y 1.02.
+        tail.rotation.x = damp(tail.rotation.x, 1.5 - P._tailLift, 8, dt);
+        tail.rotation.z = damp(tail.rotation.z, 0.9 + Math.sin(P._life * 0.8) * 0.1, 8, dt);
+        const curl = damp(tail.scale.x, 0.72, 8, dt); tail.scale.setScalar(curl);
+      } else {
+        tail.rotation.x = damp(tail.rotation.x, -0.9 - P._tailLift, 10, dt);
+        tail.rotation.z = damp(tail.rotation.z, 0, 10, dt);
+      }
     } else {
       const sw = moving ? Math.sin(P._t) * 0.7 : 0;
       legPairA.rotation.x = sw; legPairB.rotation.x = -sw;
+      if (legPairA.scale.y !== 1) {
+        let unfold = damp(legPairA.scale.y, 1, 10, dt);
+        if (Math.abs(unfold - 1) < 0.004) unfold = 1;
+        legPairA.scale.y = unfold; legPairB.scale.y = unfold;
+      }
       body.position.y = damp(body.position.y, moving ? Math.abs(Math.sin(P._t)) * 0.04 : 0, 12, dt);
-      tail.rotation.y = Math.sin(P._t * 1.3) * 0.5; tail.rotation.x = damp(tail.rotation.x, Math.sin(P._t * 0.7) * 0.2, 10, dt);
+      tail.rotation.y = Math.sin(P._t * 1.3) * 0.5;
+      tail.rotation.x = damp(tail.rotation.x, Math.sin(P._t * 0.7) * 0.2 - P._tailLift, 10, dt);
+      if (tail.rotation.z !== 0 || tail.scale.x !== 1) {
+        let z = damp(tail.rotation.z, 0, 10, dt); if (Math.abs(z) < 0.004) z = 0;
+        let k = damp(tail.scale.x, 1, 10, dt); if (Math.abs(k - 1) < 0.004) k = 1;
+        tail.rotation.z = z; tail.scale.setScalar(k);
+      }
     }
     head.rotation.z = Math.sin(P._t * 0.5) * 0.05;
     head.rotation.x = moving ? Math.sin(P._t * 0.5) * 0.035 : Math.sin(P._t * 0.32) * 0.02;
@@ -182,7 +261,12 @@ export function createPet(species, variant = 0) {
       } else {
         eyesGroup.scale.y = 1;
         P._blinkClock = 0;
-        P._nextBlink = 2.5 + Math.random() * 2.5;
+        // Seeded off the pet's own life clock rather than Math.random, so a resident given a fixed
+        // phase by setLifePhase blinks REPRODUCIBLY — the visual-reference and responsive-audit
+        // workflows compare frames across runs, and a random blink makes every one of those
+        // comparisons noisy. A customer's pet still seeds _life randomly, so it keeps its variety.
+        const seed = Math.sin(P._life * 91.7 + 12.9898) * 43758.5453;
+        P._nextBlink = 2.5 + (seed - Math.floor(seed)) * 2.5;
       }
     }
     // Squash and stretch
@@ -191,7 +275,9 @@ export function createPet(species, variant = 0) {
       const hopPhase = Math.sin(hopRatio * Math.PI);
       body.scale.set(1 - hopPhase * 0.1, 1 + hopPhase * 0.18, 1 - hopPhase * 0.1);
     } else {
-      body.scale.set(1, 1, 1);
+      // Breathing: +-2 % on the body's y at ~0.3 Hz (2*pi*0.3 = 1.885 rad/s). One multiply, and it
+      // is most of the difference between a pet that is idle and a pet that is a prop.
+      body.scale.set(1, 1 + Math.sin(P._life * 1.885) * 0.02, 1);
     }
     group.position.y = P._hop > 0 ? Math.sin(Math.min(1, P._hop / 0.4) * Math.PI) * 0.35 : 0;
     bubble.rotation.y += dt * 2; bubble.position.y = P.height + 0.25 + Math.sin(P._t * 0.8) * 0.04;

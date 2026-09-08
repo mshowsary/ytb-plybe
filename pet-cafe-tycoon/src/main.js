@@ -1,6 +1,7 @@
 import { createFrameMetrics } from './core/frameMetrics.js';
 // Host-aware boot: paint recovery shell → resolve cloud save → create playable runtime → game ready.
 import { createScene } from './render/scene.js';
+import { createDaylight } from './render/daylight.js';
 import { createGame } from './game.js';
 import { createYouTubePlatform, LOAD_STATUS } from './platform/youtube.js';
 import { validateAndMigrateSave } from './sim/save.js';
@@ -12,6 +13,7 @@ import { createBaristaWorker } from './systems/baristaWorker.js';
 import { createResponsivePolish } from './ui/responsive.js';
 import { createLabelLayout } from './ui/labelLayout.js';
 import { createResidentPets } from './systems/residentPets.js';
+import { install as installDecor } from './systems/decor.js';
 import { installHudLayout } from './ui/hudLayout.js';
 import { createPlayablesShell } from './ui/playablesShell.js';
 import { installCleanHud } from './ui/cleanHud.js';
@@ -241,6 +243,7 @@ function startGame(S, load, bootUi) {
   const serviceFriction = installServiceFriction(G);
   const petMess = createPetMess(G, S.scene);
   const baristaWorker = createBaristaWorker(G, S.scene);
+  const decor = installDecor(G, S.scene, G.world);
   const reliefAttention = installReliefAttention(G);
   const serviceSummary = installServiceSummary(G);
   const responsive = createResponsivePolish(G);
@@ -250,9 +253,13 @@ function startGame(S, load, bootUi) {
   const interactionCoach = createInteractionCoach(G, S, labelLayout);
   const cashTrays = createCashTrays(G.world, S.scene);
   const butterflies = createButterflies(S.scene);
-  const residentPets = createResidentPets(S.scene);
+  const residentPets = createResidentPets(S.scene, G.P);
   const rewardsSystem = createRewardsSystem(G, S, platform);
   const pauseOverlay = makePauseOverlay();
+  // Time of day owns sun/hemi/sky/fog/grade and the after-dark interior glow. Created here (not in
+  // createScene) because it needs the area for the window and pendant positions.
+  const daylight = createDaylight(S, AREA1);
+  S.daylight = daylight;
 
   if (load.status === LOAD_STATUS.LOADED && G.restore(load.data) === false) {
     // This should be unreachable because the platform validator ran before write authorization,
@@ -266,6 +273,7 @@ function startGame(S, load, bootUi) {
   installHudLayout(); // last stylesheet wins: this module owns HUD placement
   const pauseMenu = createPauseMenu(G, platform);
   platform.sendScore(G.meta && G.meta.reputation);
+  daylight.update(G.dayState.t, S.goldenHour);
   responsive.update(); shell.refresh();
 
   const frameMetrics = createFrameMetrics();
@@ -333,6 +341,7 @@ function startGame(S, load, bootUi) {
     if (!paused) {
       G.update(dt);
       baristaWorker.update(dt);
+      decor.update(dt);
       G.finishActorStep();
       petMess.update(dt);
       machineJuice.update(dt);
@@ -341,6 +350,9 @@ function startGame(S, load, bootUi) {
       butterflies.update(dt);
       residentPets.update(dt);
       rewardsSystem.update(dt);
+      // After rewardsSystem: it is what moves S.goldenHour, and Golden Hour is a boost layered on
+      // top of the current time-of-day keyframe rather than a palette of its own.
+      daylight.update(G.dayState.t, S.goldenHour);
       const uiStart = frameMetrics.running ? performance.now() : 0;
       responsive.update();
       shell.update();

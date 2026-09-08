@@ -304,7 +304,7 @@ export function createCustomers(G, S, ctx) {
         }
         r.leash.update();
 
-        if (c.state === 'leave' || c.state === 'waitSeat' || c.done) {
+        if (c.state === 'leave' || c.state === 'waitSeat' || c.state === 'noSeat' || c.done) {
           r.bub.wrap.classList.add('hidden'); r.bub.bar.classList.add('hidden');
         } else if (!r.eating) {
           fx.project(r.px, r.human.height + 0.55, r.pz, tmpProj);

@@ -1,4 +1,5 @@
 import { isHoliday, isWeekend } from './day.js';
+import { DECOR, DECOR_BY_ID, decorUnlocked } from '../../data/decor.js';
 
 // Base menu value. The starter bakery remains intentionally modest; later product lines earn more
 // so the economy can reduce raw customer volume without making the developed café feel poorer.
@@ -300,3 +301,72 @@ export function buyStar(state, world, stationId) {
   if (st && st.type === 'display') st.capacity = displayStarCap(tier) || st.capacity;
   return { ok: true, cost, tier };
 }
+
+// ---------------------------------------------------------------------------------------------
+// DECOR (plan 3.12) -- the "always something to buy" sink.
+//
+// The headless bot measured five consecutive early days (2-6) with ZERO affordable options: every
+// sink in the shop is a 300+ coin zone, a 150-2800 coin hire or a 240+ coin star, so a café that
+// has just finished paying for a build has nothing left to want. Decor is the 60-900 coin filler
+// that closes that gap.
+//
+// It is deliberately OUTSIDE the upgrade/staff/star ladders: those were balanced last session and
+// days 1-12 must stay bit-identical. Decor spends coins and grants ONLY reputation and a visual,
+// so it can never move throughput, patience, prices, spawn rates or navigation.
+export function decorCost(id) {
+  const item = DECOR_BY_ID.get(id);
+  return item ? item.price : null;
+}
+
+// The owned list lives on meta (it is permanent progression, like the Pet Book) rather than on the
+// world, so it survives a rebuild and is carried by one save field.
+export function ownedDecor(state) {
+  const list = state && state.meta && state.meta.decor;
+  return Array.isArray(list) ? list : [];
+}
+export function ownsDecor(state, id) {
+  return ownedDecor(state).includes(id);
+}
+
+// Same shape as buyUpgrade/hire above: {ok, cost}. A row that is unknown, already owned or still
+// gated returns ok:false with a null/known cost and NEVER mutates the wallet.
+export function buyDecor(state, id) {
+  const item = DECOR_BY_ID.get(id);
+  if (!item) return { ok: false, cost: null };
+  const builtSet = state && state.world && state.world.built ? state.world.built : null;
+  if (!decorUnlocked(item, builtSet)) return { ok: false, cost: item.price };
+  if (!state.meta || typeof state.meta !== 'object') state.meta = {};
+  if (!Array.isArray(state.meta.decor)) state.meta.decor = [];
+  if (state.meta.decor.includes(id)) return { ok: false, cost: item.price, owned: true };
+  const cost = item.price;
+  if (!(state.coins >= cost)) return { ok: false, cost };
+  state.coins -= cost;
+  state.meta.decor.push(id);
+  // Buying grants +1 reputation. saveSchema.js widens the restore ceiling by exactly the owned
+  // decor count so this earned reputation survives a reload instead of being clamped away.
+  state.meta.reputation = Math.max(0, state.meta.reputation | 0) + (item.rep | 0);
+  return { ok: true, cost, rep: item.rep | 0 };
+}
+
+// Everything the player could buy right now: unowned, unlocked and within the wallet. The bot's
+// invariant-A counter and the kiosk's decor tab both read from this one definition.
+export function affordableDecor(state, builtSet = null) {
+  const coins = (state && state.coins) || 0;
+  const owned = new Set(ownedDecor(state));
+  const built = builtSet || (state && state.world && state.world.built) || null;
+  return DECOR.filter(item => !owned.has(item.id) && decorUnlocked(item, built) && item.price <= coins);
+}
+
+// The cheapest thing still on the decor shelf, or null when the catalogue is exhausted. Invariant A
+// ("always something to buy") is exactly "this is non-null and priced within reach".
+export function cheapestDecor(state, builtSet = null) {
+  const owned = new Set(ownedDecor(state));
+  const built = builtSet || (state && state.world && state.world.built) || null;
+  let best = null;
+  for (const item of DECOR) {
+    if (owned.has(item.id) || !decorUnlocked(item, built)) continue;
+    if (!best || item.price < best.price) best = item;
+  }
+  return best;
+}
+

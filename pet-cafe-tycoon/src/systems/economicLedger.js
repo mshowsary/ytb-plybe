@@ -5,8 +5,13 @@
 import { createLedger } from '../sim/ledger.js';
 import { subscribeWorld } from '../sim/events.js';
 
+// Every checkpoint reason that systems/*.js marks straight after a successful purchase has to be
+// listed here. A missing reason is not cosmetic: the coins still leave the wallet, classify()
+// never runs, the decrease falls through to 'wallet:service-or-waste', and the shift ledger stops
+// reconciling -- which is exactly what the headless bot gates on.
 const SPEND_REASONS = new Set([
   'renovation', 'player-upgrade', 'staff-hire', 'worker-upgrade', 'machine-upgrade', 'station-star',
+  'decor-buy',
   'build-payment', 'build-payment-stop', 'build-complete',
 ]);
 

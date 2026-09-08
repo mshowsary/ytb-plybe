@@ -15,6 +15,11 @@ const CLEANER_VARIANT = { shirt: 3, hair: 3, skin: 2 };
 const RUNNER_SPAWN = { x: 4, z: -3 };
 const CASHIER_FALLBACK = { x: -4, z: -0.2 };
 const CLEANER_SPAWN = { x: -6, z: 4 };
+// Program §6.3: how long one H.wipe call keeps the cleaner's arm sweeping. Refreshed every frame
+// the sim says 'cleaning', so this is really the tail after the seat is done, not the stroke
+// length — long enough to finish the stroke in progress, short enough that the arm is back at
+// rest before the worker has walked anywhere.
+const CLEAN_WIPE_WINDOW = 0.35;
 
 function reducedMotion() {
   try { return !!matchMedia('(prefers-reduced-motion: reduce)').matches; }
@@ -184,6 +189,9 @@ export function createStaff(G, S, ctx) {
           syncCarriedItems(r.human.stack, r.itemMeshes, s.items);
           r.human.setCarry(r.itemMeshes.length);
         }
+        // Program §6.3: the cleaner's arm actually wipes while the simulation says it is cleaning.
+        // Presentation only — it reads s.state and never writes to the worker.
+        if (s.kind === 'cleaner' && s.state === 'cleaning' && r.human.wipe) r.human.wipe(CLEAN_WIPE_WINDOW);
       }
       stepFirstHireDemo(dt);
     },

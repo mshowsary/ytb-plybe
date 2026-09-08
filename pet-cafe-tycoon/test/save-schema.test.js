@@ -5,6 +5,8 @@ import {
   applySave, CURRENT_SAVE_VERSION, SAVE_LIMITS, validateAndMigrateSave,
 } from '../src/sim/save.js';
 import { createYouTubePlatform, LOAD_STATUS } from '../src/platform/youtube.js';
+import { SAVE_LIMITS as CORE_LIMITS } from '../src/sim/saveSchema.js';
+import { DECOR, DECOR_IDS } from '../data/decor.js';
 
 function validate(raw) { return validateAndMigrateSave(raw, AREA1); }
 function playableHost(loadData, saveData = async () => {}) {
@@ -166,4 +168,218 @@ test('platform validator keeps writes locked for structurally invalid JSON and a
   assert.equal(platform.saveProtected, false);
   assert.equal(await platform.save(recovered.data), true);
   assert.equal(writes.length, 1);
+});
+// ---------------------------------------------------------------------------------------------
+// Save v5 (plan 7.3). The v5 fields describe things a player earns one shift at a time -- an
+// audience, an album, residents, a season, a franchise -- so the whole point of these tests is that
+// a hand-edited save cannot hand itself any of them.
+
+function v4Fixture(over = {}) {
+  return {
+    v: 4,
+    coins: 500,
+    builds: { a1: ['z_seats1'] },
+    dayState: { day: 6, t: 120 },
+    meta: { completedDays: 5, reputation: 9, ...(over.meta || {}) },
+    ...over,
+  };
+}
+
+test('v4 migrates to v5 with a bounded default for every new meta field', () => {
+  const result = validate(v4Fixture());
+  assert.equal(result.ok, true);
+  assert.equal(result.migratedFrom, 4);
+  assert.equal(result.data.v, 5);
+  assert.equal(CURRENT_SAVE_VERSION, 5);
+
+  const meta = result.data.meta;
+  assert.equal(meta.followers, 0);
+  assert.deepEqual(meta.album, {});
+  assert.deepEqual(meta.equipped, {});
+  assert.deepEqual(meta.residents, []);
+  assert.deepEqual(meta.decor, []);
+  assert.equal(meta.goldenPaw, false);
+  assert.deepEqual(meta.season, { index: 0, dayStart: 1 });
+  assert.deepEqual(meta.franchise, { level: 0 });
+  // nothing the migration adds may disturb what v4 already carried
+  assert.equal(meta.completedDays, 5);
+  assert.equal(meta.reputation, 9);
+});
+
+test('v5 keeps legitimate values and clamps every tampered one', () => {
+  const result = validate(v4Fixture({
+    meta: {
+      completedDays: 5,
+      reputation: 9,
+      followers: 4210,
+      album: { 'cat:0': 7, 'dog:1': 2 },
+      equipped: { 'cat:0': DECOR_IDS[0] },
+      residents: ['dog:1', 'cat:0'],
+      decor: [DECOR_IDS[2], DECOR_IDS[0]],
+      goldenPaw: true,
+      season: { index: 2, dayStart: 4 },
+      franchise: { level: 3 },
+    },
+  }));
+  assert.equal(result.ok, true);
+  const meta = result.data.meta;
+  assert.equal(meta.followers, 4210);
+  assert.deepEqual(meta.album, { 'cat:0': 7, 'dog:1': 2 });
+  assert.deepEqual(meta.equipped, { 'cat:0': DECOR_IDS[0] });
+  assert.deepEqual(meta.residents, ['cat:0', 'dog:1']);
+  // decor is emitted in catalogue order so re-validating is a no-op
+  assert.deepEqual(meta.decor, [DECOR_IDS[0], DECOR_IDS[2]]);
+  assert.equal(meta.goldenPaw, true);
+  assert.deepEqual(meta.season, { index: 2, dayStart: 4 });
+  assert.deepEqual(meta.franchise, { level: 3 });
+
+  const tampered = validate(v4Fixture({
+    meta: {
+      completedDays: 5,
+      reputation: 9,
+      followers: 9e12,
+      album: { 'cat:0': 9e9, 'dragon:9': 5, nope: 3, __proto__: 4 },
+      equipped: { 'cat:0': 'crown-of-infinite-power', 'dragon:9': DECOR_IDS[0], 'dog:0': 12 },
+      residents: ['cat:0', 'cat:0', 'dragon:9', 42, 'dog:0'],
+      decor: [DECOR_IDS[1], DECOR_IDS[1], 'free-money', 7, DECOR_IDS[0]],
+      goldenPaw: 'yes',
+      season: { index: 99, dayStart: -4 },
+      franchise: { level: 9999 },
+    },
+  }));
+  assert.equal(tampered.ok, true);
+  const bad = tampered.data.meta;
+  assert.equal(bad.followers, CORE_LIMITS.maxFollowers);
+  assert.deepEqual(bad.album, { 'cat:0': CORE_LIMITS.maxAlbumShots });   // unknown pets dropped
+  assert.deepEqual(bad.equipped, {});                                    // no known cosmetic id on a real pet
+  assert.deepEqual(bad.residents, ['cat:0', 'dog:0']);                   // deduped, unknown keys dropped
+  assert.deepEqual(bad.decor, [DECOR_IDS[0], DECOR_IDS[1]]);             // deduped, unknown ids dropped
+  assert.equal(bad.goldenPaw, false);                                    // only a real boolean grants it
+  assert.deepEqual(bad.season, { index: 3, dayStart: 1 });
+  assert.deepEqual(bad.franchise, { level: CORE_LIMITS.maxFranchiseLevel });
+
+  // and the clamped shape is itself canonical
+  assert.deepEqual(validate(tampered.data).data, tampered.data);
+});
+
+test('a season cannot claim to have started on a day the player has not reached', () => {
+  const result = validate(v4Fixture({ dayState: { day: 3, t: 0 }, meta: { completedDays: 2, season: { index: 1, dayStart: 900 } } }));
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.data.meta.season, { index: 1, dayStart: 3 });
+});
+
+test('a wrong-typed v5 container degrades to its default instead of inventing progress', () => {
+  const result = validate(v4Fixture({
+    meta: {
+      completedDays: 5, followers: 'lots', album: [], equipped: 'none',
+      residents: 'cat:0', decor: { 0: DECOR_IDS[0] }, season: 7, franchise: [],
+    },
+  }));
+  assert.equal(result.ok, true);
+  const meta = result.data.meta;
+  assert.equal(meta.followers, 0);
+  assert.deepEqual(meta.album, {});
+  assert.deepEqual(meta.equipped, {});
+  assert.deepEqual(meta.residents, []);
+  assert.deepEqual(meta.decor, []);
+  assert.deepEqual(meta.season, { index: 0, dayStart: 1 });
+  assert.deepEqual(meta.franchise, { level: 0 });
+});
+
+// economy.js buyDecor pays +1 reputation per piece. The restore ceiling has to know that, or a
+// legitimately bought decoration would silently lose its reputation on the next reload.
+test('owned decor widens the reputation ceiling by exactly one point per piece', () => {
+  const noDecor = validate(v4Fixture({ meta: { completedDays: 2, reputation: 9 } }));
+  assert.equal(noDecor.data.meta.reputation, 6, '2 settled shifts cap shift reputation at 6');
+
+  const withDecor = validate(v4Fixture({
+    meta: { completedDays: 2, reputation: 9, decor: [DECOR_IDS[0], DECOR_IDS[1], DECOR_IDS[2]] },
+  }));
+  assert.equal(withDecor.data.meta.reputation, 9, '6 from shifts + 3 owned pieces');
+
+  const forged = validate(v4Fixture({
+    meta: { completedDays: 2, reputation: 999, decor: [DECOR_IDS[0], 'not-a-decor-id'] },
+  }));
+  assert.equal(forged.data.meta.reputation, 7, 'the invalid id buys no headroom');
+});
+
+// sim/serviceQuality.applySeatMiss is the first code in the project that DECREMENTS reputation.
+// career.buyRenovation spends coins, so the tier it grants is a purchase and must not evaporate the
+// first time a bad shift pushes the meter back under the gate that unlocked it.
+test('a purchased renovation survives a reputation loss on reload', () => {
+  // 12 settled shifts can have paid up to 36 reputation, enough to buy level 1 (30 rep). Seat
+  // misses then dragged the live meter down to 28 -- under the gate, but the coins were spent.
+  const result = validate(v4Fixture({
+    dayState: { day: 13, t: 120 },
+    meta: { completedDays: 12, reputation: 28, career: { renovationLevel: 1 } },
+  }));
+  assert.equal(result.ok, true);
+  assert.equal(result.data.meta.reputation, 28, 'the lost reputation stays lost');
+  assert.equal(result.data.meta.career.renovationLevel, 1, 'the purchase is not revoked with it');
+});
+
+test('the renovation entitlement stays bounded by what the save could have earned', () => {
+  // Four settled shifts cap the reputation entitlement at 12, far under the 30-rep level-1 gate,
+  // so a forged reputation buys no renovation no matter how large it is.
+  const forged = validate(v4Fixture({
+    dayState: { day: 5, t: 0 },
+    meta: { completedDays: 4, reputation: 999, career: { renovationLevel: 5 } },
+  }));
+  assert.equal(forged.data.meta.reputation, 12);
+  assert.equal(forged.data.meta.career.renovationLevel, 0);
+
+  // A renovation the entitlement does reach is kept; the tiers above it are still stripped.
+  const partial = validate(v4Fixture({
+    dayState: { day: 13, t: 120 },
+    meta: { completedDays: 12, reputation: 36, career: { renovationLevel: 4 } },
+  }));
+  assert.equal(partial.data.meta.career.renovationLevel, 1, '36 rep clears level 1 (30) but not level 2 (70)');
+});
+
+// Every other id-bearing normalizer here consults buildState.builtSet, and economy.buyDecor refuses
+// to sell a locked row. Decor has to apply the same gate or a hand-edited save owns terrace
+// furniture -- and collects its reputation -- before the terrace exists.
+test('zone-gated decor is dropped until its zone is built', () => {
+  const gated = DECOR.filter(item => item.requires).map(item => item.id);
+  assert.ok(gated.length > 0, 'catalogue still has a zone-gated row to test');
+
+  const result = validate(v4Fixture({
+    meta: { completedDays: 5, reputation: 99, decor: [DECOR_IDS[0], ...gated] },
+  }));
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.data.meta.decor, [DECOR_IDS[0]], 'only the unlocked piece survives');
+  // and the dropped rows buy no reputation headroom either
+  assert.equal(result.data.meta.reputation, 5 * 3 + 1);
+
+  // the surviving shape is canonical: re-validating it changes nothing
+  assert.deepEqual(validate(result.data).data.meta.decor, [DECOR_IDS[0]]);
+});
+
+// task 0.6 (dirty tables) records dayStats.missedSeats; it has to survive a mid-shift reload.
+test('dayStats.missedSeats persists and clamps like every other shift counter', () => {
+  const kept = validate(v4Fixture({ dayStats: { served: 10, missedSeats: 4 } }));
+  assert.equal(kept.data.dayStats.missedSeats, 4);
+
+  const clamped = validate(v4Fixture({ dayStats: { served: 10, missedSeats: 9e9 } }));
+  assert.equal(clamped.data.dayStats.missedSeats, SAVE_LIMITS.maxShiftOutcomes);
+
+  const missing = validate(v4Fixture());
+  assert.equal(missing.data.dayStats.missedSeats, 0);
+});
+
+// applySave does state.dayStats = { ...canonical.dayStats }, so any live counter missing from
+// SHIFT_STAT_KEYS is wiped on every save/load. game.js writes specialServed and
+// systems/serviceFriction.js writes returnActions; ui/serviceSummary.js reads both back.
+test('specialServed and returnActions survive a mid-shift reload like every other counter', () => {
+  const kept = validate(v4Fixture({ dayStats: { served: 10, specialServed: 3, returnActions: 2 } }));
+  assert.equal(kept.data.dayStats.specialServed, 3);
+  assert.equal(kept.data.dayStats.returnActions, 2);
+
+  const clamped = validate(v4Fixture({ dayStats: { served: 10, specialServed: 9e9, returnActions: -5 } }));
+  assert.equal(clamped.data.dayStats.specialServed, SAVE_LIMITS.maxShiftOutcomes);
+  assert.equal(clamped.data.dayStats.returnActions, 0);
+
+  const absent = validate(v4Fixture());
+  assert.equal(absent.data.dayStats.specialServed, 0);
+  assert.equal(absent.data.dayStats.returnActions, 0);
 });

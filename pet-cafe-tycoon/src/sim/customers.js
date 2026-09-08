@@ -61,6 +61,10 @@ export const CUSTOMER_SPEED = 2.2, EAT_TIME = 4, PATIENCE = 17;
 // reset mid-wait — see setPatience's call sites), so it's an exact, dependency-free "seconds spent
 // waiting this episode" clock without a second timer field.
 export const SETTLE_WAIT = 6;
+// Program §6.2: how long a paid guest stands under the "no clean table" bubble before giving up.
+// Short on purpose -- it is a beat the owner can read and act on, not a second waiting queue. The
+// mature service policy (day >= 8) still grants its own, much longer 'waitSeat' grace below.
+export const NO_SEAT_HOLD = 1.2;
 
 export function createCustomer(id, species, variant, area) {
   const mover = createMover(area.spawnStart.x, area.spawnStart.z, 0.30, CUSTOMER_SPEED);
@@ -73,6 +77,7 @@ export function createCustomer(id, species, variant, area) {
     seat: null, seatId: null, timer: 0, done: false, hop: 0, area,
     _doorReached: false, arrived: 0, regArrived: 0, _bowlSlot: null,
     _settled: false, _treatGivenUp: false, // M3 T6 pass 2: settle-for rule, once per visit each
+    noSeatT: 0, // Program §6.2: seconds spent under the "no clean table" bubble
     mover,
   };
 }
@@ -513,6 +518,24 @@ export function stepCustomers(list, w, price, dt) {
             c.mover.hasTarget = false;
             if (seat) { seat.occupied = true; c.seat = seat; c.seatId = seat.id; c.state = 'toSeat'; }
             else if(w.servicePolicyActive&&dirtyTablesBlockingSeats(w)){c.state='waitSeat';c.dirtyWait=0;c.waitSeatPoint={x:c.x+.8,z:c.z+.8};}
+            // Program §6.2 root cause: until now a paid guest with nowhere clean to sit dropped
+            // straight into 'leave' -- no bubble, no event, no stat -- so a filthy cafe cost the
+            // player nothing he could see, and the owner reported exactly that ("uncleaned tables
+            // does not result in anything, the flow continues"). Only the dirty-table case is
+            // caught here: an honestly FULL cafe (every seat clean and taken) is not a service
+            // failure and still leaves silently, as it always did.
+            //
+            // Gated on `w.dayState` for the same reason BOWL_COOLDOWN above is (read that comment
+            // in full): w.dayState is set by every real run -- game.js, tools/bot.js,
+            // tools/runtime-bot-parity.js -- and by no test that has not asked for it, so the
+            // untouchable test/nav-fullhouse.test.js keeps replaying the exact pre-§6.2 code path.
+            // This is not cosmetic caution. Holding a guest for even 1.2 s shifts every downstream
+            // arrival by 1.2 s, and that detector fails on any sustained 0.15m crowding anywhere in
+            // 20 simulated minutes: the first attempt parked the guest on register slot 0 (a real
+            // defect, fixed by the step-aside below), and the second, with the step-aside, still
+            // tripped an unrelated 0.23m brush between a leaving guest and the cleaner at t=496.
+            // test/dirty-tables.test.js sets w.dayState and covers the behaviour directly.
+            else if (w.dayState && dirtyTablesBlockingSeats(w)) { c.state = 'noSeat'; c.noSeatT = 0; c.mood = 'wait'; c.noSeatPoint = { x: c.x + .8, z: c.z + .8 }; }
             else { c.state = 'leave'; }
           } else if (st.serving === '') {
             setPatience(w, c, c.patience - dt);
@@ -543,7 +566,37 @@ export function stepCustomers(list, w, price, dt) {
         if(!dirtyTablesBlockingSeats(w)){c.state='leave';c.mover.hasTarget=false;break;}
         c.dirtyWait=(c.dirtyWait||0)+dt;
         if(c.waitSeatPoint)walkTo(c,c.waitSeatPoint.x,c.waitSeatPoint.z,w,dt);
-        if(c.dirtyWait>=8){emitWorld(w,{type:'tableRefund',id:c.id});c.state='leave';c.mover.hasTarget=false;}
+        // Program §6.2: the refund was invisible bookkeeping on its own. Giving up now also
+        // reports the seat miss, so the mature-policy path feeds dayStats.missedSeats and the
+        // reputation cost exactly like the pre-policy 'noSeat' path does. The state transition
+        // itself is untouched (test/service-policy.test.js pins it).
+        if(c.dirtyWait>=8){emitWorld(w,{type:'tableRefund',id:c.id});emitWorld(w,{type:'seatMissed',id:c.id});c.state='leave';c.mover.hasTarget=false;}
+        break;
+      }
+      // Program §6.2. The guest has paid, no seat is clean and at least one is dirty. It holds
+      // for NO_SEAT_HOLD seconds under a table-with-X bubble (drawn by src/systems/visuals.js)
+      // and then leaves reporting 'seatMissed'. Wiping a table inside the window still seats it,
+      // which is what makes the wipe urgent.
+      //
+      // It steps aside while it holds, the same 0.8m diagonal 'waitSeat' uses. Standing still was
+      // the obvious implementation and it is wrong: the guest is parked exactly on register slot 0,
+      // the queue shuffles the next customer onto that spot, and the pair sit on top of each other
+      // for the whole hold — test/nav-fullhouse.test.js's overlap detector caught precisely that
+      // (0.49m for >1s). Clearing the queue line is also simply the right behaviour: a guest who
+      // has already paid has no business blocking the register.
+      case 'noSeat': {
+        const seat = freeSeat(w);
+        if (seat) {
+          seat.occupied = true; c.seat = seat; c.seatId = seat.id;
+          c.state = 'toSeat'; c.mood = 'none'; c.mover.hasTarget = false;
+          break;
+        }
+        if (c.noSeatPoint) walkTo(c, c.noSeatPoint.x, c.noSeatPoint.z, w, dt);
+        c.noSeatT = (c.noSeatT || 0) + dt;
+        if (c.noSeatT >= NO_SEAT_HOLD) {
+          emitWorld(w, { type: 'seatMissed', id: c.id });
+          c.mood = 'none'; c.state = 'leave'; c.mover.hasTarget = false;
+        }
         break;
       }
       case 'toSeat': {

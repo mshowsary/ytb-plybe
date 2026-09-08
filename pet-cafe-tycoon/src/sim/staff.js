@@ -3,8 +3,12 @@
 // cleaner (Task 4) will clean dirty tables. M3 T2: every walk goes through the grid
 // (setTarget/stepMover) instead of straight-line moveToward + push-out.
 import { STAFF, RUNNER_CARRY_LEVELS, workerSpeedMult, familyOf } from './economy.js';
-import { takeFromOven, takeFromMachine, putOnDisplay, stepRegisters, cleanSeat } from './world.js';
+import { takeFromOven, takeFromMachine, putOnDisplay, stepRegisters, cleanSeat, beginCleanSeat } from './world.js';
 import { createMover, setTarget, stepMover } from './mover.js';
+// Task 0.5: emitWorld for the runnerStuck watchdog event; nav's grid readers so a wait spot is
+// only ever chosen on a cell the runner can actually stand on.
+import { emitWorld } from './events.js';
+import { idx, isFree } from './nav.js';
 
 // M3 T5: default levels (all tier 0) — every existing caller (tests, tools/bot.js) that calls
 // stepStaff without a 5th `levels` arg gets EXACTLY the pre-T5 behaviour: workerSpeedMult(0) = 1,
@@ -15,16 +19,24 @@ const DEFAULT_LEVELS = { runner: { speed: 0, carry: 0 }, cashier: { speed: 0 }, 
 // then services ONLY that display, from whichever production station makes its product. `assign`
 // is optional and defaults to null (unassigned — behaves as before: restocks by demand across
 // every product). tools/bot.js/systems/staff.js pass 'dispCookie' for the very first runner hired.
+// Task 0.5: a stable, creation-ordered id so the runnerStuck watchdog event below names WHICH
+// worker got rescued. Deterministic (module-level counter, same shape as mover.js's own _id) —
+// tools/bot.js replays the sim and must see identical ids for identical input.
+let _nextStaffId = 1;
 export function createStaff(kind, spawnPos, assign = null) {
   const speed = (STAFF[kind] && STAFF[kind].speed) || 2.2;
   const mover = createMover(spawnPos.x, spawnPos.z, 0.30, speed);
   mover.kind = kind; mover.mask = 0; // staff always use ordinary floor, never a door lane
   return {
+    id: kind + ':' + (_nextStaffId++),
     kind, x: spawnPos.x, z: spawnPos.z, rot: 0,
     state: 'idle', items: [], target: null, timer: 0,
     assign: kind === 'runner' ? assign : null,
     spawn: { x: spawnPos.x, z: spawnPos.z },
     mover,
+    // Task 0.5 bookkeeping: srcId is where the batch in hand came from (so 'unload' can give it
+    // back), holdT the watchdog clock, waitWalkT/waitParked the wait-spot approach state.
+    srcId: null, holdT: 0, waitWalkT: 0, waitParked: false,
   };
 }
 
@@ -63,6 +75,11 @@ function wishedProduct(customers) {
   }
   return null;
 }
+// Task 0.5 (plan section 6.1): the ONLY station types a runner may fetch from. The want-branch
+// below used to walk every station in the world, and productOf() reports anything that is not an
+// oven or a coffee machine as 'smoothie' — so a stocked barSmoothie display (or even bowl1) could
+// be picked as the "source" for a smoothie wish and then drained straight back onto itself.
+const SOURCE_TYPES = { oven: 1, coffee: 1, blender: 1 };
 // Task 4: a runner's source is whichever active production station — oven, coffee machine or
 // blender — currently holds the most ready stock, not just ovens.
 // M3 T6: `customers`, when passed, is preferred over raw stock — a runner that only ever chases
@@ -75,26 +92,40 @@ function wishedProduct(customers) {
 // its exact old behaviour since it never passes this new, optional argument).
 // Loop v2 Task 1: `wantProduct`, when given (an assigned runner's own display product), restricts
 // the search to that one product outright — an assigned runner never fetches anything else.
-function pickSource(w, customers, wantProduct) {
+// Task 0.5: pickSource used to rank purely by st.stock — "whichever station has the most sitting
+// in its buffer wins" — with no regard for whether the matching DISPLAY had anywhere to put it.
+// That is the first half of the reported bug: a runner loads a full batch of cookies for a shelf
+// already sitting at 8/8, then has nowhere to go with them. Ranking is now by DISPLAY NEED
+// (capacity - stock; 0 when there is no active display for that family, or it is already full),
+// tie-broken by source stock, and a source whose display need is 0 is skipped outright.
+function pickSource(w, customers, wantProduct, assigned) {
+  // An assigned runner skips its source entirely while its OWN display is full — fetching a batch
+  // it provably cannot deliver is exactly what stranded it in front of the shelf.
+  if (assigned && (!assigned.active || assigned.stock >= assigned.capacity)) return null;
   const want = wantProduct || (customers ? wishedProduct(customers) : null);
-  if (want) {
+  // M3 T6's wished-product preference, kept intact but now gated on that wish's display having
+  // room: when it has not, fall through to the need ranking below (restock something that CAN be
+  // delivered) instead of fetching into a full shelf.
+  if (want && displayNeed(w, want) > 0) {
     // Loop v2 Task 3: family match, not exact — a brownie-family shelf might be labelled 'brownie'
     // while oven1 itself currently reads 'cookie' (mid-batch), or vice versa; either is the right
     // source for the other.
     const wantFam = familyOf(want);
     let best = null, bestStock = 0;
     for (const st of w.stations.values()) {
-      if (!st.active || !(st.stock > 0)) continue;
+      if (!st.active || !SOURCE_TYPES[st.type] || !(st.stock > 0)) continue;
       if (familyOf(productOf(st)) !== wantFam) continue;
       if (st.stock > bestStock) { best = st; bestStock = st.stock; }
     }
-    if (best || wantProduct) return best; // an assigned runner never falls back to a different product
+    if (best) return best;
   }
-  let best = null, bestStock = 0;
+  if (wantProduct) return null; // an assigned runner never falls back to a different product
+  let best = null, bestNeed = 0, bestStock = 0;
   for (const st of w.stations.values()) {
-    if (!st.active) continue;
-    if (st.type !== 'oven' && st.type !== 'coffee' && st.type !== 'blender') continue;
-    if (st.stock > bestStock) { best = st; bestStock = st.stock; }
+    if (!st.active || !SOURCE_TYPES[st.type] || !(st.stock > 0)) continue;
+    const need = displayNeed(w, productOf(st));
+    if (need <= 0) continue; // its display is full (or gone): fetching from here achieves nothing
+    if (need > bestNeed || (need === bestNeed && st.stock > bestStock)) { best = st; bestNeed = need; bestStock = st.stock; }
   }
   return best;
 }
@@ -106,8 +137,100 @@ function displayFor(w, product) {
   for (const id of w.displays) { const st = w.stations.get(id); if (familyOf(st.product) === fam) return st; }
   return null;
 }
+// Task 0.5 — the number everything below ranks and decides on: how much room a product's display
+// actually has right now. 0 when there is no active display for its family, or it is already full.
+// Raw source stock says how much there is to fetch; this says whether fetching it can ever land.
+function displayNeed(w, product) {
+  const ct = displayFor(w, product);
+  if (!ct || !ct.active) return 0;
+  return Math.max(0, ct.capacity - ct.stock);
+}
+// The display the batch currently in hand belongs to: an assigned runner's own display, otherwise
+// the family-matching one.
+function holdDisplay(w, s) {
+  if (s.assign) return w.stations.get(s.assign) || null;
+  return s.items.length ? displayFor(w, s.items[0]) : null;
+}
+// Same (right, forward) convention as sim/world.js's own rotateOffset (rot = atan2(dx, dz), so
+// rot 0 faces +z). Duplicated here rather than imported because world.js keeps it private.
+function rotateOffset(rot, right, forward) {
+  const sn = Math.sin(rot), cs = Math.cos(rot);
+  return { x: right * cs + forward * sn, z: -right * sn + forward * cs };
+}
+// Task 0.5 — BESIDE the display, not in front of it: ct.front offset WAIT_SIDE along the station's
+// local +x. Mirrored to -x when that cell is not walkable (barSmoothie sits close to the east
+// wall), falling back to ct.front itself if neither side is free. Standing in the front circle is
+// what reads from the camera as "the runner is stacking cookies in front of the display".
+function waitSpot(w, ct) {
+  for (const side of [WAIT_SIDE, -WAIT_SIDE]) {
+    const o = rotateOffset(ct.rot || 0, side, 0);
+    const p = { x: ct.front.x + o.x, z: ct.front.z + o.z };
+    if (!w.grid || isFree(w.grid, idx(w.grid, p.x, p.z), 0)) return p;
+  }
+  return { x: ct.front.x, z: ct.front.z };
+}
+// Where a batch goes back to: the station it came from, when that is still a live source for the
+// same family with room in its buffer, else the emptiest matching production station — and null
+// when NO same-family source has room.
+//
+// Review fix (Group C1): the tail used to be `best || (usable(remembered) ? remembered : null)`.
+// Reaching that tail means every candidate failed `stock < buffer` — the remembered station
+// included, since its own early-return above already tested exactly that — so it handed back a
+// source that is FULL. The runner then walked the whole way to it only for 'unload' to find
+// `src.stock >= src.buffer`, drop straight to 'idle' still holding the batch, and bounce back to
+// the display: a guaranteed-to-fail round trip, which is precisely the pointless traversal plan
+// section 6.1 exists to remove. Returning null instead lets each caller take its documented
+// fallback — 'waiting' keeps waiting beside the display, 'idle' parks at spawn.
+function unloadSource(w, s) {
+  if (!s.items.length) return null;
+  const fam = familyOf(s.items[0]);
+  const usable = st => !!st && st.active && !!SOURCE_TYPES[st.type] && familyOf(productOf(st)) === fam;
+  const remembered = s.srcId ? w.stations.get(s.srcId) : null;
+  if (usable(remembered) && remembered.stock < remembered.buffer) return remembered;
+  let best = null;
+  for (const st of w.stations.values()) {
+    if (!usable(st) || !(st.stock < st.buffer)) continue;
+    if (!best || st.stock < best.stock) best = st;
+  }
+  return best; // no same-family source has room: null, never a full station to walk to for nothing
+}
+// Entering the wait: clear hasTarget and do NOT walk this tick — the same discipline every other
+// retarget in this file follows (see the long comment inside 'idle' below for why a mover that
+// keeps hasTarget across a station change reads as a stall to tools/bot.js).
+function enterWaiting(s, ct) {
+  s.mover.hasTarget = false; s.target = ct.id; s.state = 'waiting';
+  s.timer = 0; s.waitWalkT = 0; s.waitParked = false;
+}
+
+// Task 0.5 tuning. WAIT_SECONDS/WAIT_SIDE come straight from plan section 6.1 ("a wait spot beside
+// the display, ct.front offset 0.9 m along the station's local +x ... after 4 s still full ->
+// unload"); HOLD_LIMIT is its watchdog threshold. WAIT_WALK_MAX is a safety valve of this
+// implementation's own: it must stay BELOW tools/bot.js's 3 s stall window and mover.js's 4 s
+// TELEPORT_AT, so a wait spot that avoidance or a mid-shift rebuild made unreachable can never
+// turn into a reported stall or a teleport — the runner just parks where it stands instead.
+const WAIT_SECONDS = 4;
+const WAIT_SIDE = 0.9;
+const WAIT_WALK_MAX = 2.0;
+const HOLD_LIMIT = 6;
 
 function stepRunner(s, w, dt, carryCap, customers) {
+  // Task 0.5 watchdog. Counts only time spent holding a batch OUTSIDE the load -> deliver pipeline
+  // ('loading' is still filling the batch; 'toCounter'/'dropping' are actively delivering it), so a
+  // legitimate 16-item batch walking the length of the café never trips it, while anything else
+  // still holding a deliverable batch after HOLD_LIMIT seconds — with its display genuinely
+  // showing free capacity — is stuck by definition and gets force-routed at that display.
+  // hasTarget is cleared and the switch skipped for this tick, the same "clear before retargeting"
+  // discipline every other transition in this file uses.
+  const busy = s.state === 'toCounter' || s.state === 'dropping' || s.state === 'loading';
+  if (s.items.length > 0 && !busy) {
+    s.holdT = (s.holdT || 0) + dt;
+    const ct = holdDisplay(w, s);
+    if (s.holdT > HOLD_LIMIT && ct && ct.active && ct.stock < ct.capacity) {
+      s.holdT = 0; s.mover.hasTarget = false; s.target = ct.id; s.state = 'toCounter'; s.timer = 0;
+      emitWorld(w, { type: 'runnerStuck', id: s.id, displayId: ct.id, items: s.items.length });
+      return;
+    }
+  } else s.holdT = 0;
   switch (s.state) {
     case 'idle': {
       const assigned = s.assign ? w.stations.get(s.assign) : null;
@@ -124,11 +247,67 @@ function stepRunner(s, w, dt, carryCap, customers) {
         // near-zero baseline — a false stall (found by tools/bot.js once runners started chaining
         // oven/coffee/blender pickups across a much bigger map than this ever had to route before).
         if (ct && ct.active && ct.stock < ct.capacity) { s.mover.hasTarget = false; s.target = ct.id; s.state = 'toCounter'; return; }
-        return; // that display's full/inactive right now — hold the batch, try again next tick
+        // Task 0.5: this used to be a bare `return` — "that display's full/inactive right now,
+        // hold the batch, try again next tick" — which froze the runner wherever it happened to be
+        // standing, in practice oven1's front, which sits directly behind dispCupcake from the
+        // camera. That IS the reported bug. A live-but-full display now gets a wait beside it
+        // (which converts back to a delivery the instant a customer buys something); a display
+        // that is gone entirely means the batch goes straight back to a production station.
+        if (ct && ct.active) { enterWaiting(s, ct); return; }
+        const back = unloadSource(w, s);
+        if (back) { s.mover.hasTarget = false; s.target = back.id; s.state = 'unload'; s.timer = 0; return; }
+        // Nowhere to deliver AND nowhere to hand it back (no active display and no active source
+        // for this family at all): wait at spawn, out of the walkways, rather than in a doorway.
+        walkTo(s, s.spawn.x, s.spawn.z, w, dt);
+        return;
       }
-      const src = pickSource(w, customers, assigned ? assigned.product : null);
+      const src = pickSource(w, customers, assigned ? assigned.product : null, assigned);
       if (src) { s.mover.hasTarget = false; s.target = src.id; s.state = 'toOven'; return; }
       walkTo(s, s.spawn.x, s.spawn.z, w, dt); // nothing to do: return to spawn and idle there
+      return;
+    }
+    // Task 0.5 — waiting beside a full display. Walks to the wait spot once, then stands: no
+    // per-frame retargeting, and no walk at all once parked, so a mover sitting out a full shelf
+    // reads as hasTarget=false (idle) to the stall trackers rather than as a mover that is
+    // permanently failing to reach something.
+    case 'waiting': {
+      const ct = w.stations.get(s.target);
+      if (!ct || !ct.active || s.items.length === 0) { s.state = 'idle'; s.timer = 0; return; }
+      // Room appeared (a customer bought something): deliver it after all.
+      if (ct.stock < ct.capacity) { s.mover.hasTarget = false; s.state = 'toCounter'; s.timer = 0; return; }
+      s.timer += dt;
+      if (!s.waitParked) {
+        const spot = waitSpot(w, ct);
+        const arrived = walkTo(s, spot.x, spot.z, w, dt);
+        if (arrived || Math.hypot(spot.x - s.x, spot.z - s.z) < 0.45) { s.mover.hasTarget = false; s.waitParked = true; }
+        else {
+          s.waitWalkT += dt;
+          if (s.waitWalkT >= WAIT_WALK_MAX) { s.mover.hasTarget = false; s.waitParked = true; }
+        }
+      }
+      if (s.timer >= WAIT_SECONDS) {
+        const back = unloadSource(w, s);
+        if (back) { s.mover.hasTarget = false; s.target = back.id; s.state = 'unload'; s.timer = 0; return; }
+        s.timer = 0; // nothing will take the batch back: keep waiting beside the display
+      }
+      return;
+    }
+    // Task 0.5 — giving the batch back. Walks to the source and returns the items at the same
+    // cadence 'loading' took them, bounded by that station's own buffer (never past it: that would
+    // mint stock the ovens never baked).
+    case 'unload': {
+      if (s.items.length === 0) { s.state = 'idle'; s.timer = 0; return; }
+      const ct = holdDisplay(w, s);
+      if (ct && ct.active && ct.stock < ct.capacity) { s.mover.hasTarget = false; s.target = ct.id; s.state = 'toCounter'; s.timer = 0; return; }
+      const src = w.stations.get(s.target);
+      if (!src || !src.active || !SOURCE_TYPES[src.type]) { s.state = 'idle'; s.timer = 0; return; }
+      const arrived = walkTo(s, src.front.x, src.front.z, w, dt);
+      // M3 T6: same fallback arrival tolerance as toOven/toCounter below.
+      if (!arrived && s.mover.hasTarget && Math.hypot(src.front.x - s.x, src.front.z - s.z) < 0.12) s.mover.hasTarget = false;
+      if (!(arrived || !s.mover.hasTarget)) return;
+      s.timer += dt;
+      while (s.timer >= 0.2 && s.items.length > 0 && src.stock < src.buffer) { s.timer -= 0.2; src.stock++; s.items.pop(); }
+      if (s.items.length === 0 || src.stock >= src.buffer) { s.state = 'idle'; s.timer = 0; }
       return;
     }
     case 'toOven': {
@@ -153,14 +332,19 @@ function stepRunner(s, w, dt, carryCap, customers) {
       s.timer += dt;
       while (s.timer >= 0.2 && s.items.length < carryCap && src.stock > 0) {
         s.timer -= 0.2;
-        if (take(w, src.id, 1) > 0) s.items.push(key);
+        // Task 0.5: remember the source so 'unload' can put an undeliverable batch back exactly
+        // where it came from instead of guessing.
+        if (take(w, src.id, 1) > 0) { s.items.push(key); s.srcId = src.id; }
       }
       if (s.items.length >= carryCap || src.stock <= 0) s.state = 'idle';
       return;
     }
     case 'toCounter': {
       const ct = w.stations.get(s.target);
-      if (!ct || !ct.active) { s.state = 'idle'; return; } // full/inactive: idle re-targets the next display
+      if (!ct || !ct.active) { s.state = 'idle'; return; } // inactive: idle re-targets the next display
+      // Task 0.5: it filled up while we were walking. Peel off to the wait spot beside it NOW,
+      // rather than finishing the walk into its front circle and idling there in the camera's way.
+      if (s.items.length > 0 && ct.stock >= ct.capacity) { enterWaiting(s, ct); return; }
       const arrived = walkTo(s, ct.front.x, ct.front.z, w, dt);
       // M3 T6: same fallback tolerance as toOven above.
       if (!arrived && s.mover.hasTarget && Math.hypot(ct.front.x - s.x, ct.front.z - s.z) < 0.12) s.mover.hasTarget = false;
@@ -250,7 +434,11 @@ function stepCleaner(s, w, dt, rate) {
     case 'toSeat': {
       const st = w.stations.get(s.target);
       if (!st || !st.active || !st.dirty) { s.state = 'idle'; return; } // someone beat us to it
-      if (walkTo(s, st.front.x, st.front.z, w, dt)) { s.state = 'cleaning'; s.timer = 0; }
+      // Program §6.3: the wipe STARTS here, and until now nothing told the presentation layer
+      // so — 1.6 s of a cleaner standing perfectly still beside an unchanged table is what read
+      // as "this table has no cleaning animation". `rate` is this cleaner's real, level-adjusted
+      // duration, so the ring systems/visuals.js draws finishes exactly when the seat does.
+      if (walkTo(s, st.front.x, st.front.z, w, dt)) { s.state = 'cleaning'; s.timer = 0; beginCleanSeat(w, st.id, 'cleaner', rate); }
       return;
     }
     case 'cleaning': {

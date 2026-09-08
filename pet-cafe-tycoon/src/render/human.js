@@ -130,7 +130,7 @@ export function createHuman(variant = {}, role = 'customer') {
 
   const H = {
     group, hand, stack, height: 2.04, _t: 0, _idleT: Math.random() * 6, _face: 0, _carryN: 0,
-    _armBase: 0, _sitting: false, _tapT: 0,
+    _armBase: 0, _sitting: false, _tapT: 0, _wipeT: 0, _wipeP: 0,
     // Squash and stretch. The rig already swings arms and legs, but nothing about it had WEIGHT:
     // a character reached full speed and stopped dead at the same silhouette. One spring driven by
     // acceleration covers both -- stretch when pushing off, squash when planting -- and it is the
@@ -142,6 +142,12 @@ export function createHuman(variant = {}, role = 'customer') {
   H.setCarry = n => { H._carryN = n | 0; };
   H.setMood = m => { bubble.visible = m !== 'none'; bWait.visible = m === 'wait'; bAngry.visible = m === 'angry'; };
   H.tap = () => { H._tapT = 0.2; };
+  // Program §6.3: the cleaner used to stand perfectly still for the 1.6 s it takes to wipe a
+  // table. systems/staff.js calls this every frame the sim's cleaner is in its 'cleaning' state;
+  // each call just refreshes the window (it never restarts the stroke), so the sweep runs
+  // continuously while the work lasts and tails off when the worker moves on instead of cutting
+  // out mid-stroke. Same shape as H.tap above, with a phase of its own so the arm keeps swinging.
+  H.wipe = (seconds = 0.35) => { H._wipeT = Math.max(H._wipeT, Math.max(0, seconds)); };
   H.sit = () => { H._sitting = true; group.position.y = -0.35; legL.rotation.x = -1.5; legR.rotation.x = -1.5; };
   H.stand = () => { H._sitting = false; group.position.y = 0; legL.rotation.x = 0; legR.rotation.x = 0; };
   H.update = (dt, vx, vz) => {
@@ -161,6 +167,19 @@ export function createHuman(variant = {}, role = 'customer') {
       H._tapT = Math.max(0, H._tapT - dt);
       const k = Math.sin((1 - H._tapT / 0.2) * Math.PI);
       armR.rotation.x -= k * 0.6;
+    }
+    // The wipe: the right arm reaches out over the table (rotation.x) and sweeps side to side
+    // (rotation.z). rotation.z is touched by nothing else on this rig, so it is damped back to a
+    // clean 0 once the window lapses rather than being left mid-sweep.
+    if (H._wipeT > 0) {
+      H._wipeT = Math.max(0, H._wipeT - dt);
+      H._wipeP += dt * 8.5;
+      const sweep = Math.sin(H._wipeP);
+      armR.rotation.x -= 1.05 + sweep * 0.1;
+      armR.rotation.z = damp(armR.rotation.z, -0.5 + sweep * 0.55, 26, dt);
+    } else if (armR.rotation.z !== 0) {
+      armR.rotation.z = damp(armR.rotation.z, 0, 12, dt);
+      if (Math.abs(armR.rotation.z) < 1e-3) armR.rotation.z = 0;
     }
 
     // Acceleration drives the spring; the spring drives the silhouette.

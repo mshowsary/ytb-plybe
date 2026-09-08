@@ -4,6 +4,10 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
+// The root save version is a moving target (v4 -> v5 in Batch 0). Compare against the exported
+// constant so this browser-level regression guard tracks future bumps instead of going permanently
+// red one commit after each one.
+import { CURRENT_SAVE_VERSION } from '../src/sim/saveSchema.js';
 
 const dist = path.resolve('dist');
 if (!fs.existsSync(path.join(dist, 'index.html'))) throw new Error('dist missing: run npm run build first');
@@ -136,7 +140,7 @@ try {
   if (JSON.stringify(recovered.partial) !== JSON.stringify({ z_hire:200 })) throw new Error(`partial validation wrong: ${JSON.stringify(recovered.partial)}`);
   if (JSON.stringify(recovered.stars) !== JSON.stringify({ oven1:3 })) throw new Error(`star validation wrong: ${JSON.stringify(recovered.stars)}`);
   if (recovered.reputation !== 6 || recovered.completedDays !== 2 || recovered.perfectShifts !== 2 || recovered.renovationLevel !== 0) throw new Error(`meta progression clamp wrong: ${JSON.stringify(recovered)}`);
-  if (recovered.snapshot.v !== 4 || recovered.snapshot.coins !== 777) throw new Error(`canonical snapshot wrong: ${JSON.stringify(recovered.snapshot)}`);
+  if (recovered.snapshot.v !== CURRENT_SAVE_VERSION || recovered.snapshot.coins !== 777) throw new Error(`canonical snapshot wrong: ${JSON.stringify(recovered.snapshot)}`);
 
   // Freeze simulation before isolating the explicit write. This gives the assertion a stable
   // write-count baseline even when material restore hooks/autosaves are valid after recovery.
@@ -149,7 +153,7 @@ try {
     const raw = window.__ytSchema.saves.at(-1);
     return { ok, before, after, delta:after - before, data:raw ? JSON.parse(raw) : null };
   });
-  if (!saved.ok || saved.delta !== 1 || !saved.data || saved.data.v !== 4) throw new Error(`canonical save dispatch failed: ${JSON.stringify(saved)}`);
+  if (!saved.ok || saved.delta !== 1 || !saved.data || saved.data.v !== CURRENT_SAVE_VERSION) throw new Error(`canonical save dispatch failed: ${JSON.stringify(saved)}`);
   if (JSON.stringify(saved.data.builds.a1) !== JSON.stringify(expectedBuilt) || JSON.stringify(saved.data.partial) !== JSON.stringify({ z_hire:200 })) {
     throw new Error(`canonical world state was not persisted: ${JSON.stringify(saved.data)}`);
   }

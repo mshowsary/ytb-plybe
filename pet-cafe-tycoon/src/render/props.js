@@ -261,6 +261,113 @@ export function blenderMesh() {
   ]));
   return g;
 }
+// ── Resident pet furniture (plan §5.4) ─────────────────────────────────────────────────────────
+// systems/residentPets.js used to drop scaled-up pets straight onto the café tiles, which read as
+// oversized blocks dumped on the floor. Every resident now sits ON one of these five props, and
+// each mesh carries `perch` — the LOCAL point where the pet's own y = 0 ground plane goes — so the
+// placement maths lives next to the geometry that defines it instead of as magic numbers in the
+// systems layer.
+//
+// All five are deliberately cheap. There is no `rbox` anywhere below: RoundedBoxGeometry at
+// geo.js's segment count is 588 triangles per part, and the scene already sits close to its ~210k
+// ceiling. The whole set is under 1.4k triangles, against ~21k freed by the two placeholder
+// residents §5.4's furniture list retires.
+//
+// Bed rims are RINGS of 6-segment spheres rather than solid discs. That matters for more than
+// looks: a pet has to sit INSIDE the rim (legs hidden, body above it) or it reads as standing on
+// top of a cake, so each `perch` is set below the rim line, not on it.
+function rimRing(count, rx, rz, y, radius, hex) {
+  const parts = [];
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * Math.PI * 2;
+    parts.push(part('sph', [radius, 6], hex, { x: Math.sin(a) * rx, y, z: Math.cos(a) * rz }));
+  }
+  return parts;
+}
+// Round cat bed: nine coral tufts around a cream cushion pad. Rim top 0.33, pad top 0.18.
+export function catBedMesh() {
+  const g = new THREE.Group();
+  g.add(mesh([
+    part('cyl', [0.56, 0.52, 0.1, 14], C.coral, { y: 0.05 }),
+    part('cyl', [0.46, 0.46, 0.1, 12], C.cream, { y: 0.13 }),
+    ...rimRing(9, 0.45, 0.45, 0.17, 0.16, C.coral),
+  ]));
+  g.perch = new THREE.Vector3(0, 0.16, 0);
+  return g;
+}
+// Windowsill cushion for the north window at x = -5. buildStatic's own sill board sits at
+// y 0.94..1.06, z -7.3..-6.7 and is only 0.6 m deep — a shelf, not a seat. This ledge is mounted
+// flush with it (local +z points into the room) so the two read as one deep sill a cat can loaf on,
+// silhouetted against the window glass behind it.
+export function windowCushionMesh() {
+  const g = new THREE.Group();
+  g.add(mesh([
+    part('box', [1.7, 0.1, 0.8], C.wood, { y: 1.01, z: 0.1 }),                      // ledge, top 1.06
+    part('box', [0.08, 0.3, 0.5], C.woodDark, { x: -0.7, y: 0.86 }),                // brackets, under the plank
+    part('box', [0.08, 0.3, 0.5], C.woodDark, { x: 0.7, y: 0.86 }),
+    part('sph', [0.44, 10], '#F2C4CE', { y: 1.14, z: 0.1, sy: 0.3, sz: 0.8 }),      // pillow, top 1.27
+    part('sph', [0.2, 8], C.wall, { x: -0.62, y: 1.16, z: 0.06, sy: 0.42, sz: 0.9 }), // spare cushion
+  ]));
+  g.perch = new THREE.Vector3(0, 1.23, 0.12);
+  return g;
+}
+// Cat tree for the kiosk corner: two sisal posts, a low shelf and a cushioned upper platform with a
+// dangling ball. The top shelf is deliberately capped at 1.05 m: a sitting pet is 1.32 m to the ear
+// tips at scale 1.0, so anything taller puts the cat's head into the top of a 3 m wall.
+export function catTreeMesh() {
+  const g = new THREE.Group();
+  g.add(mesh([
+    part('box', [0.72, 0.1, 1.05], C.woodDark, { y: 0.05 }),                         // base, top 0.10
+    part('cyl', [0.1, 0.1, 0.62, 8], '#C9B79F', { y: 0.41, z: -0.32 }),              // short post 0.10..0.72
+    part('cyl', [0.1, 0.1, 0.86, 8], '#C9B79F', { y: 0.53, z: 0.2 }),                // tall post 0.10..0.96
+    part('box', [0.66, 0.08, 0.7], C.wood, { y: 0.76, z: -0.32 }),                   // mid shelf, top 0.80
+    part('sph', [0.26, 8], C.cream, { y: 0.82, z: -0.32, sy: 0.22 }),                // mid cushion
+    part('box', [0.66, 0.09, 0.94], C.wood, { y: 1.005, z: 0.2 }),                   // top shelf, top 1.05
+    part('cyl', [0.34, 0.34, 0.09, 12], '#F4C9D3', { y: 1.095, z: 0.2, sz: 1.35 }),  // top cushion, top 1.14
+    part('cyl', [0.014, 0.014, 0.26, 4], C.cream, { x: 0.28, y: 0.83, z: 0.5 }),     // toy string
+    part('sph', [0.075, 6], C.coin, { x: 0.28, y: 0.67, z: 0.5 }),                   // dangling ball
+  ]));
+  // Perch pulled back from the shelf centre (0.2) to 0.08: at 0.2 the cat's muzzle reached
+  // 12 mm into the kiosk mesh behind it. Legs still land at z -0.23..0.39 on a shelf spanning
+  // -0.27..0.67, so the pose is unchanged.
+  g.perch = new THREE.Vector3(0, 1.11, 0.08);
+  return g;
+}
+// Dog basket for the door corner: an oval woven base, a folded blanket and an eleven-tuft rim. The
+// long axis is local z so a dog (0.9 m nose to tail) lies along it without its chest in the rim.
+export function dogBasketMesh() {
+  const g = new THREE.Group();
+  g.add(mesh([
+    part('cyl', [0.72, 0.66, 0.16, 14], C.wood, { y: 0.08, sx: 0.6 }),
+    part('cyl', [0.62, 0.62, 0.1, 12], C.wall, { y: 0.16, sx: 0.62 }),               // blanket, top 0.21
+    ...rimRing(11, 0.42, 0.62, 0.2, 0.16, C.wood),                                   // rim, top 0.36
+  ]));
+  g.perch = new THREE.Vector3(0, 0.19, 0);
+  return g;
+}
+// Bunny hutch for the garden. environment.js's own layout rule for the near band (z 7.5..14) is
+// "low only — anything tall here sits between the camera and the café", so this is a roofed
+// SLEEPING box over the back half only, 0.87 m tall, with an open straw-lined front the bunny
+// actually sits in. A full-height hutch would both occlude the café and clip the bunny's ears.
+export function bunnyHutchMesh() {
+  const g = new THREE.Group();
+  const p = [
+    part('box', [1.34, 0.09, 1.5], C.wood, { y: 0.305 }),                            // floor, top 0.35
+    part('box', [1.34, 0.44, 0.07], C.wood, { y: 0.57, z: -0.745 }),                 // back wall
+    part('box', [1.46, 0.07, 0.6], C.coral, { y: 0.83, z: -0.48, rx: -0.14 }),       // roof, back third only
+    part('box', [1.34, 0.12, 0.07], C.wood, { y: 0.41, z: 0.715 }),                  // front rail
+    part('sph', [0.5, 8], '#E8CE93', { y: 0.36, z: 0.22, sy: 0.14, sx: 1.15, sz: 0.9 }), // straw, top 0.43
+    part('cone', [0.055, 0.2, 6], '#F08A3C', { x: 0.5, y: 0.42, z: 0.56, rx: 1.45 }), // a dropped carrot
+  ];
+  for (const x of [-0.6, 0.6]) {
+    p.push(part('box', [0.07, 0.44, 0.5], C.wood, { x, y: 0.57, z: -0.52 }));        // side walls, back section
+    p.push(part('box', [0.07, 0.12, 0.94], C.wood, { x, y: 0.41, z: 0.28 }));        // side rails, open front
+    for (const z of [-0.62, 0.62]) p.push(part('box', [0.11, 0.26, 0.11], C.woodDark, { x: x * 0.93, y: 0.13, z }));
+  }
+  g.add(mesh(p));
+  g.perch = new THREE.Vector3(0, 0.4, 0.22);
+  return g;
+}
 // Task 4 carry props — small enough to sit on the owner/runner stack alongside (never mixed with,
 // per the carry-slot rules in src/sim/carry.js) product items.
 export function sackMesh(kind = 'beans') {

@@ -7,14 +7,32 @@
 // policy: natural state first, subtle pulse after ~3s of real hesitation, route/gesture after ~7s.
 // Material movement toward the target resets escalation so a player who is already acting is never
 // redirected or nagged.
+//
+// Task 0.8 (the "pantry demo flickers until you open it once" report): the refill lesson used to
+// start the instant a machine hit 0 and could only ever end at holdCompleted(). While it ran, the
+// hand alternated between the pantry-sheet TAP and the world ROUTE, and every alternation reset the
+// dwell (hide -> dwell -> show), while PROGRESS_RESET_METERS hid the hand again each time the player
+// walked toward the target. Three rules fix it, all of them coach-local (the simulation gains no
+// state, so authored balance and bot replays are untouched):
+//   1. A lesson may only START once the machine has been empty for REFILL_EMPTY_SECONDS *and* a
+//      guest is genuinely waiting on that product family.
+//   2. Half credit: taking the right sack marks `${key}:sack` and the hand drops to route-only;
+//      holdCompleted still proves the lesson, and REFILLS_TO_MASTER player refills of any supply
+//      prove every refill lesson.
+//   3. Hysteresis: a visible mode owns the hand for MODE_HOLD_SECONDS before another may replace
+//      it, mode changes cross-fade over MODE_FADE_SECONDS instead of hiding, and closing on a
+//      target inside CLOSING_GRACE_METERS never hides the hand.
 import * as THREE from 'three';
-import { carryCap } from '../sim/economy.js';
+import { carryCap, familyOf } from '../sim/economy.js';
 import { beanIcon, kibbleIcon, sackIcon, coffeeIcon, treatIcon } from './icons.js';
 import {
   MECHANIC_LEARNING_VERSION,
   REFRESH_AFTER_FAILURES,
+  REFILLS_TO_MASTER,
+  REFILL_LESSON_KEYS,
   mechanicIsKnown,
   normalizeMechanicLearning,
+  normalizeRefillProgress,
   coachEscalationStage,
   selectCoachPriority,
   stableContextAction,
@@ -23,7 +41,10 @@ import {
 export {
   MECHANIC_LEARNING_VERSION,
   REFRESH_AFTER_FAILURES,
+  REFILLS_TO_MASTER,
+  REFILL_LESSON_KEYS,
   normalizeMechanicLearning,
+  normalizeRefillProgress,
   selectCoachPriority,
   stableContextAction,
 } from '../sim/mechanicLearning.js';
@@ -32,11 +53,32 @@ const STYLE_ID = 'pet-cafe-interaction-coach-style';
 const HOLD_RADIUS = 1.75;
 const PROGRESS_RESET_METERS = 0.18;
 
+/** A dry machine is a lesson only after this long, and only with a guest waiting on it. */
+export const REFILL_EMPTY_SECONDS = 6;
+/** A visible mode owns the hand for at least this long before another mode may take it. */
+export const MODE_HOLD_SECONDS = 0.8;
+/** Mode changes cross-fade for this long instead of hiding and re-dwelling. */
+export const MODE_FADE_SECONDS = 0.15;
+/** Inside this radius, closing on the target is the player DOING the lesson: never hide. */
+export const CLOSING_GRACE_METERS = 4;
+// REFILLS_TO_MASTER and REFILL_LESSON_KEYS are re-exported above from sim/mechanicLearning.js, which
+// is where the save boundary bounds them too: one definition, one bound, both sides agreeing.
+
+const REFILL_SUPPLY = Object.freeze({ coffee: 'beans', bowl: 'kibble' });
+const REFILL_KEY_BY_TYPE = Object.freeze({ coffee: 'refillCoffee', bowl: 'refillBowl' });
+const REFILL_KEY_BY_SUPPLY = Object.freeze({ beans: 'refillCoffee', kibble: 'refillBowl' });
+const REFILL_LABEL = Object.freeze({ coffee: 'COFFEE', bowl: 'PET TREATS' });
+
+function refillStationLevel(st) {
+  if (!st) return 0;
+  return st.type === 'coffee' ? (st.beans | 0) : (st.stock | 0);
+}
+
 function injectStyle() {
   if (document.getElementById(STYLE_ID)) return;
   const s = document.createElement('style'); s.id = STYLE_ID;
   s.textContent = `
-    .interaction-coach{position:fixed;left:0;top:0;width:38px;height:38px;z-index:24;pointer-events:none;transform:translate(-50%,-50%);opacity:.72;filter:drop-shadow(0 3px 5px #0003);transition:opacity .16s ease,filter .16s ease}
+    .interaction-coach{position:fixed;left:0;top:0;width:38px;height:38px;z-index:24;pointer-events:none;transform:translate(-50%,-50%);opacity:.72;filter:drop-shadow(0 3px 5px #0003);transition:opacity .15s ease,filter .15s ease}
     .interaction-coach.hidden{display:none}.interaction-coach svg{width:100%;height:100%;overflow:visible;display:block}
     .interaction-coach .coach-caption{position:absolute;left:50%;top:37px;transform:translateX(-50%);width:30px;height:30px;padding:4px;box-sizing:border-box;border-radius:50%;background:#FFF8EFF2;box-shadow:0 3px 9px #00000026;opacity:0;transition:opacity .15s ease}
     .interaction-coach .coach-caption svg{width:100%;height:100%;display:block}
@@ -58,6 +100,8 @@ function injectStyle() {
     @keyframes coachHoldRing{0%,100%{transform:scale(.78);opacity:.48}50%{transform:scale(1.02);opacity:.88}}
     @keyframes coachHoldHand{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(1.5px) scale(.98)}}
     @keyframes coachDot{0%,100%{opacity:.25;transform:translateY(0)}50%{opacity:.9;transform:translateY(-1px)}}
+    .interaction-coach.coach-fade,.interaction-coach.coach-fade.route-mode,.interaction-coach.coach-fade.hold-mode{opacity:0}
+    .interaction-coach.coach-fade .coach-caption{opacity:0}
     body.game-paused .interaction-coach,body.host-paused .interaction-coach,body.meta-summary-open .interaction-coach{display:none!important}
     @media(max-width:200px){.interaction-coach{width:32px;height:32px;opacity:.66}.interaction-coach .coach-caption{top:33px;font-size:8px}}
     @media(prefers-reduced-motion:reduce){.interaction-coach .coach-ring,.interaction-coach .coach-hand,.interaction-coach .coach-hold-dot{animation:none!important}.interaction-coach .coach-ring{opacity:.58;transform:scale(.82)}}
@@ -118,26 +162,209 @@ export function urgentCustomerNeed(G) {
   return !!(G?.customers || []).find(c => c && !c.done && c.state !== 'leave' && Number.isFinite(c.patience) && c.patience <= 4);
 }
 
+/**
+ * Is a guest actually waiting on what this machine produces right now? A guest counts while it has
+ * not received the goods: for a machine, until its order is in hand; for the treat bowl, until a
+ * treat is in that order. Structural only - no UI copy participates.
+ */
+export function guestWaitingForStation(G, st) {
+  if (!st) return false;
+  const wantsTreat = st.type === 'bowl';
+  const family = wantsTreat ? null : familyOf(st.product || 'coffee');
+  for (const c of (G?.customers || [])) {
+    if (!c || c.done || c.state === 'leave' || !c.wish) continue;
+    const order = Array.isArray(c.order) ? c.order : null;
+    if (wantsTreat) {
+      if (c.wish.treat === true && !(order && order.includes('treat'))) return true;
+    } else if (familyOf(c.wish.product) === family && !(order && order.length)) return true;
+  }
+  return false;
+}
+
+/**
+ * Coach-local emptiness clock. The simulation never learns that the coach is watching, so authored
+ * balance and deterministic bot replays are untouched.
+ */
+export function createRefillReadiness({ seconds = REFILL_EMPTY_SECONDS } = {}) {
+  const emptyFor = new Map();
+  const api = {
+    seconds,
+    update(G, dt = 0) {
+      const step = Math.max(0, Number(dt) || 0);
+      const stations = G && G.world && G.world.stations;
+      if (!stations || typeof stations.values !== 'function') { emptyFor.clear(); return; }
+      const seen = new Set();
+      for (const st of stations.values()) {
+        if (!st || !REFILL_SUPPLY[st.type]) continue;
+        seen.add(st.id);
+        if (!st.active || refillStationLevel(st) > 0) { emptyFor.set(st.id, 0); continue; }
+        emptyFor.set(st.id, (emptyFor.get(st.id) || 0) + step);
+      }
+      for (const id of [...emptyFor.keys()]) if (!seen.has(id)) emptyFor.delete(id);
+    },
+    emptySeconds(id) { return emptyFor.get(id) || 0; },
+    ready(st, G) {
+      return !!st && (emptyFor.get(st.id) || 0) >= seconds && guestWaitingForStation(G, st);
+    },
+    filter(G) { return st => api.ready(st, G); },
+    reset() { emptyFor.clear(); },
+  };
+  return api;
+}
+
+/**
+ * Half credit and mastery, read from observable world state so a lesson that is already suppressed
+ * still counts the player's refills. Rides along in the coach learning payload.
+ */
+export function createRefillProgress() {
+  const sacks = new Set();
+  const levels = new Map();
+  let refills = 0, lastSack = null, lastSackLeft = 0, primed = false;
+
+  function creditSack(key) {
+    if (REFILL_LESSON_KEYS.includes(key)) sacks.add(`${key}:sack`);
+  }
+  function creditRefill(key) {
+    if (!REFILL_LESSON_KEYS.includes(key)) return;
+    creditSack(key);
+    refills = Math.min(REFILLS_TO_MASTER, refills + 1);
+  }
+  function observe(G) {
+    const carry = G && G.carry ? G.carry : null;
+    const sack = carry ? carry.sack : null;
+    const sackLeft = carry ? (carry.sackLeft | 0) : 0;
+    // Taking the right sack out of the pantry is half of the lesson.
+    if (sack && sack !== lastSack && REFILL_KEY_BY_SUPPLY[sack]) creditSack(REFILL_KEY_BY_SUPPLY[sack]);
+    const stations = G && G.world && G.world.stations;
+    if (stations && typeof stations.values === 'function') {
+      const seen = new Set();
+      for (const st of stations.values()) {
+        if (!st || !REFILL_SUPPLY[st.type]) continue;
+        seen.add(st.id);
+        const level = refillStationLevel(st);
+        const prev = levels.get(st.id);
+        levels.set(st.id, level);
+        // Only the player's own pour proves anything: the machine rose, their sack shrank in the
+        // same step, and they were standing at that machine. Staff restocks teach nothing.
+        if (!primed || prev == null || level <= prev) continue;
+        if (lastSack !== REFILL_SUPPLY[st.type] || sackLeft >= lastSackLeft) continue;
+        if (!G.P || !st.front || d2(G.P, st.front) > HOLD_RADIUS * HOLD_RADIUS) continue;
+        creditRefill(REFILL_KEY_BY_TYPE[st.type]);
+      }
+      for (const id of [...levels.keys()]) if (!seen.has(id)) levels.delete(id);
+    }
+    lastSack = sack; lastSackLeft = sackLeft; primed = true;
+  }
+  return {
+    observe, creditSack, creditRefill,
+    get refills() { return refills; },
+    hasSack(key) { return sacks.has(`${key}:sack`); },
+    sackKeys() { return [...sacks].sort(); },
+    masteredKeys() { return refills >= REFILLS_TO_MASTER ? [...REFILL_LESSON_KEYS] : []; },
+    snapshot() { return { sack: [...sacks].sort(), refills }; },
+    restore(raw) {
+      sacks.clear(); levels.clear();
+      refills = 0; lastSack = null; lastSackLeft = 0; primed = false;
+      // The same bounding the save boundary applies, so a hand-edited payload buys nothing here.
+      const half = normalizeRefillProgress(raw);
+      for (const entry of half.sack) sacks.add(entry);
+      refills = half.refills;
+    },
+  };
+}
+
 // Exported pure detector so the refill lesson can be tested without DOM/camera machinery.
-export function refillLessonNeed(G, suppressed = new Set()) {
+// `ready` (optional) is the Task-0.8 start gate: a predicate on the station. Omitting it keeps the
+// original "empty right now" contract the pure detector tests assert.
+export function refillLessonNeed(G, suppressed = new Set(), ready = null) {
   if (!G || !G.world || !G.carry) return null;
   let best = null;
   for (const st of G.world.stations.values()) {
     if (!st.active || !st.front) continue;
-    let key = null, supply = null, label = null;
-    if (st.type === 'coffee' && !suppressed.has('refillCoffee') && (st.beans | 0) <= 0) {
-      key = 'refillCoffee'; supply = 'beans'; label = 'COFFEE';
-    } else if (st.type === 'bowl' && !suppressed.has('refillBowl') && (st.stock | 0) <= 0) {
-      key = 'refillBowl'; supply = 'kibble'; label = 'PET TREATS';
-    }
-    if (!key) continue;
+    const supply = REFILL_SUPPLY[st.type];
+    if (!supply) continue;
+    const key = REFILL_KEY_BY_TYPE[st.type];
+    if (suppressed.has(key) || refillStationLevel(st) > 0) continue;
+    if (typeof ready === 'function' && !ready(st)) continue;
     const dist = G.P ? d2(G.P, st.front) : 0;
     if (!best || dist < best.dist) best = {
-      key, supply, label, stationId: st.id,
+      key, supply, label: REFILL_LABEL[st.type], stationId: st.id,
       x: st.front.x, y: st.type === 'bowl' ? .9 : 1.3, z: st.front.z, dist,
     };
   }
   return best;
+}
+
+/**
+ * Which hand the refill lesson wants this frame. Pure, so the half-credit rule is testable:
+ * 'tap' = press this button, 'route' = walk there, 'fall' = the generic lanes own the frame (that
+ * is where the hold cue lives), 'none' = show nothing.
+ */
+export function refillCueMode({
+  half = false, sheetChoice = false, overlay = false, carryingSupply = false,
+  pantryTapReady = false, hasPantry = true, nearMachine = false,
+} = {}) {
+  if (!half && sheetChoice) return 'tap';
+  if (overlay) return 'none';
+  if (!carryingSupply) {
+    if (!half && pantryTapReady) return 'tap';
+    return hasPantry ? 'route' : 'fall';
+  }
+  return nearMachine ? 'fall' : 'route';
+}
+
+/**
+ * Would a PROGRESS_RESET hide the hand? Only for a target still far away: dropping the cue while
+ * the player closes the last few metres is exactly the flicker Task 0.8 removes.
+ */
+export function progressResetHides(distance, best, grace = CLOSING_GRACE_METERS) {
+  if (distance == null || best == null) return false;
+  if (!(distance < best - PROGRESS_RESET_METERS)) return false;
+  return distance > grace;
+}
+
+/**
+ * Mode hysteresis + cross-fade. A live mode owns the hand for `hold` seconds; replacing it fades
+ * the puck out over `fade` seconds and brings the new one back in the same slot, so the player
+ * never sees hide -> dwell -> show.
+ */
+export function createCoachModeGate({ hold = MODE_HOLD_SECONDS, fade = MODE_FADE_SECONDS } = {}) {
+  let mode = null, key = null, modeT = 0, fadeT = 0, pending = null, pendingKey = null, switches = 0;
+  function adopt(nextMode, nextKey) {
+    mode = nextMode; key = nextKey; modeT = 0; fadeT = 0; pending = null; pendingKey = null;
+    if (nextMode) switches++;
+  }
+  return {
+    get mode() { return mode; },
+    get key() { return key; },
+    get modeSeconds() { return modeT; },
+    get fading() { return fadeT > 0; },
+    get switches() { return switches; },
+    request(nextMode = null, nextKey = null, dt = 0) {
+      const step = Math.max(0, Number(dt) || 0);
+      modeT += step;
+      if (mode === null) {
+        if (nextMode) adopt(nextMode, nextKey);
+        return { mode, key, live: mode !== null && mode === nextMode, fading: false };
+      }
+      if (fadeT > 0) {
+        // A cross-fade is in flight. Re-requesting what is already on screen cancels it outright:
+        // a one-frame blip in the world state must never cost the player their cue.
+        if (nextMode === mode && nextKey === key) { pending = null; pendingKey = null; fadeT = 0; }
+        else {
+          if (nextMode !== pending || nextKey !== pendingKey) { pending = nextMode; pendingKey = nextKey; }
+          fadeT -= step;
+          if (fadeT <= 0) adopt(pending, pendingKey);
+        }
+        return { mode, key, live: fadeT <= 0 && mode === nextMode && key === nextKey, fading: fadeT > 0 };
+      }
+      if (nextMode === mode && nextKey === key) return { mode, key, live: true, fading: false };
+      if (modeT < hold) return { mode, key, live: false, fading: false };
+      pending = nextMode; pendingKey = nextKey; fadeT = fade;
+      return { mode, key, live: false, fading: true };
+    },
+    clear() { mode = null; key = null; modeT = 0; fadeT = 0; pending = null; pendingKey = null; },
+  };
 }
 
 function pantryStation(G) {
@@ -211,14 +438,29 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
   const proven = new Set();
   const shown = new Set();
   const failures = new Map();
+  const readiness = createRefillReadiness();
+  const progress = createRefillProgress();
+  const modeGate = createCoachModeGate();
   let currentKey = null, candidateKey = null, candidateT = 0, candidateDistance = null;
-  let activeHold = null, activeHoldSnap = null;
+  let activeHold = null, activeHoldSnap = null, lessonLatch = null;
 
-  function snapshotLearning() { return { v: MECHANIC_LEARNING_VERSION, proven: [...proven].sort() }; }
+  // One canonical serializer for the live snapshot and for the host save alike: whatever this writes
+  // is exactly what normalizeMechanicLearning() hands back on the next load, half credit included.
+  function snapshotLearning() {
+    return normalizeMechanicLearning({
+      v: MECHANIC_LEARNING_VERSION, proven: [...proven], ...progress.snapshot(),
+    });
+  }
   function restoreLearning(raw) {
     proven.clear(); shown.clear(); failures.clear();
     const normalized = normalizeMechanicLearning(raw, G);
     for (const key of normalized.proven) proven.add(key);
+    // Half credit and the refill tally are part of the canonical Task-29 payload itself, so they
+    // survive sim/save.js and a real host round trip, not only an in-memory snapshot. Restoring from
+    // `normalized` means this untrusted input is version-gated and bounded exactly once, on the way in.
+    progress.restore(normalized);
+    for (const key of progress.masteredKeys()) proven.add(key);
+    readiness.reset(); lessonLatch = null;
     resetCandidate(); hide();
   }
   function shouldSuppress(key) { return proven.has(key) && (failures.get(key) || 0) < REFRESH_AFTER_FAILURES; }
@@ -251,8 +493,9 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
     activeHold = null; activeHoldSnap = null;
   }
   function hide() {
-    root.classList.add('hidden'); root.classList.remove('hold-mode', 'route-mode');
+    root.classList.add('hidden'); root.classList.remove('hold-mode', 'route-mode', 'coach-fade');
     root.dataset.mode = ''; setCaption(''); currentKey = null;
+    modeGate.clear();
     if (G) G.coachCueVisible = false;
   }
   function reveal(key, stage) {
@@ -272,7 +515,7 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
       activeHold = null; activeHoldSnap = null;
       return 'natural';
     }
-    if (distance != null && candidateDistance != null && distance < candidateDistance - PROGRESS_RESET_METERS) {
+    if (progressResetHides(distance, candidateDistance)) {
       candidateT = 0; candidateDistance = distance;
       hide();
       return 'natural';
@@ -306,96 +549,146 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
   };
   document.addEventListener('click', onAction, true);
 
-  function showTap(btn, key, routeText, dt, dwell = 0.35) {
-    const candidate = `tap:${key}`;
-    if (candidate !== candidateKey) {
-      candidateKey = candidate; candidateT = 0;
-      activeHold = null; activeHoldSnap = null;
-      hide(); return true;
-    }
-    candidateT += Math.max(0, dt);
-    if (candidateT < dwell) { hide(); return true; }
-    currentKey = key; root.classList.remove('hold-mode'); root.dataset.mode = 'tap';
-    setCaption(candidateT >= 3.0 ? routeText : '');
-    placeBeside(root, btn); reveal(key, 'pulse'); return true;
+  function tapPlan(btn, key, icon, dwell = 0.35) {
+    return {
+      mode: 'tap', key, candidate: `tap:${key}`, dwell, distance: null,
+      render() {
+        currentKey = key; root.classList.remove('hold-mode'); root.dataset.mode = 'tap';
+        setCaption(icon && candidateT >= 3.0 ? icon : '');
+        placeBeside(root, btn); reveal(key, 'pulse'); return true;
+      },
+    };
   }
 
-  function showRoute(target, key, routeText, dt) {
+  function routePlan(target, key, icon) {
     const station = target.stationId || target.id || '';
-    const candidate = `route:${key}:${station}`;
-    if (candidate !== candidateKey) {
-      candidateKey = candidate; candidateT = 0; candidateDistance = distanceTo(G, target);
-      activeHold = null; activeHoldSnap = null;
-      hide(); return true;
+    return {
+      mode: 'route', key, candidate: `route:${key}:${station}`, dwell: 0.4, distance: distanceTo(G, target),
+      render() {
+        if (!placeAtWorld(root, S, target, layout)) return false;
+        currentKey = key; root.classList.remove('hold-mode'); root.dataset.mode = 'route';
+        setCaption(icon); reveal(key, 'route'); return true;
+      },
+    };
+  }
+
+  function holdPlan(hold, candidate) {
+    return {
+      mode: 'hold', key: hold.key, candidate, dwell: 0.08, distance: null,
+      render() {
+        if (!placeAtWorld(root, S, hold, layout)) return false;
+        currentKey = hold.key; root.classList.add('hold-mode'); root.dataset.mode = 'hold';
+        // The animated hold-dots above the puck already say "hold"; the caption only needs to say
+        // WHAT is being refilled. A plain stay-put hold needs no caption at all.
+        setCaption(candidateT >= 1.5
+          ? (hold.key === 'refillCoffee' ? beanIcon() : hold.key === 'refillBowl' ? kibbleIcon() : '')
+          : '');
+        reveal(hold.key, 'pulse'); return true;
+      },
+    };
+  }
+
+  function lessonReady(st) {
+    return readiness.ready(st, G) || !!(lessonLatch && lessonLatch.stationId === st.id);
+  }
+
+  // What the coach WANTS on screen this frame, before dwell and hysteresis have their say.
+  function planCue() {
+    const suppressed = suppressionSet();
+    // The latch keeps a lesson that legitimately started from evaporating the moment its guest is
+    // served; emptiness and suppression still end it.
+    const lesson = refillLessonNeed(G, suppressed, lessonReady);
+    lessonLatch = lesson ? { key: lesson.key, stationId: lesson.stationId } : null;
+
+    if (lesson && G && S) {
+      const half = progress.hasSack(lesson.key);
+      const carrying = G.carry.sack === lesson.supply && (G.carry.sackLeft | 0) > 0;
+      if (carrying) progress.creditSack(lesson.key);
+      const choice = half ? null : pantryChoiceButton(lesson.supply);
+      const pantry = pantryStation(G);
+      const fbtn = document.querySelector('.fbtn');
+      const pantryTapReady = !!(pantry && !half && buttonVisible(fbtn) && stableContextAction(G) === 'pantry'
+        && G.P && d2(G.P, pantry.front) < HOLD_RADIUS * HOLD_RADIUS);
+      const mode = refillCueMode({
+        half, sheetChoice: !!choice, overlay: overlayOpen(), carryingSupply: carrying,
+        pantryTapReady, hasPantry: !!pantry,
+        nearMachine: !!(G.P && d2(G.P, { x: lesson.x, z: lesson.z }) <= HOLD_RADIUS * HOLD_RADIUS),
+      });
+      if (mode === 'tap') {
+        return choice
+          ? tapPlan(choice, lesson.key, supplyIcon(lesson.supply), 0.22)
+          : tapPlan(fbtn, lesson.key, sackIcon(), 0.22);
+      }
+      if (mode === 'route') {
+        return carrying
+          ? routePlan(lesson, lesson.key, stationIcon(lesson.label))
+          : routePlan({ ...pantry.front, stationId: pantry.id, y: 1.15 }, lesson.key, supplyIcon(lesson.supply));
+      }
+      if (mode === 'none') return null;
+      // 'fall': the generic lanes below own this frame - that is where the hold cue lives.
+    } else if (overlayOpen()) return null;
+
+    // Stock/build world work outranks kiosk/staff/pantry prompts even while its visual is still in
+    // the natural stage. The refill lesson above is the richer version of that same single cue.
+    const objectiveKind = G?.objectiveCueKind || null;
+    const objectiveStock = ['restock', 'refill', 'supplies', 'stock'].includes(objectiveKind);
+    const suppressTap = objectiveStock || objectiveKind === 'build';
+
+    const btn = document.querySelector('.fbtn');
+    const tapKey = buttonVisible(btn) ? stableContextAction(G) : null;
+    if (tapKey && !shouldSuppress(tapKey) && !suppressTap) return tapPlan(btn, tapKey, '', 0.35);
+
+    const hold = G && S ? holdTarget(G, suppressed) : null;
+    if (!hold) return null;
+    const candidate = `hold:${hold.key}:${hold.stationId}`;
+    if (candidate !== candidateKey || !activeHoldSnap) activeHoldSnap = snapshotHold(G, hold);
+    activeHold = hold;
+    return holdPlan(hold, candidate);
+  }
+
+  // Dwell and progress bookkeeping. Returns whether this plan may be on screen this frame.
+  // `live` (a cue is already up) skips the dwell entirely: that is what turns the old
+  // hide -> dwell -> show alternation into a cross-fade.
+  function stepCandidate(plan, dt, live) {
+    if (plan.candidate !== candidateKey) {
+      candidateKey = plan.candidate; candidateT = 0; candidateDistance = plan.distance;
+      if (plan.mode !== 'hold') { activeHold = null; activeHoldSnap = null; }
+      return live;
     }
-    const dist = distanceTo(G, target);
-    if (dist != null && candidateDistance != null && dist < candidateDistance - PROGRESS_RESET_METERS) {
+    const dist = plan.distance;
+    if (progressResetHides(dist, candidateDistance)) {
       candidateT = 0; candidateDistance = dist;
-      hide(); return true;
+      return false;
     }
-    candidateT += Math.max(0, dt);
     if (dist != null && (candidateDistance == null || dist < candidateDistance)) candidateDistance = dist;
-    if (candidateT < 0.4 || !placeAtWorld(root, S, target, layout)) { hide(); return true; }
-    currentKey = key; root.classList.remove('hold-mode'); root.dataset.mode = 'route';
-    setCaption(routeText); reveal(key, 'route'); return true;
+    candidateT += Math.max(0, dt);
+    return live || candidateT >= plan.dwell;
   }
 
   const coach = {
     update(dt = 0) {
+      const step = Math.max(0, Number(dt) || 0);
+      readiness.update(G, step);
+      progress.observe(G);
+      for (const key of progress.masteredKeys()) proven.add(key);
+
       if (activeHold && holdCompleted(G, activeHold, activeHoldSnap)) mark(activeHold.key);
 
       // Urgent guests own the world lane. Never stack a kiosk/construction/refill hand on top.
-      if (urgentCustomerNeed(G)) { resetCandidate(); hide(); return; }
+      if (urgentCustomerNeed(G)) { resetCandidate(); lessonLatch = null; hide(); return; }
 
-      const suppressed = suppressionSet();
-      const lesson = refillLessonNeed(G, suppressed);
-      if (lesson && G && S) {
-        const choice = pantryChoiceButton(lesson.supply);
-        if (choice) { showTap(choice, lesson.key, supplyIcon(lesson.supply), dt, 0.22); return; }
-        if (overlayOpen()) { resetCandidate(); hide(); return; }
-        const carryingRightSupply = G.carry.sack === lesson.supply && (G.carry.sackLeft | 0) > 0;
-        if (!carryingRightSupply) {
-          const pantry = pantryStation(G);
-          const btn = document.querySelector('.fbtn');
-          if (pantry && buttonVisible(btn) && stableContextAction(G) === 'pantry' && G.P && d2(G.P, pantry.front) < HOLD_RADIUS * HOLD_RADIUS) {
-            showTap(btn, lesson.key, sackIcon(), dt, 0.22); return;
-          }
-          if (pantry) { showRoute({ ...pantry.front, stationId: pantry.id, y: 1.15 }, lesson.key, supplyIcon(lesson.supply), dt); return; }
-        } else if (G.P && d2(G.P, { x: lesson.x, z: lesson.z }) > HOLD_RADIUS * HOLD_RADIUS) {
-          showRoute(lesson, lesson.key, stationIcon(lesson.label), dt); return;
-        }
-      } else if (overlayOpen()) { resetCandidate(); hide(); return; }
+      const live = modeGate.mode !== null;
+      const plan = planCue();
+      let ready = false;
+      if (plan) ready = stepCandidate(plan, step, live);
+      else resetCandidate();
 
-      // Stock/build world work outranks kiosk/staff/pantry prompts even while its visual is still in
-      // the natural stage. The refill lesson above is the richer version of that same single cue.
-      const objectiveKind = G?.objectiveCueKind || null;
-      const objectiveStock = ['restock', 'refill', 'supplies', 'stock'].includes(objectiveKind);
-      const suppressTap = objectiveStock || objectiveKind === 'build';
-
-      const btn = document.querySelector('.fbtn');
-      const tapKey = buttonVisible(btn) ? stableContextAction(G) : null;
-      if (tapKey && !shouldSuppress(tapKey) && !suppressTap) {
-        if (showTap(btn, tapKey, '', dt)) return;
-      }
-
-      const hold = G && S ? holdTarget(G, suppressed) : null;
-      if (!hold) { resetCandidate(); hide(); return; }
-      const candidate = `hold:${hold.key}:${hold.stationId}`;
-      if (candidate !== candidateKey) {
-        candidateKey = candidate; candidateT = 0; candidateDistance = distanceTo(G, hold);
-        activeHold = hold; activeHoldSnap = snapshotHold(G, hold); hide(); return;
-      }
-      activeHold = hold;
-      candidateT += Math.max(0, dt);
-      if (!activeHoldSnap) activeHoldSnap = snapshotHold(G, hold);
-      if (candidateT < 0.08 || !placeAtWorld(root, S, hold, layout)) { hide(); return; }
-      currentKey = hold.key; root.classList.add('hold-mode'); root.dataset.mode = 'hold';
-      // The animated hold-dots above the puck already say "hold"; the caption only needs to say
-      // WHAT is being refilled. A plain stay-put hold needs no caption at all.
-      setCaption(candidateT >= 1.5
-        ? (hold.key === 'refillCoffee' ? beanIcon() : hold.key === 'refillBowl' ? kibbleIcon() : '')
-        : '');
-      reveal(hold.key, 'pulse');
+      const gate = modeGate.request(ready ? plan.mode : null, ready ? plan.key : null, step);
+      if (gate.mode === null) { hide(); return; }
+      root.classList.toggle('coach-fade', gate.fading);
+      // Hysteresis, or a cross-fade in flight: leave the hand exactly where and how it is.
+      if (!gate.live) return;
+      if (plan.render() === false) hide();
     },
     mark,
     fail: recordFailure,
@@ -405,7 +698,7 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
     snapshotLearning,
     restoreLearning,
     priorityState() {
-      const stock = !!refillLessonNeed(G, suppressionSet());
+      const stock = !!refillLessonNeed(G, suppressionSet(), lessonReady);
       const construction = G?.objectiveCueKind === 'build';
       return selectCoachPriority({
         urgent: urgentCustomerNeed(G), stock, construction,

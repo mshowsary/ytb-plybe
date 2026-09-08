@@ -100,5 +100,7 @@ export function buildKioskModel(G, world, tab = 'player', focusRow = null) {
     player: buildPlayerRows(G),
     workers: buildWorkerRows(G, world),
     machines: buildMachineRows(G, world),
+    decorOwned: (G.meta && Array.isArray(G.meta.decor)) ? G.meta.decor : [],
+    built: world.built,
   };
 }

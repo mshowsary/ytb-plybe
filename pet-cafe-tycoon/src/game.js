@@ -1,5 +1,6 @@
 import { createGuestCare } from './systems/guestCare.js';
 import { normalizeServicePolicy, prepareServicePolicy, recordOrdinaryServiceShift } from './sim/servicePolicy.js';
+import { applySeatMiss } from './sim/serviceQuality.js';
 import { normalizeSocials } from './sim/petSocials.js';
 import { createPetSocials } from './systems/petSocials.js';
 import { cafeCompletion } from './sim/completion.js';
@@ -69,6 +70,10 @@ export function createGame(S, area, els, platform = null) {
       rewardedDays: {}, completedDays: 0, reputation: 0, perfectShifts: 0,
       bestServiceStreak: 0, shiftRatings: {}, petBook: {}, petDiscoveries: 0, settlement: null, career: {}, partyOrders: {},
       rewards: { calendar: { lastKey: null, streak: 0 } },
+      // Save v5 surfaces. Batch 0 only writes `decor`; the rest are declared now so later batches
+      // (album, followers, residents, seasons, franchise) inherit a migration that already exists.
+      decor: [], followers: 0, album: {}, equipped: {}, residents: [],
+      goldenPaw: false, season: { index: 0, dayStart: 1 }, franchise: { level: 0 },
     },
     golden: createGoldenHourState(),
     special: specialForDay(1),
@@ -190,6 +195,15 @@ export function createGame(S, area, els, platform = null) {
         for (const up of levelUps) { hud.banner(`${up.label.toUpperCase()} MASTERY ${up.level} · +${up.bonus}% VALUE`, 1900); audio.play('chime'); syncCareerPresentation(); }
         if (G.serviceStreak.count === 5 || (G.serviceStreak.count >= 10 && G.serviceStreak.count % 10 === 0)) { hud.banner(`${G.serviceStreak.count}x SERVICE STREAK`, 1200); audio.play('chime'); }
       } else if (e.type === 'lost') { G.dayStats.lost++; G.serviceStreak.count = 0; G.serviceStreak.t = 0; }
+      else if (e.type === 'seatMissed') {
+        // Program §6.2: a paid guest never got a clean table. The missed-seat stat and the
+        // reputation point are durable sim state, not presentation, so they are applied here --
+        // beside 'pay' and 'lost', in the one loop that owns world events -- and checkpointed the
+        // way the sibling penalty path is, so a crash before the next mark cannot lose the rank.
+        // systems/visuals.js sees the same event and draws the numeral, nothing more.
+        applySeatMiss(G);
+        G.requestCheckpoint('seat-missed');
+      }
     }
     metaUI.setStreak(G.serviceStreak.count, G.serviceStreak.t);
     careerRefreshT -= dt; if (careerUI.isOpen && careerRefreshT <= 0) { careerRefreshT = 1; syncCareerPresentation(); }
@@ -318,7 +332,7 @@ export function createGame(S, area, els, platform = null) {
   }
 
   G.snapshot = () => ({
-    v: 4, coins: G.coins, lifetimeEarned: G.stats.lifetimeEarned | 0,
+    v: 5, coins: G.coins, lifetimeEarned: G.stats.lifetimeEarned | 0,
     builds: { a1: Array.from(world.built) }, partial: { ...world.partial }, stationState: snapshotStationState(world, G.stars),
     ownerState: snapshotOwnerState(P, G.carry, owner.items, G.up, area),
     upgrades: { ...G.up }, staff: { ...G.staff }, stats: { ...G.stats }, settings: { ...G.settings },
@@ -327,6 +341,11 @@ export function createGame(S, area, els, platform = null) {
       completedDays: G.meta.completedDays | 0, rewardedDays: { ...G.meta.rewardedDays }, reputation: G.meta.reputation | 0, perfectShifts: G.meta.perfectShifts | 0,
       bestServiceStreak: G.meta.bestServiceStreak | 0, shiftRatings: { ...G.meta.shiftRatings }, petBook: { ...G.meta.petBook }, petDiscoveries: G.meta.petDiscoveries | 0,
       settlement: cloneSettlement(G.meta.settlement),
+      decor: [...(G.meta.decor || [])], followers: G.meta.followers | 0,
+      album: { ...G.meta.album }, equipped: { ...G.meta.equipped },
+      residents: [...(G.meta.residents || [])], goldenPaw: !!G.meta.goldenPaw,
+      season: { ...(G.meta.season || { index: 0, dayStart: 1 }) },
+      franchise: { ...(G.meta.franchise || { level: 0 }) },
       career: {
         currentContract: G.meta.career.currentContract ? { ...G.meta.career.currentContract, goal: { ...G.meta.career.currentContract.goal } } : null,
         history: Object.fromEntries(Object.entries(G.meta.career.history || {}).map(([k, v]) => [k, { ...v }])), weeklyCups: Object.fromEntries(Object.entries(G.meta.career.weeklyCups || {}).map(([k, v]) => [k, { ...v }])),
