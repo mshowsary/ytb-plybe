@@ -1,15 +1,45 @@
 // Compact end-of-shift service-quality readout. Presentation only: Task 23 reports outcomes and
 // recovery moments, never wallet penalties. Lost guests remain a real service consequence.
+import { heartIcon } from './icons.js';
 
 const n = value => Math.max(0, Number(value) | 0);
 
-export function buildServiceSummaryModel(dayStats = {}) {
+// `n` folds every absent/garbage input to 0, which is the right answer for a service outcome (no
+// misses recorded IS no misses). It is the wrong answer for the two gain counters below, where 0
+// and "this shift never recorded it" are different facts, so those go through `known` instead.
+// Number(null) === 0, so the null/undefined check has to come first -- collapsing it into the
+// Number.isFinite test would silently report an unrecorded shift as a shift with zero photos.
+const known = value => {
+  if (value === null || value === undefined) return null;
+  const v = Number(value);
+  return Number.isFinite(v) ? Math.max(0, Math.trunc(v)) : null;
+};
+
+export function buildServiceSummaryModel(dayStats = {}, meta = null) {
   const served = n(dayStats.served), lost = n(dayStats.lost), misses = n(dayStats.serviceMisses);
   const returns = n(dayStats.returnActions);
   // Program 6.2: guests who paid and then found no clean table. A shift that turned anyone away
   // over dirty tables is not a clean shift, however good the rest of the service was.
   const missedSeats = n(dayStats.missedSeats);
   const clean = misses === 0 && lost === 0 && missedSeats === 0;
+
+  // Batch 3: two GAIN counters beside the service outcomes above. Both are null-when-unknown, not
+  // 0-when-unknown: src/sim/saveSchema.js normalizeShiftStats rebuilds G.dayStats from a fixed key
+  // whitelist, so a shift restored mid-day carries neither counter, and a chip that confidently
+  // shows "0 photos" for a shift in which the player did take photos is a lie the card cannot
+  // take back. Unknown draws nothing at all (see decorateCard).
+  const photos = known(dayStats.photos);
+  // Followers have four independent sources (photo shots, first pet discoveries, Besties, and the
+  // Golden Paw ceremony), so a per-source shift counter would have to be threaded through four
+  // files that this task does not own. The shift's gain is instead the difference between the
+  // running total now and the reading taken when the shift began -- one number to record, and it
+  // picks up any source added later for free.
+  const followersStart = known(dayStats.followersStart);
+  const followersNow = meta ? known(meta.followers) : null;
+  // clamped at 0: meta.followers can only rise (sim/followers.js addFollowers), so a negative here
+  // means the two readings came from different shifts, not that the player lost an audience.
+  const followers = (followersStart === null || followersNow === null)
+    ? null : Math.max(0, followersNow - followersStart);
 
   let headline = 'CLEAN SERVICE';
   if (misses > 0) headline = `${misses} SERVICE ${misses === 1 ? 'RECOVERY' : 'RECOVERIES'}`;
@@ -21,7 +51,7 @@ export function buildServiceSummaryModel(dayStats = {}) {
   else if (returns > 0) tip = 'Returned items are handled without taking coins from your wallet.';
   if (missedSeats > 0) tip = 'Guests paid and found no clean table. Wipe seats between visits.';
 
-  return { served, lost, misses, missedSeats, returns, clean, headline, tip };
+  return { served, lost, misses, missedSeats, returns, photos, followers, clean, headline, tip };
 }
 
 const STYLE_ID = 'pet-cafe-service-summary-style';
@@ -57,6 +87,19 @@ function seatMissIcon() {
     + '<path d="M8 3.5l8 7M16 3.5l-8 7" stroke="#E2483C"/>'
     + '</svg>';
 }
+// The developed polaroid the player watched fly to the Pet Book (src/ui/photoGame.js's .polaroid --
+// white card, cream frame, deep bottom margin), not a camera: the card that landed is the thing
+// this chip is counting. Duplicated in src/ui/hud.js's ring, for the same reason seatMissIcon above
+// is duplicated from src/systems/visuals.js -- src/ui/icons.js belongs to another task in this
+// batch; all three copies should collapse into one icons.js export as soon as it is free.
+export function photoIcon() {
+  return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">'
+    + '<rect x="3.6" y="3.4" width="16.8" height="17.4" rx="1.8" fill="#FFFDF8" stroke="#7A583A" stroke-width="1.4"/>'
+    + '<rect x="5.9" y="5.7" width="12.2" height="9.4" rx="1" fill="#E9DFCE"/>'
+    + '<circle cx="12" cy="10.4" r="2.7" fill="#C97A3A"/>'
+    + '</svg>';
+}
+
 // Icon + numeral, no words: the one row in this card that also has to make sense at a glance to a
 // player who never reads the prose around it.
 function iconChip(svg, value, className = '') {
@@ -74,9 +117,13 @@ function decorateCard(G, card) {
   if (!title || !/^Day\s+\d+\s+✓$/.test(title.textContent.trim())) return;
   const body = card.querySelector('.cbody'); if (!body) return;
 
-  const model = buildServiceSummaryModel(G && G.dayStats);
+  const model = buildServiceSummaryModel(G && G.dayStats, G && G.meta);
   const strip = document.createElement('section'); strip.className = 'service-summary-strip';
-  strip.setAttribute('aria-label', `Service summary. ${model.misses} recovery moments. ${model.lost} guests lost. ${model.missedSeats} guests found no clean table. ${model.returns} return actions. Service recovery ${n(G.dayStats.serviceFees)} coins.`);
+  // Screen-reader text only -- never rendered, so it stays sentences while the chips stay glyphs.
+  // The two gain clauses are appended only when the counts are known, matching what is drawn.
+  const gains = (model.photos === null ? '' : ` ${model.photos} photos taken.`)
+    + (model.followers === null ? '' : ` ${model.followers} followers gained.`);
+  strip.setAttribute('aria-label', `Service summary. ${model.misses} recovery moments. ${model.lost} guests lost. ${model.missedSeats} guests found no clean table. ${model.returns} return actions. Service recovery ${n(G.dayStats.serviceFees)} coins.${gains}`);
 
   const top = document.createElement('div'); top.className = 'service-summary-top';
   const label = document.createElement('span'); label.textContent = 'SERVICE QUALITY';
@@ -90,6 +137,15 @@ function decorateCard(G, card) {
     chip(`${model.misses} recovery ${model.misses === 1 ? 'moment' : 'moments'}`, model.misses ? 'attn' : 'ok'),
     iconChip(seatMissIcon(), model.missedSeats, model.missedSeats ? 'attn' : 'ok'),
   );
+  // Same icon+numeral idiom as the seat-miss chip, drawn only when the count is known AND non-zero.
+  // The four chips above are service OUTCOMES, where a 0 is itself the good news and so earns a
+  // permanent slot; these two are GAINS, and the photo studio does not exist at all until the
+  // terrace chain is bought. A "0 photos" chip on day 3 would be furniture, not information.
+  // `> 0` is also the null guard: an unknown count is neither drawn nor invented.
+  if (model.photos > 0) metrics.append(iconChip(photoIcon(), model.photos, 'ok'));
+  // heartIcon is imported rather than redrawn so this reads as the same quantity as the HUD's
+  // followers pill (src/ui/hud.js), which uses the identical glyph.
+  if (model.followers > 0) metrics.append(iconChip(heartIcon(), model.followers, 'ok'));
   if (n(G.dayStats.serviceFees)>0) metrics.append(chip('−'+n(G.dayStats.serviceFees)+' service recovery','attn'));
   const p=G.meta?.servicePolicy;
   if(p&&p.day===G.dayState.day){const cause=Object.entries(p.causes).sort((a,b)=>b[1]-a[1])[0];if(cause?.[1]>0) model.tip=({table:'Clean tables before guests finish paying.',register:'Staff both registers or reassure guests before patience runs out.',counter:'Assign Runners to empty displays before the rush.',bowl:'Keep pet bowls stocked before the rush.'})[cause[0]];if(p.spent>=Math.floor(p.baseline*.08))metrics.append(chip('Shift recovery cap reached','attn'));}

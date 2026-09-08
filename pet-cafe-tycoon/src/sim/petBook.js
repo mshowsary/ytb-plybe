@@ -2,8 +2,8 @@
 //
 // Plan §3.7 (task 2.6): a fourth species (hamster) plus one legendary coat per species (variant
 // index 4) bring the book from 12 to 20 pets. Legendary spawning is gated on the Paw Rating
-// reaching star 4 (plan §3.4), which is Batch 3 work that does not exist yet -- see
-// `legendaryUnlocked` below for exactly how that gate is (deliberately) held closed today.
+// reaching star 4 (plan §3.4) -- see `legendaryUnlocked` below, which Batch 3 wired to the real
+// ratchet, and the identity-pool note in sim/regularVisitors.js.
 export const PET_PROFILES = {
   cat: [
     { name: 'Marmalade', rarity: 'common', trait: 'Sunbeam seeker', body: '#D6A35F', belly: '#FFF0D5', accent: '#E0B34F' },
@@ -48,20 +48,28 @@ export const PET_KEEPSAKE_VERSION = 1;
 // Every species now authors exactly 5 profiles (4 base + 1 legendary at index 4).
 export const LEGENDARY_VARIANT_INDEX = 4;
 
-// Batch 3 (plan §3.4, Paw Rating) is what actually unlocks legendary coats at star 4. That system
-// does not exist yet, so this predicate is DELIBERATELY always false today -- Batch 3 replaces the
-// body with a real `meta`-derived star-tier check and nothing else in this module needs to change.
+// The Paw Rating star that unlocks legendary coats (plan §3.4/§3.7).
 //
-// KNOWN GAP this predicate does NOT close on its own: src/sim/regularVisitors.js's
-// PET_IDENTITY_POOL is built from every PET_PROFILES entry (via PET_SPECIES.flatMap), including
-// legendary ones, and systems/customers.js renders whatever species/variant
-// resolveUniquePetIdentity() returns for a spawned customer's pet -- so its congestion fallback
-// (walking the full pool when every other identity is already active) can hand a legendary coat to
-// a customer today with NO star-4 check at all. Closing that requires filtering
-// `rarity !== 'legendary'` in regularVisitors.js's PET_IDENTITY_POOL (or in
-// resolveUniquePetIdentity's fallback loop) until this predicate is real; see this task's handoff.
-export function legendaryUnlocked(/* meta */) {
-  return false;
+// DUPLICATED FROM pawRating.js's PAW_LEGENDARY_STAR, NOT IMPORTED, and that is deliberate:
+// pawRating.js imports THIS module (PET_SPECIES/PET_PROFILES/petKey feed its top-level
+// PAW_PET_KEYS), so importing it back would close a cycle whose outcome depends on which file the
+// entry point reaches first -- a petBook-first entry evaluates pawRating's body while PET_SPECIES
+// is still in TDZ and throws at load. petBook.js is a leaf with zero imports and stays one.
+// test/paw-rating-effects.test.js asserts the two numbers are equal so they cannot drift apart.
+export const PET_LEGENDARY_PAW_STAR = 4;
+
+// Batch 3 wired this to the real rating. Reads meta.pawBest -- the RATCHET, the highest star ever
+// reached -- and NOT a live re-derivation: a coat that appeared at ★4 and vanished after a bad
+// week would read as content being taken away. meta.pawBest is clamped 0..5 at the save boundary
+// (saveSchema.js, against pawEntitlementCeiling), so a hand-edited save cannot simply declare it.
+//
+// A no-argument call (sim/completion.js does one) is false, which is the safe direction: it treats
+// legendaries as still locked rather than unlocking them for a caller that has no save to check.
+//
+// This predicate alone does NOT decide who walks in. sim/regularVisitors.js chooses the rendered
+// identity, and its pool must be resolved per call from live meta -- see the note there.
+export function legendaryUnlocked(meta) {
+  return (meta && typeof meta === 'object' ? meta.pawBest | 0 : 0) >= PET_LEGENDARY_PAW_STAR;
 }
 
 export function isLegendaryProfile(profile) {

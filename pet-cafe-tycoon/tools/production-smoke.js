@@ -4,6 +4,13 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
+// The save version and the pet roster are both moving targets (v4 -> v5 in Batch 0; 12 -> 20 pets
+// in Batch 2). Compare against the exported constants so this gate tracks the bumps instead of
+// going permanently red one commit after each one — tools/save-schema-smoke.js already does this.
+import { CURRENT_SAVE_VERSION } from '../src/sim/saveSchema.js';
+import { PET_SPECIES, PET_PROFILES } from '../src/sim/petBook.js';
+
+const PET_CARD_COUNT = PET_SPECIES.reduce((n, s) => n + PET_PROFILES[s].length, 0);
 
 execSync('npm run build', { stdio: 'inherit' });
 const dist = path.resolve('dist');
@@ -135,7 +142,9 @@ for (const [tag, width, height, dpr] of viewports) {
     rival: window.__game.goal?.rival,
   }));
 
-  await page.click('.meta-reputation');
+  // Batch 3: the ★ chip opens the Paw Rating now (a star for the star goal); Café Journey moved
+  // to the day pill, which is the control that already means 'the days so far'.
+  await page.click('#dayPill');
   await page.waitForFunction(() => !document.querySelector('.career-root')?.classList.contains('hidden'));
   const journeyBefore = await page.evaluate(() => ({
     days: document.querySelectorAll('.career-day').length,
@@ -297,9 +306,12 @@ for (const [tag, width, height, dpr] of viewports) {
   const journeyBad = journeyBefore.days !== 7 || journeyBefore.masteries !== 5 || !journeyBefore.renovation || journeyBefore.renoButtonDisabled;
   const renovationBad = tag === 'small' && (!renovation || renovation.level !== 1 || renovation.spent !== 1800 || renovation.nextName !== 'Gallery Café');
   const goalBad = goalState.day !== 13 || goalState.kind !== 'streak' || goalState.target !== 10 || goalState.previous !== 9 || goalState.rival !== true;
-  const summaryBad = meta.careerResult !== 'WON ✓' || !meta.cupText || !meta.nextChase || !meta.perfectText.includes('PERFECT');
+  // nextChase and perfectText are no longer asserted: .career-next-chase and the perfect line are
+  // both display:none in ui/career.js's own stylesheet (the icon-first pass removed that prose from
+  // the card), so requiring them could only ever fail. The remaining two are real and still checked.
+  const summaryBad = meta.careerResult !== 'WON ✓' || !meta.cupText;
 
-  if (!info.platform || !info.reliefRoot || info.metaVersion !== 4 || !meta.stars || !meta.reward || !meta.repSummary || !busy.repLabel || !busy.petCount || book.cards !== 12 || book.found < 7 || overflow || proseLeak || interactionBad || buildBad || pauseBad || journeyBad || renovationBad || goalBad || summaryBad || errors.length) failed = true;
+  if (!info.platform || !info.reliefRoot || info.metaVersion !== CURRENT_SAVE_VERSION || !meta.stars || !meta.reward || !meta.repSummary || !busy.repLabel || !busy.petCount || book.cards !== PET_CARD_COUNT || book.found < 7 || overflow || proseLeak || interactionBad || buildBad || pauseBad || journeyBad || renovationBad || goalBad || summaryBad || errors.length) failed = true;
   report.push({ tag, ...info, buildIntent, pauseState, goalState, journeyBefore, renovation, busy, book, interaction, ...meta, proseLeak, overflow, errors });
   await ctx.close();
 }

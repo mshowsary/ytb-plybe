@@ -71,7 +71,7 @@ export function decorRows(model) {
   if (Array.isArray(model && model.decor)) return model.decor;
   const owned = new Set(Array.isArray(model && model.decorOwned) ? model.decorOwned : []);
   const coins = (model && model.coins) || 0;
-  return decorCatalogue((model && model.built) || null).map(item => ({
+  return decorCatalogue((model && model.built) || null, (model && model.pawBest) | 0).map(item => ({
     id: item.id, price: item.price, icon: item.icon,
     owned: owned.has(item.id),
     disabled: owned.has(item.id) || coins < item.price,

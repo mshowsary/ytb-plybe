@@ -254,6 +254,32 @@ async function forcePhotoSession(page) {
   });
 }
 
+// Batch 3 adds a fourth overlay and a wallet ring, neither of which the three existing states can
+// show. An audit that does not open what the batch just built reports PASS for the wrong reason —
+// the same blind spot that hid two 40px tap targets until the album state was added.
+async function openPawSheet(page) {
+  return page.evaluate(() => {
+    const opener = document.querySelector('.meta-reputation');
+    if (opener) opener.click();
+    const root = document.querySelector('.paw-root');
+    return !!root && !root.classList.contains('hidden');
+  });
+}
+
+// The wallet's saving ring only appears while something is still unbuilt, and forceDenseCafe builds
+// EVERYTHING — so without un-building one zone the ring can never be measured in any state.
+async function showSavingRing(page) {
+  return page.evaluate(() => {
+    const G = window.__game;
+    if (!G || !G.world) return false;
+    const last = [...G.world.area.zones].reverse().find(z => G.world.built.has(z.id));
+    if (!last) return false;
+    G.world.built.delete(last.id);
+    G.coins = Math.max(0, Math.round(last.price * 0.4));
+    return true;
+  });
+}
+
 async function openPetBook(page, tab) {
   return page.evaluate(name => {
     const btn = document.querySelector('.meta-pawbook');
@@ -304,6 +330,25 @@ for (const vp of list) {
     await W(120);
     states.push({ name: 'album', audit: await runAudit() });
     if (SHOTS) await page.screenshot({ path: `shots/responsive/${vp.tag}-${vp.w}x${vp.h}-album.png` });
+    await page.evaluate(() => document.querySelector('.meta-book-close')?.click());
+    await W(80);
+  }
+
+  // State 4: the Paw Rating sheet — the batch's own new overlay.
+  if (await openPawSheet(page)) {
+    await W(120);
+    states.push({ name: 'paw', audit: await runAudit() });
+    if (SHOTS) await page.screenshot({ path: `shots/responsive/${vp.tag}-${vp.w}x${vp.h}-paw.png` });
+    await page.evaluate(() => document.querySelector('.paw-close')?.click());
+    await W(80);
+  }
+
+  // State 5: the wallet's saving ring, which needs an unbuilt zone to point at.
+  if (await showSavingRing(page)) {
+    await page.evaluate(() => window.__game && window.__game.update(0.05));
+    await W(120);
+    states.push({ name: 'ring', audit: await runAudit() });
+    if (SHOTS) await page.screenshot({ path: `shots/responsive/${vp.tag}-${vp.w}x${vp.h}-ring.png` });
   }
 
   const count = tally(audit) + states.reduce((s, st) => s + tally(st.audit), 0);

@@ -38,6 +38,10 @@ import { createFx } from './render/fx.js';
 import { createHud } from './ui/hud.js';
 import { createSheets } from './ui/sheets.js';
 import { createMetaUI } from './ui/meta.js';
+import { createPawSheet } from './ui/pawSheet.js';
+import {
+  pawRatingState, applyPawRatchet, recordPawSeatDay, pawAwningSetIndex, pawBestStar,
+} from './sim/pawRating.js';
 import { createCareerUI } from './ui/career.js';
 import { createRenovationUI } from './ui/renovation.js';
 import { createAudio } from './audio/synth.js';
@@ -73,6 +77,8 @@ export function createGame(S, area, els, platform = null) {
       rewardedDays: {}, completedDays: 0, reputation: 0, perfectShifts: 0,
       bestServiceStreak: 0, shiftRatings: {}, petBook: {}, petDiscoveries: 0, settlement: null, career: {}, partyOrders: {},
       rewards: { calendar: { lastKey: null, streak: 0 } },
+      // The Paw Rating ratchet and the 7-day seat-miss window it needs for ★3.
+      pawBest: 0, pawSeatWindow: null,
       // Save v5 surfaces. Batch 0 only writes `decor`; the rest are declared now so later batches
       // (album, followers, residents, seasons, franchise) inherit a migration that already exists.
       decor: [], followers: 0, album: {}, equipped: {}, residents: [],
@@ -85,6 +91,9 @@ export function createGame(S, area, els, platform = null) {
     hintsSeen: new Set(), intro: {}, dayState: createDay(), stars: {}, goal: null, dayStats: freshDayStats(),
   };
   ensureReputation(G.meta); ensurePetBook(G.meta); ensureCareer(G.meta); ensurePartyOrders(G.meta);
+  // The summary's follower chip reports the GAIN, so it needs the reading this shift started from.
+  // Taken here rather than in freshDayStats(), which has no access to meta.
+  G.dayStats.followersStart = G.meta.followers | 0;
   G.goal = chooseCareerGoal(1, G.meta, G);
 
   let updateInProgress = false;
@@ -107,13 +116,18 @@ export function createGame(S, area, els, platform = null) {
   const staticGroup = buildStatic(area); scene.add(staticGroup);
   // The world past the café walls. Static, merged, never interacted with.
   scene.add(buildEnvironment(area));
-  const ambience = createAmbience(area); scene.add(ambience.group);
+  const ambience = createAmbience(area); scene.add(ambience.group); G.ambience = ambience;
   const renovationDecor = createRenovationDecor(area); scene.add(renovationDecor.group);
   G.awning = staticGroup.awning; let lastAwningSet = -1;
 
   const input = createInput(els.joy, els.joyKnob); const hud = createHud(); const metaUI = createMetaUI();
   const careerUI = createCareerUI(); const renovationUI = createRenovationUI();
-  const fx = createFx(scene, S.camera, els.fx, hud.walletEl); const sheets = createSheets(); const audio = createAudio();
+  const pawUI = createPawSheet();
+  // Attached after createCareerUI() has finished with the HUD so the two openers cannot race for
+  // the same element; see the note in ui/career.js about which control opens what.
+  pawUI.attachOpener(document.querySelector('.meta-reputation'));
+  // G.fx is also read by systems/rewardsSystem.js, which has been reading an undefined value.
+  const fx = createFx(scene, S.camera, els.fx, hud.walletEl); G.fx = fx; const sheets = createSheets(); const audio = createAudio();
   G.audio = audio; input.onFirstInput(() => audio.unlock()); audio.setSfx(G.settings.sfx); audio.setMusic(G.settings.music);
 
   function buyNextRenovation() {
@@ -153,6 +167,11 @@ export function createGame(S, area, els, platform = null) {
       },
     });
   }
+  // The sheet paints the RATCHET (state.best), never the live derived value — see sim/pawRating.js.
+  // Repainting is cheap and idempotent, so it is safe to call from anywhere the evidence moves.
+  function syncPawPresentation() {
+    pawUI.refresh(pawRatingState({ meta: G.meta, stats: G.stats, built: world.built, area: world.area }));
+  }
   function syncCareerPresentation() {
     const career = ensureCareer(G.meta), rep = reputationProgress(G.meta), level = reputationLevel(G.meta), week = weeklyCupState(G.meta, G.dayState.day);
     careerUI.setModel({
@@ -163,7 +182,7 @@ export function createGame(S, area, els, platform = null) {
     });
     renovationDecor.setLevel(career.renovationLevel | 0); renovationUI.setModel({ ...renovationState(G.meta, G.coins), coins: G.coins, onBuy: buyNextRenovation });
   }
-  syncReputationPresentation(); syncPetBookPresentation(); syncCareerPresentation();
+  syncReputationPresentation(); syncPetBookPresentation(); syncCareerPresentation(); syncPawPresentation();
 
   const owner = createOwner(); scene.add(owner.group); G.owner = owner;
   // Footfalls: human.js signals each time a foot plants, fx turns that into a small puff.
@@ -188,7 +207,7 @@ export function createGame(S, area, els, platform = null) {
   ctx.discoverPet = (species, variant) => {
     const discovery = discoverPet(G.meta, species, variant); if (!discovery.isNew) return;
     G.meta.followers = addFollowers(G.meta.followers, followersForDiscovery());
-    syncPetBookPresentation(); metaUI.announcePet(discovery); audio.play('ding'); saveNow('pet-discovery');
+    syncPetBookPresentation(); syncPawPresentation(); metaUI.announcePet(discovery); audio.play('ding'); saveNow('pet-discovery');
   };
 
   const stations = createStations(G, S, ctx); const zones = createZones(G, S, ctx); const customers = createCustomers(G, S, ctx); const staff = createStaff(G, S, ctx);
@@ -245,10 +264,16 @@ export function createGame(S, area, els, platform = null) {
     }
     hud.setDay(G.dayState.day, G.dayState.phase, phaseFrac(G.dayState)); hud.setContract(G.goal, G.dayStats, G.dayState.day);
     hud.setFollowers(G.meta.followers);
+    // The wallet's "saving for" ring. hud.js can reach neither the zone catalogue nor the built
+    // set, so both are forwarded and the target rule itself stays in hud.js.
+    hud.setSavingFor(world.area.zones, world.built);
     // Pass the goal itself, not only its sentence: the pill renders a glyph plus the numeral
     // rather than "Rival · Serve 24". The text stays as the fallback for any unmapped kind.
     hud.setGoal(G.goal ? `${careerGoalLabel(G.goal)} · ${careerGoalProgress(G.goal, G.dayStats)}/${G.goal.target}` : null, G.goal || null);
-    const setIdx = Math.min(2, Math.floor(cafeLevel(G) / 5)); if (setIdx !== lastAwningSet) { lastAwningSet = setIdx; G.awning && G.awning.setSet(setIdx); }
+    // The awning is a Paw Rating reward now (plan §3.4, one set per star), not a café-star one.
+    // Deliberate consequence: a save with 10 café stars and no paw stars drops back to the coral
+    // set. Keeping both rules would mean the awning no longer tells you anything in particular.
+    const setIdx = pawAwningSetIndex(pawBestStar(G.meta)); if (setIdx !== lastAwningSet) { lastAwningSet = setIdx; G.awning && G.awning.setSet(setIdx); }
 
     if (world.events.some(e => e.type === 'built') && cafeCompletion(G).roomComplete) {
       hud.banner('YOUR CAFÉ IS BUILT', 2400); audio.play('chime');
@@ -280,7 +305,12 @@ export function createGame(S, area, els, platform = null) {
         audio.play('chime');
       }
     }
-    const repProgress = reputationProgress(G.meta), repLevel = reputationLevel(G.meta); syncReputationPresentation(); syncCareerPresentation();
+    // Advance the Paw Rating on the settled shift, in this order: the seat-miss day must be on
+    // record before the ratchet reads the window, or ★3 is judged one shift stale. Both calls are
+    // idempotent per day, which matters because restoring a terminal save re-runs openDaySummary.
+    recordPawSeatDay(G.meta, completedDay, G.dayStats.missedSeats | 0);
+    applyPawRatchet({ meta: G.meta, stats: G.stats, built: world.built, area: world.area });
+    const repProgress = reputationProgress(G.meta), repLevel = reputationLevel(G.meta); syncReputationPresentation(); syncCareerPresentation(); syncPawPresentation();
     const remaining = world.area.zones.filter(z => !world.built.has(z.id)).sort((a, b) => a.price - b.price); const nextUnlock = remaining.length ? { label: remaining[0].label, price: remaining[0].price } : null;
     const tomorrow = chooseCareerGoal(completedDay + 1, structuredClone(G.meta), G);
     sheets.open('summary', {
@@ -344,7 +374,7 @@ export function createGame(S, area, els, platform = null) {
       // A single guarded transition owns the terminal -> next-morning mutation. If external code
       // already changed the day while an ad was up, do not advance again.
       if (G.dayState.day !== completedDay || !G.dayState._ended) return false;
-      nextDay(G.dayState); G.dayStats = freshDayStats(); G.serviceStreak = { count: 0, t: 0 }; G.shiftBestStreak = 0; G.goal = chooseCareerGoal(G.dayState.day, G.meta, G);
+      nextDay(G.dayState); G.dayStats = freshDayStats(); G.dayStats.followersStart = G.meta.followers | 0; G.serviceStreak = { count: 0, t: 0 }; G.shiftBestStreak = 0; G.goal = chooseCareerGoal(G.dayState.day, G.meta, G);
       G.golden = createGoldenHourState(); G.special = specialForDay(G.dayState.day);
       syncCareerPresentation(); partyOrders.sync(false);
       const d = G.dayState.day;
@@ -376,6 +406,10 @@ export function createGame(S, area, els, platform = null) {
       album: { ...G.meta.album }, equipped: { ...G.meta.equipped },
       residents: [...(G.meta.residents || [])], goldenPaw: !!G.meta.goldenPaw,
       season: { ...(G.meta.season || { index: 0, dayStart: 1 }) },
+      pawBest: G.meta.pawBest | 0,
+      pawSeatWindow: G.meta.pawSeatWindow
+        ? { days: (G.meta.pawSeatWindow.days || []).map(r => ({ ...r })), best: G.meta.pawSeatWindow.best }
+        : null,
       franchise: { ...(G.meta.franchise || { level: 0 }) },
       career: {
         currentContract: G.meta.career.currentContract ? { ...G.meta.career.currentContract, goal: { ...G.meta.career.currentContract.goal } } : null,
@@ -414,7 +448,7 @@ export function createGame(S, area, els, platform = null) {
     if (!restoreStationState(world, canonical.stationState, G.stars)) return false;
     if (!restoreOwnerState(P, G.carry, owner, canonical.ownerState, area, G.up, itemFor, world)) return false;
     owner.group.position.set(P.x, 0, P.z); owner.group.rotation.y = P.rot || 0; S.snap(P.x, P.z); G._force = null; G.contextGuide = null;
-    visuals.syncAll(); registerCash.syncAll(); zones.syncAll(); hud.setCoins(G.coins); syncReputationPresentation(); syncPetBookPresentation(); syncCareerPresentation(); partyOrders.sync(true);
+    visuals.syncAll(); registerCash.syncAll(); zones.syncAll(); hud.setCoins(G.coins); syncReputationPresentation(); syncPetBookPresentation(); syncCareerPresentation(); syncPawPresentation(); partyOrders.sync(true);
     // A terminal save is already settled. Reopen that committed report as presentation only; the
     // settlement transaction itself is idempotent and cannot award coins/reputation/cups twice.
     if (G.dayState._ended) openDaySummary();

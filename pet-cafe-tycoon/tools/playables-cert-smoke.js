@@ -204,7 +204,9 @@ for (const [tag,width,height] of cases) {
   await page.screenshot({ path:path.join(shots, `02b-${tag}-clean-gameplay.png`) });
 
   // Deep menus may scroll vertically but must remain inside the tiny viewport with tappable controls.
-  await page.click('.meta-reputation');
+  // Batch 3: the ★ chip opens the Paw Rating now (a star for the star goal); Café Journey moved
+  // to the day pill, which is the control that already means 'the days so far'.
+  await page.click('#dayPill');
   await page.waitForFunction(() => !document.querySelector('.career-root').classList.contains('hidden'));
   const journey = await snapshot(page, '.career-card'); validateLayout(journey, `${tag} journey`);
   validateTargets(await visibleTargets(page, '.career-card'), `${tag} journey`);

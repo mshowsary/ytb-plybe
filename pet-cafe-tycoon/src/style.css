@@ -236,3 +236,80 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE8D8;font-family:"S
 .polaroidFrame{width:100%;height:100%;border-radius:2px;background:#e9dfce;transition:transform 1s cubic-bezier(.2,.7,.2,1)}
 .polaroidFrame.shrink{transform:scale(.4) rotate(12deg)}
 @media(prefers-reduced-motion:reduce){.polaroid{transition:opacity .3s ease}.polaroidFrame{transition:none}}
+
+/* --- Paw Rating sheet (src/ui/pawSheet.js) -----------------------------------------------------
+   Same overlay shape as .career-root / .meta-book-root (fixed inset root + backdrop + one centred
+   card), with one difference that the certification matrix forces: the card is a flex COLUMN whose
+   head and paw row are flex:none and whose .paw-list is the only scroller. At 653x280 the card is
+   ~268px tall, so the list has to take the remainder and scroll on its own — a card-level
+   `overflow:auto` would work too, but it lets the paw row scroll away from the checklist it
+   explains. overflow-x is hidden everywhere so the page can never scroll sideways.
+   The only tap target here is .paw-close at 48x48; rows are not pressable, so nothing else can
+   fail the 44px rule. */
+.paw-root{position:fixed;inset:0;z-index:76;display:grid;place-items:center;padding:12px;box-sizing:border-box;font-family:system-ui,sans-serif}
+.paw-backdrop{position:absolute;inset:0;background:#211a178c;backdrop-filter:blur(5px)}
+.paw-card{position:relative;width:min(430px,100%);max-height:min(660px,92vh);box-sizing:border-box;
+  display:flex;flex-direction:column;gap:10px;overflow:hidden;border-radius:24px;padding:14px;
+  background:linear-gradient(180deg,#fff8eb,#fff1df);color:var(--ink);
+  box-shadow:0 24px 70px #0006;border:1px solid #fff}
+.paw-head{flex:none;display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:48px}
+.paw-title{font:950 18px/1 system-ui,sans-serif;letter-spacing:-.01em;min-width:0;white-space:nowrap}
+.paw-close{width:48px;height:48px;flex:none;padding:0;border:0;border-radius:50%;background:#49372c10;
+  color:var(--ink);font:800 22px/1 system-ui,sans-serif;cursor:pointer}
+/* The rating itself: five paws, filled to the ratchet. The next one keeps its colour but sits at
+   half opacity inside a ring — "this is the one you are earning" said with no words. */
+.paw-stars{flex:none;display:flex;align-items:center;justify-content:center;gap:6px}
+.paw-pip{width:30px;height:30px;flex:none;display:block;opacity:.2;filter:grayscale(1)}
+.paw-pip svg{width:100%;height:100%;display:block}
+.paw-pip.filled{opacity:1;filter:none}
+.paw-pip.next{opacity:.55;filter:none;border-radius:50%;box-shadow:0 0 0 2px #8b7cf6aa}
+.paw-list{flex:1 1 auto;min-height:0;overflow-y:auto;touch-action:pan-y;overflow-x:hidden;-webkit-overflow-scrolling:touch;
+  display:flex;flex-direction:column;gap:8px}
+/* icon | numerals+bar | met mark. minmax(0,1fr) on the middle column is what stops a long numeral
+   pair pushing the mark off a 280px frame. */
+.paw-req{display:grid;grid-template-columns:30px minmax(0,1fr) 26px;align-items:center;gap:10px;
+  box-sizing:border-box;padding:9px 11px;border-radius:15px;background:#ffffffa8;border:1px solid #5f45300e}
+.paw-req.is-met{background:linear-gradient(135deg,#effbec,#fff);border-color:#68b85b32}
+.paw-req-icon{width:30px;height:30px;flex:none;display:block}
+.paw-req-icon svg{width:100%;height:100%;display:block}
+.paw-req-body{min-width:0;display:flex;flex-direction:column;gap:6px}
+/* The numerals WRAP rather than run on. A 280px frame leaves this column ~186px, and a nowrap
+   pair overflows it silently (overflow:visible paints straight off the viewport — the exact
+   defect class the audit's range measurement hunts). Wrapping costs a taller row and nothing
+   else; the pieces are individually short, so a break can only ever land between them. */
+.paw-req-num{display:flex;align-items:baseline;flex-wrap:wrap;gap:0 3px;min-width:0;font:950 15px/1.15 system-ui,sans-serif}
+.paw-cur,.paw-sep,.paw-tgt{white-space:nowrap}
+.paw-sep,.paw-tgt{font-size:13px;opacity:.5}
+.paw-req.is-met .paw-cur{color:#3f8a45}
+.paw-req-bar{height:6px;border-radius:5px;background:#2c211812;overflow:hidden}
+.paw-req-bar>span{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#ff927e,#8979f4);transition:width .35s ease}
+.paw-req.is-met .paw-req-bar>span{background:linear-gradient(90deg,#75c88a,#4fae63)}
+.paw-req-mark{width:26px;height:26px;flex:none;display:block}
+.paw-req-mark svg{width:100%;height:100%;display:block}
+/* ★5: the paw row and the closing mark go gold. A filter rather than a second icon set, so the
+   Golden Paw is visibly the SAME paw the player has been filling in, not a different trophy. */
+.paw-stars.is-golden .paw-pip.filled{filter:sepia(1) saturate(3.4) hue-rotate(-12deg) brightness(1.08)}
+.paw-complete{display:flex;align-items:center;justify-content:center;gap:10px;padding:16px 0;
+  filter:sepia(1) saturate(3.4) hue-rotate(-12deg) brightness(1.08);
+  background:radial-gradient(closest-side,#ffd76659,transparent)}
+.paw-complete>span{width:54px;height:54px;display:block}
+.paw-complete>span svg{width:100%;height:100%;display:block}
+.paw-complete-spark{width:30px!important;height:30px!important;align-self:flex-start}
+.paw-openable{pointer-events:auto;cursor:pointer}
+@media(max-width:320px){
+  .paw-root{padding:6px}
+  .paw-card{padding:10px;gap:8px;border-radius:20px}
+  .paw-title{font-size:15px}
+  .paw-stars{gap:4px}
+  .paw-pip{width:26px;height:26px}
+  .paw-req{padding:8px;gap:7px;grid-template-columns:26px minmax(0,1fr) 22px}
+  .paw-req-icon{width:26px;height:26px}
+  .paw-req-mark{width:22px;height:22px}
+  .paw-req-num{font-size:14px}
+}
+@media(max-height:430px){
+  .paw-card{max-height:96vh;padding:10px;gap:7px}
+  .paw-pip{width:24px;height:24px}
+  .paw-req{padding:7px 9px}
+  .paw-complete{padding:8px 0}
+}

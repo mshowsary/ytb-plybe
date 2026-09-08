@@ -224,6 +224,29 @@ export const DECOR_MESH = {
   d_umbrella_b: () => umbrella('#6EC6FF'),
   d_umbrella_c: () => umbrella(C.plant),
   d_terrace_lights: stringLights,
+
+  // Paw Rating sets (plan §3.4), one per star. Colours mirror each row's authored icon in
+  // data/decor.js so the shop chip and the object in the room read as the same piece, and the
+  // palette warms toward gold as the rating climbs.
+  d_star1_rug: () => rug('#C98A00', '#F5E0B0', 2.2, 1.5),
+  d_star1_art: () => framedArt({ frame: '#C98A00', canvas: '#FFF1D8', motif: '#E4694F' }),
+  d_star1_lantern: () => lantern('#FFE08A'),
+
+  d_star2_plant_w: () => hangingPlanter('#7BC47F'),
+  d_star2_plant_e: () => hangingPlanter('#C98A00'),
+  d_star2_rug: () => rug('#5EA463', '#E4F2D6', 2.4, 1.6),
+
+  d_star3_art_a: () => framedArt({ frame: '#8E6236', canvas: '#FFF4E6', motif: '#F5A25D' }),
+  d_star3_art_b: () => framedArt({ frame: '#8E6236', canvas: '#EAF4FF', motif: '#8B7CF6' }),
+  d_star3_art_c: () => framedArt({ frame: '#8E6236', canvas: '#FFF1D8', motif: '#6EC6FF' }),
+
+  d_star4_lantern_a: () => lantern('#FFB74D'),
+  d_star4_lantern_b: () => lantern('#FF8A80'),
+  d_star4_cat_tree: catTree,
+
+  d_star5_sign: pawSign,
+  d_star5_mural: muralPanel,
+  d_star5_lights: stringLights,
 };
 
 export function hasDecorMesh(id) {

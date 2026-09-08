@@ -146,6 +146,12 @@ export function applySave(state, save, area = state && state.world && state.worl
     equipped: { ...meta.equipped },
     residents: [...meta.residents],
     goldenPaw: meta.goldenPaw,
+    pawBest: meta.pawBest,
+    // REPLACED, never aliased: the window's day rows are nested objects, and applySave's result is
+    // handed straight to a live G whose next snapshot spreads meta one level deep.
+    pawSeatWindow: meta.pawSeatWindow
+      ? { days: (meta.pawSeatWindow.days || []).map(r => ({ ...r })), best: meta.pawSeatWindow.best }
+      : null,
     season: { ...meta.season },
     franchise: { ...meta.franchise },
     settlement: meta.settlement ? {

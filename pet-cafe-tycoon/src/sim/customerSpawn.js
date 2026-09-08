@@ -2,6 +2,7 @@ import { makeRng } from '../core/rng.js';
 import { SPECIES } from './customers.js';
 import { PET_VARIANT_WEIGHTS } from './petBook.js';
 import { weightedVariantWeights } from './followers.js';
+import { legendaryUnlocked, LEGENDARY_VARIANT_INDEX } from './petBook.js';
 
 // Browser and headless tools must consume the same spawn RNG stream. Keep the pet-variant draw
 // ahead of the three human appearance draws: systems/customers.js has shipped this exact order
@@ -16,12 +17,14 @@ export function createCustomerSpawnSequence(seed = CUSTOMER_SPAWN_SEED) {
   let rngDraws = 0;
 
   return {
-    next(followers = 0) {
+    // meta is optional and defaults to null, which reads as locked — tools/bot.js and the eight
+    // other headless callers pass nothing and stay byte-identical.
+    next(followers = 0, meta = null) {
       const species = SPECIES[speciesIndex++ % SPECIES.length];
       // A bigger following pulls rarer coats in. weightedVariantWeights only redistributes slots
       // inside a fixed-length bag, so this consumes exactly one rng draw either way and cannot
       // return an out-of-catalogue variant — the seeded stream stays identical at 0 followers.
-      const petVariant = rng.pick(weightedVariantWeights(PET_VARIANT_WEIGHTS, followers)); rngDraws++;
+      const petVariant = rng.pick(weightedVariantWeights(PET_VARIANT_WEIGHTS, followers, legendaryUnlocked(meta) ? LEGENDARY_VARIANT_INDEX : null)); rngDraws++;
       const variant = {
         shirt: rng.i(0, 4),
         hair: rng.i(0, 3),

@@ -6,7 +6,7 @@ function injectStyle() {
   if (document.getElementById(STYLE_ID)) return;
   const s = document.createElement('style'); s.id = STYLE_ID;
   s.textContent = `
-    .meta-reputation.career-openable{pointer-events:auto;cursor:pointer;transition:transform .16s ease,box-shadow .16s ease}.meta-reputation.career-openable:active{transform:scale(.97)}.career-peek{display:none!important}
+    .career-openable{pointer-events:auto;cursor:pointer;transition:transform .16s ease,box-shadow .16s ease}.career-openable:active{transform:scale(.97)}.career-peek{display:none!important}
     .career-root{position:fixed;inset:0;z-index:75;display:grid;place-items:center;padding:12px;box-sizing:border-box;font-family:system-ui,sans-serif}.career-root.hidden{display:none}.career-backdrop{position:absolute;inset:0;background:#211a178c;backdrop-filter:blur(5px)}
     .career-card{position:relative;width:min(500px,100%);max-height:min(700px,92vh);overflow:auto;box-sizing:border-box;border-radius:25px;padding:16px;background:linear-gradient(180deg,#fff8eb,#fff1df);color:#3d302b;box-shadow:0 24px 70px #0006;border:1px solid #ffffff}.career-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:48px}.career-title{font:950 22px/1 system-ui,sans-serif;letter-spacing:-.02em}.career-sub{display:none}.career-close{width:48px;height:48px;border:0;border-radius:50%;background:#49372c10;color:#3d302b;font:800 22px/1 system-ui;cursor:pointer;flex:none}
     .career-section{margin-top:10px;padding:12px;border-radius:17px;background:#ffffffa8;border:1px solid #5f45300e;box-shadow:inset 0 1px #fff}.career-section-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:7px}.career-kicker{font:900 9px/1 system-ui,sans-serif;letter-spacing:.11em;text-transform:uppercase;opacity:.48}.career-big{font:950 16px/1.05 system-ui,sans-serif}.career-muted{font:800 10px/1.15 system-ui,sans-serif;opacity:.55}.career-rank-value{font:950 12px/1 system-ui,sans-serif;color:#8b67d5;white-space:nowrap}.career-rank-next{margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.career-bar{height:7px;border-radius:6px;background:#2c211812;overflow:hidden;margin-top:7px}.career-bar>div{height:100%;border-radius:inherit;background:linear-gradient(90deg,#ff927e,#8979f4);transition:width .35s ease}
@@ -26,7 +26,10 @@ function metricDelta(kind, n) { return kind === 'earn' ? Math.round(n).toLocaleS
 
 export function createCareerUI() {
   injectStyle();
-  const repChip = document.querySelector('.meta-reputation');
+  // The ★ chip now opens the Paw Rating (src/ui/pawSheet.js) — a star for the star goal. Café
+  // Journey moves to the day pill, which is the one control already meaning "the days so far", and
+  // which .pill already sizes at min-height:48px so no tap target shrinks.
+  const repChip = document.getElementById('dayPill');
   if (repChip) {
     repChip.classList.add('career-openable'); repChip.tabIndex = 0; repChip.setAttribute('role', 'button'); repChip.setAttribute('aria-label', 'Open Cafe Journey');
     repChip.querySelector('.career-peek')?.remove();

@@ -15,12 +15,16 @@ import { validateAndMigrateSave } from '../src/sim/save.js';
 
 const state = (over = {}) => ({ coins: 0, meta: { reputation: 0, decor: [] }, ...over });
 const interior = () => DECOR.filter(i => i.region === 'interior');
+// The shelf a ★0 café can actually shop from. Batch 3 added 15 star-gated interior rows, so
+// "interior" and "purchasable" stopped being the same set — every assertion below that meant the
+// latter now says so, instead of silently counting content the player has not earned.
+const openInterior = () => interior().filter(i => !i.star);
 
 // ---------------------------------------------------------------------------------------------
 // catalogue
-test('the catalogue is 24 authored items with unique ids inside the authored price band', () => {
-  assert.equal(DECOR.length, 24);
-  assert.equal(new Set(DECOR_IDS).size, 24);
+test('the catalogue is 39 authored items with unique ids inside the authored price band', () => {
+  assert.equal(DECOR.length, 39);
+  assert.equal(new Set(DECOR_IDS).size, 39);
   for (const item of DECOR) {
     assert.equal(typeof item.id, 'string', item.id);
     assert.ok(Number.isInteger(item.price) && item.price >= 60 && item.price <= 900, `${item.id} price ${item.price}`);
@@ -65,8 +69,9 @@ test('terrace items are inert this batch: gated on a zone that does not exist ye
   // The BUILT set, not the zone list. Passing every zone id used to mean 'nothing is gated' only
   // because z_terrace did not exist; now it does, and a zone existing is not a zone built.
   const listed = decorCatalogue(new Set());
-  assert.equal(listed.length, interior().length);
+  assert.equal(listed.length, openInterior().length);
   assert.equal(listed.some(i => i.region === 'terrace'), false);
+  assert.equal(listed.some(i => i.star), false, 'a star row is not on the ★0 shelf either');
   // and they never sell, even to a rich player
   const s = state({ coins: 999999 });
   assert.deepEqual(buyDecor(s, terrace[0].id), { ok: false, cost: terrace[0].price });
@@ -155,9 +160,16 @@ test('affordable/cheapest track the wallet and the owned list', () => {
 
   // owning the whole interior shelf exhausts it (terrace stays gated)
   const rich = state({ coins: 1_000_000 });
-  for (const item of interior()) assert.equal(buyDecor(rich, item.id).ok, true, item.id);
-  assert.equal(cheapestDecor(rich), null);
-  assert.equal(rich.meta.reputation, interior().length);
+  for (const item of openInterior()) assert.equal(buyDecor(rich, item.id).ok, true, item.id);
+  assert.equal(cheapestDecor(rich), null, 'the ★0 shelf is exhausted');
+  assert.equal(rich.meta.reputation, openInterior().length);
+
+  // ...and the star shelf opens exactly one set at a time as the ratchet climbs.
+  const starred = state({ coins: 1_000_000, meta: { reputation: 0, decor: [], pawBest: 1 } });
+  assert.equal(buyDecor(starred, 'd_star1_rug').ok, true, '★1 row sells at ★1');
+  assert.equal(buyDecor(starred, 'd_star2_rug').ok, false, '★2 row does not');
+  starred.meta.pawBest = 5;
+  assert.equal(buyDecor(starred, 'd_star2_rug').ok, true, 'and does at ★5');
 });
 
 // This is the defect the catalogue exists to fix, stated as an assertion: at every early-day income
@@ -253,7 +265,9 @@ test('install ignores unknown and still-gated ids', () => {
 // kiosk rows
 test('kiosk decor rows are icon+price only, marked owned, and never list terrace pieces', () => {
   const rows = decorRows({ coins: 100, decorOwned: ['d_paw_sign'] });
-  assert.equal(rows.length, interior().length);
+  assert.equal(rows.length, openInterior().length);
+  // the same shelf at ★5 lists every star row as well
+  assert.equal(decorRows({ coins: 100, decorOwned: [], pawBest: 5 }).length, interior().length);
   assert.equal(rows.some(r => r.id.startsWith('d_umbrella')), false);
   for (const r of rows) {
     assert.ok(r.icon.startsWith('<svg'));

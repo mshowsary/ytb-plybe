@@ -5,6 +5,7 @@ import {
   STAR_IDS, nextStarCost, ensureStars,
 } from '../sim/economy.js';
 import { BARISTA, baristaHireState } from '../sim/barista.js';
+import { pawBestStar } from '../sim/pawRating.js';
 
 const PLAYER_ROWS = [
   { key: 'speed',  label: 'Speed',  effect: '+15% per tier' },
@@ -102,5 +103,7 @@ export function buildKioskModel(G, world, tab = 'player', focusRow = null) {
     machines: buildMachineRows(G, world),
     decorOwned: (G.meta && Array.isArray(G.meta.decor)) ? G.meta.decor : [],
     built: world.built,
+    // The ratchet, so the decor tab lists a star set the moment it is earned.
+    pawBest: pawBestStar(G.meta),
   };
 }

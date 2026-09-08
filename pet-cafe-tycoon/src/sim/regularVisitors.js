@@ -4,18 +4,39 @@ import { PET_PROFILES, PET_SPECIES, petKey, isLegendaryProfile, legendaryUnlocke
 
 export const REGULAR_GREETING_SECONDS = 1.05;
 
-// Legendary coats are a Batch 3 reward, not part of the ordinary identity rotation. They are
-// excluded HERE rather than at the spawn roll because this pool is what actually decides a
-// customer's rendered pet: resolveUniquePetIdentity's congestion fallback walks the entire pool
-// when every other identity is on screen, and systems/customers.js renders whatever it returns.
-// Filtering only the spawn roll would leave that fallback as a working back door.
-export const PET_IDENTITY_POOL = Object.freeze(PET_SPECIES.flatMap(species =>
+const identityRows = keep => Object.freeze(PET_SPECIES.flatMap(species =>
   PET_PROFILES[species]
     .map((profile, variant) => ({ profile, variant }))
-    .filter(({ profile }) => !isLegendaryProfile(profile) || legendaryUnlocked())
+    .filter(({ profile }) => keep(profile))
     .map(({ variant }) => Object.freeze({ key: petKey(species, variant), species, variant }))
 ));
+
+// The 16 coats any café can meet. Legendary coats are excluded HERE rather than only at the spawn
+// roll because this pool is what actually decides a customer's rendered pet: resolveUniquePetIdentity's
+// congestion fallback walks the entire pool when every other identity is on screen, and
+// systems/customers.js renders whatever it returns. Filtering only the roll leaves that fallback
+// as a working back door.
+export const PET_IDENTITY_POOL = identityRows(profile => !isLegendaryProfile(profile));
+// All 20, once the Paw Rating ratchet has reached ★4.
+export const PET_IDENTITY_POOL_LEGENDARY = identityRows(() => true);
+
+// WHY THE GATE IS NOT APPLIED IN THE CONSTS ABOVE: both are frozen top-level consts, evaluated once
+// at import. legendaryUnlocked() now reads live meta, and this module is imported long before
+// G.restore() puts a meta on the game object — so a call up here would bake in whatever the rating
+// was at import time (always 0) and ★4 would unlock nothing, ever. Resolve per call, from the
+// caller's meta.
 const BY_KEY = new Map(PET_IDENTITY_POOL.map(row => [row.key, row]));
+const BY_KEY_LEGENDARY = new Map(PET_IDENTITY_POOL_LEGENDARY.map(row => [row.key, row]));
+
+// The identities THIS save may currently meet.
+export function petIdentityPool(meta) {
+  return legendaryUnlocked(meta) ? PET_IDENTITY_POOL_LEGENDARY : PET_IDENTITY_POOL;
+}
+function poolFor(meta) {
+  return legendaryUnlocked(meta)
+    ? { pool: PET_IDENTITY_POOL_LEGENDARY, byKey: BY_KEY_LEGENDARY }
+    : { pool: PET_IDENTITY_POOL, byKey: BY_KEY };
+}
 
 function visitCount(meta, key) {
   const n = Number(meta?.petFriendship?.[key]);
@@ -28,7 +49,7 @@ function visitCount(meta, key) {
  * back" moment. Sorting makes the choice independent of object insertion order and therefore save-safe.
  */
 export function regularIdentityForDay(meta, day) {
-  const familiar = PET_IDENTITY_POOL
+  const familiar = petIdentityPool(meta)
     .map(row => ({ ...row, visits: visitCount(meta, row.key) }))
     .filter(row => row.visits > 0);
   if (!familiar.length) return null;
@@ -45,23 +66,28 @@ export function regularIdentityForDay(meta, day) {
  * rotation through the remaining 12 authored pets. If all 12 are already active, the new pet stays
  * visually valid but anonymous (`key:null`) until it leaves—traffic is never delayed to satisfy UI.
  */
-export function resolveUniquePetIdentity(proposedSpecies, proposedVariant, activeKeys = new Set(), preferredKey = null) {
+export function resolveUniquePetIdentity(proposedSpecies, proposedVariant, activeKeys = new Set(), preferredKey = null, meta = null) {
+  // meta defaults to null so every existing caller keeps working and stays LOCKED — the safe
+  // direction for a gate.
+  const { pool, byKey } = poolFor(meta);
   const used = activeKeys instanceof Set ? activeKeys : new Set(activeKeys || []);
   const proposedKey = petKey(proposedSpecies, proposedVariant);
   const candidates = [];
-  const add = key => { if (key && BY_KEY.has(key) && !candidates.includes(key)) candidates.push(key); };
+  const add = key => { if (key && byKey.has(key) && !candidates.includes(key)) candidates.push(key); };
   add(preferredKey);
   add(proposedKey);
 
-  const start = Math.max(0, PET_IDENTITY_POOL.findIndex(row => row.key === proposedKey));
-  for (let i = 1; i <= PET_IDENTITY_POOL.length; i++) add(PET_IDENTITY_POOL[(start + i) % PET_IDENTITY_POOL.length].key);
+  const start = Math.max(0, pool.findIndex(row => row.key === proposedKey));
+  for (let i = 1; i <= pool.length; i++) add(pool[(start + i) % pool.length].key);
   for (const key of candidates) {
     if (used.has(key)) continue;
-    const row = BY_KEY.get(key);
+    const row = byKey.get(key);
     return { ...row, named: true, preferred: key === preferredKey };
   }
 
-  const fallback = BY_KEY.get(proposedKey) || PET_IDENTITY_POOL[0];
+  // Scoped to this save's pool, never to the 20-key map: an anonymous pick is still RENDERED by
+  // systems/customers.js, so letting a locked legendary through here reopens the ★4 bypass.
+  const fallback = byKey.get(proposedKey) || pool[0];
   return { ...fallback, key: null, named: false, preferred: false };
 }
 

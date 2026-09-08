@@ -25,6 +25,10 @@ import { createLedger } from '../src/sim/ledger.js';
 import { decide } from '../src/sim/botDecide.js';
 import * as economyConfig from '../src/sim/economyConfig.js';
 import { AREA1 } from '../data/area1.js';
+import {
+  applyPawRatchet, recordPawSeatDay, pawRatingState, pawVisibleRequirements,
+  goldenPawDue, markGoldenPaw, PAW_MAX_STAR, PAW_TARGETS,
+} from '../src/sim/pawRating.js';
 
 // TASK 1.6a: a cheap, deterministic identity for the exact numbers a balance run used. Any two runs
 // that print the same hash read PRODUCTS/UPGRADES/STAFF/DEMAND/etc. off economyConfig.js identically
@@ -396,6 +400,33 @@ function checkRunnerInvariant(dt) {
     if (held > 6) { invariantDViolations++; runnerHoldT.set(s, 0); } else runnerHoldT.set(s, held);
   }
 }
+// ---- PAW RATING (plan 3.4) — headless measurement ---------------------------------------------
+// Binds to src/sim/pawRating.js exactly as the running game must: recordPawSeatDay() once per
+// settled shift, then applyPawRatchet() on the same evidence shape the game passes (meta / lifetime
+// served / world.built / world.area). NOTHING is synthesised to feed it. This bot models no meta —
+// no album, no petBook, no petFriendship, no followers — so several requirement rows are 0 BY
+// CONSTRUCTION rather than by balance, and PAW_UNMEASURED below names every one of them and why.
+// That distinction is the whole point of measuring this here: batch 1 shipped a dead ice-cream lane
+// and batch 2 a photo booth nothing reached, both because a zero read as a result.
+let lifetimeServed = 0;
+const pawDays = [];             // one row per settled shift
+const pawFirstDay = new Map();  // star -> day the RATCHET first reached it
+let pawCeremonies = 0, pawCeremonyDay = null, pawCeremonyDueChecks = 0;
+const PAW_UNMEASURED = {
+  'r2.bestie': 'meta.petFriendship — Bestie visits are recorded by src/systems/petFriendship.js on each pay event; this loop runs no systems/ layer, so petFriendship is never written and besties is 0 by construction.',
+  'r3.photos': 'meta.album — the booth genuinely RUNS here (sessions start and auto-resolve; see the photo-shots line above), but a shot only becomes an album entry in src/systems/photo.js creditShot(). With no album write, album shots stay 0 however many shots are taken.',
+  'r4.book':   'meta.petBook — discoverPet() is called from src/systems/petFriendship.js, not from sim; this loop never discovers a pet.',
+  'r5.album':  'meta.album — same missing creditShot() as r3.photos; photographed pets is 0.',
+  'r5.perfect':'meta.album best-rank — same missing creditShot(); and every shot here resolves via stepPhotoBooth PHOTO_AUTO_RESOLVE, which is ALWAYS quality "ok" (there is no tap headlessly), so this row could not be earned even with an album.',
+  'r5.followers':'meta.followers — awarded by src/systems/photo.js and by the Golden Paw ceremony itself, neither of which runs headlessly.',
+};
+// Evidence handed to pawRating.js. `stats.served` mirrors what systems/customers.js writes to
+// G.stats.served (one increment per 'pay' event), which is exactly what G.dayStats.served counts
+// here, so this is the real lifetime figure and not an approximation of one.
+function pawInput() {
+  return { meta: G.meta, stats: { served: lifetimeServed }, built: world.built, area: world.area };
+}
+
 let t = 0;
 while (G.dayState.day <= MAX_DAYS) {
   G.time = t;
@@ -499,6 +530,35 @@ while (G.dayState.day <= MAX_DAYS) {
         G.coins += cup.reward;
         ledger.record('bonus', 'weekly-cup', cup.reward, { meta:{ day:completedDay } });
       }
+      // Paw rating, settled in the order the running game will have to use it: this shift's misses
+      // enter the 7-day window FIRST (recordPawSeatDay is idempotent per day), then the ratchet
+      // reads the updated evidence, then the ceremony predicate is checked exactly once.
+      lifetimeServed += G.dayStats.served;
+      recordPawSeatDay(G.meta, completedDay, dayMissedSeats);
+      const paw = applyPawRatchet(pawInput());
+      for (const star of paw.gained) if (!pawFirstDay.has(star)) pawFirstDay.set(star, completedDay);
+      // Checked every settled day, not just once: if markGoldenPaw failed to stick, goldenPawDue
+      // would keep returning true and pawCeremonyDueChecks would exceed 1 — which is the actual
+      // "fires once" assertion, rather than trusting a single sighting.
+      if (goldenPawDue(G.meta)) {
+        pawCeremonyDueChecks++;
+        if (markGoldenPaw(G.meta)) { pawCeremonies++; pawCeremonyDay = completedDay; }
+      }
+      pawDays.push({
+        day: completedDay, live: paw.live, best: paw.best,
+        served: paw.counters.served,
+        interior: paw.counters.interiorBuilt, interiorTotal: paw.counters.interiorZones.length,
+        terrace: world.built.has('z_terrace') ? 1 : 0,
+        shots: paw.counters.shots, besties: paw.counters.besties,
+        discovered: paw.counters.discovered, goldCups: paw.counters.goldCups,
+        followers: paw.counters.followers,
+        seat: paw.seatWindow.current, seatComplete: paw.seatWindow.complete, missed: dayMissedSeats,
+        // Every tier's rows, not just `next`'s: the acceptance days name star 3 and star 4
+        // specifically, and if a LOWER tier is held up by a row this bot cannot measure, the
+        // higher tiers' own rows would otherwise never be printed at all — which is how a
+        // measurable, badly-failing requirement (r3.seats, below) stays invisible.
+        rows: paw.tiers.flatMap(tier => tier.requirements).map(r => ({ id: r.id, met: r.met, skipped: r.skipped })),
+      });
       const accounting = ledger.report(G.coins);
       if (!accounting.reconciled) ledgerMismatches.push({ day:completedDay, ...accounting });
       dayReport.push({
@@ -617,6 +677,136 @@ for (const d of daySpend) {
   const catStr = Object.entries(d.cat).map(([k, v]) => `${k}:${v}`).join(' ');
   const zoneStr = Object.entries(d.zone).map(([k, v]) => `${k}:${v}`).join(' ');
   console.log(`  day ${String(d.day).padEnd(3)} ladder[${catStr || '-'}]  zone[${zoneStr || '-'}]`);
+}
+
+// ---- PAW RATING REPORT (plan 3.4 acceptance: "reaches star 3 by day ~20 and star 4 by ~day 34;
+// ceremony fires once") -------------------------------------------------------------------------
+// `best` is the RATCHET and is THE rating; `live` is what the current evidence derives and is
+// diagnostics only (pawRating.js's own module header). Both are printed because a divergence
+// between them is the seat window regressing, which is exactly the thing worth seeing.
+console.log('--- paw rating (star per settled day) ---');
+console.log('day'.padEnd(5) + 'live'.padEnd(6) + 'best'.padEnd(6) + 'served'.padEnd(8) + 'interior'.padEnd(10)
+  + 'terr'.padEnd(6) + 'seat7'.padEnd(8) + 'cups'.padEnd(6) + 'album'.padEnd(7) + 'bestie'.padEnd(8) + 'petBook'.padEnd(9) + 'flwrs');
+for (const r of pawDays) {
+  console.log(String(r.day).padEnd(5) + String(r.live).padEnd(6) + String(r.best).padEnd(6) + String(r.served).padEnd(8)
+    + `${r.interior}/${r.interiorTotal}`.padEnd(10) + (r.terrace ? 'yes' : 'no').padEnd(6)
+    + `${r.seat}${r.seatComplete ? '' : '?'}`.padEnd(8) + String(r.goldCups).padEnd(6)
+    + String(r.shots).padEnd(7) + String(r.besties).padEnd(8) + String(r.discovered).padEnd(9) + String(r.followers));
+}
+console.log('  seat7 = fewest missed seats over any complete 7-day run; a trailing ? means no complete window yet (pending).');
+console.log('  album / bestie / petBook / flwrs columns are NOT MEASURED by this bot — see the list below. They are printed so a reader can see they are structurally 0, not read them as a balance result.');
+
+const PAW_DAY_TARGETS = { 3: 20, 4: 34 };
+console.log('--- paw rating: star milestones vs the plan\'s acceptance days ---');
+for (let star = 1; star <= PAW_MAX_STAR; star++) {
+  const day = pawFirstDay.has(star) ? pawFirstDay.get(star) : null;
+  const target = PAW_DAY_TARGETS[star];
+  let verdict = '';
+  if (target != null) {
+    if (day == null) verdict = `  <-- TARGET day ~${target}: NEVER REACHED in ${MAX_DAYS} days`;
+    else if (day <= target) verdict = `  target day ~${target} OK (${target - day} day(s) early)`;
+    else verdict = `  <-- TARGET day ~${target}: LATE by ${day - target} day(s)`;
+  }
+  console.log(`  star ${star}: ${day == null ? 'not reached' : 'day ' + day}${verdict}`);
+}
+
+console.log('  VERDICT on the acceptance check: star 3 and star 4 are each blocked BOTH by a row this bot cannot');
+console.log('  measure (r3.photos, r4.book) AND by a row it can (r3.seats, r4.cup — diagnosed below). The day-~20 and');
+console.log('  day-~34 targets are therefore NOT verifiable headlessly as this harness stands; what is measurable is');
+console.log('  reported above and below instead of being guessed at or back-filled.');
+// Deliberately NOT a hard gate (no process.exit contribution): most of these rows are 0 because this
+// harness models no meta, so failing the shared bot gate on them would block every other run for a
+// reason that has nothing to do with the code under test. The numbers are printed to be read.
+
+// What is actually holding every unearned star at the end of the run, row by row, each labelled
+// with whether this bot could produce evidence for it at all. An unmet row marked NOT MEASURED is
+// not a balance finding and must never be read as one; an unmet row marked MEASURED is.
+const pawFinal = pawRatingState(pawInput());
+const pawRowFirstMet = new Map(); // requirement id -> first settled day it read met
+for (const d of pawDays) for (const r of d.rows) if (r.met && !r.skipped && !pawRowFirstMet.has(r.id)) pawRowFirstMet.set(r.id, d.day);
+const pawRowLabel = id => (PAW_UNMEASURED[id] ? 'NOT MEASURED' : 'MEASURED');
+console.log(`--- paw rating: final state after ${MAX_DAYS} days ---`);
+console.log(`  best (ratchet) ${pawFinal.best}  live ${pawFinal.live}  next ${pawFinal.next == null ? 'none (star 5 held)' : pawFinal.next}`);
+for (const tier of pawFinal.tiers) {
+  if (tier.awarded) { console.log(`  star ${tier.star}: AWARDED (day ${pawFirstDay.get(tier.star)})`); continue; }
+  const visible = pawVisibleRequirements(tier.requirements);
+  const measured = visible.filter(r => !PAW_UNMEASURED[r.id]);
+  const measuredMet = measured.filter(r => r.met);
+  const allMeasuredDay = measured.length && measuredMet.length === measured.length
+    ? Math.max(...measured.map(r => pawRowFirstMet.get(r.id) || Infinity)) : null;
+  console.log(`  star ${tier.star}: NOT AWARDED — measurable rows ${measuredMet.length}/${measured.length}`
+    + (allMeasuredDay != null && Number.isFinite(allMeasuredDay)
+      ? ` (all measurable rows met from day ${allMeasuredDay}; this is NOT a star — the tier still needs its unmeasurable rows)`
+      : ''));
+  for (const r of tier.requirements) {
+    if (r.skipped) {
+      console.log(`    ${r.id.padEnd(12)} ${r.kind.padEnd(9)} SKIPPED by pawRating.js — ${r.zoneId || 'that content'} is absent from data/area1.js, so the row is not drawn and cannot block. Catalogue fact, not a bot limitation.`);
+      continue;
+    }
+    const first = pawRowFirstMet.get(r.id);
+    console.log(`    ${r.id.padEnd(12)} ${r.kind.padEnd(9)} ${r.current}${r.compare === 'lte' ? ' <= ' : ' / '}${r.target}`
+      + (r.met ? `  met (first day ${first == null ? '?' : first})` : '  UNMET') + (r.pending ? ' (pending)' : '')
+      + `  [${pawRowLabel(r.id)}]`);
+  }
+}
+console.log(`  golden paw / ceremony predicate: ${pawCeremonies === 0 ? 'NEVER FIRED' : 'fired on day ' + pawCeremonyDay}`
+  + `  (goldenPawDue() true on ${pawCeremonyDueChecks} settled day(s); markGoldenPaw() transitions ${pawCeremonies}`
+  + ` — "fires once" needs exactly 1 of each; 0 here means star 5 was never held, NOT that the predicate is broken)`);
+
+// r3.seats is the one requirement this bot measures that FAILS on its own numbers, so it gets its
+// own diagnosis rather than a single numeral in a table.
+{
+  const lifetimeMissed = dayReport.reduce((a, r) => a + (r.missedSeats || 0), 0);
+  const perDay = dayReport.length ? lifetimeMissed / dayReport.length : 0;
+  const cleanerDay = (dayReport.find(r => r.purchases.some(k => k === 'hire:cleaner')) || {}).day || null;
+  const preCleaner = cleanerDay == null ? dayReport : dayReport.filter(r => r.day < cleanerDay);
+  const preWorst = preCleaner.length ? Math.min(...preCleaner.map(r => r.missedSeats || 0)) : null;
+  console.log('--- paw rating: r3.seats diagnosis (the one MEASURED row that fails on this bot\'s own numbers) ---');
+  console.log(`  missed seats ${lifetimeMissed} lifetime, ${perDay.toFixed(1)}/day; best complete 7-day window ${pawFinal.seatWindow.best} against a limit of ${PAW_TARGETS.seatMisses}.`);
+  console.log(`  Quietest single day before any cleaner was hired: ${preWorst == null ? 'n/a' : preWorst} misses — already over a whole WEEK's budget on its own.`);
+  console.log(`  Cause 1 (harness): this bot hires staff as PACING COUNTERS only and never pushes a staff ACTOR into staffList`);
+  console.log(`  (the same limitation the runner-watchdog line above reports). botDecide's cleanTarget() correctly stands down`);
+  console.log(`  once a cleaner is hired (day ${cleanerDay == null ? 'n/a' : cleanerDay}) — so from that day on NOBODY wipes a table mid-shift here. Correct for the`);
+  console.log('  running game, wrong for this loop, and it inflates every window from that day onward.');
+  console.log('  Cause 2 (harness): world.servicePolicyActive is set only in src/game.js (prepareServicePolicy each frame).');
+  console.log('  tools/bot.js never sets it, so every headless guest takes the 1.2s NO_SEAT_HOLD "noSeat" path instead of the');
+  console.log('  8s "waitSeat" grace src/sim/customers.js:482 gives once the mature service policy is live. Neither cause was');
+  console.log('  fixed here: spawning staff actors or enabling the policy would move every existing balance number this bot');
+  console.log('  gates on (checkpoints, invariants A-C, friction), which is a separate change from measuring the rating.');
+  console.log(`  Net: r3.seats is MEASURED but CONTAMINATED — treat ${pawFinal.seatWindow.best} as an upper bound on the real miss rate, not as a balance verdict.`);
+}
+
+// r4.cup is the OTHER measurable row that fails, and it fails on career quality rather than on
+// anything missing from this harness — so it is a real answer to "why not star 4 by day 34".
+{
+  const cups = G.meta.career.weeklyCups || {};
+  const hist = G.meta.career.history || {};
+  console.log('--- paw rating: r4.cup diagnosis (MEASURED, and failing on real career numbers) ---');
+  console.log(`  gold cups ${G.meta.career.trophies.gold} of ${PAW_TARGETS.goldCups} needed. Weekly tally (gold needs 24 of 28 points; points = shift rating 1-3 plus 1 for the contract):`);
+  for (const week of Object.keys(cups).sort((a, b) => a - b)) {
+    const start = (Number(week) - 1) * 7 + 1;
+    let r3 = 0, contracts = 0;
+    for (let d = start; d < start + 7; d++) {
+      const rec = hist[String(d)]; if (!rec) continue;
+      if ((rec.rating | 0) >= 3) r3++;
+      if (rec.contractMet) contracts++;
+    }
+    console.log(`    week ${week} (days ${start}-${start + 6}): ${cups[week].points}/28 -> ${cups[week].tier}; rating-3 days ${r3}/7, contracts met ${contracts}/7`);
+  }
+  console.log('  Gold needs ~3.43 points/day sustained for a whole week, i.e. very nearly every day at rating 3 AND its');
+  console.log('  contract met. This bot never manages it, so star 4 is out of reach on this row alone even before r4.book.');
+}
+
+console.log('--- paw rating: WHAT THIS BOT CANNOT MEASURE (and why) ---');
+console.log('  This loop is pure sim + data. It runs no src/systems/ layer and models no meta beyond career, so the');
+console.log('  following requirement rows are 0 BY CONSTRUCTION. They are not balance results and must not be tuned against.');
+for (const [id, why] of Object.entries(PAW_UNMEASURED)) console.log(`    ${id.padEnd(12)} ${why}`);
+console.log('  MEASURED here, from real sim state this run: r1.served (pay events), r2.interior + r3.terrace (world.built),');
+console.log('  r3.seats (seatMissed events -> recordPawSeatDay, one call per settled shift), r4.cup (career.awardWeeklyCup).');
+{
+  const shots = dayReport.reduce((s2, r) => s2 + (r.photoShots || 0), 0);
+  console.log(`  Cross-check on r3.photos: the booth resolved ${shots} shot(s) this run, all quality "ok" via PHOTO_AUTO_RESOLVE,`);
+  console.log('  and the album still reads 0 — that gap IS the missing creditShot() caller, not a booth that nobody reaches.');
 }
 
 // TASK 1.6b — invariant gate summary (plan 4.3). A/B/C are hard gates: they measure exactly the

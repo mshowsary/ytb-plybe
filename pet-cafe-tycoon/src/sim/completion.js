@@ -9,7 +9,7 @@ export function cafeCompletion(G) {
  // Only pets that can actually walk in count. A locked legendary is unreachable content, and
  // counting it would make "you have befriended everyone" permanently unachievable rather than hard.
  const friendsComplete=PET_SPECIES.every(s=>PET_PROFILES[s].every((p,v)=>
-  (isLegendaryProfile(p)&&!legendaryUnlocked())||(G.meta?.petFriendship?.[petKey(s,v)]||0)>=PET_BESTIE_VISITS));
+  (isLegendaryProfile(p)&&!legendaryUnlocked(G.meta))||(G.meta?.petFriendship?.[petKey(s,v)]||0)>=PET_BESTIE_VISITS));
  const renovationsComplete=(career.renovationLevel||0)>=RENOVATIONS.length;
  const masteryComplete=Object.entries(MASTERY).every(([key,cfg])=>(career.recipeSales?.[key]||0)>=cfg.thresholds.at(-1));
  const upgradesComplete=Object.entries(UPGRADES).every(([key,cfg])=>(G.up?.[key]||0)>=cfg.costs.length)

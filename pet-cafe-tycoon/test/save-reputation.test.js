@@ -17,6 +17,9 @@ test('old save without meta migrates to a safe modern meta + career + party-orde
     // for every one of them, and nothing may quietly appear here that a fresh save did not earn.
     decor: [], followers: 0, album: {}, equipped: {}, residents: [],
     goldenPaw: false, season: { index: 0, dayStart: 1 }, franchise: { level: 0 },
+    // Batch 3. A migrated v4 save has never recorded a shift's seat misses, so the window is
+    // present but empty rather than absent — the rating reads it unconditionally.
+    pawBest: 0, pawSeatWindow: { days: [], best: null },
     career: {
       history: {}, weeklyCups: {}, trophies: { bronze: 0, silver: 0, gold: 0 },
       recipeSales: { cookie: 0, cupcake: 0, coffee: 0, smoothie: 0, treat: 0 },

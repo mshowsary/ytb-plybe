@@ -83,9 +83,24 @@ const RARITY_STEP_FOLLOWERS = 500;
 // existing probability mass, never invent a pick outside the authored variant list.
 // Wiring: customerSpawn.js calls rng.pick(weightedVariantWeights(PET_VARIANT_WEIGHTS, followers))
 // in place of rng.pick(PET_VARIANT_WEIGHTS).
-export function weightedVariantWeights(baseWeights, followers) {
+// legendaryVariant is the variant index to admit once the ★4 gate is open, or null while it is
+// shut. It is PASSED IN rather than imported so this module stays the zero-dependency leaf its
+// header promises, and so there is still exactly one source of truth for the index itself
+// (petBook.LEGENDARY_VARIANT_INDEX, resolved by the caller).
+//
+// It appends that variant to the bag once — one slot in ten, so a legendary coat is about as common
+// as an epic was before it. Without this the ★4 reward is unreachable in practice: the authored bag
+// tops out at variant 3 and this function only ever redistributes values already present, so a
+// legendary could otherwise appear only through resolveUniquePetIdentity's congestion fallback,
+// which needs 17+ named guests on screen at once.
+export function weightedVariantWeights(baseWeights, followers, legendaryVariant = null) {
   if (!Array.isArray(baseWeights) || baseWeights.length < 2) {
     return Array.isArray(baseWeights) ? baseWeights.slice() : baseWeights;
+  }
+  if (Number.isInteger(legendaryVariant)) {
+    const withLegendary = weightedVariantWeights(baseWeights, followers, null);
+    withLegendary.push(legendaryVariant);
+    return withLegendary;
   }
   const tiers = [...new Set(baseWeights)].sort((a, b) => a - b);
   if (tiers.length < 2) return baseWeights.slice();

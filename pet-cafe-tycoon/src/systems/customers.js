@@ -88,7 +88,7 @@ export function createCustomers(G, S, ctx) {
   }
 
   function spawn() {
-    const next = spawns.next(G.meta.followers);
+    const next = spawns.next(G.meta.followers, G.meta);
     const social = G.meta.socials?.active;
     const theme = social?.status === 'running' ? SOCIALS.find(s=>s.id===social.id) : null;
     const day = syncRegularPlan();
@@ -104,6 +104,7 @@ export function createCustomers(G, S, ctx) {
       forcedVariant != null ? forcedVariant : next.petVariant,
       activeNamedPetKeys(G.customers),
       preferredKey,
+      G.meta,
     );
     const { id, variant } = next;
     const species = identityPick.species;

@@ -17,9 +17,11 @@ function addPlant(group, x, z, scale = 1) {
   leaf.scale.set(0.8, 1.45, 0.62); leaf.position.set(x + 0.22 * scale, 0.92 * scale, z - 0.05); leaf.scale.multiplyScalar(scale); leaf.castShadow = true; group.add(leaf);
 }
 
-function makePawSign() {
+// `color`/`opacity` are parameters rather than constants because the Golden Paw plaque below is
+// the same silhouette in gold: one recognisable mark, two finishes, no second geometry to author.
+function makePawSign(color = '#FF89A6', opacity = 0.94) {
   const g = new THREE.Group();
-  const mat = basic('#FF89A6', 0.94);
+  const mat = basic(color, opacity);
   const pad = new THREE.Mesh(new THREE.SphereGeometry(0.25, 12, 8), mat);
   pad.scale.set(1.15, 0.85, 0.35); g.add(pad);
   for (const [x, y] of [[-0.29, 0.29], [-0.09, 0.42], [0.15, 0.42], [0.34, 0.25]]) {
@@ -137,6 +139,45 @@ export function createAmbience(area) {
   const goldRunner = new THREE.Mesh(new THREE.BoxGeometry(4.7, 0.014, 0.08), gold);
   goldRunner.position.set(0.3, 0.065, 2.45); prestige[4].add(goldRunner);
 
+  // --- the Golden Paw (plan §3.4) ---------------------------------------------------------------
+  // The one-time ★5 award. NOT part of the prestige[] ladder: prestige is reputation, which rises
+  // and is re-applied on every load; this is a single permanent event that systems/goldenPaw.js
+  // switches on once and never off again.
+  //
+  // PLACEMENT. props.js puts the three north-wall windows at x = -5, 0, 5 (1.8 m wide, y 1.05-2.35),
+  // so the panel centred on x = -2.5 is the widest clear stretch of that wall, and it is clear of
+  // the framed art (x = ±7.55), the trophy shelf (-6.4) and the prestige paw sign (6.8). The top of
+  // the plaque stops below y = 2.39 because reputation level 2's bunting hangs across the whole wall
+  // at 2.39-2.71 and would otherwise pass through it once both are visible.
+  const GOLDEN_PAW_Y = 1.75;
+  const goldenPaw = new THREE.Group();
+  goldenPaw.position.set(-2.5, GOLDEN_PAW_Y, -D / 2 + 0.28);
+  goldenPaw.visible = false;
+  group.add(goldenPaw);
+  const plaqueParts = [
+    part('rbox', [1.6, 1.15, 0.09, 0.07], '#8A6516'),
+    part('rbox', [1.42, 0.97, 0.06, 0.05], '#E8B93C', { z: 0.03 }),
+  ];
+  // Five marks for the five stars — the rating is a numeral the player already reads as stars, so
+  // the plaque carries the same count rather than any words.
+  for (let i = 0; i < 5; i++) plaqueParts.push(part('cone', [0.075, 0.13, 4], '#FFF0B8', { x: -0.4 + i * 0.2, y: -0.36, z: 0.06 }));
+  goldenPaw.add(mesh(plaqueParts, { cast: false }));
+  const goldenPawMark = makePawSign('#FFE27A', 0.95);
+  goldenPawMark.scale.setScalar(0.7); goldenPawMark.position.set(0, 0.03, 0.09);
+  goldenPaw.add(goldenPawMark);
+
+  // Mount progress, 0 -> 1. Held at exactly 1 whenever the sign is simply THERE, so a restored
+  // plaque is identical to an earned one down to its transform (see setGoldenPaw).
+  let goldenMount = 1;
+  const GOLDEN_MOUNT_SECONDS = 0.85;
+  function applyGoldenMount() {
+    const u = goldenMount;
+    if (u >= 1) { goldenPaw.scale.setScalar(1); goldenPaw.position.y = GOLDEN_PAW_Y; return; }
+    const e = 1 - Math.pow(1 - u, 3);
+    goldenPaw.scale.setScalar(e * (1 + 0.14 * Math.sin(u * Math.PI)));
+    goldenPaw.position.y = GOLDEN_PAW_Y + (1 - e) * 0.2;
+  }
+
   // Slow dust motes create constant micro-motion in otherwise static areas.
   const COUNT = 42, pos = new Float32Array(COUNT * 3), speed = new Float32Array(COUNT);
   for (let i = 0; i < COUNT; i++) {
@@ -152,7 +193,24 @@ export function createAmbience(area) {
   }));
   group.add(dust);
 
-  let t = 0, prestigeLevel = -1;
+  let t = 0, prestigeLevel = -1, celebrateT = 0;
+  const LIGHT_BASE = new THREE.Color('#FFE0A8'), LIGHT_GOLD = new THREE.Color('#FFC24A');
+
+  // Mount (or restore) the Golden Paw. `animate` is the CALLER's decision, not this module's:
+  // systems/goldenPaw.js passes true exactly once, on the shift the award is earned, and false on
+  // every reload afterwards and whenever the player prefers reduced motion.
+  function setGoldenPaw(on, opts = {}) {
+    goldenPaw.visible = !!on;
+    goldenMount = (on && opts.animate) ? 0 : 1;
+    applyGoldenMount();
+  }
+
+  // A timed pulse of the string lights. No new light source: the instanced bulbs already share one
+  // material, so a deeper, faster opacity swing plus a gold tint is the whole effect.
+  function celebrate(seconds = 6) {
+    celebrateT = Math.max(celebrateT, Math.max(0, Number(seconds) || 0));
+  }
+
   function setPrestige(level) {
     level = Math.max(0, Math.min(5, level | 0));
     if (level === prestigeLevel) return;
@@ -174,12 +232,27 @@ export function createAmbience(area) {
       a.setX(i, a.getX(i) + Math.sin(t * 0.55 + i * 1.7) * dt * 0.006);
     }
     a.needsUpdate = true;
-    lightMat.opacity = 0.9 + Math.sin(t * 1.35) * 0.08;
+    if (celebrateT > 0) {
+      celebrateT = Math.max(0, celebrateT - dt);
+      lightMat.opacity = 0.66 + Math.sin(t * 7.5) * 0.32;
+      lightMat.color.copy(LIGHT_BASE).lerp(LIGHT_GOLD, 0.5 + Math.sin(t * 7.5) * 0.5);
+    } else {
+      lightMat.opacity = 0.9 + Math.sin(t * 1.35) * 0.08;
+      // Restore the resting tint exactly once, not every frame: this runs for the whole session.
+      if (!lightMat.color.equals(LIGHT_BASE)) lightMat.color.copy(LIGHT_BASE);
+    }
     if (prestige[3].visible && pawSign.userData.glowMaterial) {
       pawSign.userData.glowMaterial.opacity = 0.84 + Math.sin(t * 2.1) * 0.12;
+    }
+    if (goldenPaw.visible) {
+      if (goldenMount < 1) { goldenMount = Math.min(1, goldenMount + dt / GOLDEN_MOUNT_SECONDS); applyGoldenMount(); }
+      // The same slow shimmer the prestige paw sign uses, so the gold mark reads as lit rather than
+      // as flat plastic. Small amplitude, no position change: safe under reduced motion.
+      goldenPawMark.userData.glowMaterial.opacity = 0.88 + Math.sin(t * 1.7) * 0.1;
     }
   }
 
   setPrestige(0);
-  return { group, update, setPrestige };
+  setGoldenPaw(false);
+  return { group, update, setPrestige, setGoldenPaw, celebrate };
 }

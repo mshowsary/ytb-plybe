@@ -1,5 +1,9 @@
 import { isHoliday, isWeekend } from './day.js';
 import { DECOR, DECOR_BY_ID, decorUnlocked } from '../../data/decor.js';
+// The Paw Rating owns the AUTHORED size of the arrivals bonus (+10%/star); this file owns how it
+// lands on the demand curve. pawRating.js imports only data/area1.js and sim/petBook.js, both
+// leaves, so this adds no cycle back into economy.js.
+import { pawArrivalMultiplier, pawBestStar } from './pawRating.js';
 // TASK 1.6a: every tunable number below (menu prices, ladders, growth constants, the demand curve,
 // star-cost formula) now lives in economyConfig.js. This file is the BEHAVIOUR — the formulas that
 // read those numbers — economyConfig.js is the DATA. Re-exporting the config's own names here (the
@@ -139,6 +143,37 @@ export function maxCustomers(builtSet, staff = {}, level = 0) {
   const authored = Math.min(DEMAND.MAX_CEILING_AUTHORED, DEMAND.BASE_MAX + (lines >= 3 ? DEMAND.MAX_LINE_BONUS : 0) + (usefulStaff >= 2 ? DEMAND.MAX_STAFF_BONUS : 0));
   if (!(level > DEMAND.LEVEL_GATE)) return authored;
   return Math.min(CROWD_CEILING, authored + Math.floor((level - DEMAND.LEVEL_GATE) / DEMAND.LEVEL_PER_MAX_STEP));
+}
+
+// Batch 3 (plan §3.4): each Paw Rating star is "+10% arrivals". Arrivals are expressed here as an
+// INTERVAL, so a +10%/star ARRIVAL RATE is a DIVISION by pawArrivalMultiplier(best), not a
+// subtraction of seconds — at ★5 the rate is 1.5x, i.e. the interval is 1/1.5 of what it was.
+// Subtracting a flat bonus instead would be worth a different amount of traffic at every build
+// level and would need a second floor of its own. Always fed the RATCHET (pawBestStar), never
+// `live`: an arrivals bonus that switched off after a bad week would read as the game breaking.
+export function pawSpawnIntervalMultiplier(bestStar) {
+  return 1 / pawArrivalMultiplier(bestStar);
+}
+
+// THE one function that owns the sustained arrival floor.
+//
+// spawnInterval() clamps only the build/level curve. Every multiplier applied AFTER it landed at
+// the call site, i.e. past that clamp: 2000 followers alone already took a maxed café to
+// 2.2 / 1.5 = 1.47s against a documented floor of 2.2s, and compounding ★5 on top of that would
+// have reached 2.2 / 1.5 / 1.5 = 0.98s — about 61 arrivals/minute into a room that never holds more
+// than CROWD_CEILING guests, i.e. a permanent give-up queue rather than a busier café. So the
+// PRODUCT is re-clamped here instead of either effect being individually shrunk: both keep their
+// authored strength on every café that has not already reached the floor, and no combination of
+// them can outrun the number the demand model is balanced against.
+//
+// `followerMult` is passed in as a plain number (followers.spawnIntervalMultiplier's result) rather
+// than imported, so this file keeps owning the demand curve without also owning the follower curve.
+// Capacity takes no Paw bonus at all — a star is worth +1 RESIDENT slot, not +1 guest — so
+// maxCustomers() needs no companion to this and CROWD_CEILING is untouched by the rating.
+export function effectiveSpawnInterval(builtSet, staff = {}, level = 0, opts = {}) {
+  const followerMult = Number(opts.followerMult);
+  const fm = Number.isFinite(followerMult) && followerMult > 0 ? followerMult : 1;
+  return Math.max(CROWD_FLOOR_INTERVAL, spawnInterval(builtSet, staff, level) * fm * pawSpawnIntervalMultiplier(opts.pawStars | 0));
 }
 
 export function hireCost(kind, staffCounts) {
@@ -316,7 +351,7 @@ export function buyDecor(state, id) {
   const item = DECOR_BY_ID.get(id);
   if (!item) return { ok: false, cost: null };
   const builtSet = state && state.world && state.world.built ? state.world.built : null;
-  if (!decorUnlocked(item, builtSet)) return { ok: false, cost: item.price };
+  if (!decorUnlocked(item, builtSet, pawBestStar(state && state.meta))) return { ok: false, cost: item.price };
   if (!state.meta || typeof state.meta !== 'object') state.meta = {};
   if (!Array.isArray(state.meta.decor)) state.meta.decor = [];
   if (state.meta.decor.includes(id)) return { ok: false, cost: item.price, owned: true };
@@ -336,7 +371,7 @@ export function affordableDecor(state, builtSet = null) {
   const coins = (state && state.coins) || 0;
   const owned = new Set(ownedDecor(state));
   const built = builtSet || (state && state.world && state.world.built) || null;
-  return DECOR.filter(item => !owned.has(item.id) && decorUnlocked(item, built) && item.price <= coins);
+  return DECOR.filter(item => !owned.has(item.id) && decorUnlocked(item, built, pawBestStar(state && state.meta)) && item.price <= coins);
 }
 
 // The cheapest thing still on the decor shelf, or null when the catalogue is exhausted. Invariant A
@@ -346,7 +381,7 @@ export function cheapestDecor(state, builtSet = null) {
   const built = builtSet || (state && state.world && state.world.built) || null;
   let best = null;
   for (const item of DECOR) {
-    if (owned.has(item.id) || !decorUnlocked(item, built)) continue;
+    if (owned.has(item.id) || !decorUnlocked(item, built, pawBestStar(state && state.meta))) continue;
     if (!best || item.price < best.price) best = item;
   }
   return best;

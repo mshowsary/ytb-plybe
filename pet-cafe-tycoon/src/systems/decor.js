@@ -8,6 +8,7 @@
 // The reveal is a deterministic scale/lift curve driven by dt — no Math.random, no timers, no
 // visibility hooks — so screenshots and the headless replay stay stable.
 import { DECOR_BY_ID, decorUnlocked } from '../../data/decor.js';
+import { pawBestStar } from '../sim/pawRating.js';
 import { decorMesh } from '../render/decor.js';
 
 const POP_SECONDS = 0.55;
@@ -33,7 +34,7 @@ export function install(G, scene, world = null) {
   function add(id, animate) {
     const item = DECOR_BY_ID.get(id);
     // A tampered save, or a terrace piece whose zone does not exist yet, adds nothing at all.
-    if (!item || live.has(id) || !decorUnlocked(item, builtSet())) return null;
+    if (!item || live.has(id) || !decorUnlocked(item, builtSet(), pawBestStar(G && G.meta))) return null;
     const obj = decorMesh(id);
     if (!obj) return null;
     scene.add(obj);

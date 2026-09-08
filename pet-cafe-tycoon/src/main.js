@@ -13,6 +13,7 @@ import { createBaristaWorker } from './systems/baristaWorker.js';
 import { createResponsivePolish } from './ui/responsive.js';
 import { createLabelLayout } from './ui/labelLayout.js';
 import { createResidentPets } from './systems/residentPets.js';
+import { createGoldenPawCeremony } from './systems/goldenPaw.js';
 import { install as installDecor } from './systems/decor.js';
 import { installHudLayout } from './ui/hudLayout.js';
 import { createPlayablesShell } from './ui/playablesShell.js';
@@ -257,6 +258,8 @@ function startGame(S, load, bootUi) {
   const cashTrays = createCashTrays(G.world, S.scene);
   const butterflies = createButterflies(S.scene);
   const residentPets = createResidentPets(S, G, els);
+  // ambience and fx belong to game.js and reach here through G (see the two exposures there).
+  const goldenPaw = createGoldenPawCeremony(S, G, { ambience: G.ambience, fx: G.fx, residents: residentPets });
   const rewardsSystem = createRewardsSystem(G, S, platform);
   const pauseOverlay = makePauseOverlay();
   // Time of day owns sun/hemi/sky/fog/grade and the after-dark interior glow. Created here (not in
@@ -271,6 +274,9 @@ function startGame(S, load, bootUi) {
   }
   platform.bindGame(G);
   petFriendship.refresh();
+  // Same rule as the keepsake above: an award already in the save is a plaque that has always been
+  // on the wall. This mounts it with no animation and retires the ceremony for the session.
+  goldenPaw.refresh();
   coffeePolish.update();
   rewardsSystem.refresh();
   installHudLayout(); // last stylesheet wins: this module owns HUD placement
@@ -352,6 +358,7 @@ function startGame(S, load, bootUi) {
       cashTrays.update(dt);
       butterflies.update(dt);
       residentPets.update(dt);
+      goldenPaw.update(dt);
       rewardsSystem.update(dt);
       // After rewardsSystem: it is what moves S.goldenHour, and Golden Hour is a boost layered on
       // top of the current time-of-day keyframe rather than a palette of its own.

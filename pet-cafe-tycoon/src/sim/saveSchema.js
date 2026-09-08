@@ -12,6 +12,9 @@ import { PET_PROFILES, PET_SPECIES, petKey } from './petBook.js';
 import { DECOR_IDS, DECOR_ID_SET, DECOR_BY_ID, decorUnlocked } from '../../data/decor.js';
 import { ACCESSORY_IDS } from '../../data/accessories.js';
 import { restoreSettlement } from './settlement.js';
+import {
+  PAW_MAX_STAR, PAW_SEAT_WINDOW_DAYS, PAW_SEAT_WINDOW_KEEP, pawEntitlementCeiling,
+} from './pawRating.js';
 
 export const CURRENT_SAVE_VERSION = 5;
 export const SAVE_LIMITS = Object.freeze({
@@ -44,6 +47,10 @@ export const SAVE_LIMITS = Object.freeze({
   maxAlbumShots: 999,
   maxSeasonIndex: 3,
   maxFranchiseLevel: 50,
+
+  // Paw Rating (plan 3.4). The star ceiling is the authored tier count -- but the real bound on a
+  // restored rating is pawEntitlementCeiling(), not this number; see normalizePawRating below.
+  maxPawStar: PAW_MAX_STAR,
 });
 
 const BAD_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
@@ -58,7 +65,7 @@ const STAT_KEYS = ['served', 'lifetimeEarned', 'serviceFees', 'wasteFees', 'rewa
 // 'missedSeats' (task 0.6, dirty tables), 'specialServed' (special-day progress, game.js) and
 // 'returnActions' (systems/serviceFriction.js, read back by ui/serviceSummary.js) all have to be
 // listed: a player who reloads mid-shift keeps the shift they actually played.
-const SHIFT_STAT_KEYS = ['served', 'lost', 'earned', 'serviceFees', 'serviceMisses', 'wasteFees', 'bestStreak', 'missedSeats', 'specialServed', 'returnActions'];
+const SHIFT_STAT_KEYS = ['photos', 'followersStart', 'served', 'lost', 'earned', 'serviceFees', 'serviceMisses', 'wasteFees', 'bestStreak', 'missedSeats', 'specialServed', 'returnActions'];
 // A settlement record is authored by sim/settlement.js snapshotStats(); restore must reproduce
 // EXACTLY those fields or a reloaded end-of-shift summary stops deep-equalling the live one it is
 // supposed to be. So the settlement key list is pinned separately from the live dayStats list.
@@ -390,6 +397,39 @@ function normalizeResidents(raw) {
   return [...PET_KEYS].filter(key => seen.has(key));
 }
 
+// Paw Rating ★3 needs per-day missed-seat history, which nothing else persists: career history
+// records `lost` (guests who gave up), not `missedSeats` (a paid guest finding no clean table), and
+// dayStats.missedSeats is reset every shift end. meta.pawSeatWindow is that history -- a ring of the
+// last PAW_SEAT_WINDOW_KEEP days plus the best complete window ever seen.
+function normalizePawSeatWindow(raw, completedDays) {
+  // Nothing settled yet means nothing can have been recorded. Also guards the day clamp below,
+  // whose min/max would invert at completedDays 0.
+  if (completedDays < 1) return { days: [], best: null };
+  const src = isRecord(raw) ? raw : {};
+  const byDay = new Map();
+  if (Array.isArray(src.days)) {
+    for (const entry of src.days.slice(0, PAW_SEAT_WINDOW_KEEP * 4)) {
+      if (!isRecord(entry) || !finiteNumber(entry.day)) continue;
+      const day = Math.trunc(entry.day);
+      // DROPPED, not clamped: clamping day 900 down to the last settled day would invent a record
+      // for a day the player did play, out of one they did not.
+      if (day < 1 || day > completedDays || byDay.has(day)) continue;
+      byDay.set(day, { day, missed: clampInt(entry.missed, 0, SAVE_LIMITS.maxShiftOutcomes, 0) });
+    }
+  }
+  const days = [...byDay.values()].sort((a, b) => a.day - b.day).slice(-PAW_SEAT_WINDOW_KEEP);
+  // `best` is the one value here the ring cannot re-derive once the window it describes has rolled
+  // off, so it has to be restorable -- but it is a MINIMUM, meaning the forgeable direction is
+  // downward (0 = a perfect week). The bound that matters is therefore not its magnitude but the
+  // right to hold one at all: a save that has not settled a full 7 days has never closed a window,
+  // so its claim is dropped outright. Past that, a clean week is genuinely achievable play, and ★3
+  // still needs the terrace and 10 photos, each clamped by its own normaliser.
+  const best = days.length >= PAW_SEAT_WINDOW_DAYS && completedDays >= PAW_SEAT_WINDOW_DAYS && finiteNumber(src.best)
+    ? clamp(Math.trunc(src.best), 0, PAW_SEAT_WINDOW_DAYS * SAVE_LIMITS.maxShiftOutcomes)
+    : null;
+  return { days, best };
+}
+
 // A season cannot have started on a day the player has not reached.
 function normalizeSeason(raw, day) {
   const src = isRecord(raw) ? raw : {};
@@ -619,20 +659,22 @@ export function validateAndMigrateSave(raw, area = null) {
   const maxCompleted = day.dayState._ended ? day.dayState.day : Math.max(0, day.dayState.day - 1);
   const completedDays = clampInt(metaRaw.completedDays, 0, maxCompleted, 0);
   const hasCompletedDays = finiteNumber(metaRaw.completedDays);
-  const decor = normalizeDecor(metaRaw.decor, buildState.builtSet);
+  // Pass 1: zone gate only. The star gate needs pawBest, which is not knowable yet — see the
+  // cycle described at pass 2 below.
+  const decorZoneGated = normalizeDecor(metaRaw.decor, buildState.builtSet);
   const rawRep = clampInt(metaRaw.reputation, 0, SAVE_LIMITS.maxDay * 3, 0);
   // When completedDays exists (all modern saves), reputation cannot exceed 3 points per settled
   // shift PLUS one point per owned decor item (economy.js buyDecor grants +1 each). The decor term
   // is what stops a legitimately bought decoration's reputation from being clamped away on reload;
   // it is still bounded, because the decor list itself was just validated against the catalogue.
   // Unversioned legacy saves without completedDays keep their historical reputation instead.
-  const reputation = hasCompletedDays ? Math.min(rawRep, completedDays * 3 + decor.length) : rawRep;
+  const reputation = hasCompletedDays ? Math.min(rawRep, completedDays * 3 + decorZoneGated.length) : rawRep;
   // The lifetime reputation ENTITLEMENT: the ceiling the clamp above enforces, never below what the
   // save actually holds. Monotonic in completedDays/decor, so a seat-miss decrement cannot shrink
   // it -- which is what keeps a bought renovation bought. An unversioned legacy save has no
   // completedDays to bound it with, so it keeps the historical current-reputation behaviour.
   const repEntitlement = hasCompletedDays
-    ? Math.max(reputation, completedDays * 3 + decor.length)
+    ? Math.max(reputation, completedDays * 3 + decorZoneGated.length)
     : reputation;
   const shiftRatings = normalizeShiftRatings(metaRaw.shiftRatings, Math.max(completedDays, day.dayState._ended ? day.dayState.day : 0));
   const petBook = normalizePetBook(metaRaw.petBook);
@@ -643,6 +685,29 @@ export function validateAndMigrateSave(raw, area = null) {
   const levels = normalizeLevels(raw);
   const stats = normalizeStats(raw);
   const dayStats = normalizeShiftStats(raw);
+
+  // --- Paw Rating (plan 3.4) -------------------------------------------------------------------
+  // album/followers are hoisted out of the meta literal below because the rating ceiling reads
+  // them; the literal reuses these exact values so there is only one normalisation of each.
+  const album = normalizeAlbum(metaRaw.album);
+  const followers = clampInt(metaRaw.followers, 0, SAVE_LIMITS.maxFollowers, 0);
+  const pawSeatWindow = normalizePawSeatWindow(metaRaw.pawSeatWindow, completedDays);
+  // A save cannot DECLARE a rating. pawBest is clamped to the highest star the rest of this
+  // already-validated save could actually have earned, so a hand-edited `pawBest: 5` on an empty
+  // save restores as 0. The ceiling is monotonic in the evidence it reads (see
+  // pawRating.pawEntitlementCeiling), so it can never demote a rating a real player holds.
+  // Math.min with the authored tier count is defence in depth, not decoration: the ceiling is
+  // computed by another module, and a restored rating must stay inside ★1-★5 even if that module
+  // ever returns something unexpected.
+  const pawCeiling = Math.min(SAVE_LIMITS.maxPawStar, pawEntitlementCeiling({
+    meta: { album, followers, petBook, petFriendship, career, pawSeatWindow },
+    stats, built: buildState.builtSet, area,
+  }));
+  const pawBest = clampInt(metaRaw.pawBest, 0, Math.max(0, pawCeiling), 0);
+  // Pass 2: now the rating is known, drop every star row this save has not earned. Without it the
+  // boundary confiscates nothing and a hand-edited meta.decor holds the whole ★5 set on an empty
+  // café — the same gate the terrace rows have had since Batch 1.
+  const decor = decorZoneGated.filter(id => decorUnlocked(DECOR_BY_ID.get(id), buildState.builtSet, pawBest));
   const normalized = {
     v: CURRENT_SAVE_VERSION,
     coins: clampInt(raw.coins, 0, SAVE_LIMITS.maxCoins, 0),
@@ -672,12 +737,14 @@ export function validateAndMigrateSave(raw, area = null) {
       socials: normalizeSocials(metaRaw.socials),
       servicePolicy: normalizeServicePolicy(metaRaw.servicePolicy),
       // --- v5 ---
-      followers: clampInt(metaRaw.followers, 0, SAVE_LIMITS.maxFollowers, 0),
-      album: normalizeAlbum(metaRaw.album),
+      followers,
+      album,
       equipped: normalizeEquipped(metaRaw.equipped),
       residents: normalizeResidents(metaRaw.residents),
       decor,
       goldenPaw: metaRaw.goldenPaw === true,
+      pawBest,
+      pawSeatWindow,
       season: normalizeSeason(metaRaw.season, day.dayState.day),
       franchise: normalizeFranchise(metaRaw.franchise),
       ...(metaRaw.rewards && isRecord(metaRaw.rewards) ? { rewards: normalizeRewards(metaRaw.rewards) } : {}),

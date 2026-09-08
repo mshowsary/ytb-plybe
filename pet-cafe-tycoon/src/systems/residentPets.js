@@ -21,12 +21,14 @@
 // slot i's occupant. Empty slots still render their furniture -- an invitation, not a gap.
 //
 // SLOT COUNT (plan §3.6: "3 at start, +1 per star, max 8")
-// The Paw Rating star system is Batch 3 and does not exist yet. `residentSlotCount(stars)` is the
-// whole predicate; every caller today passes `currentResidentStars(G)`, which always returns 0, so
-// the count is 3. When Batch 3 lands, point `currentResidentStars` at the real rating -- nothing
-// else in this file changes. Only RESIDENT_SPOTS.length (5) physical furniture placements exist
-// today, so the effective cap is `Math.min(residentSlotCount(stars), RESIDENT_SPOTS.length)`; a
-// future content batch raising the cap toward 8 does so by adding entries to RESIDENT_SPOTS.
+// Batch 3 landed the Paw Rating, so `currentResidentStars(G)` now reads the real rating instead of
+// returning 0. `residentSlotCount(stars)` is still the whole predicate and every caller still goes
+// through `currentResidentStars(G)`, so nothing else in this file changed. Only RESIDENT_SPOTS.length
+// (5) physical furniture placements exist today, so the effective cap stays
+// `Math.min(residentSlotCount(stars), RESIDENT_SPOTS.length)` -- ★3 and above buy no visible slot
+// until a content batch adds entries to RESIDENT_SPOTS. That is a deliberate under-delivery rather
+// than a silent one: it is cheaper to leave the arithmetic honest and add furniture than to cap the
+// rating's advertised effect here.
 //
 // MOVE-IN MOMENT (plan §3.6: "the pet walks in on its own the next morning")
 // A pet admitted to meta.residents mid-shift does not appear immediately -- residentPets.js keeps
@@ -82,6 +84,7 @@ import {
 } from '../sim/petBook.js';
 import { equipAccessory } from '../../data/accessories.js';
 import { AREA1 } from '../../data/area1.js';
+import { pawBestStar } from '../sim/pawRating.js';
 
 // Metres. Plan §5.4: "a head turn toward the owner within 3 m".
 const LOOK_RANGE = 3;
@@ -105,6 +108,12 @@ const RESIDENT_SPOTS = [
   // --- garden, past the south fence: no navigation grid out here, and environment.js's lawn tops
   //     out at y ~= -0.42, which is why the hutch is dropped to -0.44 instead of sitting at 0.
   { furniture: bunnyHutchMesh, x: -6.0, y: -0.44, z: 10.6, ry: 0.45, petRy: 0 },
+  // --- ★3-★5 slots. Placed against walls and inside the terrace deck, clear of every station
+  //     front, queue line and gate: the nav grid is 0.5m cells and Batch 1 lost pathfinding to a
+  //     lantern sitting 0.67m from a gate, so none of these sits within a metre of a doorway.
+  { furniture: catBedMesh, x: 9.05, y: 0, z: 2.6, ry: -0.25, petRy: -0.35 },
+  { furniture: windowCushionMesh, x: 5.4, y: 0, z: -6.5, ry: 0, petRy: -0.2 },
+  { furniture: dogBasketMesh, x: 6.6, y: 0, z: 10.7, ry: 0.3, petRy: 0.15 },
 ];
 
 // Plan §3.6: 3 base slots, +1 per star, capped at 8. See the file header for why `stars` is always
@@ -114,11 +123,17 @@ export function residentSlotCount(stars = 0) {
   return Math.max(3, Math.min(8, 3 + s));
 }
 
-// Single seam for the not-yet-built Paw Rating (Batch 3). Every caller in this file and in
-// systems/petFriendship.js goes through this instead of hardcoding 0, so wiring in the real star
-// count later is a one-line change here.
-export function currentResidentStars(_G) {
-  return 0;
+// Single seam onto the Paw Rating. Every caller in this file and in systems/petFriendship.js goes
+// through this rather than reaching into meta itself.
+//
+// Reads the RATCHET (meta.pawBest via pawBestStar), never pawRatingState().live: a slot that opened
+// when a star was earned must not close again after a bad week, because closing it would strand a
+// pet that is already sitting on its furniture -- reconcileResidents/admitResident only ever append,
+// so a shrinking cap cannot evict anyone and would instead leave meta.residents.length above the
+// cap, which is worse than an over-generous cap. pawBestStar is null-safe, so a G with no meta yet
+// (main.js constructs this module before G.restore()) still reads 0.
+export function currentResidentStars(G) {
+  return pawBestStar(G && G.meta);
 }
 
 function effectiveSlotCap(stars) {
@@ -417,5 +432,11 @@ export function createResidentPets(S, G, els = null) {
   return {
     update,
     get count() { return occupants.filter(Boolean).length + arrivals.size; },
+    // The Golden Paw ceremony (systems/goldenPaw.js) gathers its own copies of the residents on the
+    // rug for the length of the award. Hiding only the pet keeps every cushion and basket in place,
+    // which is the invitation this module is built around.
+    setCeremonyHidden(hidden) {
+      for (const spot of occupants) if (spot && spot.pet && spot.pet.group) spot.pet.group.visible = !hidden;
+    },
   };
 }

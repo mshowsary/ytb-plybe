@@ -5,6 +5,29 @@ import { C, toonMaterial, emissiveMaterial, gradientMap } from './palette.js';
 import { PRODUCTS } from '../sim/economy.js';
 import { Spring } from '../core/tween.js';
 
+// The awning is one of the Paw Rating's four per-star effects (plan §3.4: "+10% arrivals, +1
+// resident slot, an awning set, a decor set"). Indexed BY STAR: entry i is the café's awning at
+// ★i, so entry 0 is an unrated café and there are PAW_AWNING_SETS (6) of them. Callers index it
+// with pawRating.pawAwningSetIndex(pawBestStar(meta)), which is already clamped to this range;
+// setSet() clamps again because this is render code and a bad index must dull the awning, not
+// throw mid-frame.
+//
+// Set 0 is BIT-FOR-BIT the original coral/cream, so a café that has earned nothing looks exactly
+// as it always did. Sets 1 and 2 are the two colours this array already shipped with (they were
+// driven by café stars before the rating existed), kept unchanged so no live café's awning
+// changes hue under it. 3-5 continue the same escalation into jewel tones and finally into the
+// Golden Paw's own gold, all drawn from render/palette.js's existing families rather than a new
+// accent: coral → sky → violet → rose → plum-and-gold → gold-on-plum, with the ★5 set simply
+// inverting ★4's pair so the gold takes over the stripe rather than trimming it.
+export const AWNING_SETS = Object.freeze([
+  [C.coral, C.cream],       // ★0 — unrated café (the original look)
+  ['#6EC6FF', C.cream],     // ★1 — sky
+  ['#B48CF2', C.cream],     // ★2 — violet
+  ['#E86FB0', C.cream],     // ★3 — rose
+  ['#4A3B72', C.coin],      // ★4 — plum with gold trim (the star that opens legendary coats)
+  [C.coin, '#4A3B72'],      // ★5 — gold on plum: the Golden Paw
+].map(set => Object.freeze(set)));
+
 export function buildStatic(area) {
   const W = area.size.w, D = area.size.d, P = [];
   P.push(part('box', [90, 0.2, 90], '#CDE9B8', { y: -0.6 }));                                             // ground slab (sky never in frame at this pitch)
@@ -60,15 +83,9 @@ export function buildStatic(area) {
   g.add(gateMesh);
   g.gate = { setOpen(open) { gateMesh.visible = !open; } };
   // awning over the ovens row: striped, angled. M3 T3 layout: production row spans x -6..8.
-  // Loop v2 Task 3 (design section 6 — "every 5 stars unlocks a decoration set: awning colour"):
-  // split into two SEPARATE merged meshes (one per stripe parity, each its own material instance —
+  // Split into two SEPARATE merged meshes (one per stripe parity, each its own material instance —
   // `part()`/`mesh()` bake color into vertex attributes, so a single merged mesh can't be recolored
   // after the fact) so `g.awning.setSet(idx)` can retint both live without rebuilding geometry.
-  const AWNING_SETS = [
-    [C.coral, C.cream], // set 0 (default — the original look)
-    ['#6EC6FF', C.cream], // set 1 — 5+ café stars
-    ['#B48CF2', C.cream], // set 2 — 10+ café stars
-  ];
   const awX0 = -6, awX1 = 8, awW = awX1 - awX0, awMid = (awX0 + awX1) / 2;
   const stripes = Math.round(awW);
   const partsA = [], partsB = []; // A = "primary" parity (+ the trim bar), B = "secondary" parity

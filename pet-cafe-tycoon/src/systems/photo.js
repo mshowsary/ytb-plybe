@@ -102,6 +102,10 @@ export function createPhotoStudio(G, S, ctx) {
       isFirstPhotoOfPet: !prev,
       isPerfect: s.quality === 'perfect',
     }));
+    // The day summary's photo chip (src/ui/serviceSummary.js). Counted lazily rather than seeded
+    // in freshDayStats() so a shift with no photos leaves no counter at all and the chip stays
+    // absent instead of drawing a 0.
+    if (G.dayStats) G.dayStats.photos = (G.dayStats.photos | 0) + 1;
     if (typeof ctx.syncPetBook === 'function') ctx.syncPetBook();
     if (typeof G.requestCheckpoint === 'function') G.requestCheckpoint('photo-shot');
   }

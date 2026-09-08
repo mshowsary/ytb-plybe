@@ -102,7 +102,9 @@ for (const [tag,width,height,dpr] of cases) {
   await page.waitForTimeout(350);
   const goal = await page.evaluate(() => { const g=window.__game; const p=document.querySelector('#goalPill'); return {day:g.dayState.day,kind:g.goal?.kind,target:g.goal?.target,previous:g.goal?.previous,rival:g.goal?.rival,text:p?.textContent||'',visible:p?getComputedStyle(p).display!=='none':false}; });
 
-  await page.click('.meta-reputation');
+  // Batch 3: the ★ chip opens the Paw Rating now (a star for the star goal); Café Journey moved
+  // to the day pill, which is the control that already means 'the days so far'.
+  await page.click('#dayPill');
   await page.waitForFunction(() => !document.querySelector('.career-root').classList.contains('hidden'));
   const journey = await page.evaluate(() => ({days:document.querySelectorAll('.career-day').length,masteries:document.querySelectorAll('.career-master-row').length,reno:!!document.querySelector('.reno-buy'),overflow:document.body.scrollWidth>innerWidth+1}));
   let renovation=null;
