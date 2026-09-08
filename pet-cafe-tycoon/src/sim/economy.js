@@ -134,15 +134,28 @@ export function spawnInterval(builtSet, staff = {}, level = 0) {
   const usefulStaff = usefulFrontCapacity(staff);
   const authored = Math.max(DEMAND.MIN_INTERVAL, DEMAND.BASE_INTERVAL - DEMAND.INTERVAL_PER_LINE * (lines - 1) - DEMAND.INTERVAL_PER_STAFF * usefulStaff);
   if (!(level > DEMAND.LEVEL_GATE)) return authored;
-  // Past the authored build-out the room keeps getting busier, approaching the floor.
-  return Math.max(CROWD_FLOOR_INTERVAL, authored - DEMAND.INTERVAL_PER_LEVEL * (level - DEMAND.LEVEL_GATE));
+  // Past the authored build-out the room keeps getting busier, approaching the floor — linearly, the
+  // same as before, through LEVEL_SOFT_CAP (unchanged for every level this run ever reaches through
+  // day 11; see economyConfig.js's DEMAND comment for why the cap sits at 24). Past the cap the SAME
+  // bounded-approach shape used for worker/machine/player throughput takes over, because `level` past
+  // that point is being pushed almost entirely by star purchases that buy price, not speed.
+  const cappedLevel = Math.min(level, DEMAND.LEVEL_SOFT_CAP);
+  let reduced = authored - DEMAND.INTERVAL_PER_LEVEL * (cappedLevel - DEMAND.LEVEL_GATE);
+  if (level > DEMAND.LEVEL_SOFT_CAP) {
+    reduced -= DEMAND.LEVEL_SPAN * (1 - Math.pow(DEMAND.LEVEL_DECAY, level - DEMAND.LEVEL_SOFT_CAP));
+  }
+  return Math.max(CROWD_FLOOR_INTERVAL, reduced);
 }
 export function maxCustomers(builtSet, staff = {}, level = 0) {
   const lines = productiveLines(builtSet);
   const usefulStaff = usefulFrontCapacity(staff);
   const authored = Math.min(DEMAND.MAX_CEILING_AUTHORED, DEMAND.BASE_MAX + (lines >= 3 ? DEMAND.MAX_LINE_BONUS : 0) + (usefulStaff >= 2 ? DEMAND.MAX_STAFF_BONUS : 0));
   if (!(level > DEMAND.LEVEL_GATE)) return authored;
-  return Math.min(CROWD_CEILING, authored + Math.floor((level - DEMAND.LEVEL_GATE) / DEMAND.LEVEL_PER_MAX_STEP));
+  // Mirrors spawnInterval's own cap: identical up through LEVEL_SOFT_CAP, a slower step rate past it.
+  const cappedLevel = Math.min(level, DEMAND.LEVEL_SOFT_CAP);
+  let bonus = Math.floor((cappedLevel - DEMAND.LEVEL_GATE) / DEMAND.LEVEL_PER_MAX_STEP);
+  if (level > DEMAND.LEVEL_SOFT_CAP) bonus += Math.floor((level - DEMAND.LEVEL_SOFT_CAP) / DEMAND.LEVEL_PER_MAX_STEP_BEYOND_CAP);
+  return Math.min(CROWD_CEILING, authored + bonus);
 }
 
 // Batch 3 (plan §3.4): each Paw Rating star is "+10% arrivals". Arrivals are expressed here as an

@@ -66,6 +66,10 @@ export const GARDEN_PALETTE = {
   stem: '#4F9455',
   leaf: ['#57A45C', '#4A8F50', '#68B36A'],
 
+  // Garden garland along the picket line (new for the Seasons pass) -- an unlit bright-pass bulb
+  // string, the same construction as the props/ambience string lights but exterior and seasonal.
+  stringLight: ['#FF9EC4', '#FFE29A', '#FFFFFF'],
+
   planterBody: '#A9764E',
   planterRim: '#D9A066',
   planterPost: '#C08A56',
@@ -94,9 +98,79 @@ export const GARDEN_PALETTE = {
   picket: '#FBF3E6',
 };
 
-const P = GARDEN_PALETTE;
-// The four petal families, picked as a set so every bloom commits to one hue instead of speckling.
-const PETAL_SETS = [P.petalPink, P.petalSun, P.petalViolet, P.petalWhite];
+// ---- Seasons -------------------------------------------------------------------------------------
+// Four named looks, index-matched to src/sim/saveSchema.js's SAVE_LIMITS.maxSeasonIndex (3) and to
+// meta.season.index as that module already normalizes it (see normalizeSeason there). GARDEN_PALETTE
+// above IS Blossom's palette -- authoring it that way (rather than a separate blossom-only table)
+// means the pre-Seasons look is exactly index 0 and no existing caller of GARDEN_PALETTE changes.
+//
+// WHO CONSUMES seasonId: this module never reads meta.season itself and does not import
+// src/sim/seasons.js (parallel work; had not landed yet when this file was first drafted). Now that
+// it has, its own SEASON_IDS and SEASON_CONTENT[id].paletteId match this array and these palette
+// keys exactly ('blossom'/'splash'/'harvest'/'lights', same order) -- confirmed, not reconciled
+// further. Every entry point below (buildEnvironment, group.setSeason) still just takes a season id
+// STRING as a plain argument; the caller (game.js, not owned here) is expected to pass
+// seasons.seasonForDay(day).id straight through. See this task's wiringNeeded for the exact glue.
+export const SEASON_IDS = Object.freeze(['blossom', 'splash', 'harvest', 'lights']);
+
+// Only the fields that change; everything else falls back to GARDEN_PALETTE (Blossom). Values are
+// chosen to sit at similar saturation/lightness to the family they replace -- see the readability
+// note above buildEnvironment for why that matters against the daylight grade.
+const SEASON_PALETTE_OVERRIDES = {
+  blossom: null, // GARDEN_PALETTE as authored.
+
+  // Splash -- bright tropical summer: warm sun-bleached lawn, teal-green foliage, hibiscus/plumbago
+  // blooms, aqua garland.
+  splash: {
+    grass: ['#D8EFB0', '#CFEAA0', '#E2F3C0', '#C6E293'],
+    foliage: ['#2FAE8C', '#3FBF8F', '#57D1A0', '#26A07E'],
+    petalPink: ['#FF5A5F', '#FF7A85', '#FF3D57', '#FF9AA6', '#E8404F'],
+    petalSun: ['#FFB627', '#FFD166', '#FF8C42', '#FFCB55'],
+    petalViolet: ['#2EC4E0', '#38B6D6', '#1AA6C9', '#5FD4E8'],
+    bloomCore: ['#FFD166', '#FFB627', '#FF8C42', '#FFE08A'],
+    daisyCore: '#FFB627',
+    stem: '#2E8F6E', leaf: ['#2FAE8C', '#26A07E', '#3FBF8F'],
+    stringLight: ['#5FE0E8', '#FFFFFF', '#2EC4E0'],
+  },
+
+  // Harvest -- autumn: golden dry lawn, orange/red tree crowns, mum/pumpkin blooms, lantern garland.
+  harvest: {
+    grass: ['#E0C98A', '#D4BC7A', '#E8D49A', '#CBAF6E'],
+    foliage: ['#D97B3F', '#C2622E', '#E0954E', '#B85A2A'],
+    petalPink: ['#C13E3E', '#A62F2F', '#D65454', '#8F2A2A'],
+    petalSun: ['#F2994A', '#E07B1E', '#F4B860', '#D9660B'],
+    petalViolet: ['#7A3B5E', '#8C4A6B', '#5E2A45', '#9C5A7A'],
+    petalWhite: ['#FFF3D6', '#FFE9B8', '#FFF8E8'],
+    bloomCore: ['#E0954E', '#C2622E', '#F2C078', '#D9660B'],
+    daisyCore: '#E0954E',
+    stem: '#8A7A3E', leaf: ['#9C8A4A', '#8A7A3E', '#7A6A32'],
+    stringLight: ['#FFA94D', '#FF7B25', '#FFD08A'],
+  },
+
+  // Lights -- winter holiday: frosted lawn, deep evergreen crowns, poinsettia/holly/ornament blooms,
+  // classic multicolour garland.
+  lights: {
+    grass: ['#D8E8D0', '#E4F0E0', '#CFE3C8', '#DCEAD4'],
+    foliage: ['#2E6B4F', '#255A42', '#357860', '#1F4F3A'],
+    petalPink: ['#E23B4E', '#C92A3D', '#F2596A', '#D6314A'],
+    petalSun: ['#F2C744', '#E0B02E', '#F7D96B', '#EABE3C'],
+    petalViolet: ['#7FB3E0', '#9CC9EA', '#5A96C9', '#8FC0E8'],
+    petalWhite: ['#FFFFFF', '#F0F8FF', '#E8F4FF'],
+    bloomCore: ['#F2C744', '#E0B02E', '#FFDE7A', '#EABE3C'],
+    daisyCore: '#F2C744',
+    stem: '#255A42', leaf: ['#2E6B4F', '#357860', '#255A42'],
+    stringLight: ['#E23B4E', '#2E6B4F', '#F2C744', '#7FB3E0', '#FFFFFF'],
+  },
+};
+
+// A fresh palette object for `id` (falls back to Blossom for an unknown id, never throws). Shallow
+// merge is safe here: every overridden field is a whole array or string, never mutated in place, so
+// there is nothing partially-Blossom/partially-seasonal inside one field.
+export function paletteForSeason(id) {
+  const overrides = SEASON_PALETTE_OVERRIDES[id];
+  return overrides ? { ...GARDEN_PALETTE, ...overrides } : GARDEN_PALETTE;
+}
+
 // Three size classes, exactly as the garden spec calls for.
 const BLOOM_SCALES = [0.78, 1.0, 1.26];
 
@@ -163,7 +237,7 @@ function dome(out, hex, r, seg, x, y, z, flat = 0.8) {
 //   daisy    42 / 44 / 44
 // Stems and leaves go to the toon-lit pass; petals go to the unlit bright pass so the saturation
 // survives the shadow ramp instead of sinking into it.
-function addPlant(solid, bright, r, x, z, soilY) {
+function addPlant(P, petalSets, solid, bright, r, x, z, soilY) {
   const s = BLOOM_SCALES[(r() * 3) | 0];
   const small = s < 0.9;
   const coreSeg = small ? 3 : 4;                  // centre dome: 6 or 8 triangles
@@ -172,7 +246,7 @@ function addPlant(solid, bright, r, x, z, soilY) {
   const spin = r() * Math.PI * 2;
   const kind = r();
   const leafCol = P.leaf[(r() * P.leaf.length) | 0];
-  const family = PETAL_SETS[(r() * PETAL_SETS.length) | 0];
+  const family = petalSets[(r() * petalSets.length) | 0];
   const petalCol = family[(r() * family.length) | 0];
 
   stalk(solid, P.stem, 0.028 * s, h, x, soilY - 0.01, z);                       // 3
@@ -213,7 +287,16 @@ function addPlant(solid, bright, r, x, z, soilY) {
   }
 }
 
-export function buildEnvironment(area) {
+// Builds one season's worth of scenery data (no THREE.Group, no meshes) from `area` and a palette
+// resolved from `seasonId`. Pure with respect to colour: the rng is re-seeded identically every
+// call, so two calls with different seasonId but the same area produce byte-identical vertex
+// POSITIONS (every random draw is consumed in the same order regardless of which hex a palette
+// array resolves an index to) and only the `color` attribute differs — this is what lets a season
+// change re-colour the garden instead of rearranging it, exactly as the plan requires.
+function buildScenery(area, seasonId) {
+  const P = paletteForSeason(seasonId);
+  // The four petal families, picked as a set so every bloom commits to one hue instead of speckling.
+  const PETAL_SETS = [P.petalPink, P.petalSun, P.petalViolet, P.petalWhite];
   const W = area.size.w, D = area.size.d;
   const south = D / 2;   // +7, the near fence line
   const east = W / 2;    // +10
@@ -303,7 +386,7 @@ export function buildEnvironment(area) {
     }
     for (let f = 0; f < 8; f++) {
       const fx = bx - 0.72 + r() * 1.44, fz = bz - 0.32 + r() * 0.64;
-      addPlant(sArr, bArr, r, fx, fz, soilY);
+      addPlant(P, PETAL_SETS, sArr, bArr, r, fx, fz, soilY);
       blooms++;
     }
   }
@@ -387,6 +470,16 @@ export function buildEnvironment(area) {
     solid.push(part('box', [18.4, 0.1, 0.08], P.picket, { x: 12.8, y: yy, z: south + 10.6 }));
   }
 
+  // Seasonal garland strung above the picket line: an unlit bulb string (bright pass, folds into
+  // the existing draw call) whose colour family is the clearest single tell of which season is
+  // active, since it sits right at the player's eye line and — unlike the flower beds — is never
+  // hidden behind the terrace deck. A gentle sine sag between posts reads as hung, not floating.
+  for (let x = -19.5; x <= 21.5; x += 1.7) {
+    if (x > -2.2 && x < 4.2) continue; // gap on the paw path, mirrors the picket gap
+    const sag = 0.1 * Math.sin((x + 19.5) * 1.85);
+    bright.push(part('sph', [0.065, 5], pick(P.stringLight), { x, y: 0.58 - sag, z: south + 10.55 }));
+  }
+
   // Hedge line marking the garden's far boundary — a clean horizontal that stops the eye.
   for (let x = -18; x <= 20; x += 1.5) {
     if (x > -1.5 && x < 3.5) continue; // gap where the paw path leads out
@@ -413,15 +506,92 @@ export function buildEnvironment(area) {
     solid.push(part('box', [w * 1.08, 0.5, 4.4], P.townRoof, { x, y: -0.5 + h + 0.25, z }));
   }
 
+  return { solid, bright, gSolid, gBright, blooms, terrace };
+}
+
+// Wraps `parts` (or a single-item placeholder for an empty array — mergeGeometries cannot merge
+// zero geometries, and an empty `terrace`-less area can otherwise leave gSolid/gBright empty) in a
+// Mesh the same way the old inline code did.
+function meshOrEmpty(parts, opts) {
+  if (!parts.length) parts = [part('box', [0.0001, 0.0001, 0.0001], '#000000', { y: -999 })];
+  return mesh(parts, opts);
+}
+
+function brightMaterial() {
+  // Unlit pieces stay vivid under the toon ramp: flowers and garland lights should pop, not sit in
+  // shadow. A fresh material every build (rather than a shared singleton) because group.setSeason
+  // disposes it on every re-season and toonMaterial()'s sharing trick would break every other user.
+  return new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: true });
+}
+
+// area -> a live THREE.Group of the world beyond the café walls, tinted for `seasonId` (one of
+// SEASON_IDS; an unrecognised id falls back to Blossom rather than throwing, so a stale or not-yet
+// -migrated save never crashes the render). The seeded LAYOUT never changes across a season swap — only
+// group.setSeason(id) is ever called again; buildEnvironment itself only runs once per load.
+//
+// READABILITY vs the daylight system (src/render/daylight.js), reasoned through rather than
+// screenshotted (no build in this task):
+//   - `bright` / `gBright` (flowers, garland) use MeshBasicMaterial, so they ignore sun/hemi colour
+//     entirely and are only affected by the post grade's exposure (1.05-1.30 across the keyframe
+//     table) and warmth (-0.02..+0.06) and by scene fog at distance. Every seasonal petal/garland
+//     hex above was chosen at the same saturation/lightness band as the family it replaces (mid-high
+//     chroma, never near-black, only the existing white families go near-white), so it should sit
+//     inside the same exposure/warmth envelope the shipped Blossom palette already holds up under.
+//   - `solid` / `gSolid` (grass, tree crowns, trunks) are toon-lit and DO pick up sun colour, hemi
+//     colour and shadowTint, which swing from neutral white (dawn/midday) to warm (#FFE9B8 sunset
+//     sun) to cool blue-violet (#5E6FB8 dusk sun, #DDE5FF shadowTint). Seasonal grass/foliage hexes
+//     were kept at comparable value/chroma to the shipped greens they replace for the same reason.
+//   - Two specific combinations I could NOT verify without a screenshot and want to flag explicitly:
+//     Harvest's orange/gold foliage against the warm #FF9E6A sunset sun could push toward an overly
+//     saturated red rather than reading as autumn leaves; Lights' icy-blue petal family against the
+//     cool #5E6FB8/blue-violet dusk sky could lose contrast (blue-on-blue) right at dusk. Both are
+//     the low-sun keyframes only (t>=215/240 of DAY_LENGTH=240) — daytime hours are the safer case.
+export function buildEnvironment(area, seasonId = SEASON_IDS[0]) {
   const group = new THREE.Group();
   group.name = 'environment';
-  group.userData.blooms = blooms;   // near-band bloom count, for the triangle-budget check
-  group.add(mesh(solid, { cast: true, receive: true }));
-  // Unlit pieces stay vivid under the toon ramp: flowers should pop, not sit in shadow.
-  group.add(mesh(bright, {
-    cast: false, receive: false,
-    material: new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: true }),
-  }));
+
+  const garden = new THREE.Group();
+  garden.name = 'garden';
+  group.add(garden);
+  group.garden = garden;
+
+  let solidNode = null, brightNode = null, gSolidNode = null, gBrightNode = null;
+  let currentSeason = null;
+
+  function disposeLit(node) { if (node) node.geometry.dispose(); } // shares toonMaterial() — never dispose that
+  function disposeBright(node) { if (node) { node.geometry.dispose(); node.material.dispose(); } }
+
+  // (Re)builds solid/bright/gSolid/gBright for `id` and swaps them into `group`/`garden` in place.
+  // A no-op if `id` is already the active season, so callers can call this every frame/tick without
+  // guarding it themselves.
+  function applySeason(id) {
+    const resolved = SEASON_IDS.includes(id) ? id : SEASON_IDS[0];
+    if (resolved === currentSeason) return;
+    currentSeason = resolved;
+    const data = buildScenery(area, resolved);
+    group.userData.blooms = data.blooms;   // near-band bloom count, for the triangle-budget check
+
+    disposeLit(solidNode); disposeBright(brightNode);
+    disposeLit(gSolidNode); disposeBright(gBrightNode);
+    if (solidNode) group.remove(solidNode);
+    if (brightNode) group.remove(brightNode);
+    if (gSolidNode) garden.remove(gSolidNode);
+    if (gBrightNode) garden.remove(gBrightNode);
+
+    solidNode = meshOrEmpty(data.solid, { cast: true, receive: true });
+    brightNode = meshOrEmpty(data.bright, { cast: false, receive: false, material: brightMaterial() });
+    gSolidNode = meshOrEmpty(data.gSolid, { cast: true, receive: true });
+    gBrightNode = meshOrEmpty(data.gBright, { cast: false, receive: false, material: brightMaterial() });
+
+    group.add(solidNode);
+    group.add(brightNode);
+    garden.add(gSolidNode);
+    garden.add(gBrightNode);
+  }
+  applySeason(seasonId);
+  // Consumed by whoever owns src/sim/seasons.js's day->season mapping (see this task's
+  // wiringNeeded) once per day rollover. Cheap to over-call: no-ops when the id hasn't changed.
+  group.setSeason = applySeason;
 
   // ---- The terrace deck (plan 3.1/7.1) -----------------------------------------------------------
   // `garden` is every near-band piece generated above whose footprint the terrace occupies — shown
@@ -432,16 +602,7 @@ export function buildEnvironment(area) {
   // event — refreshActive-style, not a per-frame poll. For the same visual "pop" every other
   // station build gets, animate deck.scale with src/render/buildReveal.js's buildRevealScale the
   // way systems/visuals.js already does; that per-frame hookup lives outside this file.
-  const garden = new THREE.Group();
-  garden.name = 'garden';
-  garden.add(mesh(gSolid, { cast: true, receive: true }));
-  garden.add(mesh(gBright, {
-    cast: false, receive: false,
-    material: new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: true }),
-  }));
-  group.add(garden);
-  group.garden = garden;
-
+  const terrace = (area.regions || []).find(reg => reg.id === 'terrace') || null;
   const deck = new THREE.Group();
   deck.name = 'terraceDeck';
   deck.visible = false;

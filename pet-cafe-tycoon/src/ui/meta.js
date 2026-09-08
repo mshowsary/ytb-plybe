@@ -152,6 +152,7 @@ export function createMetaUI() {
   // its cheap vector swatch, so the album degrades instead of breaking.
   let currentOnEquip = null;
   let currentRenderPortrait = null;
+  let currentAccessories = null;
 
   function openAlbumDetail(card) {
     albumDetailEl.classList.remove('hidden');
@@ -186,7 +187,9 @@ export function createMetaUI() {
     }
 
     {
-      const catalogue = ACCESSORIES;
+      // The resolved list when the caller supplies one (locks computed against followers, season
+      // and day); the raw catalogue only as a fallback so this panel still renders standalone.
+      const catalogue = Array.isArray(currentAccessories) ? currentAccessories : ACCESSORIES;
       accRow.textContent = '';
       const equipped = card.equippedId || null;
       for (const item of catalogue) {
@@ -212,6 +215,7 @@ export function createMetaUI() {
   M.setAlbum = model => {
     currentOnEquip = (model && model.onEquip) || null;
     currentRenderPortrait = (model && typeof model.renderPortrait === 'function') ? model.renderPortrait : null;
+    currentAccessories = (model && Array.isArray(model.accessories)) ? model.accessories : null;
     albumGridEl.textContent = '';
     for (const c of (model && model.cards) || []) {
       const shots = c.album ? c.album.shots : 0;

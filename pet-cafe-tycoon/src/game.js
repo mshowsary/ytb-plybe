@@ -5,7 +5,16 @@ import { normalizeSocials } from './sim/petSocials.js';
 import { createPetSocials } from './systems/petSocials.js';
 import { cafeCompletion } from './sim/completion.js';
 import { summaryClaimedForShift, inShiftClaimedForShift, markRewardedClaim, interstitialDueAfterShift } from './sim/adPacing.js';
-import { specialForDay, saleMatchesTheme, specialProgress, specialReward, goldenHourForDay, createGoldenHourState, stepGoldenHour, goldenHourMult } from './sim/specialDays.js';
+import { specialForDaySeasoned, saleMatchesTheme, specialProgress, specialReward, goldenHourForDay, createGoldenHourState, stepGoldenHour, goldenHourMult } from './sim/specialDays.js';
+import { seasonForDay, deriveSeasonMeta, seasonRolledOver } from './sim/seasons.js';
+import { ACCESSORIES, accessoryUnlocked } from '../data/accessories.js';
+
+// Every special-day roll goes through the season, so a festival day lands where the season says it
+// does. One helper rather than three call sites repeating the same three arguments.
+const specialFor = day => {
+  const s = seasonForDay(day);
+  return specialForDaySeasoned(day, s.id, s.dayStart);
+};
 import { normalizeCalendar } from './sim/rewards.js';
 import { familyOf, salePrice, cafeLevel } from './sim/economy.js';
 import { beginActorStep, endActorStep } from './sim/actorRoster.js';
@@ -85,7 +94,7 @@ export function createGame(S, area, els, platform = null) {
       goldenPaw: false, season: { index: 0, dayStart: 1 }, franchise: { level: 0 },
     },
     golden: createGoldenHourState(),
-    special: specialForDay(1),
+    special: specialFor(1),
     serviceStreak: { count: 0, t: 0 }, shiftBestStreak: 0,
     customers: [], staffList: [], time: 0, state: 'play', carry: createCarry(),
     hintsSeen: new Set(), intro: {}, dayState: createDay(), stars: {}, goal: null, dayStats: freshDayStats(),
@@ -115,7 +124,12 @@ export function createGame(S, area, els, platform = null) {
   const scene = S.scene;
   const staticGroup = buildStatic(area); scene.add(staticGroup);
   // The world past the café walls. Static, merged, never interacted with.
-  scene.add(buildEnvironment(area));
+  // The garden is seeded once and only ever RE-COLOURED afterwards — setSeason swaps vertex
+  // colours and leaves the seeded layout alone, because a season change that moved the trees would
+  // read as a bug rather than as weather.
+  const environment = buildEnvironment(area, seasonForDay(G.dayState.day).id);
+  scene.add(environment);
+  environment.setTerraceBuilt(world.built.has('z_terrace'));
   const ambience = createAmbience(area); scene.add(ambience.group); G.ambience = ambience;
   const renovationDecor = createRenovationDecor(area); scene.add(renovationDecor.group);
   G.awning = staticGroup.awning; let lastAwningSet = -1;
@@ -155,6 +169,13 @@ export function createGame(S, area, els, platform = null) {
         ...c,
         album: (G.meta.album || {})[c.key] || null,
         equippedId: (G.meta.equipped || {})[c.key] || null,
+      })),
+      // The accessory shelf, with each item's gate resolved against the live follower count and
+      // the CURRENT DAY. ui/meta.js previously read `item.locked` straight off the raw catalogue,
+      // where no such field exists — so every accessory read as unlocked, follower tiers and
+      // seasons alike.
+      accessories: ACCESSORIES.map(item => ({
+        ...item, locked: !accessoryUnlocked(item.id, G.meta, G.dayState.day),
       })),
       renderPortrait: (petKeyStr, poseId, accessoryId) => renderPetPortrait(S.renderer, {
         petKey: petKeyStr, poseId, accessoryId,
@@ -275,6 +296,9 @@ export function createGame(S, area, els, platform = null) {
     // set. Keeping both rules would mean the awning no longer tells you anything in particular.
     const setIdx = pawAwningSetIndex(pawBestStar(G.meta)); if (setIdx !== lastAwningSet) { lastAwningSet = setIdx; G.awning && G.awning.setSet(setIdx); }
 
+    // The terrace's own planting and string lights only exist once the deck is paid for, so the
+    // environment has to hear about it the moment it is built — not only at load.
+    if (world.events.some(e => e.type === 'built')) environment.setTerraceBuilt(world.built.has('z_terrace'));
     if (world.events.some(e => e.type === 'built') && cafeCompletion(G).roomComplete) {
       hud.banner('YOUR CAFÉ IS BUILT', 2400); audio.play('chime');
       if (!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) fx.burst(P.x, 1.1, P.z, '#75BDA0', 18);
@@ -375,7 +399,14 @@ export function createGame(S, area, els, platform = null) {
       // already changed the day while an ad was up, do not advance again.
       if (G.dayState.day !== completedDay || !G.dayState._ended) return false;
       nextDay(G.dayState); G.dayStats = freshDayStats(); G.dayStats.followersStart = G.meta.followers | 0; G.serviceStreak = { count: 0, t: 0 }; G.shiftBestStreak = 0; G.goal = chooseCareerGoal(G.dayState.day, G.meta, G);
-      G.golden = createGoldenHourState(); G.special = specialForDay(G.dayState.day);
+      G.golden = createGoldenHourState(); G.special = specialFor(G.dayState.day);
+      // One season per career week. The re-tint fires only on a true rollover, so the garden is
+      // never rebuilt on an ordinary morning; meta.season is REPLACED, never mutated, because
+      // G.snapshot() spreads meta exactly one level deep.
+      if (seasonRolledOver(G.meta.season, G.dayState.day)) {
+        G.meta.season = deriveSeasonMeta(G.dayState.day);
+        environment.setSeason(seasonForDay(G.dayState.day).id);
+      }
       syncCareerPresentation(); partyOrders.sync(false);
       const d = G.dayState.day;
       if (weekdayIndex(d) === 6) hud.banner('WEEKLY CUP SUNDAY');
@@ -436,7 +467,11 @@ export function createGame(S, area, els, platform = null) {
     audio.setSfx(G.settings.sfx); audio.setMusic(G.settings.music); G.serviceStreak = { count: 0, t: 0 }; G.shiftBestStreak = G.dayStats.bestStreak | 0;
     ensureCareer(G.meta); ensurePartyOrders(G.meta); world.dayState = G.dayState; world.stars = G.stars; lastAwningSet = -1;
     G.golden = createGoldenHourState();
-    G.special = specialForDay(G.dayState.day);
+    G.special = specialFor(G.dayState.day);
+    // A restored save re-enters mid-season: paint it, no rollover animation.
+    G.meta.season = deriveSeasonMeta(G.dayState.day);
+    environment.setSeason(seasonForDay(G.dayState.day).id);
+    environment.setTerraceBuilt(world.built.has('z_terrace'));
     if (!G.meta.rewards) G.meta.rewards = { calendar: { lastKey: null, streak: 0 } };
     else G.meta.rewards.calendar = normalizeCalendar(G.meta.rewards.calendar);
     customers.teardown(); staff.teardown(); G.customers = []; G.staffList = []; world.payAcc = {}; world.built.clear();

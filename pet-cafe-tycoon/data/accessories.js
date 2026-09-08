@@ -11,9 +11,11 @@
 //
 // UNLOCKS are keyed to follower milestones (plan §3.3), reusing the tiers src/sim/followers.js
 // already authored (`followerTierUnlocked` / `FOLLOWER_MILESTONES`) rather than re-deriving them --
-// that module's own header comment names this exact file as the intended consumer. One item (the
-// seasonal party hat) is authored at the top follower tier as a placeholder; Batch 4's Seasons
-// system (plan §3.8) may prefer to gate it on a season goal instead once that system exists.
+// that module's own header comment names this exact file as the intended consumer. Four items
+// (flower crown, sunglasses, scarf, party hat -- each flagged `seasonal: true` below) ALSO unlock
+// by playing through their matching season (see SEASON_ACCESSORY_IDS / seasonAccessoryUnlocked
+// near the bottom of this file), on top of their original follower-tier gate, which stays exactly
+// as it was -- a player takes whichever door they reach first.
 //
 // SAVE SHAPE: `meta.equipped[petKey] = accessoryId` (src/sim/saveSchema.js normalizeEquipped) --
 // exactly one id per pet, not one per slot. `slot` here only tells the renderer which rig node
@@ -118,14 +120,13 @@ export const ACCESSORIES = Object.freeze([
   { id: 'acc_collar_tag',     name: 'Collar Tag',     slot: 'neck', tier: 0, build: collarTag },
   { id: 'acc_bandana_red',    name: 'Red Bandana',    slot: 'neck', tier: 0, build: () => bandana('#E4694F') },
   { id: 'acc_beret',          name: 'Beret',          slot: 'head', tier: 1, build: beret },
-  { id: 'acc_scarf',          name: 'Scarf',          slot: 'neck', tier: 1, build: scarf },
+  { id: 'acc_scarf',          name: 'Scarf',          slot: 'neck', tier: 1, build: scarf, seasonal: true },
   { id: 'acc_bandana_blue',   name: 'Blue Bandana',   slot: 'neck', tier: 1, build: () => bandana('#6EC6FF') },
   { id: 'acc_glasses',        name: 'Round Glasses',  slot: 'head', tier: 2, build: roundGlasses },
   { id: 'acc_bell_collar',    name: 'Bell Collar',    slot: 'neck', tier: 2, build: bellCollar },
   { id: 'acc_bandana_green',  name: 'Green Bandana',  slot: 'neck', tier: 2, build: () => bandana('#7BC47F') },
-  { id: 'acc_flower_crown',   name: 'Flower Crown',   slot: 'head', tier: 3, build: flowerCrown },
-  { id: 'acc_sunglasses',     name: 'Sunglasses',     slot: 'head', tier: 3, build: sunglasses },
-  // Seasonal placeholder (plan §3.8 may re-gate this on a season goal instead once Seasons ships).
+  { id: 'acc_flower_crown',   name: 'Flower Crown',   slot: 'head', tier: 3, build: flowerCrown, seasonal: true },
+  { id: 'acc_sunglasses',     name: 'Sunglasses',     slot: 'head', tier: 3, build: sunglasses, seasonal: true },
   { id: 'acc_party_hat',      name: 'Party Hat',      slot: 'head', tier: 4, build: partyHat, seasonal: true },
 ]);
 
@@ -137,17 +138,84 @@ export function accessoryItem(id) {
   return (typeof id === 'string' && ACCESSORY_BY_ID.get(id)) || null;
 }
 
-// Whether `id` is unlocked for a player with this `meta` (only `meta.followers` is read). Mirrors
-// data/decor.js's decorUnlocked(item, builtSet) shape: item-first, gate-context second.
-export function accessoryUnlocked(id, meta) {
+// --- seasonal unlock (Seasons look-and-feel pass) ------------------------------------------------
+// Each of the four seasons has one signature accessory (all four already existed here, three of
+// them behind a follower tier -- this only ADDS a second door in, never removes the first). The
+// mapping is thematic (spring flowers, summer shades, an autumn scarf, a holiday party hat) and,
+// now that src/sim/seasons.js has landed (it was mid-write when this file was first drafted),
+// matches its SEASON_CONTENT[id].accessoryId exactly for all four seasons -- confirmed, not
+// reconciled further.
+//
+// This module still does NOT import src/sim/seasons.js: that module itself imports
+// accessoryUnlocked from THIS file (to compute seasonAccessoryReachable), so importing it back
+// would be a circular module dependency. What is read instead is meta.season = { index, dayStart },
+// the exact shape src/sim/saveSchema.js's normalizeSeason() already enforces end-to-end today,
+// independent of whichever module decides when `index`/`dayStart` advance -- seasons.js's own
+// deriveSeasonMeta(day) produces precisely this shape.
+//
+// SEASON_LENGTH_DAYS below is a duplicated literal (seasons.js's own SEASON_LENGTH_DAYS, currently
+// career.js WEEK_LENGTH = 7) for the same reason: importing it would close the circular loop above.
+// If that cadence ever changes, this constant must move with it -- flagged in this task's
+// wiringNeeded rather than silently risking drift.
+//
+// "Played through" a season is: SEASON_PLAYTHROUGH_DAYS elapsed since meta.season.dayStart for the
+// CURRENTLY active season, or unconditionally true for any season already left behind -- including
+// one from a PREVIOUS 4-season cycle (seasons repeat forever; day 35's meta.season is back to
+// Blossom, index 0, but Splash/Harvest/Lights of the cycle before it are still "played", not
+// "not yet reached"). `seasonCycle` below re-derives which cycle meta.season.dayStart falls in from
+// the dayStart number alone, so a season index that has wrapped around never reads as unplayed.
+export const SEASON_PLAYTHROUGH_DAYS = 5;
+const SEASON_LENGTH_DAYS = 7; // mirrors src/sim/seasons.js SEASON_LENGTH_DAYS -- see note above.
+
+// index = season index (0 Blossom, 1 Splash, 2 Harvest, 3 Lights).
+export const SEASON_ACCESSORY_IDS = Object.freeze([
+  'acc_flower_crown', // 0 Blossom -- spring flowers
+  'acc_sunglasses',   // 1 Splash  -- summer shades
+  'acc_scarf',        // 2 Harvest -- crisp autumn scarf
+  'acc_party_hat',    // 3 Lights  -- winter holiday party
+]);
+
+// Full 4-season cycles completed strictly before the cycle meta.season.dayStart falls in (0 for
+// dayStart 1-28, 1 for 29-56, ...). Mirrors seasons.js's seasonCycle(day), fed meta.season.dayStart
+// itself rather than "today" -- the current season's own start day is always inside the cycle it
+// belongs to, so this needs no other input.
+function seasonCycleOf(dayStart) {
+  return Math.floor(Math.max(0, Math.trunc(dayStart) - 1) / (SEASON_LENGTH_DAYS * SEASON_ACCESSORY_IDS.length));
+}
+
+// Whether `id` is this season's signature piece and the player has played through that season.
+// `currentDay` is optional (defaults to meta.season.dayStart, i.e. "no elapsed days yet") so every
+// existing call site keeps working unchanged; passing the live day is what lets the in-progress
+// season actually unlock rather than only a season already left behind.
+export function seasonAccessoryUnlocked(id, meta, currentDay) {
+  const seasonIndex = SEASON_ACCESSORY_IDS.indexOf(id);
+  if (seasonIndex < 0) return false;
+  const season = meta && typeof meta === 'object' ? meta.season : null;
+  if (!season || typeof season.index !== 'number' || !Number.isFinite(Number(season.dayStart))) return false;
+  // At least one full cycle already finished before the current one: every season index, this one
+  // included, has already had a complete occurrence, regardless of where `index` currently sits.
+  if (seasonCycleOf(season.dayStart) > 0) return true;
+  if (season.index > seasonIndex) return true;    // still cycle 0: an earlier season in it ended
+  if (season.index !== seasonIndex) return false; // this season hasn't started yet
+  const dayStart = Number(season.dayStart) || 1;
+  const day = Number.isFinite(currentDay) ? currentDay : dayStart;
+  return (day - dayStart) >= SEASON_PLAYTHROUGH_DAYS;
+}
+
+// Whether `id` is unlocked for a player with this `meta` -- follower tier (unchanged, see
+// data/decor.js's decorUnlocked(item, builtSet) shape: item-first, gate-context second) OR this
+// season's signature-item path, whichever the player reaches first. `currentDay` is optional and
+// only feeds the seasonal path above.
+export function accessoryUnlocked(id, meta, currentDay) {
   const item = accessoryItem(id);
   if (!item) return false;
   const followers = meta && typeof meta === 'object' ? meta.followers : 0;
-  return followerTierUnlocked(item.tier, followers);
+  if (followerTierUnlocked(item.tier, followers)) return true;
+  return seasonAccessoryUnlocked(id, meta, currentDay);
 }
 
-export function accessoryCatalogue(meta) {
-  return ACCESSORIES.filter(item => accessoryUnlocked(item.id, meta));
+export function accessoryCatalogue(meta, currentDay) {
+  return ACCESSORIES.filter(item => accessoryUnlocked(item.id, meta, currentDay));
 }
 
 // One shared geometry per id (BufferGeometry is safe to share across many Mesh instances); a fresh

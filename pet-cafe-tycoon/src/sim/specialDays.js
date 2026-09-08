@@ -104,6 +104,69 @@ export function specialForDay(day) {
   };
 }
 
+// --- Seasonal festival day ---------------------------------------------------------------------
+// One themed day per season (plan: "give each season a visible identity ... hook the seasonal
+// content"), reusing THEMES rather than authoring a fifth kind of day. Every season gets exactly
+// one Festival Day: the first day of that season that would otherwise have rolled a theme at all
+// (day >= SPECIALS_START_DAY), so a very short season can never lose its festival to a pre-Day-3
+// gap. That festival always rolls the THEME whose family/species matches the season's own signature
+// good (see SEASON_FESTIVAL_THEME_ID below) instead of the usual per-day hash pick, and pays a
+// richer bonus so it reads as an occasion, not just another themed shift.
+//
+// RECONCILED against src/sim/seasons.js, which was mid-write (did not exist) when this module was
+// first drafted and has since landed: this module still never imports it (no back-dependency is
+// needed -- every function here takes a plain season id string), but SEASON_FESTIVAL_IDS and the
+// theme-per-season mapping below are copied to match seasons.js's own SEASON_IDS and
+// SEASON_CONTENT[id].specialThemeId exactly, so the two modules describe the same season the same
+// way. One real behavioural difference remains, flagged for the orchestrator in this task's
+// wiringNeeded: seasons.js's own header explicitly documents specialThemeId as "flavour only -- it
+// does NOT change specialForDay's own deterministic day-seeded rotation", whereas THIS module's
+// specialForDaySeasoned below deliberately DOES force that theme onto one specific day per season
+// (the plan for this task asks for "one themed special day per season", which a label alone cannot
+// deliver). Whether to actually call specialForDaySeasoned from wherever the live day's special is
+// rolled is therefore a real product decision, not just a wiring one -- reported, not made here.
+export const SEASON_FESTIVAL_IDS = Object.freeze(['blossom', 'splash', 'harvest', 'lights']);
+
+// Matches seasons.js SEASON_CONTENT[id].specialThemeId verbatim (its "spotlight theme" per season).
+const SEASON_FESTIVAL_THEME_ID = Object.freeze({
+  blossom: 'bunnybrunch',
+  splash: 'berry-blast',
+  harvest: 'sweet-tooth',
+  lights: 'latte-rush',
+});
+const SEASON_FESTIVAL_BONUS = 1.5; // reward multiplier over the day's normal themed bonus
+
+// The first special-eligible day is every season's festival by default (see file-header rationale);
+// a caller that knows the real per-season day range from seasons.js may pass `seasonStartDay`
+// (that season's own dayStart) to move the festival to THAT season's first eligible day instead.
+export function seasonFestivalDay(seasonId, seasonStartDay = SPECIALS_START_DAY) {
+  return Math.max(SPECIALS_START_DAY, seasonStartDay | 0);
+}
+
+// Special-for-day, but forced to the season's festival theme on that season's festival day. `day`
+// and `seasonId` must already agree (the caller owns that mapping); this function does not check
+// which season `day` falls in, only whether `day` equals the festival day it's told to force.
+export function specialForDaySeasoned(day, seasonId, seasonStartDay = SPECIALS_START_DAY) {
+  const d = day | 0;
+  const themeId = SEASON_FESTIVAL_THEME_ID[seasonId];
+  if (!themeId || d !== seasonFestivalDay(seasonId, seasonStartDay)) return specialForDay(d);
+  const base = specialForDay(d);
+  if (!base) return base; // still before SPECIALS_START_DAY -- no festival before specials exist
+  const theme = THEMES.find(t => t.id === themeId);
+  if (!theme) return base; // defensive: an unknown SEASON_FESTIVAL_THEME_ID id never crashes
+  const target = theme.target + Math.min(4, Math.floor((d - SPECIALS_START_DAY) / 6));
+  return {
+    id: theme.id,
+    icon: theme.icon,
+    species: theme.species,
+    family: theme.family,
+    tipBonus: theme.tipBonus,
+    target,
+    reward: Math.round((theme.baseBonus + 15 * Math.min(12, d - SPECIALS_START_DAY)) * SEASON_FESTIVAL_BONUS),
+    festival: seasonId,
+  };
+}
+
 export function themeFamilyOf(familyOf, key) {
   return familyOf(key);
 }

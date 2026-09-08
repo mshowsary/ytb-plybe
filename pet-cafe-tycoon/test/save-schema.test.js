@@ -235,7 +235,9 @@ test('v5 keeps legitimate values and clamps every tampered one', () => {
   // decor is emitted in catalogue order so re-validating is a no-op
   assert.deepEqual(meta.decor, [DECOR_IDS[0], DECOR_IDS[2]]);
   assert.equal(meta.goldenPaw, true);
-  assert.deepEqual(meta.season, { index: 2, dayStart: 4 });
+  // NOT { index: 2, dayStart: 4 } as saved: the season is a pure function of the day (day 6 is
+  // still Blossom, which began on day 1), so the saved pair is a cache the boundary rebuilds.
+  assert.deepEqual(meta.season, { index: 0, dayStart: 1 });
   assert.deepEqual(meta.franchise, { level: 3 });
 
   const tampered = validate(v4Fixture({
@@ -266,17 +268,28 @@ test('v5 keeps legitimate values and clamps every tampered one', () => {
   assert.deepEqual(bad.residents, ['cat:0', 'dog:0']);                   // deduped, unknown keys dropped
   assert.deepEqual(bad.decor, [DECOR_IDS[0], DECOR_IDS[1]]);             // deduped, unknown ids dropped
   assert.equal(bad.goldenPaw, false);                                    // only a real boolean grants it
-  assert.deepEqual(bad.season, { index: 3, dayStart: 1 });
+  assert.deepEqual(bad.season, { index: 0, dayStart: 1 });
   assert.deepEqual(bad.franchise, { level: CORE_LIMITS.maxFranchiseLevel });
 
   // and the clamped shape is itself canonical
   assert.deepEqual(validate(tampered.data).data, tampered.data);
 });
 
-test('a season cannot claim to have started on a day the player has not reached', () => {
-  const result = validate(v4Fixture({ dayState: { day: 3, t: 0 }, meta: { completedDays: 2, season: { index: 1, dayStart: 900 } } }));
-  assert.equal(result.ok, true);
-  assert.deepEqual(result.data.meta.season, { index: 1, dayStart: 3 });
+test('a save cannot declare a season at all — it is derived from the day', () => {
+  // This is a real exploit, not hygiene: data/accessories.js's seasonAccessoryUnlocked reads
+  // meta.season.index/dayStart verbatim, so a forged `{ index: 3, dayStart: 1 }` on a day-1 save
+  // handed the player three seasonal accessories outright. Deriving at the boundary closes it for
+  // every consumer at once, present and future.
+  const forged = validate(v4Fixture({ dayState: { day: 3, t: 0 }, meta: { completedDays: 2, season: { index: 3, dayStart: 1 } } }));
+  assert.equal(forged.ok, true);
+  assert.deepEqual(forged.data.meta.season, { index: 0, dayStart: 1 }, 'day 3 is Blossom, whatever the save says');
+
+  // ...and an impossible dayStart cannot survive either.
+  const future = validate(v4Fixture({ dayState: { day: 3, t: 0 }, meta: { completedDays: 2, season: { index: 1, dayStart: 900 } } }));
+  assert.deepEqual(future.data.meta.season, { index: 0, dayStart: 1 });
+
+  // The derived value is canonical: re-validating changes nothing.
+  assert.deepEqual(validate(forged.data).data.meta.season, { index: 0, dayStart: 1 });
 });
 
 test('a wrong-typed v5 container degrades to its default instead of inventing progress', () => {

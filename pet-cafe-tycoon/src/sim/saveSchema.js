@@ -15,6 +15,7 @@ import { restoreSettlement } from './settlement.js';
 import {
   PAW_MAX_STAR, PAW_SEAT_WINDOW_DAYS, PAW_SEAT_WINDOW_KEEP, pawEntitlementCeiling,
 } from './pawRating.js';
+import { deriveSeasonMeta } from './seasons.js';
 
 export const CURRENT_SAVE_VERSION = 5;
 export const SAVE_LIMITS = Object.freeze({
@@ -431,12 +432,14 @@ function normalizePawSeatWindow(raw, completedDays) {
 }
 
 // A season cannot have started on a day the player has not reached.
+// The season is a pure function of the day (src/sim/seasons.js is built on exactly that), so the
+// saved fields are a CACHE of what the day already implies, not a declaration. Deriving instead of
+// clamping closes a real exploit: data/accessories.js's seasonAccessoryUnlocked reads index and
+// dayStart verbatim, so a forged `season: { index: 3, dayStart: 1 }` handed a day-1 save three
+// seasonal accessories outright. `raw` is deliberately ignored — there is nothing in it worth
+// keeping that the day does not already say.
 function normalizeSeason(raw, day) {
-  const src = isRecord(raw) ? raw : {};
-  return {
-    index: clampInt(src.index, 0, SAVE_LIMITS.maxSeasonIndex, 0),
-    dayStart: clampInt(src.dayStart, 1, Math.max(1, day), 1),
-  };
+  return deriveSeasonMeta(Math.max(1, day | 0));
 }
 
 function normalizeFranchise(raw) {

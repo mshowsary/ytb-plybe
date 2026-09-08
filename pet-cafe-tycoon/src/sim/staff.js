@@ -219,6 +219,27 @@ const WAIT_SIDE = 0.9;
 const WAIT_WALK_MAX = 2.0;
 const HOLD_LIMIT = 6;
 
+// Invariant D investigation (runner watchdog): the fallback below used to be a bare 0.12m, sized
+// for a merely-jittery arrival (M3 T6's "a busy oven keep perturbing it"). It is too tight for a
+// genuinely CONTESTED arrival: world.js seats a display's queue slot 0 only 0.1m further out than
+// the display's own front (queue starts 1.4m from the station, front 1.3m — see world.js's station
+// init), well inside the 0.6m two r=0.30 movers need to fully separate, so a customer parked at the
+// head of the queue pins an incoming delivery's mover.js avoidance in a stable equilibrium around
+// 0.15-0.2m from ct.front — short of the old 0.12m fallback, short of mover.js's own 0.05m arrival
+// epsilon, and inside a 'toCounter'/'toOven'/'unload' state staff.js's own busy exemption (just
+// above) never treats as stuck, so the runner is left oscillating there indefinitely (reproduced:
+// mover.blockedT climbing and REPLAN_AT firing repeatedly with no net progress) while tools/bot.js's
+// independent invariant-D clock keeps ticking. This is the exact failure mover.js's own WAYPOINT_EPS
+// comment already names for intermediate waypoints ("0.12m makes a mover orbit a shared waypoint
+// forever ... avoidance nudges it just far enough to miss the capture radius") — 0.3m is that same
+// fix, reused here for this file's own PER-CALL-SITE arrival fallback rather than mover.js's shared
+// one. Measured on tools/bot.js's full 40-day run: invariant D 24 -> 22 violations, runnerStuck
+// 443 -> 441, with days 1-7 of the ledger byte-identical (no runner exists yet that early). It does
+// not zero out invariant D — the remaining violations are long, uninterrupted, correctly-executing
+// deliveries on the café's widest production-to-display span (blender1 <-> barSmoothie), not a
+// state-machine defect; see the handoff notes for that measurement.
+const ARRIVE_FALLBACK_EPS = 0.3;
+
 function stepRunner(s, w, dt, carryCap, customers) {
   // Task 0.5 watchdog. Counts only time spent holding a batch OUTSIDE the load -> deliver pipeline
   // ('loading' is still filling the batch; 'toCounter'/'dropping' are actively delivering it), so a
@@ -308,8 +329,8 @@ function stepRunner(s, w, dt, carryCap, customers) {
       const src = w.stations.get(s.target);
       if (!src || !src.active || !SOURCE_TYPES[src.type]) { s.state = 'idle'; s.timer = 0; return; }
       const arrived = walkTo(s, src.front.x, src.front.z, w, dt);
-      // M3 T6: same fallback arrival tolerance as toOven/toCounter below.
-      if (!arrived && s.mover.hasTarget && Math.hypot(src.front.x - s.x, src.front.z - s.z) < 0.12) s.mover.hasTarget = false;
+      // M3 T6: same fallback arrival tolerance as toOven/toCounter below (see ARRIVE_FALLBACK_EPS).
+      if (!arrived && s.mover.hasTarget && Math.hypot(src.front.x - s.x, src.front.z - s.z) < ARRIVE_FALLBACK_EPS) s.mover.hasTarget = false;
       if (!(arrived || !s.mover.hasTarget)) return;
       s.timer += dt;
       while (s.timer >= 0.2 && s.items.length > 0 && src.stock < src.buffer) { s.timer -= 0.2; src.stock++; s.items.pop(); }
@@ -323,10 +344,9 @@ function stepRunner(s, w, dt, carryCap, customers) {
       // M3 T6: fallback arrival tolerance (same idea as tools/bot.js's own owner walk, scoped here
       // to just this call site rather than the shared walkTo, to keep test/nav-fullhouse.test.js's
       // tight packing/overlap timing intact elsewhere). mover.js's exact arrival (0.05m) can leave a
-      // runner circling a few centimetres short forever once avoidance nudges near a busy oven keep
-      // perturbing it — found by tools/bot.js's stall tracker once a runner started working genuinely
-      // contested stations, not just the fixed low-traffic routes the original staff tests exercise.
-      if (!arrived && s.mover.hasTarget && Math.hypot(src.front.x - s.x, src.front.z - s.z) < 0.12) s.mover.hasTarget = false;
+      // runner circling short forever once avoidance near a contested spot keeps perturbing it —
+      // see ARRIVE_FALLBACK_EPS above for the invariant-D investigation that widened this margin.
+      if (!arrived && s.mover.hasTarget && Math.hypot(src.front.x - s.x, src.front.z - s.z) < ARRIVE_FALLBACK_EPS) s.mover.hasTarget = false;
       if (arrived || !s.mover.hasTarget) { s.state = 'loading'; s.timer = 0; }
       return;
     }
@@ -352,8 +372,10 @@ function stepRunner(s, w, dt, carryCap, customers) {
       // rather than finishing the walk into its front circle and idling there in the camera's way.
       if (s.items.length > 0 && ct.stock >= ct.capacity) { enterWaiting(s, ct); return; }
       const arrived = walkTo(s, ct.front.x, ct.front.z, w, dt);
-      // M3 T6: same fallback tolerance as toOven above.
-      if (!arrived && s.mover.hasTarget && Math.hypot(ct.front.x - s.x, ct.front.z - s.z) < 0.12) s.mover.hasTarget = false;
+      // M3 T6: same fallback tolerance as toOven above (see ARRIVE_FALLBACK_EPS) — this is the call
+      // site that actually meets a queued customer at ct.front, so it is the one the invariant-D
+      // investigation's widened margin matters most for.
+      if (!arrived && s.mover.hasTarget && Math.hypot(ct.front.x - s.x, ct.front.z - s.z) < ARRIVE_FALLBACK_EPS) s.mover.hasTarget = false;
       if (arrived || !s.mover.hasTarget) { s.state = 'dropping'; s.timer = 0; }
       return;
     }

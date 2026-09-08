@@ -16,6 +16,7 @@ import {
   upgradeCost, workerUpgradeCost, machineUpgradeCost, UPGRADES,
 } from '../src/sim/economy.js';
 import { createDay, stepDay, nextDay, spawnMult, capBonus, tipMult } from '../src/sim/day.js';
+import { normalizeServicePolicy, prepareServicePolicy } from '../src/sim/servicePolicy.js';
 import {
   ensureCareer, chooseCareerGoal, careerGoalMet, careerGoalLabel,
   recordRecipeOrder, masteryMultiplier, recordCareerShift, awardWeeklyCup,
@@ -77,6 +78,9 @@ const G = {
   dayState: createDay(), stars: {}, dayStats: { served: 0, lost: 0, earned: 0, bestStreak: 0 },
 };
 ensureCareer(G.meta);
+// Gap (b): src/game.js:216 normalizes meta.servicePolicy once at startup, exactly like this. Without
+// it, G.meta.servicePolicy is undefined and prepareServicePolicy(G) below would throw.
+G.meta.servicePolicy = normalizeServicePolicy(G.meta.servicePolicy);
 G.goal = chooseCareerGoal(1, G.meta);
 world.dayState = G.dayState; world.stars = G.stars;
 let ledger = createLedger(null, { day:G.dayState.day, openingWallet:G.coins });
@@ -130,6 +134,32 @@ function walkOwnerTo(tx, tz, speedNow, dt) {
 }
 const near = (a, b, r) => (a.x - b.x) ** 2 + (a.z - b.z) ** 2 < r * r;
 const lastPos = new Map();
+
+// Gap (a): src/sim/economy.js's hire() only bumps G.staff.<kind> (a pacing counter that
+// spawnInterval/maxCustomers read) — it never pushes an actor into staffList. The running game does
+// that separately, every frame, in src/systems/staff.js's spawnRunner/spawnCashier/spawnCleaner +
+// prepare() (spawn positions and the register1-cash fallback for a cashier's first spawn point are
+// copied verbatim from there). Mirrored here 1:1 so a hire this bot records actually walks, cleans,
+// carries and cashiers instead of only ever existing as a number fed to the spawn-pacing formulas.
+const RUNNER_SPAWN = { x: 4, z: -3 };
+const CASHIER_FALLBACK = { x: -4, z: -0.2 };
+const CLEANER_SPAWN = { x: -6, z: 4 };
+let anyRunnerHired = false;
+function syncStaffActors() {
+  let runners = 0, cashiers = 0, cleaners = 0;
+  for (const s of staffList) {
+    if (s.kind === 'runner') runners++; else if (s.kind === 'cashier') cashiers++; else if (s.kind === 'cleaner') cleaners++;
+  }
+  // No runner `assign` (systems/staff.js only passes one when a save has a recorded
+  // runnerAssignments choice; a fresh bot run has none, so null — unassigned, services every
+  // product by demand — matches the real game's own first-hire default exactly).
+  if (runners < (G.staff.runner | 0)) { staffList.push(createStaff('runner', RUNNER_SPAWN, null)); anyRunnerHired = true; }
+  if (cashiers < (G.staff.cashier | 0)) {
+    const co = world.stations.get('register1');
+    staffList.push(createStaff('cashier', co ? co.cash : CASHIER_FALLBACK));
+  }
+  if (cleaners < (G.staff.cleaner | 0)) staffList.push(createStaff('cleaner', CLEANER_SPAWN));
+}
 
 let arrivedT = 0, lastKind = null, lastStationId = null;
 const kindCounts = {};
@@ -377,11 +407,9 @@ let teleports = 0; const stalls = [];
 // free capacity". Measured straight off sim state every tick, deliberately INDEPENDENT of
 // src/sim/staff.js's own watchdog (which force-routes a delivery at the same threshold and emits
 // runnerStuck) so this stays an outside check rather than a restatement of the implementation.
-// Note for whoever reads a run of 0 here: this bot models staff as PACING modifiers only — hire()
-// increments G.staff counts and spawnInterval/maxCustomers read them, but no runner ACTOR is ever
-// pushed into `staffList`, so with today's bot both counters are 0 by construction. The gate is
-// wired now so it starts biting the moment runner actors are simulated here; the behavioural gate
-// for section 6.1 today is test/staff-runner-need.test.js.
+// Runner actors ARE simulated here now (syncStaffActors above), so this is a real gate, not a
+// tripwire waiting to start biting — see the run's own printed violation count below. The
+// behavioural gate for section 6.1 remains test/staff-runner-need.test.js.
 const runnerHoldT = new Map();
 let invariantDViolations = 0, runnerStuckEvents = 0, worstRunnerHold = 0;
 function displayForFamily(product) {
@@ -389,15 +417,27 @@ function displayForFamily(product) {
   for (const id of world.displays) { const st = world.stations.get(id); if (familyOf(st.product) === fam) return st; }
   return null;
 }
+// A runner that has travelled this far since its clock started is delivering, not stuck. One metre
+// is a very low bar — a runner covers it in well under a second — but it is far outside the ~0.19m
+// equilibrium a contested arrival pins one in, which is the real defect this invariant must keep
+// catching. See this file's git history and the header of the batch-1 stall-detector fix: measuring
+// elapsed time alone reports honest long walks as faults.
+const RUNNER_PROGRESS_M = 1.0;
 function checkRunnerInvariant(dt) {
   for (const s of staffList) {
     if (s.kind !== 'runner') continue;
-    if (!(s.items && s.items.length > 0)) { runnerHoldT.set(s, 0); continue; }
+    if (!(s.items && s.items.length > 0)) { runnerHoldT.delete(s); continue; }
     const ct = s.assign ? world.stations.get(s.assign) : displayForFamily(s.items[0]);
-    if (!(ct && ct.active && ct.stock < ct.capacity)) { runnerHoldT.set(s, 0); continue; }
-    const held = (runnerHoldT.get(s) || 0) + dt;
-    worstRunnerHold = Math.max(worstRunnerHold, held);
-    if (held > 6) { invariantDViolations++; runnerHoldT.set(s, 0); } else runnerHoldT.set(s, held);
+    if (!(ct && ct.active && ct.stock < ct.capacity)) { runnerHoldT.delete(s); continue; }
+    const prev = runnerHoldT.get(s);
+    // Restart the clock from here whenever the runner has made real ground since it last started.
+    if (!prev || Math.hypot(s.x - prev.x, s.z - prev.z) > RUNNER_PROGRESS_M) {
+      runnerHoldT.set(s, { t: 0, x: s.x, z: s.z });
+      continue;
+    }
+    prev.t += dt;
+    worstRunnerHold = Math.max(worstRunnerHold, prev.t);
+    if (prev.t > 6) { invariantDViolations++; runnerHoldT.set(s, { t: 0, x: s.x, z: s.z }); }
   }
 }
 // ---- PAW RATING (plan 3.4) — headless measurement ---------------------------------------------
@@ -430,6 +470,18 @@ function pawInput() {
 let t = 0;
 while (G.dayState.day <= MAX_DAYS) {
   G.time = t;
+  // Gap (b): src/game.js:223 sets this every frame from prepareServicePolicy(G), and its very next
+  // line (224-225) is what actually flips policy.notice true once the mature-service era begins —
+  // prepareServicePolicy() alone only ever sets policy.enabledFrom, never .notice, so without this
+  // second line world.servicePolicyActive would stay permanently false and gap (b) would still be
+  // open in substance even with the assignment added. Mirrored verbatim minus the HUD banner/
+  // checkpoint call, which have no headless equivalent and no effect on sim state.
+  world.servicePolicyActive = prepareServicePolicy(G);
+  const policy = G.meta.servicePolicy;
+  if (!policy.notice && G.dayState.day >= policy.enabledFrom - 1) policy.notice = true;
+  // Gap (a): push any staff hired this run into staffList as real actors (see syncStaffActors above)
+  // before they're stepped below — mirrors src/game.js calling staff.prepare() every frame.
+  syncStaffActors();
   G.serviceStreak.t = Math.max(0, G.serviceStreak.t - DT);
   // Mirror the live pacing key from src/systems/customers.js: built set, front-of-house staff and
   // café level. Keying on built.size alone made the bot blind to every star purchase.
@@ -454,7 +506,12 @@ while (G.dayState.day <= MAX_DAYS) {
   for (const id of world.checkouts) { const co = world.stations.get(id); if (co.active && near(owner, co.front, 1.2)) co.serving = 'owner'; }
   for (const st of world.stations.values()) if (st.type === 'photo' && st.active && near(owner, st.front, 1.2)) st.serving = true;
   stepCustomers(customers, world, price, DT);
-  stepStaff(staffList, world, DT, () => {}, undefined, customers);
+  // Levels was `undefined` (stepStaff's own DEFAULT_LEVELS) while staffList was always empty, so it
+  // never mattered; now that gap (a) puts real actors in staffList, G.staffLevels must be passed
+  // through so the worker-speed/carry upgrades botDecide.js actually buys (see its
+  // buyWorkerUpgrade calls) have any effect on staff, exactly as src/systems/staff.js's own
+  // update() passes G.staffLevels (there, through the rush-crew wrapper this bot does not model).
+  stepStaff(staffList, world, DT, () => {}, G.staffLevels, customers);
   checkRunnerInvariant(DT);
 
   for (const c of customers) {
@@ -659,8 +716,10 @@ console.log('stalls: ' + stalls.length + '  teleports: ' + teleports);
 console.log('runner watchdog: runnerStuck events ' + runnerStuckEvents
   + '  invariant D violations ' + invariantDViolations
   + '  (longest hold with display room ' + worstRunnerHold.toFixed(1) + 's, limit 6.0s)'
-  + ' — NOT MEASURED: this bot never spawns runner ACTORS (staffList stays empty of them), so this'
-  + ' is 0 by construction, a tripwire for when runner actors are simulated here, not a real pass.');
+  + (anyRunnerHired
+    ? ' — MEASURED: runner actors ran this session (staffList held at least one).'
+    : ' — NOT reached this run: no runner was ever hired (G.staff.runner stayed 0), so there was no'
+      + ' runner actor for this gate to measure — not a construction limit of the harness anymore.'));
 if (stalls.length) console.log('first stalls:', JSON.stringify(stalls.slice(0, 10)));
 if (ledgerMismatches.length) console.log('first ledger mismatch:', JSON.stringify(ledgerMismatches[0]));
 console.log('kind counts:', JSON.stringify(kindCounts));
@@ -710,10 +769,27 @@ for (let star = 1; star <= PAW_MAX_STAR; star++) {
   console.log(`  star ${star}: ${day == null ? 'not reached' : 'day ' + day}${verdict}`);
 }
 
-console.log('  VERDICT on the acceptance check: star 3 and star 4 are each blocked BOTH by a row this bot cannot');
-console.log('  measure (r3.photos, r4.book) AND by a row it can (r3.seats, r4.cup — diagnosed below). The day-~20 and');
-console.log('  day-~34 targets are therefore NOT verifiable headlessly as this harness stands; what is measurable is');
-console.log('  reported above and below instead of being guessed at or back-filled.');
+// Dynamic, not hardcoded: before this task's two fixes, r3.seats and r4.cup (the one MEASURED row
+// per tier that can actually fail) were both UNMET every run, so a fixed sentence naming them as
+// blockers was always true. Now that staff actors and the service policy are real, either or both
+// can legitimately read MET — a fixed sentence would then be lying about what actually blocks star
+// 3/4. Read straight off the final settled day's own measured rows instead of asserting it.
+{
+  const lastPawRow = pawDays[pawDays.length - 1];
+  const rowMet = id => { const r = lastPawRow && lastPawRow.rows.find(rr => rr.id === id); return !!(r && r.met); };
+  const seatsMet = rowMet('r3.seats'), cupMet = rowMet('r4.cup');
+  console.log(`  VERDICT on the acceptance check: r3.seats is ${seatsMet ? 'MET' : 'UNMET'} and r4.cup is ${cupMet ? 'MET' : 'UNMET'}`
+    + ' as of the final settled day (diagnosed below) — the only two MEASURED rows blocking star 3/star 4 respectively.');
+  if (seatsMet && cupMet) {
+    console.log('  Both measurable rows are now met: star 3 and star 4 are blocked ONLY by rows this bot cannot measure');
+    console.log('  (r3.photos, r4.book — meta.album/meta.petBook, written by src/systems/ which this sim-only loop never runs).');
+  } else {
+    console.log(`  ${seatsMet ? '' : 'r3.seats UNMET blocks star 3. '}${cupMet ? '' : 'r4.cup UNMET blocks star 4. '}`
+      + 'Star 3/4 also each need an unmeasurable row (r3.photos, r4.book) this harness cannot produce evidence for.');
+  }
+  console.log('  The day-~20 and day-~34 targets are therefore NOT verifiable headlessly as this harness stands regardless;');
+  console.log('  what is measurable is reported above and below instead of being guessed at or back-filled.');
+}
 // Deliberately NOT a hard gate (no process.exit contribution): most of these rows are 0 because this
 // harness models no meta, so failing the shared bot gate on them would block every other run for a
 // reason that has nothing to do with the code under test. The numbers are printed to be read.
@@ -753,27 +829,24 @@ console.log(`  golden paw / ceremony predicate: ${pawCeremonies === 0 ? 'NEVER F
   + `  (goldenPawDue() true on ${pawCeremonyDueChecks} settled day(s); markGoldenPaw() transitions ${pawCeremonies}`
   + ` — "fires once" needs exactly 1 of each; 0 here means star 5 was never held, NOT that the predicate is broken)`);
 
-// r3.seats is the one requirement this bot measures that FAILS on its own numbers, so it gets its
-// own diagnosis rather than a single numeral in a table.
+// r3.seats — this used to be a MEASURED-but-CONTAMINATED row (a prior version of this bot hired
+// staff as pacing counters only, and never set world.servicePolicyActive), which upper-bounded the
+// real miss rate rather than reporting it. Both are fixed now (syncStaffActors above; the
+// servicePolicyActive assignment near the top of the tick loop): a hired cleaner actually walks and
+// wipes tables here, and once the mature service policy is live a guest gets the 8s "waitSeat"
+// grace src/sim/customers.js:482 gives instead of the 1.2s NO_SEAT_HOLD "noSeat" path. This is now a
+// straight, uncontaminated read of the row.
 {
   const lifetimeMissed = dayReport.reduce((a, r) => a + (r.missedSeats || 0), 0);
   const perDay = dayReport.length ? lifetimeMissed / dayReport.length : 0;
   const cleanerDay = (dayReport.find(r => r.purchases.some(k => k === 'hire:cleaner')) || {}).day || null;
   const preCleaner = cleanerDay == null ? dayReport : dayReport.filter(r => r.day < cleanerDay);
   const preWorst = preCleaner.length ? Math.min(...preCleaner.map(r => r.missedSeats || 0)) : null;
-  console.log('--- paw rating: r3.seats diagnosis (the one MEASURED row that fails on this bot\'s own numbers) ---');
+  console.log('--- paw rating: r3.seats diagnosis (MEASURED, no longer contaminated by the two harness gaps closed this task) ---');
   console.log(`  missed seats ${lifetimeMissed} lifetime, ${perDay.toFixed(1)}/day; best complete 7-day window ${pawFinal.seatWindow.best} against a limit of ${PAW_TARGETS.seatMisses}.`);
-  console.log(`  Quietest single day before any cleaner was hired: ${preWorst == null ? 'n/a' : preWorst} misses — already over a whole WEEK's budget on its own.`);
-  console.log(`  Cause 1 (harness): this bot hires staff as PACING COUNTERS only and never pushes a staff ACTOR into staffList`);
-  console.log(`  (the same limitation the runner-watchdog line above reports). botDecide's cleanTarget() correctly stands down`);
-  console.log(`  once a cleaner is hired (day ${cleanerDay == null ? 'n/a' : cleanerDay}) — so from that day on NOBODY wipes a table mid-shift here. Correct for the`);
-  console.log('  running game, wrong for this loop, and it inflates every window from that day onward.');
-  console.log('  Cause 2 (harness): world.servicePolicyActive is set only in src/game.js (prepareServicePolicy each frame).');
-  console.log('  tools/bot.js never sets it, so every headless guest takes the 1.2s NO_SEAT_HOLD "noSeat" path instead of the');
-  console.log('  8s "waitSeat" grace src/sim/customers.js:482 gives once the mature service policy is live. Neither cause was');
-  console.log('  fixed here: spawning staff actors or enabling the policy would move every existing balance number this bot');
-  console.log('  gates on (checkpoints, invariants A-C, friction), which is a separate change from measuring the rating.');
-  console.log(`  Net: r3.seats is MEASURED but CONTAMINATED — treat ${pawFinal.seatWindow.best} as an upper bound on the real miss rate, not as a balance verdict.`);
+  console.log(`  Quietest single day before any cleaner was hired: ${preWorst == null ? 'n/a' : preWorst} misses.`);
+  console.log(`  A cleaner was hired on day ${cleanerDay == null ? 'n/a (never hired this run)' : cleanerDay}; from that day on a real cleaner actor now wipes tables here (previously nobody did once botDecide's cleanTarget() stood down).`);
+  console.log(`  Net: ${lifetimeMissed <= 0 ? 'no misses' : lifetimeMissed + ' misses'} recorded is the real number this run produced — treat it as this task's honest baseline, not as a target already met or missed by balance.`);
 }
 
 // r4.cup is the OTHER measurable row that fails, and it fails on career quality rather than on

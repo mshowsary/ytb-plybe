@@ -61,6 +61,34 @@ export const DEMAND = {
   BASE_MAX: 4, MAX_LINE_BONUS: 1, MAX_STAFF_BONUS: 1, MAX_CEILING_AUTHORED: 6,
   // Past this café-level gate, the room keeps getting busier, approaching the floor/ceiling.
   LEVEL_GATE: 8, INTERVAL_PER_LEVEL: 0.085, LEVEL_PER_MAX_STEP: 5,
+  // TASK (friction diagnosis, see economy.js's spawnInterval/maxCustomers comments): `level`
+  // (cafeLevel — the SUM of every station's star tier) is the one input that drove the demand curve
+  // all the way to CROWD_FLOOR_INTERVAL/CROWD_CEILING with NO ceiling of its own, because the star
+  // ladder itself never stops (continueLadder/nextStarCost keep pricing further tiers forever) and
+  // stars stay the cheapest, most-repeated purchase in a mature café (measured: 76,000 of ~161,000
+  // lifetime coins spent, more than any other single category — see tools/bot.js's own "where coins
+  // go" diagnostic). But a star buys PRICE and, for a display, stock slots — buyStar() never touches
+  // machineLevels/staffLevels, so it adds zero service throughput. Every lever that DOES add
+  // throughput (SPEED_ASYMPTOTE/MACHINE_ASYMPTOTE/WORKER_ASYMPTOTE above) is deliberately bounded to
+  // an asymptote past its own authored tiers, on purpose, so a maxed café stays legible. Demand had
+  // no matching bound: it kept compounding linearly with `level` while the throughput it must be
+  // matched against had already flattened, so a late café got busier by a metric (star count) that
+  // never made it any faster to serve. LEVEL_SOFT_CAP = 24 is exactly "every one of the 8 STAR_IDS
+  // stations at its own authored tier 3" (8 * 3), i.e. the same "authored ceiling, then asymptote"
+  // boundary every throughput curve above already uses — past it, the level-driven push on both
+  // spawnInterval and maxCustomers bends into the SAME bounded-approach shape (via the `asymptote`
+  // helper) instead of marching linearly at the star ladder's own pace. Below the cap nothing changes: no
+  // level below 24 is reachable before this fires, and the frozen days 1-11 window never exceeds
+  // level 11 (see tools/bot.js's own pace log), so this engages only once the café has scaled well
+  // past its starter build-out.
+  // SPAN/DECAY are chosen so the curve is gentler than the old linear rate at EVERY level past the
+  // cap, not just in the limit: the asymptote's steepest point is right at the cap (derivative
+  // SPAN * -ln(DECAY)), so keeping that <= INTERVAL_PER_LEVEL (0.085) guarantees a maxed-out café
+  // never gets busier, level for level, than the old unbounded formula would have made it — see
+  // test/economy-friction.test.js's "grows strictly more slowly" test, which fails loudly if this
+  // ever drifts the wrong way.
+  LEVEL_SOFT_CAP: 24, LEVEL_SPAN: 0.3, LEVEL_DECAY: 0.9,
+  LEVEL_PER_MAX_STEP_BEYOND_CAP: 11,
 };
 
 // --- staffing --------------------------------------------------------------------------------------
