@@ -2,13 +2,17 @@
 export const AREA1 = {
   id: 'a1', size: { w: 20, d: 14 },
   door: { x: -9.6, z: 4.2 }, exit: { x: -9.6, z: 4.2 }, spawnStart: { x: -11.5, z: 4.2 },
+  // The deck's own street exit. Without it a guest seated on the terrace walks the full width of
+  // the café back through the single fence gap, head-on into everyone arriving — measured at 5
+  // stalls regardless of how wide that gap is made.
+  terraceExit: { x: -9.2, z: 10.6 }, terraceSpawnOut: { x: -9.85, z: 10.6 },
   // Batch 1 — the regions engine (plan 7.1). A region is a second physical space outside the
   // interior rectangle, inert (its cells stay blocked, its stations stay inactive) until
   // `builtBy` is in world.built. Interior `size` above is UNCHANGED so every existing coordinate
   // still holds; the terrace sits south of the fence, z 7.4-14 (the 7.0-7.4 sliver is the fence's
   // own thickness plus the gate — see src/sim/nav.js's fence-row handling).
   regions: [
-    { id: 'terrace', x0: -10, x1: 10, z0: 7.4, z1: 14, builtBy: 'z_terrace', floor: 'deck' },
+    { id: 'terrace', x0: -10, x1: 10, z0: 7.4, z1: 14, builtBy: 'z_terrace', floor: 'deck' , gateX: 0, gateHalfW: 2.4 },
   ],
   stations: [
     { id: 'oven1',    type: 'oven',    x: 6.5,  z: -5.2, rot: 0, fw: 1.6, fd: 1.2, product: 'cookie',  buffer: 12 },
@@ -48,7 +52,7 @@ export const AREA1 = {
 
     // Batch 1 — the terrace (plan 3.1/7.1). Every station here has builtBy so it is inert (and
     // does not appear in footprintBoxes/nav in any way that changes days 1-12) until bought.
-    { id: 'gate1',      type: 'gate',     x: 0.0,  z: 7.0,  rot: 0,            fw: 2.4, fd: 0.4, builtBy: 'z_terrace' },
+    { id: 'gate1',      type: 'gate',     x: 0.0,  z: 7.0,  rot: 0,            fw: 4.8, fd: 0.4, builtBy: 'z_terrace' },
     // front 1.6 (default 1.3 is inside fountain1's own nav-expanded half-extent of 1.45 — a 2.4x2.4
     // decor circle's default front point is never outside its own footprint's safety margin).
     { id: 'fountain1',  type: 'decor',    x: 0.0,  z: 10.6, rot: 0,            fw: 2.4, fd: 2.4, front: 1.6, builtBy: 'z_terrace' },

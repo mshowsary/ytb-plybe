@@ -110,7 +110,7 @@ export const DECOR = Object.freeze([
   { id: 'd_feeder_a',    price: 240, rep: 1, region: 'interior', kind: 'feeder',  slot: { x: -8.9,  y: 0,    z: -4.3, rot: 0 },            icon: feederIcon() },
   { id: 'd_rug_hearth',  price: 270, rep: 1, region: 'interior', kind: 'rug',     slot: { x: 3.2,   y: 0.02, z: 2.2,  rot: 0 },            icon: rugIcon('#7BC47F', '#DDF0CE') },
   { id: 'd_plant_hang_c',price: 300, rep: 1, region: 'interior', kind: 'hanging', slot: { x: -9.62, y: 2.15, z: 2.2,  rot: Math.PI / 2 },  icon: hangingPlantIcon('#6EC6FF') },
-  { id: 'd_lantern_c',   price: 340, rep: 1, region: 'interior', kind: 'lantern', slot: { x: 0.6,   y: 0,    z: 6.7,  rot: 0 },            icon: lanternIcon('#8B7CF6') },
+  { id: 'd_lantern_c',   price: 340, rep: 1, region: 'interior', kind: 'lantern', slot: { x: -4.4,  y: 0,    z: 6.75, rot: 0 },            icon: lanternIcon('#8B7CF6') },
   { id: 'd_menu_board',  price: 380, rep: 1, region: 'interior', kind: 'board',   slot: { x: -9.2,  y: 0,    z: -0.4, rot: -Math.PI / 2 }, icon: menuBoardIcon() },
   { id: 'd_cat_tree_a',  price: 430, rep: 1, region: 'interior', kind: 'cattree', slot: { x: 8.9,   y: 0,    z: -0.5, rot: 0 },            icon: catTreeIcon() },
   // -- interior, aspirational tier --

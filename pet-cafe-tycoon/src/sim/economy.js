@@ -34,6 +34,11 @@ export function availableWishProducts(w) {
     if (st.type === 'oven') set.add(st.product);
     else if (st.type === 'coffee') set.add(st.product);
     else if (st.type === 'blender') set.add('smoothie');
+    // icecream mirrors coffee: a guest may wish for it while it is still in the machine, which
+    // is what makes a runner fetch it to the bar. Without this the lane cannot start — nobody
+    // wishes for ice cream until the bar has stock, and the bar only gets stock because
+    // somebody wished. Measured as 0 ice cream sold across a 40-day run.
+    else if (st.type === 'icecream') set.add(st.product);
   }
   if (set.size === 0) set.add('cookie');
   return [...set];

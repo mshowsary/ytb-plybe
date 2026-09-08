@@ -194,7 +194,19 @@ let totalRegister3Sales = 0;
 const custSpawnPhase = new Map();
 const custWaitTime = new Map();
 const phaseFriction = { morning: { n: 0, over: 0 }, rush: { n: 0, over: 0 }, afternoon: { n: 0, over: 0 }, closing: { n: 0, over: 0 } };
-let daysToComplete = null, closingAfford = 0;
+// The CORE build-out is the authored café: every zone that is not the terrace or gated behind it.
+// daysToComplete used to read `built.size >= AREA1.zones.length`, so appending the terrace chain
+// silently redefined it from "the café is finished" (its 10-12 day target) to "the café AND a
+// 74,500-coin second space are finished". Those are different questions and get different numbers.
+const TERRACE_ZONE_IDS = (() => {
+  const set = new Set(['z_terrace']);
+  for (let pass = 0; pass < AREA1.zones.length; pass++) {
+    for (const z of AREA1.zones) if (!set.has(z.id) && z.requires && set.has(z.requires)) set.add(z.id);
+  }
+  return set;
+})();
+const CORE_ZONE_IDS = AREA1.zones.filter(z => !TERRACE_ZONE_IDS.has(z.id)).map(z => z.id);
+let daysToComplete = null, terraceDoneDay = null, closingAfford = 0;
 function affordableOptionsCount() {
   const coins = G.coins; let n = 0;
   for (const z of (world.activeZoneList || activeZones(world))) if ((z.price - (world.partial[z.id] || 0)) <= coins) n++;
@@ -278,9 +290,9 @@ while (G.dayState.day <= MAX_DAYS) {
   for (const m of movers) {
     teleports += m.teleports; m.teleports = 0;
     if (m.hasTarget) {
-      const p = lastPos.get(m) || { x: m.x, z: m.z, t, d: Infinity };
+      const p = lastPos.get(m) || { x: m.x, z: m.z, t };
       const d = Math.hypot(m.tx - m.x, m.tz - m.z);
-      if (d < p.d - 0.02) { p.d = d; p.t = t; }
+      if (Math.hypot(m.x - p.x, m.z - p.z) > 0.05) { p.x = m.x; p.z = m.z; p.t = t; }
       else if (t - p.t > 3) { stalls.push({ t: +t.toFixed(1), kind: m.kind, x: +m.x.toFixed(2), z: +m.z.toFixed(2), tx: m.tx, tz: m.tz, d: +d.toFixed(2) }); p.t = t; }
       lastPos.set(m, p);
     } else lastPos.delete(m);
@@ -351,9 +363,10 @@ while (G.dayState.day <= MAX_DAYS) {
     }
   }
 
+  if (terraceDoneDay == null && TERRACE_ZONE_IDS.size && [...TERRACE_ZONE_IDS].every(id => world.built.has(id))) terraceDoneDay = G.dayState.day;
   if (daysToComplete == null) {
     ensureStars(G, world);
-    if (world.built.size >= AREA1.zones.length && (G.stars.oven1 || 1) >= 2 && (G.stars.dispCookie || 1) >= 2) daysToComplete = G.dayState.day;
+    if (CORE_ZONE_IDS.every(id => world.built.has(id)) && (G.stars.oven1 || 1) >= 2 && (G.stars.dispCookie || 1) >= 2) daysToComplete = G.dayState.day;
   }
   world.events.length = 0; t += DT;
 }
@@ -411,7 +424,8 @@ console.log(`outside-rush friction: ${(outsideFriction * 100).toFixed(1)}% (targ
 const lostPctPerDay = dayReport.map(r => (r.served + r.lost) > 0 ? r.lost / (r.served + r.lost) * 100 : 0);
 const avgLostPct = lostPctPerDay.length ? lostPctPerDay.reduce((a, b) => a + b, 0) / lostPctPerDay.length : 0;
 console.log(`lost sales: ${avgLostPct.toFixed(1)}% avg/day (target 4-10%) ${avgLostPct >= 4 && avgLostPct <= 10 ? 'OK' : 'WARN'}`);
-console.log(`daysToComplete: ${daysToComplete == null ? 'NOT REACHED' : daysToComplete} (target 10-12) ${daysToComplete != null && daysToComplete >= 10 && daysToComplete <= 12 ? 'OK' : 'WARN'}`);
+console.log(`daysToComplete (core café): ${daysToComplete == null ? 'NOT REACHED' : daysToComplete} (target 10-12) ${daysToComplete != null && daysToComplete >= 10 && daysToComplete <= 12 ? 'OK' : 'WARN'}`);
+console.log(`terrace chain complete: ${terraceDoneDay == null ? 'not within ' + MAX_DAYS + ' days' : 'day ' + terraceDoneDay} (${[...TERRACE_ZONE_IDS].filter(id => world.built.has(id)).length}/${TERRACE_ZONE_IDS.size} zones built)`);
 const affordVals = dayReport.filter(r => r.day >= 2 && r.day <= 8).map(r => r.afford);
 console.log(`affordable options at closing (days 2-8): [${affordVals.join(', ')}] — healthy target is usually 1-3, not everything at once`);
 console.log('ledger reconciliation mismatches: ' + ledgerMismatches.length);
@@ -433,7 +447,7 @@ if (stalls.length > 0) { console.error(`${stalls.length} STALLS (must be 0)`); g
 if (teleports > 0) { console.error(`${teleports} TELEPORTS (must be 0)`); gateFail = true; }
 if (invariantDViolations > 0) { console.error(`INVARIANT D: ${invariantDViolations} runner holds > 6s while a same-family display had room (must be 0)`); gateFail = true; }
 if (wallMs > 15000) { console.error('BOT WALL-CLOCK BUDGET EXCEEDED'); gateFail = true; }
-if (daysToComplete == null) { console.error('area 1 never completed within ' + MAX_DAYS + ' days'); gateFail = true; }
+if (daysToComplete == null) { console.error('core café never completed within ' + MAX_DAYS + ' days'); gateFail = true; }
 if (checkpointFail || !rushFrictionOk || outsideFriction >= 0.25 || avgLostPct < 4 || avgLostPct > 10 || !(daysToComplete >= 10 && daysToComplete <= 12)) {
   console.log('(WARN lines are balance targets, not hard failures; deterministic movement remains the hard gate.)');
 }

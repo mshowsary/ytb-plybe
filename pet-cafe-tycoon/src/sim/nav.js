@@ -105,11 +105,17 @@ export function buildGrid(area, world) {
         } else if (gz === fenceGz) {
           // The fence row itself: solid everywhere except the gate gap, and only once SOME
           // region reachable through it has been built (today, just the terrace).
-          let gateOpen = false;
+          // The gap is positioned by its region, not centred by assumption. Measured: the lounge
+          // seat row at z~6 is a wall with mostly SINGLE-CELL (0.5m) holes, so a gate behind one of
+          // them deadlocks whatever its own width. The region places it against a real corridor.
+          let open = false;
           for (const r of regions) {
-            if (r.z0 > halfD && built && built.has(r.builtBy)) { gateOpen = true; break; }
+            if (!(r.z0 > halfD) || !built || !built.has(r.builtBy)) continue;
+            const gx0 = r.gateX == null ? 0 : r.gateX;
+            const gh = r.gateHalfW == null ? GATE_HALF_W : r.gateHalfW;
+            if (Math.abs(cxv - gx0) <= gh) { open = true; break; }
           }
-          if (!(gateOpen && Math.abs(cxv) <= GATE_HALF_W)) isBlocked = true;
+          if (!open) isBlocked = true;
         } else {
           // South of the fence row: walkable only inside a BUILT region that actually covers
           // this cell. An unbuilt region's cells (and any cell outside every region) block.

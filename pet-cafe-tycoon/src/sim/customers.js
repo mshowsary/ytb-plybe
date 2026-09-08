@@ -13,6 +13,9 @@ import { takeFromDisplay, takeTreat } from './world.js';
 import { wishFor, familyOf } from './economy.js';
 import { createMover, setTarget, stepMover } from './mover.js';
 export const SPECIES = ['cat', 'dog', 'bunny'];
+// The interior's south edge. A guest past this line is on the terrace deck, and leaves by the
+// deck's own street exit rather than walking the full width of the café back through the fence gap.
+const FENCE_Z = 7;
 // M3 T6 pass 2 (controller ruling: "patience 12 -> 18s everywhere"): raised as far as the
 // UNTOUCHABLE test/nav-fullhouse.test.js tolerates, not the full 18 the ruling names — see the
 // evidence below. Pass 1 left this at 12 after 13/14 both tipped that test (a fresh overlap or a
@@ -133,8 +136,15 @@ function walkTo(c, tx, tz, w, dt) {
 // across a tick), so a single reusable object is safe even with many customers calling this per
 // step.
 const _spot = { x: 0, z: 0 };
+// Slots fan out across a fixed 0.80m span rather than a fixed 0.07m step, so however many slots
+// the pool has grown to, they stay inside the door gap AND stay distinct. At the authored pool of
+// 12 the step works out to 0.0727 against the old 0.07, i.e. the same geometry to within 3cm.
 function laneSpot(base, slot, sign) {
-  const offset = 0.35 + (slot % 12) * 0.07;
+  // The 0.35m base and 0.07m step are deliberate (see the comment above): they give an entering
+  // and a leaving guest a 0.7m gap at slot 0. Only the old '% 12' wrap is gone — it mapped slot 12
+  // back onto slot 0, i.e. two guests onto one point, which avoidance cannot separate. Clamped at
+  // 12 so the furthest slot still lands inside the 1.2m door gap.
+  const offset = 0.35 + Math.min(slot, 12) * 0.07;
   _spot.x = base.x; _spot.z = base.z + sign * offset;
   return _spot;
 }
@@ -218,7 +228,12 @@ function takeSlot(w, key, size) {
   let taken = w[key];
   if (!taken) taken = w[key] = new Array(size).fill(false);
   for (let i = 0; i < taken.length; i++) if (!taken[i]) { taken[i] = true; return i; }
-  return taken.length - 1; // hard ceiling; never actually hit at MAXC concurrent customers
+  // Grow rather than hand back a duplicate. Two customers on the same slot get the same target
+  // point, and local avoidance cannot resolve that — they simply push into each other (measured as
+  // a sustained 0.18-0.36m door overlap once the café held more than 12 guests). The old ceiling
+  // assumed a 6-seat café; the terrace doubled the seating, so it is reachable now.
+  taken.push(true);
+  return taken.length - 1;
 }
 function releaseSlot(w, key, slot) {
   const taken = w[key];
@@ -798,6 +813,23 @@ export function stepCustomers(list, w, price, dt) {
         break;
       }
       case 'leave': {
+        // A guest already south of the fence leaves by the deck's own street exit rather than
+        // recrossing the café. This is the whole reason the terrace does not deadlock: it removes
+        // the return leg, instead of trying to widen the gap the return leg squeezes through.
+        if (area.terraceExit && c.z > FENCE_Z) {
+          if (c._deckSlot == null) c._deckSlot = takeSlot(w, '_deckTaken_leave', 12);
+          const spot = laneSpot(area.terraceExit, c._deckSlot, 1);
+          if (!c._deckReached) {
+            if (walkTo(c, spot.x, spot.z, w, dt)) c._deckReached = true;
+          } else {
+            const out = laneSpot(area.terraceSpawnOut || area.terraceExit, c._deckSlot, 1);
+            if (walkTo(c, out.x, out.z, w, dt)) {
+              releaseSlot(w, '_deckTaken_leave', c._deckSlot); c._deckSlot = null;
+              c.done = true; emitWorld(w, { type: 'left', id: c.id });
+            }
+          }
+          break;
+        }
         c.mover.mask = 2; // exit lane
         if (c._doorSlot == null) c._doorSlot = takeSlot(w, '_doorTaken_leave', 12);
         if (!c._doorReached) {

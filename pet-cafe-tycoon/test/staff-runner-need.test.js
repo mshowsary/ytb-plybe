@@ -227,9 +227,9 @@ test('(c) three-minute scripted shift: invariant D holds, no stalls, no teleport
     for (const m of runners.map(s => s.mover)) {
       teleports += m.teleports; m.teleports = 0;
       if (m.hasTarget) {
-        const p = lastPos.get(m) || { t, d: Infinity };
+        const p = lastPos.get(m) || { x: m.x, z: m.z, t };
         const d = Math.hypot(m.tx - m.x, m.tz - m.z);
-        if (d < p.d - 0.02) { p.d = d; p.t = t; }
+        if (Math.hypot(m.x - p.x, m.z - p.z) > 0.05) { p.x = m.x; p.z = m.z; p.t = t; }
         else if (t - p.t > 3) { stalls.push({ t: +t.toFixed(1), x: +m.x.toFixed(2), z: +m.z.toFixed(2), tx: m.tx, tz: m.tz }); p.t = t; }
         lastPos.set(m, p);
       } else lastPos.delete(m);

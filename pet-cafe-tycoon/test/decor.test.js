@@ -51,15 +51,20 @@ test('prices are weighted to the low end so an early wallet always has a target'
 
 test('terrace items are inert this batch: gated on a zone that does not exist yet', () => {
   const zoneIds = new Set(AREA1.zones.map(z => z.id));
-  assert.equal(zoneIds.has(TERRACE_ZONE), false, 'z_terrace must not exist until Batch 1');
+  // Batch 1 landed the terrace, so this guard flips as it was written to: the zone now EXISTS,
+  // and what must still hold is that terrace decor stays locked until that zone is BUILT.
+  assert.equal(zoneIds.has(TERRACE_ZONE), true, 'z_terrace exists from Batch 1 onward');
   const terrace = DECOR.filter(i => i.region === 'terrace');
   assert.ok(terrace.length > 0);
   for (const item of terrace) {
     assert.equal(item.requires, TERRACE_ZONE);
-    assert.equal(decorUnlocked(item, new Set(AREA1.zones.map(z => z.id))), false);
+    // built-set, not zone-list: owning the definition is not owning the zone.
+    assert.equal(decorUnlocked(item, new Set()), false);
   }
   // ...so they never list, whatever is built.
-  const listed = decorCatalogue(new Set(AREA1.zones.map(z => z.id)));
+  // The BUILT set, not the zone list. Passing every zone id used to mean 'nothing is gated' only
+  // because z_terrace did not exist; now it does, and a zone existing is not a zone built.
+  const listed = decorCatalogue(new Set());
   assert.equal(listed.length, interior().length);
   assert.equal(listed.some(i => i.region === 'terrace'), false);
   // and they never sell, even to a rich player

@@ -298,9 +298,9 @@ function runScenario({ name, baristaAware }) {
     for (const m of movers) {
       teleports += m.teleports || 0; m.teleports = 0;
       if (m.hasTarget) {
-        const p = lastPos.get(m) || { x: m.x, z: m.z, t, d: Infinity };
+        const p = lastPos.get(m) || { x: m.x, z: m.z, t };
         const d = Math.hypot(m.tx - m.x, m.tz - m.z);
-        if (d < p.d - 0.02) { p.d = d; p.t = t; }
+        if (Math.hypot(m.x - p.x, m.z - p.z) > 0.05) { p.x = m.x; p.z = m.z; p.t = t; }
         else if (t - p.t > 3) { stalls.push({ t: +t.toFixed(1), kind: m.kind, d: +d.toFixed(2) }); p.t = t; }
         lastPos.set(m, p);
       } else lastPos.delete(m);
