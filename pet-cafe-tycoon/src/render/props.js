@@ -528,40 +528,71 @@ export function zoneRing() {
   return g;
 }
 // ── The terrace deck (plan 3.1/7.1) ─────────────────────────────────────────────────────────────
-// buildRegion(area, region) renders a bought region's floor. It is deliberately generic over
-// `region` (any future region reuses it) rather than hard-coded to the terrace, even though only
-// the terrace exists this batch. One merged mesh (cheap: a border ring, a base slab, N plank
+// buildRegion(area, region, palette) renders a bought region's floor. It is deliberately generic
+// over `region` (any future region reuses it) rather than hard-coded to the terrace, even though
+// only the terrace exists this batch. One merged mesh (cheap: a border ring, a base slab, N plank
 // strips, four corner planters and a gate arch — well under a hundred triangles per plank row).
-export function buildRegion(area, region) {
+//
+// SEASONS. `palette` is optional and is one of environment.js's paletteForSeason(id) objects. It
+// exists because, once the terrace is bought, this deck IS most of the default camera's frame:
+// with the garden bands behind the camera, re-tinting the deck is the only way a season can change
+// the colour temperature of the whole picture. Every fallback below is the literal this function
+// shipped with, so calling it with no palette (or with a palette missing a key) renders exactly
+// today's deck — the seasonal values live in environment.js's palette table, not here, so this
+// file still owns no garden colour of its own.
+export function buildRegion(area, region, palette = null) {
+  const P = palette || {};
+  const pick0 = (arr, fallback) => (Array.isArray(arr) && arr.length ? arr[0] : fallback);
+  const border = P.deckBorder || '#E6E0D6';
+  const base = P.deckBase || '#C69A6B';
+  const plank = P.deckPlank || '#D9B48A';
+  const potBody = P.planterBody || '#A9764E';
+  const crownA = pick0(P.foliage, '#6FB56F');
+  const crownB = pick0(P.leaf, '#57A45C');
+  const bloom = pick0(P.petalPink, null);
+  const bloomAlt = pick0(P.petalSun, null);
+  const postColor = P.planterPost || '#C08A56';
+  const archColor = P.planterRim || '#D9A066';
+
   const x0 = region.x0, x1 = region.x1, z0 = region.z0, z1 = region.z1;
   const w = x1 - x0, d = z1 - z0, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
   const parts = [];
   // Stone border, a wide flat ring under the whole deck.
-  parts.push(part('rbox', [w + 0.7, 0.42, d + 0.7, 0.1], '#E6E0D6', { x: cx, y: -0.24, z: cz }));
+  parts.push(part('rbox', [w + 0.7, 0.42, d + 0.7, 0.1], border, { x: cx, y: -0.24, z: cz }));
   // Gap-colour base slab, then plank strips laid on top with a small reveal between them — cheaper
   // than a separate gap box per plank and reads the same way.
-  parts.push(part('box', [w, 0.05, d], '#C69A6B', { x: cx, y: -0.05, z: cz }));
+  parts.push(part('box', [w, 0.05, d], base, { x: cx, y: -0.05, z: cz }));
   const plankD = 0.42, gap = 0.06, step = plankD + gap;
   const rows = Math.max(1, Math.floor((d + gap) / step));
   const usedD = rows * step - gap;
   const startZ = cz - usedD / 2 + plankD / 2;
   for (let i = 0; i < rows; i++) {
-    parts.push(part('box', [w - 0.06, 0.09, plankD], '#D9B48A', { x: cx, y: 0.0, z: startZ + i * step }));
+    parts.push(part('box', [w - 0.06, 0.09, plankD], plank, { x: cx, y: 0.0, z: startZ + i * step }));
   }
-  // Corner planters, echoing buildStatic's own corner planters above.
+  // Corner planters, echoing buildStatic's own corner planters above. The three blooms on top are
+  // new with the seasonal pass: the crowns alone are two green spheres that read the same in every
+  // season, and the west pair of these planters is in frame from the deck in both orientations.
+  // Skipped entirely when no palette is supplied, so the un-palettised deck is byte-identical.
   const inset = 0.9;
   for (const [px, pz] of [[x0 + inset, z0 + inset], [x1 - inset, z0 + inset], [x0 + inset, z1 - inset], [x1 - inset, z1 - inset]]) {
-    parts.push(part('cyl', [0.3, 0.24, 0.46, 10], '#A9764E', { x: px, y: 0.19, z: pz }));
-    parts.push(part('sph', [0.5, 9], '#6FB56F', { x: px, y: 0.82, z: pz }));
-    parts.push(part('sph', [0.35, 9], '#57A45C', { x: px + 0.22, y: 1.08, z: pz - 0.1 }));
+    parts.push(part('cyl', [0.3, 0.24, 0.46, 10], potBody, { x: px, y: 0.19, z: pz }));
+    parts.push(part('sph', [0.5, 9], crownA, { x: px, y: 0.82, z: pz }));
+    parts.push(part('sph', [0.35, 9], crownB, { x: px + 0.22, y: 1.08, z: pz - 0.1 }));
+    if (bloom) {
+      for (let i = 0; i < 3; i++) {
+        const a = 0.6 + i * 2.1;
+        parts.push(part('sph', [0.13, 6], i === 1 ? (bloomAlt || bloom) : bloom,
+          { x: px + Math.cos(a) * 0.3, y: 1.12 + (i & 1) * 0.12, z: pz + Math.sin(a) * 0.3, sy: 0.75 }));
+      }
+    }
   }
   // Gate arch, straddling gate1's position (x 0, the fence line just north of z0) — matches
   // GATE_HALF_W (this file's buildStatic, and src/sim/nav.js's own copy) of 1.2.
-  const gateX = 0, gateZ = z0 - 0.2, archH = 2.5, halfGate = 1.35, postColor = '#C08A56';
+  const gateX = 0, gateZ = z0 - 0.2, archH = 2.5, halfGate = 1.35;
   parts.push(part('cyl', [0.1, 0.12, archH, 8], postColor, { x: gateX - halfGate, y: archH / 2 - 0.1, z: gateZ }));
   parts.push(part('cyl', [0.1, 0.12, archH, 8], postColor, { x: gateX + halfGate, y: archH / 2 - 0.1, z: gateZ }));
   parts.push(part('box', [halfGate * 2 + 0.3, 0.18, 0.18], postColor, { x: gateX, y: archH - 0.1, z: gateZ }));
-  parts.push(part('box', [halfGate * 2 + 0.2, 0.4, 0.05], '#D9A066', { x: gateX, y: archH + 0.05, z: gateZ }));
+  parts.push(part('box', [halfGate * 2 + 0.2, 0.4, 0.05], archColor, { x: gateX, y: archH + 0.05, z: gateZ }));
   const g = new THREE.Group();
   g.add(mesh(parts));
   return g;

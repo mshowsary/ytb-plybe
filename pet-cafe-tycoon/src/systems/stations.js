@@ -16,6 +16,25 @@ import { itemFor } from '../render/props.js';
 import { C } from '../render/palette.js';
 import { damp } from '../core/tween.js';
 import { buildKioskModel } from '../ui/models.js';
+import { cue } from '../ui/hud.js';
+import { coinIcon, crossIcon, handIcon, returnIcon, coffeeIcon, smoothieIcon, treatIcon, iconFor } from '../ui/icons.js';
+
+// One picture per carry destination, so the objective chevron over a delivery target draws the
+// THING being delivered to rather than the word "COFFEE". A display case shows the pastry it is
+// short of (its `product` is exactly what your hands are holding), because at a row of four cases
+// the case glyph alone would not say which one.
+function destinationIcon(st) {
+  if (!st) return handIcon();
+  if (st.type === 'return') return returnIcon();
+  if (st.type === 'coffee') return coffeeIcon();
+  if (st.type === 'blender') return smoothieIcon();
+  if (st.type === 'bowl') return treatIcon();
+  if (st.type === 'display') return iconFor(st.product);
+  return handIcon();
+}
+// The kiosk refusal, drawn once and reused by all six buy paths: the wallet's own coin, crossed.
+// The same coin the player is watching in the HUD, so "what I have is not enough" needs no verb.
+const NOT_ENOUGH_COINS = () => cue([coinIcon(), crossIcon()], 'Not enough coins');
 
 const near = (a, b, r) => (a.x - b.x) ** 2 + (a.z - b.z) ** 2 < r * r;
 const dist2 = (a, b) => (a.x - b.x) ** 2 + (a.z - b.z) ** 2;
@@ -58,7 +77,10 @@ export function createStations(G, S, ctx) {
     const target = forceReturn ? findReturnStation(world, P) : destinationFor(world, held, P);
     if (!target) return null;
     const label = destinationLabel(target);
-    G.contextGuide = { x: target.front.x, z: target.front.z, kind: target.type === 'return' ? 'return' : 'deliver', caption: label };
+    // `caption` stays on the record: it is never drawn any more (systems/objective.js reads
+    // captionIcon instead) but tools/production-smoke.js reads it as a diagnostic, and it is a
+    // truthful description of where the guide is pointing.
+    G.contextGuide = { x: target.front.x, z: target.front.z, kind: target.type === 'return' ? 'return' : 'deliver', caption: label, captionIcon: destinationIcon(target), captionLabel: `Carry to ${label.toLowerCase()}` };
     guideT = seconds;
     guideText = text || `${heldLabel(held)} → ${label}`;
     hud.setHandsFull(guideText);
@@ -94,32 +116,32 @@ export function createStations(G, S, ctx) {
   function doBuy(key) {
     const r = buyUpgrade(G, key);
     if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); markCheckpoint('player-upgrade'); }
-    else { audio.play('angry'); hud.toast('Not enough coins'); }
+    else { audio.play('angry'); hud.toast(NOT_ENOUGH_COINS()); }
   }
   function doHire(kind) {
     const r = hireStaff(G, kind);
     if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); markCheckpoint('staff-hire'); }
-    else { audio.play('angry'); hud.toast('Not enough coins'); }
+    else { audio.play('angry'); hud.toast(NOT_ENOUGH_COINS()); }
   }
   function doBuyWorker(kind, key) {
     const r = buyWorkerUpgrade(G, kind, key);
     if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); markCheckpoint('worker-upgrade'); }
-    else { audio.play('angry'); hud.toast('Not enough coins'); }
+    else { audio.play('angry'); hud.toast(NOT_ENOUGH_COINS()); }
   }
   function doBuyMachine(key) {
     const r = buyMachineUpgrade(G, key);
     if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); markCheckpoint('machine-upgrade'); }
-    else { audio.play('angry'); hud.toast('Not enough coins'); }
+    else { audio.play('angry'); hud.toast(NOT_ENOUGH_COINS()); }
   }
   function doBuyStar(stationId) {
     const r = buyStar(G, world, stationId);
     if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); markCheckpoint('station-star'); }
-    else { audio.play('angry'); hud.toast('Not enough coins'); }
+    else { audio.play('angry'); hud.toast(NOT_ENOUGH_COINS()); }
   }
   function doBuyDecor(id) {
     const r = buyDecor(G, id);
     if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); markCheckpoint('decor-buy'); }
-    else { audio.play('angry'); hud.toast('Not enough coins'); }
+    else { audio.play('angry'); hud.toast(NOT_ENOUGH_COINS()); }
   }
   function doSetTab(tab) { currentTab = tab; currentFocusRow = null; refreshOpen(); }
   function doAssignRunner(index, displayId) {
@@ -152,7 +174,12 @@ export function createStations(G, S, ctx) {
     if (held) {
       const dest = destinationFor(world, held, P);
       const target = guideCarry(`${heldLabel(held)}${dest ? ` → ${destinationLabel(dest)}` : ''}`, 3);
-      audio.play('angry'); hud.toast(target ? 'Finish carrying first' : 'Hands full');
+      // Both refusals are the same fact -- your hands are already full -- so both draw the same
+      // mitt-and-box. When there IS somewhere to put it the arrow and that place's own glyph follow,
+      // which is the part a sentence could never do as quickly.
+      audio.play('angry'); hud.toast(target
+        ? cue([handIcon(), '→', destinationIcon(target)], 'Finish carrying first')
+        : cue([handIcon(), '!'], 'Hands full'));
       return;
     }
     audio.play('tap');

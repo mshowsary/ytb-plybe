@@ -47,6 +47,29 @@ test('every non-blossom season re-tints flowers, tree crowns and the garland, al
   }
 });
 
+// The four palettes above were all provably distinct BEFORE the in-frame pass, and the game still
+// looked the same in three seasons out of four, because every field they differed on lived on
+// geometry the default camera does not frame once the terrace is bought. These two tests pin the
+// fields the in-frame pass added -- the deck tint and the deck litter, which between them cover
+// most of the screen. See test/season-visible.test.js for the placement side of the same fix.
+test('every season names the in-frame fields too: a deck tint and a litter set', () => {
+  for (const id of SEASON_IDS) {
+    const p = paletteForSeason(id);
+    for (const key of ['deckPlank', 'deckBase', 'deckBorder']) {
+      assert.match(p[key], /^#[0-9A-Fa-f]{6}$/, `${id} needs a ${key} or the deck cannot re-tint`);
+    }
+    assert.ok(Array.isArray(p.litter) && p.litter.length >= 3, `${id} needs a litter set`);
+  }
+});
+
+test("Blossom's deck values are exactly the literals props.js buildRegion falls back to", () => {
+  // If these two drift apart, an un-palettised deck stops matching the shipped Blossom look and
+  // nobody notices until a screenshot.
+  assert.equal(GARDEN_PALETTE.deckBorder, '#E6E0D6');
+  assert.equal(GARDEN_PALETTE.deckBase, '#C69A6B');
+  assert.equal(GARDEN_PALETTE.deckPlank, '#D9B48A');
+});
+
 test('a season swap re-tints the garden WITHOUT rearranging it: positions identical, colours differ', () => {
   const group = buildEnvironment(AREA, 'blossom');
   const before = findLitMesh(group).geometry.getAttribute('position').array.slice();

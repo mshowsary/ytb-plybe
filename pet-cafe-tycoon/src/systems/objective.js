@@ -6,10 +6,35 @@ import { jobTarget } from '../sim/jobs.js';
 import { refillGuideTarget } from '../sim/refillGuide.js';
 import { coachEscalationStage } from '../sim/mechanicLearning.js';
 import { chevronMesh } from '../render/props.js';
+import {
+  registerIcon, displayIcon, beanIcon, sackIcon, broomIcon, leafIcon, gearIcon, bakeIcon,
+  coinIcon, handIcon, returnIcon,
+} from '../ui/icons.js';
 
-const CAPTION = {
-  register: 'Serve', restock: 'Stock', refill: 'Refill', supplies: 'Supplies', clean: 'Clean', harvest: 'Pick', build: 'Build',
-  bake: 'Bake', stock: 'Stock', serve: 'Serve', collect: 'Cash', deliver: 'Deliver', return: 'Return',
+// The chevron's caption used to be a verb -- Bake / Stock / Serve / Cash / Deliver / Return. It is
+// a picture of the DESTINATION now, one per job kind, and every one of them is an object already
+// standing in the room the arrow is pointing into: the display case that ran empty, the till a guest
+// is waiting at, the bean sack, the broom, the ripe bush, the crate. That is the whole reason a
+// picture works here where a verb needed English -- the player is about to walk up to the thing the
+// glyph draws, so the caption and the world confirm each other on arrival.
+//
+// Two deliberate reuses: `refill` shows the coffee bean rather than a generic pour, because Task 31
+// already made the bean the game's single refill-supply glyph in both the Pantry and on a
+// bean-blocked machine; `build` shows the gear, the same fallback src/ui/hud.js's wallet ring uses
+// for an unmapped purchase. `deliver` has no fixed destination -- it is wherever what you are
+// carrying belongs -- so systems/stations.js hands the concrete station's own glyph across on
+// G.contextGuide.captionIcon and the hand here is only the fallback.
+const CAPTION_ICON = {
+  register: registerIcon, serve: registerIcon, restock: displayIcon, stock: displayIcon,
+  refill: beanIcon, supplies: sackIcon, clean: broomIcon, harvest: leafIcon, build: gearIcon,
+  bake: bakeIcon, collect: coinIcon, deliver: handIcon, return: returnIcon,
+};
+// The sentence each glyph replaces, for the caption's aria-label. Nothing draws these.
+const CAPTION_LABEL = {
+  register: 'Serve at the register', serve: 'Serve at the register', restock: 'Restock the display',
+  stock: 'Stock the display', refill: 'Refill supplies', supplies: 'Collect supplies from the pantry',
+  clean: 'Clean a table', harvest: 'Pick ripe fruit', build: 'Build here', bake: 'Bake',
+  collect: 'Collect the cash', deliver: 'Deliver what you are carrying', return: 'Return what you are carrying',
 };
 const HOVER_Y = 2.4, BOB_AMP = 0.15, BOB_HZ = 2;
 const RECOMPUTE_INTERVAL = 0.25;
@@ -31,7 +56,11 @@ function reducedMotion() {
 export function createObjective(G, S, ctx) {
   const { world, scene, fx, els } = ctx;
   const chevron = chevronMesh(); chevron.visible = false; scene.add(chevron);
-  const caption = document.createElement('div'); caption.className = 'objCaption hidden'; els.fx.appendChild(caption);
+  const caption = document.createElement('div'); caption.className = 'objCaption hidden';
+  // The glyph is drawn; the sentence it replaced rides on aria-label, so the caption stays a status
+  // announcement rather than an unlabelled decoration.
+  caption.setAttribute('role', 'status'); els.fx.appendChild(caption);
+  let lastGlyph = '';
   const tmp = { sx: 0, sy: 0, visible: true };
   let t = 0, cd = 0, target = null, guided = false;
   let activeCue = '', hesitateT = 0, bestDistance = null;
@@ -122,10 +151,20 @@ export function createObjective(G, S, ctx) {
       const showWord = guided || stage === 'route';
       if (!showWord) { caption.classList.add('hidden'); return; }
       fx.project(target.x, y - 0.4, target.z, tmp);
-      const word = target.caption || CAPTION[target.kind] || '';
-      if (caption.textContent !== word) caption.textContent = word;
+      // `captionIcon` is the carry system's concrete destination glyph; `kind` is the routine job.
+      // The old `target.caption` string is still carried on G.contextGuide (tools/production-smoke.js
+      // reads it as diagnostics) but is never drawn any more.
+      const glyphFn = CAPTION_ICON[target.kind];
+      const glyph = target.captionIcon || (glyphFn ? glyphFn() : '');
+      if (glyph && lastGlyph !== glyph) {
+        lastGlyph = glyph;
+        caption.classList.add('cueRow');
+        caption.innerHTML = `<span class="cueIco">${glyph}</span>`;
+        const label = target.captionLabel || CAPTION_LABEL[target.kind] || '';
+        if (label) caption.setAttribute('aria-label', label); else caption.removeAttribute('aria-label');
+      }
       caption.style.left = tmp.sx + 'px'; caption.style.top = tmp.sy + 'px';
-      caption.classList.toggle('hidden', !tmp.visible || !word);
+      caption.classList.toggle('hidden', !tmp.visible || !glyph);
     },
   };
 }

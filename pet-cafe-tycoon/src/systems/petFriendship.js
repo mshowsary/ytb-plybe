@@ -7,6 +7,9 @@ import { getActiveRenovationDecor } from '../render/renovation.js';
 import { presentationScheduler } from '../core/presentationScheduler.js';
 import { admitResident, currentResidentStars } from './residentPets.js';
 import { addFollowers, followersForBestie } from '../sim/followers.js';
+import { cue, paintCue } from '../ui/hud.js';
+import { heartIcon } from '../ui/icons.js';
+import { petPortrait } from '../ui/petPortrait.js';
 
 const STYLE_ID = 'pet-cafe-friendship-style';
 
@@ -39,7 +42,7 @@ function makeToast() {
   let timer = null;
   return text => {
     if (timer) presentationScheduler.cancel(timer);
-    el.textContent = text;
+    paintCue(el, text);
     el.classList.add('show');
     timer = presentationScheduler.schedule(() => { el.classList.remove('show'); timer = null; }, 2300);
   };
@@ -170,7 +173,13 @@ export function installPetFriendship(G, platform = null) {
       } else if (firstPetThisDay) {
         // One quiet pet spotlight per shift makes the named-pet layer visible during Days 1–4
         // without throwing a toast for every customer. This has no gameplay/economy effect.
-        announce(`${result.profile.name} ♥ ${result.profile.trait}`);
+        // The trait ('Sunbeam seeker') was a sentence on the play field. What the moment is about
+        // is WHICH pet and that it likes you: its portrait, its name, a heart. The trait stays in
+        // the aria text and in the Pet Book, where words are allowed.
+        announce(cue(
+          [{ swatch: petPortrait(customer.species, result.profile) }, result.profile.name, heartIcon()],
+          `${result.profile.name} ♥ ${result.profile.trait}`,
+        ));
         if (bookButton) {
           bookButton.classList.add('bump');
           presentationScheduler.schedule(() => bookButton.classList.remove('bump'), 420);

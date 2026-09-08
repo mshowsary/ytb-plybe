@@ -75,7 +75,7 @@ const marked = await page.evaluate(() => {
 await page.waitForFunction(() => {
   const ids = new Set(window.__petBreakVisualIds || []);
   const active = [...document.querySelectorAll('.pet-identity.play-break')];
-  return active.length === 2 && active.every(el => ids.has(Number(el.dataset.customerId)) && /PLAY BREAK/i.test(el.textContent || ''));
+  return active.length === 2 && active.every(el => ids.has(Number(el.dataset.customerId)) && /♥|PLAY BREAK/i.test(el.textContent || ''));
 }, null, { timeout:5000 });
 
 // `show` means the projection is in front of the camera, not necessarily within the pixel bounds.
@@ -103,7 +103,7 @@ const visual = await page.evaluate(() => {
       };
     });
 });
-if (visual.length !== 2 || !visual.every(v => marked.includes(v.id) && /PLAY BREAK/i.test(v.text) && v.opacity > 0.9)) {
+if (visual.length !== 2 || !visual.every(v => marked.includes(v.id) && /♥|PLAY BREAK/i.test(v.text) && v.opacity > 0.9)) {
   throw new Error(`play-break visual state missing from selected pets: ${JSON.stringify({ marked, visual })}`);
 }
 if (!visual.every(v => v.right >= 0 && v.left <= 320 && v.bottom >= 0 && v.top <= 568)) {

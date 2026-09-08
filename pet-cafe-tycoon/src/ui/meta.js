@@ -1,10 +1,28 @@
 import { petPortrait } from './petPortrait.js';
+import { paintCue, cue } from './hud.js';
 import { ACCESSORIES } from '../../data/accessories.js';
 // Retention/meta presentation layered on top of the existing HUD/sheets without owning simulation.
 const STYLE_ID = 'pet-cafe-meta-style';
 // Three letters, not the species word: at four columns on a 380px frame a card is ~74px wide and
 // "HAMSTER" would spill straight out of it.
 const SPECIES_ICON = { cat: 'CAT', dog: 'DOG', bunny: 'BUN', hamster: 'HAM' };
+
+// Rarity, drawn: one to four pips in the exact colours .meta-pet-rarity already paints the word
+// in, so the Pet Book card and the discovery toast agree without either one spelling the tier.
+// Pips rather than a single coloured dot because colour alone is not a signal a colour-blind player
+// can count, and the count is the whole point.
+const RARITY_PIPS = { common: [1, '#8B817A'], rare: [2, '#8B67D5'], epic: [3, '#D06DA7'], legendary: [4, '#C9922E'] };
+export function rarityPips(rarity) {
+  const [count, color] = RARITY_PIPS[rarity] || RARITY_PIPS.common;
+  let pips = '';
+  // Diamonds, not stars: a five-point star is not parameterisable in one line and at four pips
+  // across a 24-wide box the points would touch. Four diamonds at 5.4 apart span 21 of the 24.
+  for (let i = 0; i < count; i++) {
+    const cx = (12 + (i - (count - 1) / 2) * 5.4).toFixed(2);
+    pips += `<path d="M${cx} 6.4L${(+cx + 2.4).toFixed(2)} 12L${cx} 17.6L${(+cx - 2.4).toFixed(2)} 12Z" fill="${color}"/>`;
+  }
+  return `<svg viewBox="0 0 24 24" aria-hidden="true">${pips}</svg>`;
+}
 
 function injectStyle() {
   if (document.getElementById(STYLE_ID)) return;
@@ -20,6 +38,7 @@ function injectStyle() {
     .meta-rating{width:100%;box-sizing:border-box;margin:0 auto 2px;padding:8px 11px;border-radius:15px;background:#ffffffa8;border:1px solid #0000000a;display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left}.meta-rating-copy{display:flex;align-items:center;gap:7px;min-width:0}.meta-kicker{font:900 9px/1 system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;opacity:.48}.meta-rating-note{display:none}.meta-rating-stars{font:950 22px/1 system-ui,sans-serif;letter-spacing:.03em;color:#f4b942;text-shadow:0 2px 0 #9a65182a;white-space:nowrap}
     .meta-rep-summary{width:100%;box-sizing:border-box;padding:8px 11px;border-radius:15px;background:linear-gradient(135deg,#fff7dd,#fff);border:1px solid #e6b74c38;text-align:left}.meta-rep-summary-top{display:flex;align-items:center;justify-content:space-between;gap:8px}.meta-rep-summary-title{font:950 11px/1 system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.meta-rep-gain{font:950 13px/1 system-ui,sans-serif;color:#bd7c11;white-space:nowrap}.meta-rep-levelup{margin-top:5px;font:950 9px/1 system-ui,sans-serif;color:#7b5ed5;letter-spacing:.05em;text-transform:uppercase}
     .meta-reward{width:100%;box-sizing:border-box;padding:8px 9px;border-radius:15px;background:linear-gradient(135deg,#fff,#f3efff);border:1px solid #8b7cf635;box-shadow:inset 0 1px 0 #fff,0 5px 15px #5d4bc214;display:flex;align-items:center;justify-content:space-between;gap:8px;text-align:left}.meta-reward-copy{display:flex;min-width:0;flex:1;align-items:center}.meta-reward-title{font:950 10px/1 system-ui,sans-serif;color:#5b4ab6;letter-spacing:.06em}.meta-reward-sub{display:none}.meta-reward-btn{min-height:48px;min-width:106px;border:0;border-radius:13px;padding:0 12px;background:linear-gradient(135deg,#8b7cf6,#6b58e4);color:#fff;font:950 13px/1 system-ui,sans-serif;box-shadow:0 4px 0 #5145b8,0 8px 18px #5d4bc229;display:flex;align-items:center;justify-content:center;gap:7px;cursor:pointer}.meta-reward-btn:disabled{cursor:default;background:#d8d2ea;color:#777;box-shadow:none}.meta-ad{height:21px;min-width:28px;box-sizing:border-box;border-radius:7px;border:1px solid #ffffff66;background:#ffffff25;display:inline-flex;align-items:center;justify-content:center;padding:0 5px;font-size:9px;letter-spacing:.08em}
+    .meta-policy{margin-top:10px;padding:11px 12px;border-radius:16px;background:#ffffffa8;border:1px solid #ffffffd0;color:var(--ink,#3B2E2A);text-align:left}.meta-policy-body{margin:6px 0 0;font:700 11px/1.4 system-ui,sans-serif;opacity:.72}
     .meta-toast{position:fixed;left:50%;bottom:calc(172px + env(safe-area-inset-bottom,0px));z-index:80;pointer-events:none;transform:translate(-50%,10px);opacity:0;padding:9px 15px;border-radius:999px;background:#302824;color:#fff;font:800 13px/1 system-ui,sans-serif;box-shadow:0 8px 24px #0004;transition:.2s ease;white-space:nowrap}.meta-toast.show{opacity:1;transform:translate(-50%,0)}
     @media(max-width:520px){.meta-reputation{min-width:0;max-width:124px}.meta-rep-title{max-width:68px}.meta-rep-value{display:none}.meta-book-grid{gap:7px}.meta-pet-card{min-height:101px;padding:8px}}
     @media(max-width:300px){.meta-rating,.meta-rep-summary,.meta-reward{padding:7px 8px}.meta-rating-stars{font-size:19px}.meta-reward-title{display:none}.meta-reward-btn{width:100%;min-width:0}.meta-reward-copy:empty{display:none}}
@@ -103,7 +122,7 @@ export function createMetaUI() {
   const M = {};
   M.toast = text => {
     if (toastTimer) clearTimeout(toastTimer);
-    toastEl.textContent = text; toastEl.classList.add('show');
+    paintCue(toastEl, text); toastEl.classList.add('show');
     toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1800);
   };
 
@@ -236,7 +255,14 @@ export function createMetaUI() {
 
   M.announcePet = discovery => {
     if (!discovery || !discovery.isNew) return;
-    M.toast(`New visitor · ${discovery.profile.name} · ${discovery.profile.rarity.toUpperCase()}`);
+    // "New visitor" and "COMMON" were both doing work a picture does better. The portrait IS the
+    // announcement -- it is the same face that just walked in and the same face the Pet Book card
+    // will show -- and rarity becomes a run of stars in the rarity colour the book already uses
+    // (.meta-pet-rarity). The pet's NAME stays: a proper noun is the one word the play field keeps.
+    M.toast(cue(
+      [{ swatch: petPortrait(discovery.species, discovery.profile) }, rarityPips(discovery.profile.rarity), discovery.profile.name],
+      `New visitor, ${discovery.profile.name}, ${discovery.profile.rarity}`,
+    ));
     bookBtn.classList.add('bump');
     setTimeout(() => bookBtn.classList.remove('bump'), 450);
   };
@@ -274,6 +300,20 @@ export function createMetaUI() {
         rep.setAttribute('aria-label', model.reputation.nextTitle ? `${model.reputation.title}, plus ${model.reputation.awarded} reputation, progress toward ${model.reputation.nextTitle}` : `${model.reputation.title}, maximum reputation`);
         if (model.reputation.levelUp) { const levelUp = document.createElement('div'); levelUp.className = 'meta-rep-levelup'; levelUp.textContent = 'NEW RANK'; rep.appendChild(levelUp); }
         anchor.after(rep); anchor = rep;
+      }
+
+      // The service policy, explained in full. The play-field banner that used to carry this
+      // sentence is a six-glyph cue now (src/game.js), which is the right density for something
+      // that flashes over a rush -- but the rule still has to be READABLE somewhere, and this card
+      // is where the shift is being read back anyway. Rendered only on the shift the rule turns on,
+      // and on any shift it actually charged, so it never becomes wallpaper.
+      if (model.servicePolicy && (model.servicePolicy.justEnabled || model.servicePolicy.charged > 0)) {
+        const pol = document.createElement('div'); pol.className = 'meta-policy';
+        const head = document.createElement('div'); head.className = 'meta-kicker'; head.textContent = 'SERVICE POLICY';
+        const body = document.createElement('p'); body.className = 'meta-policy-body';
+        body.textContent = `From day ${model.servicePolicy.enabledFrom}, a guest who waits too long or pays and finds no clean table costs you coins in recovery. Never more than ${model.servicePolicy.cap} coins across a whole shift, and never more than you are holding.`;
+        pol.append(head, body);
+        anchor.after(pol); anchor = pol;
       }
 
       if (!model.rewardOffer) return;

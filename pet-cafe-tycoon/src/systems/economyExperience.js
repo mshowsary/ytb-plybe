@@ -10,7 +10,8 @@ import {
 } from '../sim/petPlayBreak.js';
 import { ROOMBA_SWEEP_SECONDS } from '../sim/petMess.js';
 import { makePendingEntitlement, snapshotTemporaryHelp } from '../sim/temporaryHelp.js';
-import { coinIcon, gearIcon, personIcon, treatIcon } from '../ui/icons.js';
+import { coinIcon, gearIcon, personIcon, treatIcon, coinMinusIcon, returnIcon, giftIcon, checkIcon, crossIcon, clockIcon, pawIcon, heartIcon, broomIcon, sparkleIcon } from '../ui/icons.js';
+import { cue } from '../ui/hud.js';
 
 export const RUSH_CREW_REWARD_ID = 'pet-cafe-rush-crew';
 export const PET_PLAY_BREAK_REWARD_ID = 'pet-cafe-pet-play-break';
@@ -218,14 +219,21 @@ export function createEconomyExperience(G, S, ctx, platform) {
     hud.setCoins(G.coins); audio.play('penalty');
     const st = world.stations.get('return1');
     if (st) fx.number(st.x, 1.0, st.z, `-${fee}`, 'lost');
-    hud.toast(`Food waste · handling -${fee}`);
+    // The return station's own coral down-arrow, then the crossed coin. Naming the station that
+    // charged you is more actionable than naming the category of mistake.
+    hud.toast(cue([returnIcon(), coinMinusIcon(), fee], `Food waste, handling minus ${fee} coins`));
   };
 
   function hide() { current = null; pressureKey = ''; pressureT = 0; ui.setModel(null); }
   function celebratePetBreak(recipients, resumed = false) {
     for (const c of recipients || []) fx.hearts(c.x, 1.05, c.z);
     audio.play('chime');
-    hud.banner(resumed ? 'PET PLAY BREAK RESUMED' : `PET PLAY BREAK · ${recipients.length} GUESTS · ${PET_PLAY_BREAK_SECONDS}s`, 2200);
+    // Paw + heart is already what the play break looks like in the room (fx.hearts fires over every
+    // recipient on the line above), so the banner is the same picture at HUD scale. Resumed drops
+    // the counts and shows a check instead: the news is that the promise was kept, not the size.
+    hud.banner(resumed
+      ? cue([pawIcon(), heartIcon(), checkIcon()], 'Pet play break resumed')
+      : cue([pawIcon(), heartIcon(), recipients.length, clockIcon(), PET_PLAY_BREAK_SECONDS], `Pet play break, ${recipients.length} guests, ${PET_PLAY_BREAK_SECONDS} seconds`), 2200);
   }
   function ensureHelpState() {
     if (!G.temporaryHelp || typeof G.temporaryHelp !== 'object') G.temporaryHelp = { v: 1, roomba: null, pending: null };
@@ -236,7 +244,8 @@ export function createEconomyExperience(G, S, ctx, platform) {
     if (!pending) return false;
     ensureHelpState().pending = pending;
     markRewardedClaim(G.meta, day);
-    hud.toast('Reward earned · saved for the next useful moment');
+    // Gift, ticked, then a clock: you earned it and it is being held until it can help.
+    hud.toast(cue([giftIcon(), checkIcon(), clockIcon()], 'Reward earned, saved for the next useful moment'));
     return true;
   }
   function checkpointConsumedPending() {
@@ -264,7 +273,7 @@ export function createEconomyExperience(G, S, ctx, platform) {
       G.boosts.rushCrew = boost;
       help.pending = null;
       checkpointConsumedPending();
-      audio.play('chime'); hud.banner('EARNED RUSH CREW ACTIVATED', 2200);
+      audio.play('chime'); hud.banner(cue([personIcon(), sparkleIcon(), checkIcon()], 'Earned rush crew activated'), 2200);
       return true;
     }
     if (pending.kind === 'petBreak') {
@@ -285,7 +294,7 @@ export function createEconomyExperience(G, S, ctx, platform) {
       help.pending = null;
       G.stats.rewardedRoombaSweeps = (G.stats.rewardedRoombaSweeps | 0) + 1;
       checkpointConsumedPending();
-      audio.play('chime'); hud.banner(`EARNED ROOMBA SWEEP · ${cleared} CLEARED`, 2200);
+      audio.play('chime'); hud.banner(cue([broomIcon(), checkIcon(), cleared], `Earned roomba sweep, ${cleared} cleared`), 2200);
       return true;
     }
     help.pending = null;
@@ -307,7 +316,7 @@ export function createEconomyExperience(G, S, ctx, platform) {
       : SMART_RELIEF_REWARD_ID;
     const earned = await (platform ? platform.requestRewardedAd(rewardId) : Promise.resolve(true));
     busy = false; ui.watch.disabled = false;
-    if (!earned) { hud.toast('Reward unavailable · keep playing'); return; }
+    if (!earned) { hud.toast(cue([giftIcon(), crossIcon()], 'Reward unavailable, keep playing')); return; }
 
     if (offer.mode === 'crew') {
       const roleUseful = offer.role !== 'runner' || runnerHasReadyWork(G, world);
@@ -319,7 +328,9 @@ export function createEconomyExperience(G, S, ctx, platform) {
       G.boosts.rushCrew = boost;
       markRewardedClaim(G.meta, day);
       audio.play('chime');
-      hud.banner(`${offer.label.toUpperCase()} · +1 TIER THIS RUSH`, 2200);
+      // The staffer, sparkling, plus one tier. offer.label names the role in words the play field
+      // cannot use; the person glyph plus the "+1" is the whole mechanical fact.
+      hud.banner(cue([personIcon(), sparkleIcon(), '+', 1], `${offer.label}, plus one tier this rush`), 2200);
     } else if (offer.mode === 'petBreak') {
       const stillEligible = selectPetPlayBreakCustomers(G.customers, offer.slots);
       if (!G.dayState || G.dayState.phase !== 'rush' || stillEligible.length < offer.slots) {
@@ -340,13 +351,13 @@ export function createEconomyExperience(G, S, ctx, platform) {
       markRewardedClaim(G.meta, day);
       G.stats.rewardedRoombaSweeps = (G.stats.rewardedRoombaSweeps | 0) + 1;
       audio.play('chime');
-      hud.banner(`ROOMBA SWEEP · ${cleared} PET ${cleared === 1 ? 'MESS' : 'MESSES'} CLEARED`, 2200);
+      hud.banner(cue([broomIcon(), cleared, checkIcon()], `Roomba sweep, ${cleared} pet ${cleared === 1 ? 'mess' : 'messes'} cleared`), 2200);
     } else {
       markRewardedClaim(G.meta, day);
       G.coins += offer.reward;
       G.stats.rewardedReliefCoins = (G.stats.rewardedReliefCoins | 0) + offer.reward;
       hud.setCoins(G.coins); hud.bump(); audio.play('chime');
-      hud.banner(`RUSH HELP · +${offer.reward} COINS`, 2200);
+      hud.banner(cue([coinIcon(), '+', offer.reward], `Rush help, plus ${offer.reward} coins`), 2200);
     }
     if (platform && G.snapshot) platform.save(G.snapshot());
     hide();

@@ -41,7 +41,7 @@ export function createPetMoment(els, profile, customerId = null, species = 'cat'
   const projection = { sx: 0, sy: 0, visible: true };
   const P = { el };
   P.announce = (text = '', seconds = 2.2) => { detailText = text; detail.textContent = text; timer = Math.max(timer, seconds); };
-  P.greetRegular = (text = 'WELCOME BACK', seconds = 1.05) => {
+  P.greetRegular = (text = '\u21BA', seconds = 1.05) => {
     el.classList.add('regular-greeting');
     detailText = text; detail.textContent = text; timer = Math.max(0, seconds);
   };
@@ -51,8 +51,8 @@ export function createPetMoment(els, profile, customerId = null, species = 'cat'
     if (next === playBreak) return;
     playBreak = next; el.classList.toggle('play-break', playBreak);
     if (playBreak) {
-      detailText = 'PLAY BREAK ♥'; detail.textContent = detailText;
-    } else if (detailText === 'PLAY BREAK ♥') {
+      detailText = '♥'; detail.textContent = detailText;
+    } else if (detailText === '♥') {
       detailText = ''; detail.textContent = '';
     }
   };

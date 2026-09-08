@@ -79,7 +79,15 @@ The honest answer to "is this how Playables should look?": Playables are lighter
 build it → the room changes and a new wish/verb appears → new pets arrive → photograph and befriend
 them → followers grow → busier café, rarer pets → next star → next space.*
 
-### 2.3 What is explicitly NOT in scope
+### 2.3 Difficulty principle (owner direction, 2026-09-08)
+
+The late game must be **not boring — never punishing**. Do not tune patience, service policy or
+spawn pacing to make guests leave, tables fail or shifts get lost; a low lost-sales figure is
+acceptable and a cosy café that serves everyone is the point. Engagement comes from new verbs, new
+spaces, seasonal variety and positive stretch goals. A shift rating that reads 3 every day is a
+*legibility* problem (the score has stopped carrying information), not a difficulty one.
+
+### 2.4 What is explicitly NOT in scope
 
 Multiplayer, real-money purchases, external assets, free placement, employee payroll, offline
 penalties, forced mid-shift interstitials.
@@ -287,7 +295,10 @@ The bot prints the config hash in its header so a balance result is tied to the 
 | Income | 400 | 650 | 950 | 1,400 | 1,600 | 1,900 | 2,200 | 3,000 | 3,800 | 4,400 | 5,000 | 6,200 | 7,000 | 7,500 |
 | Next content unlock affordable | — | seats/oven | coffee | bowl | blender | garden/seats2 | **terrace 20k** | ice cream | photo, seats | restroom, splash | **spa 45k** | groom | bath | boutique |
 
-Days 1–12 are the measured current curve (do not move them). The step at 14–16 is the terrace
+Days 1–7 are the measured current curve (do not move them). Days 8–11 moved once, in Batch 4a,
+when `tools/bot.js` began simulating staff actors and the service policy — the earlier days-1–12
+freeze had been measuring a café with no staff on the floor, so preserving it would have preserved
+an artifact. Nothing can differ before day 8 (the policy's own floor, and the first hire). The step at 14–16 is the terrace
 (seated capacity + ice cream at 26/34 + pup cups), the step at 28–32 is the spa.
 
 ### 4.3 Invariants — turn these into bot gates (`tools/bot.js`, WARN → FAIL)
@@ -301,8 +312,12 @@ Days 1–12 are the measured current curve (do not move them). The step at 14–
   on the wallet pill — so the pile has a *purpose*.)
 - **D. Runner sanity.** No runner holds items for > 6 s while a same-family display has free capacity.
 - **E. Early game frozen.** Days 1–5 lost sales ≤ 1/day, sales within the checkpoint bands.
-- Existing: 0 stalls, 0 teleports, ledger reconciles, lost sales 4–14% (band widened for the
-  endless game; days 1–5 governed by E).
+- Existing: 0 stalls, 0 teleports, ledger reconciles. **Lost sales ≤ 10%** — a *low* figure is not
+  a defect (§2.3); the earlier 4–14% floor was written to create tension and is withdrawn. Rush and
+  outside-rush "friction" are reported, not gated. Days 1–5 governed by E.
+- **D is measured as net progress, not elapsed time** (Batch 4a): a runner is stuck only if it holds
+  product for > 6 s *without moving ≥ 1 m* while a same-family display has room. The elapsed-time
+  form reported honest 14 m deliveries as faults — the same mistake as Batch 1's stall detector.
 
 Run the bot to **60 days** (`MAX_DAYS`) once the spa exists.
 
@@ -556,13 +571,25 @@ Check: a scripted 40-day bot run reaches ★3 by day ~20 and ★4 by ~day 34; ce
 
 ### Batch 4 — The Spa and Seasons (2 sessions)
 
-§3.9 and §3.8. Check: bot to day 60 green; invariants A–C hold to day 45; audit 0/13.
+**4a ✅ live** — Seasons (§3.8); the bot harness made honest (staff actors + service policy); the
+runner arrival fix; demand bounded past a soft cap; the season save exploit closed.
+
+**4a-fix** (found by the post-4a review; do before 4b):
+| # | Task | Check |
+|---|---|---|
+| 4a.1 | **Text → icons on the play field.** 42 banner/toast call sites across 9 files, plus the "Host a Pet Social" / "MYSTERY GIFT" buttons and the coach verb captions — rule 5 was only ever applied to chalk labels (§5.5). Proper nouns and numerals stay; sentences, verbs and labels go; aria-labels survive. | `test/play-field-text.test.js` fails before / passes after; screenshots at day 1 and at the day-8 policy moment; `production-smoke` proseLeak stays false |
+| 4a.2 | **Make seasons visible from the default camera.** The palette lands on the far garden and the garland, which sit *behind* the camera; once the terrace is built the visible garden is flat deck and the four seasons are near-indistinguishable (`shots/seasons/*.png`). Seasonal planters on the deck, a garland along the fence lit in the evening, fountain tint — positions never move. | four midday + four evening screenshots with the terrace built; a stranger can name which is which |
+
+**4b** — §3.9 the Spa. Check: bot to day 60 green (`MAX_DAYS`); invariants A–C hold to day 45; audit 0/13 (now 13 viewports × 5 states).
 
 ### Batch 5 — Franchise and hardening (1 session)
 
-§3.11; then a full certification pass: audit, `production-smoke.js` (fix the pre-existing
-`nextChase`/`perfectText` empties so `summaryBad` clears), `playables-cert-smoke.js`, task25,
-task38, a 30-minute real-device session in portrait and landscape.
+§3.11; then a full certification pass: audit, `production-smoke.js` (the `nextChase`/`perfectText`
+empties were cleared in Batch 3; one pre-existing assertion about returned waste still fails and
+predates every batch — root-cause it), `playables-cert-smoke.js`, task25, task38, a 30-minute
+real-device session in portrait and landscape. Also from Batch 4a: the runner watchdog fires ~11
+recoveries/day (`runnerStuck`, self-correcting but wasteful) and `src/sim/world.js` seats a display's
+queue slot 0 only 0.1 m beyond the display's front — the geometric root of the runner pin.
 
 ---
 

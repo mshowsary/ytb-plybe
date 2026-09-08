@@ -44,7 +44,14 @@ import { createAmbience } from './render/ambience.js';
 import { createRenovationDecor } from './render/renovation.js';
 import { createOwner } from './render/owner.js';
 import { createFx } from './render/fx.js';
-import { createHud } from './ui/hud.js';
+import { createHud, cue } from './ui/hud.js';
+// Play-field cue glyphs. Every banner and toast below draws these instead of a sentence; the
+// sentence survives as the cue's aria text (see the contract at the top of src/ui/hud.js).
+import {
+  clockIcon, tableDirtyIcon, coinMinusIcon, coinIcon, crossIcon, checkIcon, sparkleIcon, brushIcon,
+  lockIcon, repIcon, cafeIcon, trophyIcon, weekendIcon, holidayIcon, giftIcon, sunIcon, moonIcon,
+  streakIcon, iconFor,
+} from './ui/icons.js';
 import { createSheets } from './ui/sheets.js';
 import { createMetaUI } from './ui/meta.js';
 import { createPawSheet } from './ui/pawSheet.js';
@@ -147,12 +154,17 @@ export function createGame(S, area, els, platform = null) {
   function buyNextRenovation() {
     const result = buyRenovation(G.meta, G.coins);
     if (!result.ok) {
-      if (result.reason === 'coins') metaUI.toast('Save more coins for this renovation');
-      else if (result.reason === 'reputation') metaUI.toast(`Reach ${result.requiredRep} reputation first`);
+      // Two different refusals, two different pictures: a crossed coin means "save more", a padlock
+      // beside the reputation star means "this is gated on something coins cannot buy".
+      if (result.reason === 'coins') metaUI.toast(cue([brushIcon(), coinIcon(), crossIcon()], 'Save more coins for this renovation'));
+      else if (result.reason === 'reputation') metaUI.toast(cue([lockIcon(), repIcon(), result.requiredRep], `Reach ${result.requiredRep} reputation first`));
       syncCareerPresentation(); return false;
     }
     G.coins = result.coins; hud.setCoins(G.coins); hud.bump(); audio.play('chime'); renovationDecor.setLevel(result.level);
-    hud.banner(`${result.renovation.name.toUpperCase()} RENOVATION`, 2200); syncCareerPresentation();
+    // The roller (the room itself changed) plus the level reached. The renovation's NAME is a
+    // proper noun, but it is also the one thing the Cafe Journey sheet already spells out at length,
+    // so the play field shows only that a level landed.
+    hud.banner(cue([sparkleIcon(), brushIcon(), result.level], `${result.renovation.name} renovation, level ${result.level}`), 2200); syncCareerPresentation();
     G.requestCheckpoint('renovation'); return true;
   }
   function syncReputationPresentation() {
@@ -243,7 +255,16 @@ export function createGame(S, area, els, platform = null) {
     updateInProgress = true;
     G.time += dt; world.servicePolicyActive = prepareServicePolicy(G);
     const policy=G.meta.servicePolicy;
-    if(!policy.notice && G.dayState.day>=policy.enabledFrom-1){policy.notice=true;hud.banner('FROM DAY '+policy.enabledFrom+': long waits and dirty-table departures cost coins. Shift cap '+Math.floor(policy.baseline*.08)+'.',6500);G.requestCheckpoint('service-policy-notice');}
+    // The service policy, drawn instead of explained. Left of the arrow are the two things that now
+    // cost money -- a clock (a guest waited too long) and the crossed table (a paid guest found no
+    // clean seat) -- and right of it the consequence, the wallet coin with a red minus. The trailing
+    // "<= n" is the shift cap, the one number that makes the rule feel survivable rather than
+    // punitive. A clock was chosen over an angry-guest face because the cost is metered by TIME, not
+    // by mood; the crossed table is the same glyph the guest already holds up in the room and the
+    // day summary already prints, so cause, consequence and report are one object. The sentence
+    // itself lives in the shift summary sheet (src/ui/meta.js decorateSummary), where words are
+    // allowed, and in this cue's aria text.
+    if(!policy.notice && G.dayState.day>=policy.enabledFrom-1){policy.notice=true;const cap=Math.floor(policy.baseline*.08);hud.banner(cue([clockIcon(), tableDirtyIcon(), '→', coinMinusIcon(), '≤', cap], `From day ${policy.enabledFrom}, long waits and dirty-table departures cost coins, capped at ${cap} per shift.`),6500);G.requestCheckpoint('service-policy-notice');}
     petSocials.update(); guestCare.update(dt); input.update(); stations.update(dt); zones.update(dt); photoStudio.update(dt);
     customers.prepare(dt); staff.prepare();
     const barista = G.baristaWorker?.prepare();
@@ -262,8 +283,14 @@ export function createGame(S, area, els, platform = null) {
         }
         partyOrders.onSale(order); petSocials.onSale(order);
         const levelUps = recordRecipeOrder(G.meta, order);
-        for (const up of levelUps) { hud.banner(`${up.label.toUpperCase()} MASTERY ${up.level} · +${up.bonus}% VALUE`, 1900); audio.play('chime'); syncCareerPresentation(); }
-        if (G.serviceStreak.count === 5 || (G.serviceStreak.count >= 10 && G.serviceStreak.count % 10 === 0)) { hud.banner(`${G.serviceStreak.count}x SERVICE STREAK`, 1200); audio.play('chime'); }
+        // Mastery is per RECIPE, so the recipe's own icon is the subject -- the same glyph that pastry
+        // wears in the wish bubble, on the chalkboard and in the display case. Star = the level
+        // reached, then the plain "+n%" the number itself already explains.
+        // The bonus is ONE cell, not "+ 9 %" spread across three: at banner scale the separate
+        // operator read as arithmetic against the level numeral beside it ("3 + 9").
+        for (const up of levelUps) { hud.banner(cue([iconFor(up.key), sparkleIcon(), up.level, `+${up.bonus}%`], `${up.label} mastery ${up.level}, plus ${up.bonus} percent value`), 1900); audio.play('chime'); syncCareerPresentation(); }
+        // "5x" then the rising-bars glyph the contract pill already uses for a streak goal.
+        if (G.serviceStreak.count === 5 || (G.serviceStreak.count >= 10 && G.serviceStreak.count % 10 === 0)) { hud.banner(cue([G.serviceStreak.count, '×', streakIcon()], `${G.serviceStreak.count} service streak`), 1200); audio.play('chime'); }
       } else if (e.type === 'lost') { G.dayStats.lost++; G.serviceStreak.count = 0; G.serviceStreak.t = 0; }
       else if (e.type === 'seatMissed') {
         // Program §6.2: a paid guest never got a clean table. The missed-seat stat and the
@@ -280,7 +307,9 @@ export function createGame(S, area, els, platform = null) {
 
     const dayEvents = stepDay(G.dayState, dt);
     for (const e of dayEvents) {
-      if (e.type === 'phase') { if (e.phase === 'rush') hud.banner('RUSH HOUR'); else if (e.phase === 'closing') hud.banner('CLOSING'); }
+      // Exactly the glyphs the day pill is about to switch to (hud.js PHASE_ICON), so the banner
+      // announces the change and the pill confirms it with the same picture.
+      if (e.type === 'phase') { if (e.phase === 'rush') hud.banner(cue([sunIcon()], 'Rush hour')); else if (e.phase === 'closing') hud.banner(cue([moonIcon()], 'Closing')); }
       else if (e.type === 'dayEnd') openDaySummary();
     }
     hud.setDay(G.dayState.day, G.dayState.phase, phaseFrac(G.dayState)); hud.setContract(G.goal, G.dayStats, G.dayState.day);
@@ -300,7 +329,8 @@ export function createGame(S, area, els, platform = null) {
     // environment has to hear about it the moment it is built — not only at load.
     if (world.events.some(e => e.type === 'built')) environment.setTerraceBuilt(world.built.has('z_terrace'));
     if (world.events.some(e => e.type === 'built') && cafeCompletion(G).roomComplete) {
-      hud.banner('YOUR CAFÉ IS BUILT', 2400); audio.play('chime');
+      // The building itself, ticked. A trophy would have claimed a prize that is not being given.
+      hud.banner(cue([sparkleIcon(), cafeIcon(), checkIcon()], 'Your cafe is built'), 2400); audio.play('chime');
       if (!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) fx.burst(P.x, 1.1, P.z, '#75BDA0', 18);
       syncCareerPresentation();
     }
@@ -352,14 +382,25 @@ export function createGame(S, area, els, platform = null) {
     if (rewardVisible) platform.noteAdEligible?.('rewarded', `summary:${completedDay}`);
     metaUI.decorateSummary({
       rating,
+      // The words the play-field policy banner no longer draws. `justEnabled` is the shift the rule
+      // switches on (the banner fires on the eve of enabledFrom, so the first summary that can
+      // explain it is enabledFrom - 1); `charged` is what it actually took, which is the only other
+      // shift on which the sentence is worth a player's attention.
+      servicePolicy: (() => {
+        const pol = G.meta.servicePolicy; if (!pol || !pol.enabledFrom) return null;
+        return {
+          enabledFrom: pol.enabledFrom, cap: Math.floor(pol.baseline * 0.08),
+          charged: settlement.stats.serviceFees | 0, justEnabled: completedDay >= pol.enabledFrom - 1 && completedDay <= pol.enabledFrom,
+        };
+      })(),
       reputation: { awarded: repResult.awarded, levelUp: repResult.levelUp, title: reputationTitle(G.meta), nextTitle: REPUTATION_TITLES[repLevel + 1] || null, current: repProgress.current, needed: repProgress.needed, frac: repProgress.frac },
       rewardOffer: rewardVisible ? {
         amount: rewardAmount, claimed: rewardClaimed, liveAd: !!platform.rewardedAvailable, label: met ? 'DOUBLE CONTRACT REWARD' : 'BONUS TIP JAR',
         onClaim: async () => {
           if (summaryClaimedForShift(G.meta, completedDay)) return false; const ok = await platform.requestRewardedAd('pet-cafe-day-bonus-coins');
-          if (!ok) { metaUI.toast('Reward not completed'); return false; }
+          if (!ok) { metaUI.toast(cue([giftIcon(), crossIcon()], 'Reward not completed')); return false; }
           if (!markRewardedClaim(G.meta, completedDay, 'summary')) return false; G.coins += rewardAmount; hud.setCoins(G.coins); hud.bump(); audio.play('chime'); syncCareerPresentation();
-          metaUI.toast(`Bonus +${rewardAmount.toLocaleString('en-US')}`); saveNow('reward-claim'); return true;
+          metaUI.toast(cue([coinIcon(), '+', rewardAmount], `Bonus plus ${rewardAmount.toLocaleString('en-US')} coins`)); saveNow('reward-claim'); return true;
         },
       } : null,
     });
@@ -409,9 +450,12 @@ export function createGame(S, area, els, platform = null) {
       }
       syncCareerPresentation(); partyOrders.sync(false);
       const d = G.dayState.day;
-      if (weekdayIndex(d) === 6) hud.banner('WEEKLY CUP SUNDAY');
-      else if (isWeekend(d) && isHoliday(d)) { hud.banner('WEEKEND'); setTimeout(() => hud.banner('HOLIDAY'), 2700); }
-      else if (isWeekend(d)) hud.banner('WEEKEND'); else if (isHoliday(d)) hud.banner('HOLIDAY');
+      // Three day-flavour banners, three unmistakably different silhouettes: a trophy (the Weekly
+      // Cup is judged today), a calendar with its last cells lit (weekend), a garland (holiday). A
+      // recoloured calendar for all three would have made them one banner in three shades.
+      if (weekdayIndex(d) === 6) hud.banner(cue([trophyIcon()], 'Weekly Cup Sunday'));
+      else if (isWeekend(d) && isHoliday(d)) { hud.banner(cue([weekendIcon()], 'Weekend')); setTimeout(() => hud.banner(cue([holidayIcon()], 'Holiday')), 2700); }
+      else if (isWeekend(d)) hud.banner(cue([weekendIcon()], 'Weekend')); else if (isHoliday(d)) hud.banner(cue([holidayIcon()], 'Holiday'));
       saveNow('day-transition');
       return true;
     })();

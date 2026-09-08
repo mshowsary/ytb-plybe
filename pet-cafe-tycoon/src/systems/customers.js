@@ -1,4 +1,6 @@
 import { serviceIncident } from '../sim/servicePolicy.js';
+import { cue } from '../ui/hud.js';
+import { clockIcon, tableDirtyIcon, displayIcon, registerIcon, coinMinusIcon } from '../ui/icons.js';
 import { SOCIALS } from '../sim/petSocials.js';
 // Customer render/system layer: human + named pet visitor, wish UI and pet delight moments.
 import { spawnInterval, maxCustomers, cafeLevel } from '../sim/economy.js';
@@ -52,6 +54,12 @@ function anonymousIdentity() {
   };
 }
 
+// One picture per service-recovery reason, mirroring SERVICE_LABEL's keys exactly so the two can
+// never drift: the empty display case, the unmanned checkout, the empty treat bowl, the dirty table.
+const RECOVERY_ICON = {
+  counter: displayIcon(), register: registerIcon(), bowl: treatIcon(), table: tableDirtyIcon(),
+};
+
 export function createCustomers(G, S, ctx) {
   const { area, world, scene, hud, fx, els } = ctx;
   const price = ctx.price;
@@ -74,7 +82,12 @@ export function createCustomers(G, S, ctx) {
     if (r) fx.number(r.human.group.position.x, r.human.height + 0.62, r.human.group.position.z, `${reason==='table'?'Refund':'Recovery'} −${fee}`, 'lost');
     if (penaltyToastCd <= 0) {
       penaltyToastCd = 1.8;
-      hud.toast(`${SERVICE_LABEL[reason] || 'Service miss'} · recovery -${fee}`);
+      // Each recovery reason has a picture already in the room: the empty case, the unmanned till,
+      // the untouched treat bowl, the crossed table. Showing the CAUSE beside the crossed coin is
+      // what makes the charge learnable -- "Service miss - recovery -12" named the charge but never
+      // pointed at the thing to fix. Anything unmapped falls back to a bare clock, which is honest:
+      // every recovery in this game is ultimately a guest who waited.
+      hud.toast(cue([RECOVERY_ICON[reason] || clockIcon(), coinMinusIcon(), fee], `${SERVICE_LABEL[reason] || 'Service miss'}, recovery minus ${fee} coins`));
     }
   }
 
@@ -123,11 +136,16 @@ export function createCustomers(G, S, ctx) {
     const leash = createLeash(scene); leash.attach(human.hand, pet.neck);
     const bub = makeBubble(els);
     const identity = identityPick.named ? createPetMoment(els, profile, c.id, species) : anonymousIdentity();
-    if(theme) identity.announce('SOCIAL GUEST', 3);
+    // src/ui/petMoments.js's detail slot is textContent-only, so these are glyph SEQUENCES rather
+    // than the inline SVG used everywhere else. A four-point star marks a guest the running Pet
+    // Social brought in -- the same shape as sparkleIcon, which means "special" throughout the HUD.
+    if(theme) identity.announce('✦', 3);
     // The daily familiar face owns the quiet greeting instead of also receiving a long rarity tag.
     // Other rare/epic visitors keep their existing discovery spotlight.
     if (!c.regularCandidate && identityPick.named && (profile.rarity === 'rare' || profile.rarity === 'epic')) {
-      identity.announce(`${profile.rarity.toUpperCase()} VISITOR`, 2.8);
+      // Rarity as a count of stars, the notation every collection game already uses: rare is two,
+      // epic is three. The card's own border colour (petMoments' .rare/.epic) carries the rest.
+      identity.announce(profile.rarity === 'epic' ? '★★★' : '★★', 2.8);
     }
     rec.set(c.id, {
       human, pet, leash, identity, profile,
@@ -185,17 +203,22 @@ export function createCustomers(G, S, ctx) {
           r.regularGreeted = true;
           r.regularGreetingT = REGULAR_GREETING_SECONDS;
           regularGreetedDay = r.regularDay;
-          r.identity.greetRegular('WELCOME BACK', REGULAR_GREETING_SECONDS);
+          // A returning face: the recycle-style arrow, not a greeting. The regular-greeting border
+          // and the heart burst beside it already carry the warmth.
+          r.identity.greetRegular('↺', REGULAR_GREETING_SECONDS);
           r.pet.setMood('happy');
           fx.hearts(r.pet.group.position.x, r.pet.height + .22, r.pet.group.position.z);
         }
         if (!r.treatCelebrated && r.lastState === 'atBowl' && c.state !== 'atBowl' && (c.order || []).includes('treat')) {
           r.treatCelebrated = true; r.petHappyT = 1.7; r.pet.setMood('happy');
-          r.identity.announce('LOVES THE TREAT ♥', 2.5);
+          r.identity.announce('♥', 2.5);
           fx.hearts(r.pet.group.position.x, r.pet.height + 0.25, r.pet.group.position.z);
           ctx.audio.play(petSound(c.species));
         }
-        if(c.state==='waitSeat') r.identity.announce('CLEAN A TABLE · '+Math.max(0,Math.ceil(8-c.dirtyWait))+'s',1);
+        // A paid guest with nowhere clean to sit. The countdown alone is the message: the guest is
+        // standing beside the dirty table, and the objective chevron is already pointing at it with
+        // the broom glyph, so a caption would only repeat what two other layers are showing.
+        if(c.state==='waitSeat') r.identity.announce(Math.max(0,Math.ceil(8-c.dirtyWait))+'s',1);
 
       }
 
@@ -239,7 +262,7 @@ export function createCustomers(G, S, ctx) {
           r.human.sit(); r.human.setMood('none');
           r.bub.wrap.classList.add('hidden'); r.bub.bar.classList.add('hidden');
           r.pet.group.position.set(seat.pair.pet.x, 0, seat.pair.pet.z);
-          r.pet.sit(); r.eating = true; r.identity.setSeated(true); r.identity.announce('RELAXING', 1.5);
+          r.pet.sit(); r.eating = true; r.identity.setSeated(true); r.identity.announce('♥', 1.5);
           fx.hearts(seat.pair.pet.x, r.pet.height + 0.3, seat.pair.pet.z);
         }
       }

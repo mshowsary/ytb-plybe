@@ -6,14 +6,22 @@ import { installEconomicLedger } from './economicLedger.js';
 import { PATIENCE, SETTLE_WAIT } from '../sim/customers.js';
 import { frictionSeverity } from '../sim/serviceFriction.js';
 import { presentationScheduler } from '../core/presentationScheduler.js';
+import { cue, paintCue } from '../ui/hud.js';
+import { displayIcon, crossIcon, returnIcon, registerIcon, clockIcon, personIcon, checkIcon } from '../ui/icons.js';
 
 const SOFT_WAIT = 2.5;
 const STYLE_ID = 'pet-cafe-service-friction-style';
+// Pictograms, not sentences: this toast floats over the 3D world, which is the play field, and
+// the game's rule is icons and numerals there. The sentence survives as the cue's aria text.
+// Each pair reads as "where" then "what": the shelf and a cross, the shelf and a swap, the till
+// and a clock.
 const LABEL = {
-  shelfWait: 'Shelf is empty',
-  substitute: 'Guest changed order',
-  registerWait: 'Checkout is backed up',
+  shelfWait: () => cue([displayIcon(), crossIcon()], 'Shelf is empty'),
+  substitute: () => cue([displayIcon(), returnIcon()], 'Guest changed order'),
+  registerWait: () => cue([registerIcon(), clockIcon()], 'Checkout is backed up'),
 };
+const LABEL_DEFAULT = () => cue([personIcon(), crossIcon()], 'Guest had a rough service moment');
+const LABEL_RETURNED = () => cue([returnIcon(), checkIcon()], 'Items returned');
 
 function installStyle() {
   if (typeof document === 'undefined' || document.getElementById(STYLE_ID)) return;
@@ -32,7 +40,7 @@ function makeToast() {
   let timer = 0;
   return text => {
     if (timer) presentationScheduler.cancel(timer);
-    el.textContent = text; el.classList.add('show');
+    paintCue(el, text); el.classList.add('show');
     timer = presentationScheduler.schedule(() => { el.classList.remove('show'); timer = 0; }, 1050);
   };
 }
@@ -61,7 +69,7 @@ export function installServiceFriction(G) {
   function mark(kind) {
     const stats = G.dayStats || (G.dayStats = {});
     stats.serviceMisses = (stats.serviceMisses | 0) + 1;
-    announce(LABEL[kind] || 'Guest had a rough service moment');
+    announce((LABEL[kind] || LABEL_DEFAULT)());
     return true;
   }
 
@@ -121,7 +129,7 @@ export function installServiceFriction(G) {
     G.carry.onReturn = () => {
       const stats = G.dayStats || (G.dayStats = {});
       stats.returnActions = (stats.returnActions | 0) + 1;
-      announce('Items returned');
+      announce(LABEL_RETURNED());
     };
   }
 

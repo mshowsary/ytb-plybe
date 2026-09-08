@@ -6,6 +6,65 @@ import {
 // src/ui/hud.js
 import { presentationScheduler } from '../core/presentationScheduler.js';
 
+// ---- play-field cues ---------------------------------------------------------------------------
+// Program rule 5: no English prose is DRAWN over the 3D world. Banners, toasts, floating buttons
+// and the objective caption therefore take a CUE rather than a sentence -- a row of cells the HUD
+// draws, plus the sentence itself, which only a screen reader ever receives.
+//
+// A cell is one of:
+//   '<svg …>'      an authored pictogram (src/ui/icons.js), the same glyphs the HUD pills use
+//   12             a numeral -- the one notation that reads identically in every language
+//   '+' '→' … a single punctuation glyph, from PUNCT below and from nowhere else
+//   { swatch }     a pet portrait (src/ui/petPortrait.js), which needs a taller box than an icon
+//   'Marmalade'    any other string is a PROPER NOUN, the only kind of word this may draw
+//
+// The proper-noun door is the one that needs policing, so test/play-field-text.test.js scans every
+// call site in the source and fails on a cell that is a lowercase word or a multi-word string. The
+// renderer stays deliberately dumb: it classifies and draws, and does not adjudicate.
+const PUNCT = new Set(['+', '-', '−', '×', '→', '≤', '≥', '/', '%', '?', '!', '·', '…']);
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+export function cueHtml(cells) {
+  let out = '';
+  for (const cell of cells || []) {
+    if (cell === null || cell === undefined || cell === '' || cell === false) continue;
+    if (typeof cell === 'number') {
+      if (!Number.isFinite(cell)) continue;
+      out += `<span class="cueNum">${Math.round(cell).toLocaleString('en-US')}</span>`; continue;
+    }
+    // A portrait is 80x88, not 24x24, so it gets its own box rather than being squashed into a
+    // pictogram slot. This is the discovery toast's whole message: which pet just walked in.
+    if (typeof cell === 'object' && cell.swatch) { out += `<span class="cueSwatch">${cell.swatch}</span>`; continue; }
+    const s = String(cell);
+    if (s.startsWith('<svg')) { out += `<span class="cueIco">${s}</span>`; continue; }
+    if (PUNCT.has(s)) { out += `<span class="cueOp">${esc(s)}</span>`; continue; }
+    out += `<span class="cueName">${esc(s)}</span>`;
+  }
+  return out;
+}
+// `aria` is the full sentence, and it is the ONLY place a sentence is allowed to live: assistive
+// tech gets every word the play field used to print, and the screen gets none of them.
+export function cue(cells, aria) {
+  return { cells: Array.isArray(cells) ? cells : [cells], aria: String(aria || '') };
+}
+export function isCue(value) { return !!value && typeof value === 'object' && Array.isArray(value.cells); }
+// Paints a cue (or, for anything not yet converted, plain text) into an element. The glyphs are
+// aria-hidden inside icons.js already; the words ride along in a visually-hidden span AND in
+// aria-label, because a live region is announced from its text on some readers and from its
+// accessible name on others.
+export function paintCue(el, value) {
+  if (!el) return;
+  if (isCue(value)) {
+    el.classList.add('cueRow');
+    el.innerHTML = cueHtml(value.cells) + (value.aria ? `<span class="cueSr">${esc(value.aria)}</span>` : '');
+    if (value.aria) el.setAttribute('aria-label', value.aria); else el.removeAttribute('aria-label');
+    return;
+  }
+  el.classList.remove('cueRow');
+  el.removeAttribute('aria-label');
+  el.textContent = value === null || value === undefined ? '' : String(value);
+}
+
 // ---- the "saving for" ring ---------------------------------------------------------------------
 // After the first week the wallet is the only number on screen that still moves, and a number going
 // up is not progress -- the complaint this answers is that late game you "only get to stack money".
@@ -225,11 +284,15 @@ export function createHud() {
   // slides in, holds for `ms` (default 2500), slides out. A later call while one is showing simply
   // replaces the text and restarts the hold (day-start banners can fire two in a row on a
   // weekend-holiday day; each gets its own full visible window rather than being dropped).
-  const bannerEl = document.createElement('div'); bannerEl.className = 'pill hidden'; bannerEl.id = 'banner'; hud.appendChild(bannerEl);
+  const bannerEl = document.createElement('div'); bannerEl.className = 'pill hidden'; bannerEl.id = 'banner';
+  // The banner draws glyphs now, so its words only exist for assistive tech -- which means it has
+  // to be a live region or they would never be announced at all.
+  bannerEl.setAttribute('role', 'status'); bannerEl.setAttribute('aria-live', 'polite');
+  hud.appendChild(bannerEl);
   let bannerT = null;
   H.banner = (text, ms = 2500) => {
     if (bannerT) presentationScheduler.cancel(bannerT);
-    bannerEl.textContent = text;
+    paintCue(bannerEl, text);
     bannerEl.classList.remove('hidden');
     void bannerEl.offsetWidth;
     bannerEl.classList.add('show');
@@ -253,11 +316,13 @@ export function createHud() {
 
   // toast: a fading pill above the hint, shown for ~1.5 s; at most one pending while one is showing.
   // Remaining display time is preserved across both host and user pauses.
-  const toastEl = document.createElement('div'); toastEl.className = 'toast hidden'; hud.appendChild(toastEl);
+  const toastEl = document.createElement('div'); toastEl.className = 'toast hidden';
+  toastEl.setAttribute('role', 'status'); toastEl.setAttribute('aria-live', 'polite');
+  hud.appendChild(toastEl);
   let toastBusy = false, toastPending = null, toastT = null;
   function runToast(text) {
     toastBusy = true;
-    toastEl.textContent = text;
+    paintCue(toastEl, text);
     toastEl.classList.remove('hidden');
     void toastEl.offsetWidth; // restart the transition
     toastEl.classList.add('show');

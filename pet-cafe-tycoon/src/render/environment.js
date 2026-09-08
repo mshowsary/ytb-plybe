@@ -68,7 +68,25 @@ export const GARDEN_PALETTE = {
 
   // Garden garland along the picket line (new for the Seasons pass) -- an unlit bright-pass bulb
   // string, the same construction as the props/ambience string lights but exterior and seasonal.
+  // The SAME array also colours the café-fence festoon added by the in-frame pass below, which is
+  // the copy the player actually sees (see the IN-FRAME SEASONAL DRESSING block in buildScenery).
   stringLight: ['#FF9EC4', '#FFE29A', '#FFFFFF'],
+
+  // The terrace deck floor (props.js buildRegion). Blossom's three values ARE the literals
+  // buildRegion shipped with, so a palette-less buildRegion call still renders exactly today's
+  // deck and only this file ever moves them. The deck is the single largest surface in the default
+  // camera once the terrace is bought, so a small seasonal shift here changes the colour
+  // temperature of most of the frame without ever reading as "the deck was rebuilt".
+  deckBorder: '#E6E0D6',
+  deckBase: '#C69A6B',
+  deckPlank: '#D9B48A',
+
+  // Fallen petals / leaves / frost lying on the deck planks. Toon-lit (not the bright pass) so it
+  // sits IN the deck's own shadow instead of glowing off it after dark.
+  // MEASURED: an earlier draft put pure white in both this set and Splash's, and side by side the
+  // two seasons read as the same pale deck with slightly different specks. Blossom is now all
+  // pinks -- no white at all -- so the pair separates on hue and not on brightness alone.
+  litter: ['#FF9EC4', '#FFD3E4', '#FFC7DD', '#F7B7D4'],
 
   planterBody: '#A9764E',
   planterRim: '#D9A066',
@@ -131,6 +149,12 @@ const SEASON_PALETTE_OVERRIDES = {
     daisyCore: '#FFB627',
     stem: '#2E8F6E', leaf: ['#2FAE8C', '#26A07E', '#3FBF8F'],
     stringLight: ['#5FE0E8', '#FFFFFF', '#2EC4E0'],
+    // Deck: sun-bleached. Lighter and a touch cooler than Blossom's honey, which is what a timber
+    // deck actually does in high summer, and it pushes the whole frame away from Harvest's amber.
+    deckBorder: '#F4F1E8', deckBase: '#D4B389', deckPlank: '#EAD4AE',
+    // Aqua-dominant with one coral and one gold: reads as pool spray, and the two cyans against
+    // Blossom's all-pink set are what tell the two pale-deck seasons apart at a glance.
+    litter: ['#5FE0E8', '#2EC4E0', '#FFD166', '#FF7A85', '#38B6D6'],
   },
 
   // Harvest -- autumn: golden dry lawn, orange/red tree crowns, mum/pumpkin blooms, lantern garland.
@@ -145,6 +169,12 @@ const SEASON_PALETTE_OVERRIDES = {
     daisyCore: '#E0954E',
     stem: '#8A7A3E', leaf: ['#9C8A4A', '#8A7A3E', '#7A6A32'],
     stringLight: ['#FFA94D', '#FF7B25', '#FFD08A'],
+    // Deck: the deepest, most saturated amber of the four. Harvest and Lights are the pair most at
+    // risk of reading alike (both lean warm-red), so Harvest takes the warm deck and Lights the
+    // cool one -- that single difference separates them across most of the frame's area.
+    deckBorder: '#E2D5BE', deckBase: '#AE7A4B', deckPlank: '#C58F5F',
+    // Four browns/oranges/reds only: a monochrome warm scatter, so the eye reads "leaves".
+    litter: ['#D9660B', '#C2622E', '#E0954E', '#8F2A2A'],
   },
 
   // Lights -- winter holiday: frosted lawn, deep evergreen crowns, poinsettia/holly/ornament blooms,
@@ -160,6 +190,14 @@ const SEASON_PALETTE_OVERRIDES = {
     daisyCore: '#F2C744',
     stem: '#255A42', leaf: ['#2E6B4F', '#357860', '#255A42'],
     stringLight: ['#E23B4E', '#2E6B4F', '#F2C744', '#7FB3E0', '#FFFFFF'],
+    // Deck: cool grey-brown under a near-white stone border. Timber under frost, and the deliberate
+    // opposite of Harvest's amber (see Harvest's own note) so the two never share a frame tone.
+    deckBorder: '#EFF4F8', deckBase: '#AB9184', deckPlank: '#C0A99F',
+    // Snow + holly + one berry: the only litter set that mixes near-white with a dark green, which
+    // is the read that separates it from Harvest's flat warm scatter even in a thumbnail. White is
+    // listed three times because the pick is uniform over the array -- a 3:1:1:1 weighting makes it
+    // a dusting of frost with holly in it rather than an even confetti of four equal colours.
+    litter: ['#FFFFFF', '#F2F8FF', '#E8F4FF', '#2E6B4F', '#E23B4E', '#FFFFFF'],
   },
 };
 
@@ -225,6 +263,50 @@ function dome(out, hex, r, seg, x, y, z, flat = 0.8) {
   g.translate(x, y, z);
   out.push(finish(g, hex));
 }
+
+// ---- Festoon / litter primitives (the in-frame pass) --------------------------------------------
+// Same rule as the bloom primitives above: geo.js `part()` cannot express any of these at the cost
+// they need, and every one of them merges into an existing draw call rather than adding one.
+
+// A bunting pennant: an open 3-sided cone hanging point-down off a wire. 3 triangles. The missing
+// cap faces straight up into the wire, so it is never visible; the z-squash turns a party hat into
+// a piece of cloth, and the y-spin puts a flat face toward the camera rather than an edge.
+function pennant(out, hex, r, h, x, y, z) {
+  const g = new THREE.ConeGeometry(r, h, 3, 1, true);
+  g.rotateX(Math.PI);            // apex down, open base ring up against the wire
+  g.scale(1, 1, 0.34);
+  g.rotateY(0.52);
+  g.translate(x, y - h / 2, z);
+  out.push(finish(g, hex));
+}
+
+// One straight chord of a festoon wire, drawn in the xy plane at a fixed z. 8 triangles: a 4-sided
+// open cylinder, whose two open ends are always buried in the next chord or in a pole.
+function wireSeg(out, hex, x0, y0, x1, y1, z) {
+  const dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy);
+  const g = new THREE.CylinderGeometry(0.014, 0.014, len, 4, 1, true);
+  g.rotateZ(Math.atan2(-dx, dy));
+  g.translate((x0 + x1) / 2, (y0 + y1) / 2, z);
+  out.push(finish(g, hex));
+}
+
+// A flat scrap of litter lying on the deck: 4 triangles, single-sided, facing up. The camera is
+// always above it (PITCH 52 degrees), so the back face is never needed.
+// A squashed 4-gon, not a quad: measured on screen, an axis-aligned rectangle at this size reads
+// as a scrap of PAPER (confetti, or the game's own dirty-table debris) no matter what colour it
+// is, while a pointed diamond reads as a leaf or a petal. Same triangle order of magnitude.
+function litterFleck(out, hex, len, wide, x, y, z, yaw) {
+  const g = new THREE.CircleGeometry(len * 0.5, 4);
+  g.scale(1, wide / len, 1);
+  g.rotateX(-Math.PI / 2);
+  g.rotateY(yaw);
+  g.translate(x, y, z);
+  out.push(finish(g, hex));
+}
+
+// The sag of a hung string: 0 at both poles, `amp` at mid-span. Deterministic, no rng, so a season
+// swap can never move a bulb.
+function sagY(top, amp, t) { return top - amp * Math.sin(Math.PI * t); }
 
 // ---- One plant ----------------------------------------------------------------------------------
 // Three species, so a bed varies in silhouette and not only in hue, and so the average cost lands
@@ -506,7 +588,198 @@ function buildScenery(area, seasonId) {
     solid.push(part('box', [w * 1.08, 0.5, 4.4], P.townRoof, { x, y: -0.5 + h + 0.25, z }));
   }
 
-  return { solid, bright, gSolid, gBright, blooms, terrace };
+  // ================= IN-FRAME SEASONAL DRESSING ===================================================
+  // MEASURED, NOT ASSUMED. Everything above this line lives in the garden bands at z >= 7.9, and
+  // once the terrace is bought (~day 14) the deck replaces the near band and the camera sits south
+  // of most of the rest. Projecting the world through the real play camera (scene.js: YAW 35 deg,
+  // PITCH 52 deg, FOV 40, landscape distance 16.25 / (2 tan(FOV/2) aspect)) with the owner standing
+  // at the deck centre (0, 10.6) at 844x390:
+  //   café south fence (z = 7)   in frame for x -3.5 .. +6.3   <- crosses the middle of the screen
+  //   gate arch top (0, 2.5, 7.2) in frame, upper middle
+  //   deck floor                 in frame for roughly x -9 .. +6, z 8 .. 14  <- most of the frame
+  //   fountain (0, 10.6)         dead centre
+  //   garden picket + garland (z 17.6)  BEHIND the camera; a corner sliver only, and only when the
+  //                                     owner walks to the deck's south edge
+  //   tree ring (z >= 20), town ring    never in frame from the deck at all
+  // Portrait (390x844) sees a wider slice of the fence and less of the deck, and the same three
+  // anchors -- fence, gate arch, deck floor -- are still the ones on screen.
+  //
+  // So the entire seasonal read is put on those anchors. Nothing new goes into the far garden: it
+  // would be as invisible as the garland already there. This block is APPENDED after every existing
+  // draw from `r` on purpose -- inserting it earlier would shift the whole seeded garden layout.
+
+  const FENCE_Z = south;                    // 7 -- props.js buildStatic's south fence line
+  const FESTOON_Z = FENCE_Z + 0.12;         // the fence's SOUTH face (posts are 0.14 thick, z 6.93
+                                            // .. 7.07), i.e. the side the camera is on.
+  // MEASURED: at 2.02 (my first pass) the whole string sat off the TOP of the landscape frame with
+  // the owner at the deck centre and only survived behind the HUD chips. 1.72 puts the wire and the
+  // pennants inside the frame for x -2.3 .. +5.5, which is exactly the stretch of fence the camera
+  // holds, and still leaves a clear band above ambience.js's own cream string (y 1.28 at z 6.92)
+  // and above the window boxes' blooms below, so the fence reads as three stacked bands rather than
+  // one clotted one.
+  const FESTOON_TOP = 1.72;
+  // The fence posts stand every 1.5 m from x = -10, so the festoon poles land ON six of them and
+  // the string reads as tied to the fence rather than floating. The gate lane is left empty: guests
+  // walk through |x| < 1.2 and the gate arch already occupies that airspace.
+  const FESTOON_POLES = [-8.5, -5.5, -2.5, 2, 5, 8];
+  const FESTOON_SPANS = [[-9.7, -8.5], [-8.5, -5.5], [-5.5, -2.5], [2, 5], [5, 8], [8, 9.7]];
+  // Bunting hues: one per petal family plus the season's foliage, so the four seasons get four
+  // genuinely different four-colour sets rather than four shades of one hue --
+  //   blossom pink/yellow/violet/leaf-green · splash coral/amber/cyan/teal ·
+  //   harvest red/orange/plum/burnt-orange  · lights red/gold/ice-blue/evergreen.
+  const BUNTING = [P.petalPink[0], P.petalSun[0], P.petalViolet[0], P.foliage[0]];
+
+  for (const px of FESTOON_POLES) {
+    // Pole runs from below ground so it plants in the lawn before the terrace and hides inside
+    // buildRegion's stone border (y -0.45 .. -0.03, z 7.05 .. 14.35) after it. 12 triangles.
+    const g = new THREE.CylinderGeometry(0.05, 0.055, 2.22, 6, 1, true);
+    g.translate(px, 0.61, FESTOON_Z);
+    solid.push(finish(g, P.planterPost));
+  }
+
+  let bulbI = 0, pennantI = 0;
+  for (const [x0, x1] of FESTOON_SPANS) {
+    const len = x1 - x0;
+    const amp = 0.18 * Math.min(1, len / 3);   // short end spans sag proportionally less
+    const at = t => sagY(FESTOON_TOP, amp, t);
+    // Wire in four chords: enough to read as a curve at this scale, 32 triangles a span.
+    for (let s = 0; s < 4; s++) {
+      const t0 = s / 4, t1 = (s + 1) / 4;
+      wireSeg(solid, P.trunk, x0 + len * t0, at(t0), x0 + len * t1, at(t1), FESTOON_Z);
+    }
+    // Bulbs go to the UNLIT bright pass, which is the whole point of the festoon: after dark the
+    // toon-lit world drops into daylight.js's blue dusk keyframe and these keep their hue, so the
+    // season is still legible at t 228 with no extra light source and no per-frame hook.
+    for (let x = x0 + 0.15; x <= x1 - 0.05; x += 0.3, bulbI++) {
+      const t = (x - x0) / len;
+      // Every fourth bulb is the season's own white, so the string has some near-white energy for
+      // post.js's bright pass (threshold 0.72 luminance) to bloom on after dark.
+      const hex = (bulbI & 3) === 3 ? P.petalWhite[0] : P.stringLight[bulbI % P.stringLight.length];
+      bright.push(part('sph', [0.062, 5], hex, { x, y: at(t) - 0.055, z: FESTOON_Z }));
+    }
+    for (let x = x0 + 0.42; x <= x1 - 0.2; x += 0.78, pennantI++) {
+      pennant(bright, BUNTING[pennantI % BUNTING.length], 0.155, 0.36, x, sagY(FESTOON_TOP, amp, (x - x0) / len) - 0.055, FESTOON_Z + 0.01);
+    }
+  }
+
+  // Window boxes bolted to the south face of the fence. WHY HERE: this strip (z 7.09 .. 7.39) is
+  // the fence's own thickness plus the gate -- src/sim/nav.js blocks that whole row except the gate
+  // gap -- so nothing can ever walk through them, they are in frame in both orientations, and they
+  // are the one place a planter can go that the terrace does NOT delete (the Blossom-era beds at
+  // z 7.9+ are inside the terrace footprint and vanish with the deck). Box tops stop at y ~1.0,
+  // below the pennants at 1.42, so the fence line reads as three clean bands.
+  const BOX_Z = FENCE_Z + 0.24;
+  const BOX_SOIL = 0.50;
+  // Symmetric, 1.7 m apart, and the innermost pair starts at |x| = 2.4 so a 1.5 m box still leaves
+  // 1.65 m of clearance from the gate centreline and clears buildRegion's arch posts at |x| = 1.35.
+  for (const bx of [-9.2, -7.5, -5.8, -4.1, -2.4, 2.4, 4.1, 5.8, 7.5, 9.2]) {
+    solid.push(part('box', [1.5, 0.28, 0.30], P.planterBody, { x: bx, y: 0.34, z: BOX_Z }));
+    solid.push(part('box', [1.34, 0.10, 0.22], P.soil, { x: bx, y: 0.45, z: BOX_Z }));
+    solid.push(part('box', [1.58, 0.07, 0.36], P.planterRim, { x: bx, y: 0.485, z: BOX_Z }));
+    // Two brackets under the box, not behind it: they have to be visible for the box to read as
+    // bolted to the fence rather than balanced on thin air before the deck exists.
+    for (const ox of [-0.62, 0.62]) {
+      solid.push(part('box', [0.07, 0.22, 0.28], P.planterPost, { x: bx + ox, y: 0.11, z: BOX_Z - 0.03 }));
+    }
+    // Three blooms, not the beds' eight: a box is 0.3 m deep and the silhouette has to stay legible
+    // against the café behind it rather than turning into a hedge.
+    for (let f = 0; f < 3; f++) {
+      addPlant(P, PETAL_SETS, solid, bright, r, bx - 0.5 + f * 0.5 + (r() - 0.5) * 0.16, BOX_Z + (r() - 0.5) * 0.1, BOX_SOIL);
+      blooms++;
+    }
+  }
+
+  // ---- Deck dressing: only exists while the terrace is built ------------------------------------
+  // Kept in its own pair of arrays (dSolid/dBright) so buildEnvironment can park it under the same
+  // `deck` group the floor lives in -- one visibility flag, no second toggle for game.js to drive.
+  const dSolid = [], dBright = [];
+  if (terrace) {
+    const cx0 = terrace.x0, cx1 = terrace.x1, cz0 = terrace.z0, cz1 = terrace.z1;
+    const DECK_Y = 0.06;      // plank tops are y 0.045
+    const litter = P.litter;
+
+    // Fallen petals / leaves / frost. WHY THESE BANDS: the deck is the biggest thing in frame and a
+    // flat plank field is where a season has the most room to speak, but the MIDDLE of it is where
+    // guests, pets and the owner walk and where the game already draws debris for dirty tables --
+    // litter there would read as mess, not as autumn. So the scatter is pushed to the north strip
+    // under the window boxes (where petals would actually fall), the two side rims, and a ring
+    // around the fountain, all of which are floor the camera sees and feet mostly do not.
+    //
+    // MEASURED, second pass: my first attempt scattered 136 flecks EVENLY over the whole deck and
+    // the screenshot read as a littered floor rather than as a season -- the eye needs the gaps to
+    // know the marks are deliberate. So the scatter is now DRIFTED: sixteen anchors along the north
+    // strip and the two rims, each with a small huddle around it, plus a thin sprinkle everywhere
+    // else. Fleck sizes are ~35% smaller than the first pass for the same reason.
+    const fleck = (x, z, scale = 1) => {
+      const len = (0.14 + r() * 0.12) * scale;
+      litterFleck(dSolid, litter[(r() * litter.length) | 0], len, len * (0.42 + r() * 0.26),
+        x, DECK_Y, z, r() * Math.PI);
+    };
+    const drift = (x, z, n) => {
+      for (let i = 0; i < n; i++) {
+        const a = r() * Math.PI * 2, rad = r() * 0.66;
+        fleck(x + Math.cos(a) * rad, z + Math.sin(a) * rad * 0.7);
+      }
+    };
+    // North strip, directly under the fence window boxes: where petals/leaves would actually land.
+    for (let i = 0; i < 7; i++) drift(cx0 + 1.2 + i * 2.6 + (r() - 0.5) * 0.7, cz0 + 0.45 + r() * 0.75, 6 + ((r() * 4) | 0));
+    // The west half of the deck, x -8.5..-4.5: measured off the frame, this is the largest patch of
+    // BARE plank the default camera holds and the only big empty area left once the HUD chips are
+    // accounted for, so it is where a season has the most room to speak. Guests cut across it on
+    // the way to the west tables, but drifted patches read as leaves blown against the boards
+    // rather than as the debris the game draws for a dirty table.
+    for (let i = 0; i < 5; i++) drift(-8.4 + r() * 3.9, cz0 + 2.1 + i * 1.15 + r() * 0.5, 6 + ((r() * 4) | 0));
+    // West and east rims: floor the camera sees and feet mostly do not.
+    for (let i = 0; i < 4; i++) drift(-9.2 + (r() - 0.5) * 0.7, cz0 + 0.9 + i * 1.6, 5 + ((r() * 4) | 0));
+    for (let i = 0; i < 3; i++) drift(9.2 + (r() - 0.5) * 0.7, cz0 + 1.2 + i * 2.0, 5 + ((r() * 4) | 0));
+    // Three drifts caught against the fountain's stone base, which is dead centre of frame.
+    for (let i = 0; i < 3; i++) { const a = 2.1 + i * 1.9; drift(Math.cos(a) * 1.75, 10.6 + Math.sin(a) * 1.75, 5); }
+    // A thin sprinkle everywhere else: enough to say the whole deck is under the same sky, sparse
+    // enough that the walking lanes never read as unswept.
+    for (let i = 0; i < 26; i++) fleck(-8.6 + r() * 17.2, cz0 + 1.5 + r() * (cz1 - cz0 - 2.0), 0.85);
+
+    // Four planted pots on the fountain's diagonals. WHY HERE: the fountain sits dead centre of the
+    // default frame and is the one prop the player looks straight at, and fountain1's own station
+    // footprint (2.4 x 2.4 at 0, 10.6) is nav-blocked, so a pot inside it cannot be walked through.
+    // At 1.05 m diagonal offset the pot rim clears the fountain basin (outer radius 1.15) by 5 cm
+    // and pokes at most 13 cm past the blocked box -- a third of a 0.5 m nav cell, which no mover
+    // can path into anyway. The same offsets also clear splash1, the pool that replaces the
+    // fountain in this spot later (outer radius 1.2).
+    for (const [ox, oz] of [[-1.05, -1.05], [1.05, -1.05], [-1.05, 1.05], [1.05, 1.05]]) {
+      const px = ox, pz = 10.6 + oz;
+      dSolid.push(part('cyl', [0.24, 0.19, 0.32, 8], P.planterBody, { x: px, y: 0.21, z: pz }));
+      dSolid.push(part('cyl', [0.27, 0.27, 0.06, 8], P.planterRim, { x: px, y: 0.375, z: pz }));
+      for (let f = 0; f < 3; f++) {
+        const a = f * 2.1 + 0.4;
+        addPlant(P, PETAL_SETS, dSolid, dBright, r, px + Math.cos(a) * 0.11, pz + Math.sin(a) * 0.11, 0.40);
+        blooms++;
+      }
+    }
+
+    // Floating petals on the water. y 0.30 sits above the fountain's pool surface (0.28) and above
+    // splash1's water (0.25) and its centre disc (0.275) -- one placement correct for both props.
+    // Centre radius 0.62 .. 0.84 plus at most 0.085 of half-length keeps every petal inside the
+    // fountain's 0.95 water disc and outside its 0.6 centre column, so none of them ever hangs over
+    // the basin gap or clips the column.
+    for (let i = 0; i < 11; i++) {
+      const a = r() * Math.PI * 2, rad = 0.62 + r() * 0.22;
+      litterFleck(dBright, litter[(r() * litter.length) | 0], 0.1 + r() * 0.07, 0.07 + r() * 0.05,
+        Math.cos(a) * rad, 0.30, 10.6 + Math.sin(a) * rad, r() * Math.PI);
+    }
+
+    // A swag over the gate arch (buildRegion draws the arch at x 0, z z0 - 0.2, crossbar y 2.4).
+    // The arch is the highest thing on the deck and lands in the upper middle of the default frame,
+    // so this is the one seasonal cue that is legible even when the owner is standing at the deck's
+    // far south edge and the fence festoon has slid off the top of the screen.
+    const archZ = cz0 - 0.2;
+    for (let i = 0; i <= 12; i++) {
+      const t = i / 12, x = -1.5 + t * 3.0, y = sagY(2.34, 0.22, t);
+      dSolid.push(part('sph', [0.115, 5], P.foliage[i % P.foliage.length], { x, y: y - 0.05, z: archZ, sy: 0.8 }));
+      dBright.push(part('sph', [0.06, 5], P.stringLight[i % P.stringLight.length], { x, y: y + 0.06, z: archZ + 0.06 }));
+    }
+  }
+
+  return { solid, bright, gSolid, gBright, dSolid, dBright, blooms, terrace };
 }
 
 // Wraps `parts` (or a single-item placeholder for an empty array — mergeGeometries cannot merge
@@ -555,11 +828,34 @@ export function buildEnvironment(area, seasonId = SEASON_IDS[0]) {
   group.add(garden);
   group.garden = garden;
 
+  // ---- The terrace deck (plan 3.1/7.1) -----------------------------------------------------------
+  // `garden` is every near-band piece generated above whose footprint the terrace occupies — shown
+  // until the terrace is bought. `deck` is the built terrace floor (props.js buildRegion) PLUS the
+  // seasonal deck dressing, hidden until then. Both groups exist unconditionally (even pre-Batch-1
+  // saves need something to flip), and the caller (game.js owns the frame loop and the 'built'
+  // event) drives the swap by calling group.setTerraceBuilt(world.built.has('z_terrace')) once at
+  // load and again on every 'built' event — refreshActive-style, not a per-frame poll.
+  //
+  // It is created HERE, before the first applySeason, because the deck floor is now palette-driven
+  // (buildRegion takes the season's palette so its planks, border, corner planters and gate arch
+  // re-tint with everything else) and applySeason rebuilds its contents in place. Only
+  // setTerraceBuilt ever touches deck.visible, so a re-season can never undo the terrace toggle.
+  const terrace = (area.regions || []).find(reg => reg.id === 'terrace') || null;
+  const deck = new THREE.Group();
+  deck.name = 'terraceDeck';
+  deck.visible = false;
+  group.add(deck);
+  group.deck = deck;
+
   let solidNode = null, brightNode = null, gSolidNode = null, gBrightNode = null;
+  let deckFloorNode = null, dSolidNode = null, dBrightNode = null;
   let currentSeason = null;
 
   function disposeLit(node) { if (node) node.geometry.dispose(); } // shares toonMaterial() — never dispose that
   function disposeBright(node) { if (node) { node.geometry.dispose(); node.material.dispose(); } }
+  // buildRegion hands back a Group wrapping one merged toon mesh; free the geometry, keep the
+  // shared toonMaterial() alive for every other user of it.
+  function disposeFloor(node) { if (node) node.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
 
   // (Re)builds solid/bright/gSolid/gBright for `id` and swaps them into `group`/`garden` in place.
   // A no-op if `id` is already the active season, so callers can call this every frame/tick without
@@ -573,10 +869,15 @@ export function buildEnvironment(area, seasonId = SEASON_IDS[0]) {
 
     disposeLit(solidNode); disposeBright(brightNode);
     disposeLit(gSolidNode); disposeBright(gBrightNode);
+    disposeLit(dSolidNode); disposeBright(dBrightNode);
+    disposeFloor(deckFloorNode);
     if (solidNode) group.remove(solidNode);
     if (brightNode) group.remove(brightNode);
     if (gSolidNode) garden.remove(gSolidNode);
     if (gBrightNode) garden.remove(gBrightNode);
+    if (dSolidNode) deck.remove(dSolidNode);
+    if (dBrightNode) deck.remove(dBrightNode);
+    if (deckFloorNode) deck.remove(deckFloorNode);
 
     solidNode = meshOrEmpty(data.solid, { cast: true, receive: true });
     brightNode = meshOrEmpty(data.bright, { cast: false, receive: false, material: brightMaterial() });
@@ -587,29 +888,29 @@ export function buildEnvironment(area, seasonId = SEASON_IDS[0]) {
     group.add(brightNode);
     garden.add(gSolidNode);
     garden.add(gBrightNode);
+
+    if (terrace) {
+      // The floor takes the season's palette; buildRegion falls back to its shipped literals when
+      // called without one, so nothing else that ever calls it changes.
+      deckFloorNode = buildRegion(area, terrace, paletteForSeason(resolved));
+      deck.add(deckFloorNode);
+      // Litter is toon-LIT on purpose: it lies flat on the planks and must sit inside the deck's
+      // own shadow, not glow off it at dusk. The blooms and the arch's bulbs are unlit, which is
+      // what carries the season after dark.
+      dSolidNode = meshOrEmpty(data.dSolid, { cast: false, receive: true });
+      dBrightNode = meshOrEmpty(data.dBright, { cast: false, receive: false, material: brightMaterial() });
+      deck.add(dSolidNode);
+      deck.add(dBrightNode);
+    }
   }
   applySeason(seasonId);
   // Consumed by whoever owns src/sim/seasons.js's day->season mapping (see this task's
   // wiringNeeded) once per day rollover. Cheap to over-call: no-ops when the id hasn't changed.
   group.setSeason = applySeason;
 
-  // ---- The terrace deck (plan 3.1/7.1) -----------------------------------------------------------
-  // `garden` is every near-band piece generated above whose footprint the terrace occupies — shown
-  // until the terrace is bought. `deck` is the built terrace floor (props.js buildRegion), hidden
-  // until then. Both groups exist unconditionally (even pre-Batch-1 saves need something to flip),
-  // and the caller (game.js owns the frame loop and the 'built' event) drives the swap by calling
-  // group.setTerraceBuilt(world.built.has('z_terrace')) once at load and again on every 'built'
-  // event — refreshActive-style, not a per-frame poll. For the same visual "pop" every other
-  // station build gets, animate deck.scale with src/render/buildReveal.js's buildRevealScale the
-  // way systems/visuals.js already does; that per-frame hookup lives outside this file.
-  const terrace = (area.regions || []).find(reg => reg.id === 'terrace') || null;
-  const deck = new THREE.Group();
-  deck.name = 'terraceDeck';
-  deck.visible = false;
-  if (terrace) deck.add(buildRegion(area, terrace));
-  group.add(deck);
-  group.deck = deck;
-
+  // For the same visual "pop" every other station build gets, animate deck.scale with
+  // src/render/buildReveal.js's buildRevealScale the way systems/visuals.js already does; that
+  // per-frame hookup lives outside this file.
   let terraceBuilt = false;
   group.setTerraceBuilt = built => {
     built = !!built;

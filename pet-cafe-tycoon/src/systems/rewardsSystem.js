@@ -14,7 +14,9 @@ import { subscribeWorld } from '../sim/events.js';
 import {
   calendarIcon, giftIcon, sunIcon, pawIcon, coinIcon, checkIcon,
   sparkleIcon, catIcon, dogIcon, bunnyIcon, coffeeIcon, cupcakeIcon, smoothieIcon, treatIcon,
+  crossIcon, sackIcon,
 } from '../ui/icons.js';
+import { cue } from '../ui/hud.js';
 
 const STYLE_ID = 'pet-cafe-rewards-style';
 
@@ -326,9 +328,12 @@ export function createRewardsSystem(G, S, platform) {
   const mysteryChip = document.createElement('button');
   mysteryChip.type = 'button';
   mysteryChip.className = 'mystery-float-chip hidden';
+  // Gift + '?' -- the present whose contents are unknown, which is exactly what "MYSTERY GIFT"
+  // said. Matches the sibling rewarded chips, which have been icon-only since Task 2.7.
+  mysteryChip.setAttribute('aria-label', 'Mystery gift');
   mysteryChip.innerHTML = `
     <span style="width:18px;height:18px;display:inline-block">${giftIcon()}</span>
-    <span>MYSTERY GIFT</span>
+    <span>?</span>
   `;
   document.body.appendChild(mysteryChip);
 
@@ -436,7 +441,7 @@ export function createRewardsSystem(G, S, platform) {
         earned = await platform.requestRewardedAd('pet-cafe-calendar');
       }
       if (!earned) {
-        G.hud?.toast?.('Gift unavailable');
+        G.hud?.toast?.(cue([giftIcon(), crossIcon()], 'Gift unavailable'));
         calClaimBtn.disabled = false;
         return;
       }
@@ -456,13 +461,13 @@ export function createRewardsSystem(G, S, platform) {
           if (st.active && st.capacity) st.stock = st.capacity;
           if (st.active && st.buffer) st.stock = st.buffer;
         }
-        G.hud?.banner?.('✨ GRAND OPENING RESTOCK ✨', 3000);
+        G.hud?.banner?.(cue([sparkleIcon(), sackIcon(), checkIcon()], 'Grand opening restock'), 3000);
       }
 
       G.requestCheckpoint?.('calendar-claim');
       refreshCalendarDot();
       renderCalendar();
-      G.hud?.toast?.(`Claimed +${prize} coins!`);
+      G.hud?.toast?.(cue([coinIcon(), '+', prize], `Claimed plus ${prize} coins`));
     } : null;
   }
 
@@ -478,7 +483,7 @@ export function createRewardsSystem(G, S, platform) {
       earned = await platform.requestRewardedAd('pet-cafe-mystery-gift');
     }
     if (!earned) {
-      G.hud?.toast?.('Mystery Gift unavailable');
+      G.hud?.toast?.(cue([giftIcon(), crossIcon()], 'Mystery Gift unavailable'));
       return;
     }
     markRewardedClaim(G.meta, day, 'gift');
@@ -491,7 +496,7 @@ export function createRewardsSystem(G, S, platform) {
       G.hud?.setCoins?.(G.coins);
       G.hud?.bump?.();
       G.audio?.play?.('chime');
-      G.hud?.banner?.(`🐾 MYSTERY GIFT · +${amount} COINS 🐾`, 3000);
+      G.hud?.banner?.(cue([giftIcon(), coinIcon(), '+', amount], `Mystery gift, plus ${amount} coins`), 3000);
     } else if (kind === 'restock') {
       for (const st of G.world.stations.values()) {
         if (st.active && st.capacity) st.stock = st.capacity;
@@ -500,7 +505,7 @@ export function createRewardsSystem(G, S, platform) {
         if (st.active && typeof st.fruit === 'number') st.fruit = 9;
       }
       G.audio?.play?.('chime');
-      G.hud?.banner?.('🐾 MYSTERY GIFT · FULL RESTOCK 🐾', 3000);
+      G.hud?.banner?.(cue([giftIcon(), sackIcon(), checkIcon()], 'Mystery gift, full restock'), 3000);
     } else if (kind === 'golden') {
       if (G.golden) {
         G.golden.active = true;
@@ -508,7 +513,7 @@ export function createRewardsSystem(G, S, platform) {
         G.golden.usedToday = true;
       }
       G.audio?.play?.('chime');
-      G.hud?.banner?.('✨ MYSTERY GOLDEN BURST · 2x TIPS ✨', 3500);
+      G.hud?.banner?.(cue([giftIcon(), sunIcon(), '×', 2], 'Mystery golden burst, double tips'), 3500);
     }
     G.requestCheckpoint?.('mystery-gift-claim');
   });
@@ -530,7 +535,7 @@ export function createRewardsSystem(G, S, platform) {
       earned = await platform.requestRewardedAd('pet-cafe-speed-build');
     }
     if (!earned) {
-      G.hud?.toast?.('Speed Build unavailable');
+      G.hud?.toast?.(cue([boltIcon(), crossIcon()], 'Speed Build unavailable'));
       return;
     }
     markRewardedClaim(G.meta, day, 'speed-build');
@@ -555,7 +560,7 @@ export function createRewardsSystem(G, S, platform) {
       earned = await platform.requestRewardedAd('pet-cafe-rare-visitor');
     }
     if (!earned) {
-      G.hud?.toast?.('Rare Visitor unavailable');
+      G.hud?.toast?.(cue([pawIcon(), crossIcon()], 'Rare Visitor unavailable'));
       return;
     }
     markRewardedClaim(G.meta, day, 'rare-visitor');
@@ -578,7 +583,7 @@ export function createRewardsSystem(G, S, platform) {
       earned = await platform.requestRewardedAd('pet-cafe-golden-shot');
     }
     if (!earned) {
-      G.hud?.toast?.('Golden Shot unavailable');
+      G.hud?.toast?.(cue([sparkleIcon(), crossIcon()], 'Golden Shot unavailable'));
       return;
     }
     markRewardedClaim(G.meta, day, 'golden-shot');
@@ -615,7 +620,7 @@ export function createRewardsSystem(G, S, platform) {
         const schedule = goldenHourForDay(day);
         const started = stepGoldenHour(G.golden, schedule, G.dayState.t, dt);
         if (started) {
-          G.hud?.banner?.('✨ GOLDEN HOUR · 2x TIPS ✨', 3500);
+          G.hud?.banner?.(cue([sunIcon(), '×', 2], 'Golden hour, double tips'), 3500);
           G.audio?.play?.('chime');
           if (G.fx && !globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
             G.fx.burst(G.P.x, 1.2, G.P.z, '#FFD700', 25);

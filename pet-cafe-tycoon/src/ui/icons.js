@@ -177,3 +177,146 @@ export function checkIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7" fill="none" stroke="#2ECC71" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 }
 
+
+// ---------------------------------------------------------------------------------------------
+// Play-field cue glyphs (icon-first pass). Everything the game used to SAY over the 3D world now
+// has to be DRAWN, so this block adds the missing nouns and the one piece of punctuation that
+// carries meaning on its own. Same viewBox 0 0 24 24 convention as everything above, so they drop
+// into the same boxes (src/style.css's .cueIco) as the product icons.
+//
+// The rule used when choosing each one: draw the OBJECT the player already sees in the world, not
+// an abstraction of the action. A broom for cleaning (the owner holds one), a crate for the party
+// order (the crate is physically in the room), bunting for a Pet Social (the world grows exactly
+// that decor when one starts). Where no object exists, fall back to the most universal sign
+// available -- a clock for time, a red cross for "no".
+
+// The negative half of checkIcon above. Deliberately the same stroke weight and geometry so a
+// check and a cross read as one yes/no pair rather than two unrelated marks.
+export function crossIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="#E2483C" stroke-width="3" stroke-linecap="round"/></svg>';
+}
+// Waiting. Used for guest patience, shift countdowns and the service-policy rule, because in every
+// one of those the thing being measured is elapsed time and nothing else.
+export function clockIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="#FFF4E6" stroke="#7A583A" stroke-width="1.8"/>'
+    + '<path d="M12 6.6V12l3.6 2.4" fill="none" stroke="#7A583A" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+// A charge against the wallet: the wallet's own coin with a red minus badge. One glyph rather than
+// a coin cell plus a minus cell, so a cost never has to be parsed as arithmetic.
+export function coinMinusIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="11.5" r="8.5" fill="#FFD84D" stroke="#C98A00" stroke-width="1.5"/>'
+    + '<circle cx="10.5" cy="11.5" r="4.4" fill="none" stroke="#C98A00" stroke-width="1"/>'
+    + '<circle cx="18.2" cy="18" r="5.2" fill="#E2483C"/><path d="M15.9 18h4.6" stroke="#fff" stroke-width="1.9" stroke-linecap="round"/></svg>';
+}
+// A seat nobody can use: the same table-with-an-X the guest holds up on the play field
+// (src/systems/visuals.js) and the day summary's missed-seat chip (src/ui/serviceSummary.js), so
+// the cause, the consequence and the report are all visibly the same object.
+export function tableDirtyIcon() {
+  return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 13h18M6 13v7M18 13v7" stroke="#7A583A" stroke-width="2" stroke-linecap="round"/>'
+    + '<path d="M8 3.5l8 7M16 3.5l-8 7" stroke="#E2483C" stroke-width="2" stroke-linecap="round"/></svg>';
+}
+// Cleaning. The owner literally holds this while wiping a seat, so the cue and the animation match.
+export function broomIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.5 3.2l3.3 3.3-8 8-3.3-3.3z" fill="#B9834A"/>'
+    + '<path d="M9.2 11.6l3.2 3.2-4.4 5.6a1.6 1.6 0 0 1-2.5.1l-2-2a1.6 1.6 0 0 1 .1-2.4z" fill="#E9C98F"/>'
+    + '<path d="M4.6 16.1l3.3 3.3" stroke="#B9834A" stroke-width="1.2"/></svg>';
+}
+// Renovation: a paint roller, the one tool that means "the room itself changes" rather than
+// "a machine got better" (which is gearIcon's job in the wallet ring).
+export function brushIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3.2" width="13" height="5.2" rx="1.4" fill="#8B7CF6"/>'
+    + '<path d="M17 5.8h2.6a1.4 1.4 0 0 1 1.4 1.4v3.4a1.4 1.4 0 0 1-1.4 1.4H12" fill="none" stroke="#8B7CF6" stroke-width="1.6"/>'
+    + '<rect x="10.2" y="11" width="3.6" height="4" rx="1" fill="#B7ACFB"/><rect x="10.7" y="15" width="2.6" height="6" rx="1.3" fill="#8B7CF6"/></svg>';
+}
+// The cafe itself, awning and all -- the building the player has been assembling zone by zone.
+export function cafeIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.4 9.5h17.2V20a1 1 0 0 1-1 1H4.4a1 1 0 0 1-1-1z" fill="#FFF4E6" stroke="#7A583A" stroke-width="1.3"/>'
+    + '<path d="M2.6 9.5l1.6-4.4a1 1 0 0 1 .95-.66h13.7a1 1 0 0 1 .95.66l1.6 4.4z" fill="#E8896F"/>'
+    + '<path d="M6.4 4.4L5.4 9.5M10.1 4.4l-.5 5.1M13.9 4.4l.5 5.1M17.6 4.4l1 5.1" stroke="#FFF4E6" stroke-width="1.1"/>'
+    + '<rect x="9.4" y="13.4" width="5.2" height="7.6" rx="1" fill="#C97A3A"/></svg>';
+}
+// The Weekly Cup. A trophy is the one prize glyph nobody has to be taught.
+export function trophyIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10v6a5 5 0 0 1-10 0z" fill="#FFD84D" stroke="#C98A00" stroke-width="1.2"/>'
+    + '<path d="M7 4.6H4.4v1.8A3.4 3.4 0 0 0 7.4 9.8M17 4.6h2.6v1.8a3.4 3.4 0 0 1-3 3.4" fill="none" stroke="#C98A00" stroke-width="1.4"/>'
+    + '<path d="M10.4 13.6h3.2V17h-3.2z" fill="#C98A00"/><rect x="7.4" y="17" width="9.2" height="3.4" rx="1.2" fill="#C98A00"/></svg>';
+}
+// Weekend: a calendar whose last two cells are lit. Same calendar body as calendarIcon so the two
+// read as the same object with different days marked, which is exactly what they are.
+export function weekendIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3" fill="#FFF5EB" stroke="#7A583A" stroke-width="1.6"/>'
+    + '<path d="M3 9h18" stroke="#7A583A" stroke-width="1.6"/><rect x="3" y="5" width="18" height="4" rx="2" fill="#E8896F"/>'
+    + '<rect x="7" y="2" width="2" height="4" rx="1" fill="#7A583A"/><rect x="15" y="2" width="2" height="4" rx="1" fill="#7A583A"/>'
+    + '<rect x="12.4" y="11.4" width="6.2" height="8.2" rx="1.6" fill="#F5B93C"/></svg>';
+}
+// Holiday: a paper garland plus a star. Distinct from weekendIcon at a glance because it is a
+// different shape entirely, not a differently-coloured calendar.
+export function holidayIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1.5 5.2C7 9 17 9 22.5 5.2" fill="none" stroke="#B9834A" stroke-width="1.4" stroke-linecap="round"/>'
+    + '<path d="M4 6.4l2.6.5-1 3.6z" fill="#E8896F"/><path d="M8.6 8.1l2.7.25-.7 3.7z" fill="#F5B93C"/>'
+    + '<path d="M13.4 8.35l2.7-.25-.6 3.75z" fill="#75BDA0"/><path d="M17.9 6.9l2.6-.5-1 3.7z" fill="#8B7CF6"/>'
+    + '<path d="M12 13.4l1.5 3.4 3.7.4-2.8 2.5.8 3.6L12 21.4l-3.2 1.9.8-3.6-2.8-2.5 3.7-.4z" fill="#FFD84D"/></svg>';
+}
+// The party-order crate, the physical box that fills up in the room.
+export function crateIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7.4" width="18" height="13" rx="1.8" fill="#C89A63" stroke="#7A583A" stroke-width="1.3"/>'
+    + '<path d="M3 12h18M9.6 7.4v13M14.4 7.4v13" stroke="#7A583A" stroke-width="1.1"/>'
+    + '<path d="M2.2 4h19.6v3.4H2.2z" fill="#E8896F"/></svg>';
+}
+// Pet Social medals. Tier is a COLOUR, not a word: the same three metals every game on the store
+// uses, so BRONZE/SILVER/GOLD never has to be spelled. Index 0 is "none yet".
+const MEDAL_METAL = ['#C9C2B6', '#CE8B4E', '#C9CDD4', '#FFD84D'];
+export function medalIcon(tier = 0) {
+  const metal = MEDAL_METAL[Math.max(0, Math.min(3, tier | 0))];
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.6 2.4h3.1l3.2 7.4h-3.1z" fill="#8B7CF6"/><path d="M13.3 2.4h3.1l-3.2 7.4h-3.1z" fill="#E8896F"/>'
+    + '<circle cx="12" cy="15.6" r="6.1" fill="' + metal + '" stroke="#7A583A" stroke-width="1.2"/>'
+    + '<path d="M12 11.8l1.15 2.5 2.7.3-2.05 1.85.58 2.65L12 17.75 9.62 19.1l.58-2.65L8.15 14.6l2.7-.3z" fill="#FFF6E2"/></svg>';
+}
+// A Pet Social: the exact bunting src/systems/petSocials.js hangs over the terrace when one starts,
+// so the button shows the thing pressing it builds.
+export function buntingIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 6.5C7.5 11 16.5 11 22 6.5" fill="none" stroke="#C39861" stroke-width="1.5" stroke-linecap="round"/>'
+    + '<path d="M4.6 7.9l2.9.9-1.2 3.6z" fill="#E8896F"/><path d="M9.4 9.4l3 .35-1 3.75z" fill="#FFE4BA"/>'
+    + '<path d="M14.6 9.75l3-.35-1.8 4.6z" fill="#75BDA0"/>'
+    + '<ellipse cx="12" cy="18.9" rx="3.4" ry="2.7" fill="#C97A3A"/><circle cx="8.4" cy="16.4" r="1.5" fill="#C97A3A"/><circle cx="15.6" cy="16.4" r="1.5" fill="#C97A3A"/></svg>';
+}
+// Hands full. A mitt gripping a box: the state, drawn, rather than the instruction to fix it.
+export function handIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6.6" y="3.2" width="11" height="8" rx="1.3" fill="#C89A63" stroke="#7A583A" stroke-width="1.2"/>'
+    + '<path d="M6.6 7.2h11" stroke="#7A583A" stroke-width="1"/>'
+    + '<path d="M4.2 12.6a1.7 1.7 0 0 1 1.7-1.7h8.6a3.6 3.6 0 0 1 0 7.2H9.9L6 20.8a1.6 1.6 0 0 1-2.4-1.9z" fill="#E8B48C" stroke="#7A583A" stroke-width="1.2" stroke-linejoin="round"/></svg>';
+}
+// A requirement not yet met. Paired with repIcon it says "reputation gate" without the sentence.
+export function lockIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 10V7.6a4 4 0 0 1 8 0V10" fill="none" stroke="#7A583A" stroke-width="2"/>'
+    + '<rect x="4.8" y="10" width="14.4" height="10.6" rx="2.4" fill="#C89A63" stroke="#7A583A" stroke-width="1.4"/>'
+    + '<circle cx="12" cy="15.3" r="1.7" fill="#7A583A"/></svg>';
+}
+// Reputation. A five-point star, because the summary sheet already prints reputation as a run of
+// stars; sparkleIcon's four points stay reserved for "something special is happening".
+export function repIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6l2.9 6.2 6.7.8-5 4.6 1.35 6.6L12 17.5 6.05 20.8 7.4 14.2l-5-4.6 6.7-.8z" fill="#FFD84D" stroke="#C98A00" stroke-width="1.1" stroke-linejoin="round"/></svg>';
+}
+// The checkout. Distinct from coinIcon (which means "pick up the cash pile"): this one is the
+// counter a guest is standing at, waiting to pay.
+export function registerIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="12" width="18" height="8.4" rx="1.6" fill="#C89A63" stroke="#7A583A" stroke-width="1.3"/>'
+    + '<rect x="6.4" y="4.6" width="9.2" height="7.4" rx="1.4" fill="#FFF4E6" stroke="#7A583A" stroke-width="1.3"/>'
+    + '<path d="M8.6 7.4h4.8M8.6 9.6h3" stroke="#7A583A" stroke-width="1.2" stroke-linecap="round"/>'
+    + '<circle cx="18" cy="16.2" r="1.6" fill="#FFD84D" stroke="#C98A00" stroke-width="1"/></svg>';
+}
+// The display case that runs empty. Restocking it is the one job with no product of its own --
+// what is missing changes shelf to shelf -- so the cue is the fixture, not a pastry.
+export function displayIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.6" y="6.4" width="18.8" height="12" rx="1.8" fill="#EAF4FF" stroke="#7A583A" stroke-width="1.4"/>'
+    + '<path d="M2.6 12.4h18.8" stroke="#7A583A" stroke-width="1.2"/>'
+    + '<rect x="2" y="18.4" width="20" height="2.6" rx="1.1" fill="#C89A63"/>'
+    + '<circle cx="7.6" cy="9.4" r="1.7" fill="#D9A066"/><circle cx="12" cy="9.4" r="1.7" fill="#FF8A80"/></svg>';
+}
+// The oven, mid-bake. The tray and the glow are what the player watches on the machine itself.
+export function bakeIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.4" y="3.4" width="17.2" height="17.2" rx="2.4" fill="#C89A63" stroke="#7A583A" stroke-width="1.4"/>'
+    + '<rect x="6" y="9.4" width="12" height="8.4" rx="1.4" fill="#FFB300" stroke="#7A583A" stroke-width="1.2"/>'
+    + '<circle cx="9.4" cy="14" r="1.5" fill="#8A5A34"/><circle cx="14.4" cy="14.6" r="1.5" fill="#8A5A34"/>'
+    + '<path d="M6.4 6.4h6" stroke="#7A583A" stroke-width="1.5" stroke-linecap="round"/><circle cx="17" cy="6.4" r="1.2" fill="#7A583A"/></svg>';
+}

@@ -706,7 +706,8 @@ console.log(`rush friction: ${(frictionByPhase.rush * 100).toFixed(1)}% (target 
 console.log(`outside-rush friction: ${(outsideFriction * 100).toFixed(1)}% (target <25%) ${outsideFriction < 0.25 ? 'OK' : 'WARN'}`);
 const lostPctPerDay = dayReport.map(r => (r.served + r.lost) > 0 ? r.lost / (r.served + r.lost) * 100 : 0);
 const avgLostPct = lostPctPerDay.length ? lostPctPerDay.reduce((a, b) => a + b, 0) / lostPctPerDay.length : 0;
-console.log(`lost sales: ${avgLostPct.toFixed(1)}% avg/day (target 4-10%) ${avgLostPct >= 4 && avgLostPct <= 10 ? 'OK' : 'WARN'}`);
+// No floor (plan §2.3 / §4.3): a café that serves everyone is the point, so only a HIGH figure warns.
+console.log(`lost sales: ${avgLostPct.toFixed(1)}% avg/day (target <= 10%, low is fine) ${avgLostPct <= 10 ? 'OK' : 'WARN'}`);
 console.log(`daysToComplete (core café): ${daysToComplete == null ? 'NOT REACHED' : daysToComplete} (target 10-12) ${daysToComplete != null && daysToComplete >= 10 && daysToComplete <= 12 ? 'OK' : 'WARN'}`);
 console.log(`terrace chain complete: ${terraceDoneDay == null ? 'not within ' + MAX_DAYS + ' days' : 'day ' + terraceDoneDay} (${[...TERRACE_ZONE_IDS].filter(id => world.built.has(id)).length}/${TERRACE_ZONE_IDS.size} zones built)`);
 const affordVals = dayReport.filter(r => r.day >= 2 && r.day <= 8).map(r => r.afford);

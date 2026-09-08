@@ -46,7 +46,9 @@ await page.waitForFunction(() => {
 }, null, { timeout:5000 });
 await page.waitForFunction(() => {
   const el = document.querySelector('#banner');
-  return el && el.classList.contains('show') && el.textContent.includes('PET PARTY ORDER');
+  // The banner draws a pictogram now (Batch 4a.1); its textContent is the visually-hidden aria
+  // sentence ('New pet party order'), so match it case-insensitively.
+  return el && el.classList.contains('show') && /pet party order/i.test(el.textContent || '');
 }, null, { timeout:5000 });
 // Let the banner finish its 350ms entrance transition before measuring final geometry.
 await page.waitForTimeout(420);
@@ -67,7 +69,7 @@ const layout = await page.evaluate(() => {
 const required = new Set(['#wallet','.pause-btn','#dayPill','.meta-reputation','.meta-pawbook','.party-order-btn']);
 for (const [sel] of layout.permanent) required.delete(sel);
 if (required.size) throw new Error(`183x416 expected visible controls missing: ${[...required].join(', ')}`);
-if (!layout.banner || !layout.bannerText.includes('PET PARTY ORDER')) throw new Error('183x416 Party Order celebration banner was not measurable');
+if (!layout.banner || !/pet party order/i.test(layout.bannerText)) throw new Error('183x416 Party Order celebration banner was not measurable');
 
 function overlap(a,b) {
   return Math.min(a.right,b.right)-Math.max(a.left,b.left)>2 && Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top)>2;
