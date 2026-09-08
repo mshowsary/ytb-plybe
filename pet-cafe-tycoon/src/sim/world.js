@@ -23,7 +23,7 @@ function rotateOffset(rot, right, forward) {
 // cookies + brownies; Coffee: coffee + latte"). Every other oven/coffee station (oven2/blender1
 // have no alt recipe in the design) keeps altProduct undefined, so the toggle logic below never
 // fires for them regardless of their own star tier.
-const ALT_PRODUCT = { oven1: 'brownie', coffee1: 'latte' };
+const ALT_PRODUCT = { oven1: 'brownie', coffee1: 'latte', icecream1: 'sundae' };
 export function createWorld(area, save, seed) {
   const built = new Set(save && save.built || []);
   const partial = Object.assign({}, save && save.partial || {});
@@ -49,6 +49,18 @@ export function createWorld(area, save, seed) {
     if (s.type === 'pantry') Object.assign(st, {}); // was 'storage' — same no-state marker, renamed
     if (s.type === 'return') Object.assign(st, {}); // the return crate carries no state of its own
     if (s.type === 'blender') Object.assign(st, { fruit: 0, stock: 0, buffer: 8, timer: 0 });
+    // Batch 1 — terrace station types (plan 7.2). 'gate' is a non-blocking marker: it carries no
+    // state and (src/sim/nav.js footprintBoxes, and w.boxes below) never contributes a collision
+    // box. 'decor' blocks (fountain/splash) but carries no state of its own. 'icecream' mirrors
+    // 'coffee' exactly (cream instead of beans) so every generic machine system (stepMachines,
+    // runners' pickSource, the bot) generalises for free. 'photo' is queue+tray this batch but has
+    // NO mini-game state yet (scope note: the photo studio itself is Batch 2) — it carries no
+    // fields so a guest can queue at it but nothing consumes/produces there yet. 'restroom' is a
+    // comfort buff, not a queue: tidy drains 0.08/seated guest (owned by the seating/cleaner
+    // systems), bounded 0..1 here and by stationState.js on restore. 'splash' is decor with fx.
+    if (s.type === 'icecream') Object.assign(st, { product: 'icecream', baseProduct: 'icecream', altProduct: ALT_PRODUCT[s.id] || null, cream: 20, stock: 0, buffer: 8, timer: 0 });
+    if (s.type === 'restroom') Object.assign(st, { tidy: 1 });
+    if (s.type === 'gate' || s.type === 'decor' || s.type === 'photo' || s.type === 'splash') Object.assign(st, {});
 
     const frontDist = s.front != null ? s.front : 1.3;
     const f = rotateOffset(st.rot, 0, frontDist);
@@ -100,7 +112,13 @@ export function refreshActive(w) {
     else if (st.type === 'checkout') checkouts.push(st.id);
   }
   w.displays = displays; w.checkouts = checkouts;
-  w.boxes = stationBoxes(w);
+  // 'gate' is a non-blocking marker (plan 7.2) — the terrace's fence gap is walkable through it,
+  // for the owner exactly like it is for the nav grid (nav.js's own footprintBoxes excludes it
+  // too). collide.js's stationBoxes takes only `w.stations`, so route it a filtered map instead
+  // of touching that shared, not-mine module.
+  const boxStations = new Map();
+  for (const [id, st] of w.stations) if (st.type !== 'gate') boxStations.set(id, st);
+  w.boxes = stationBoxes({ stations: boxStations });
   w.activeZoneList = activeZones(w); // I8: cached list, rebuilt only when the built set changes
   // Stations changed (new footprints block/unblock cells): rebuild the walkability grid. The
   // fresh grid always starts at version 0 (see buildGrid); carry the previous grid's version + 1
@@ -126,6 +144,10 @@ export function payZone(w, zoneId, coins, dt) {
   if (total >= z.price) {
     delete w.partial[zoneId]; delete w.payAcc[zoneId]; w.built.add(zoneId);
     for (const id of z.adds) { const st = w.stations.get(id); if (st) st.active = true; }
+    // Plan 3.1: "z_splash replaces fountain1 mesh with a splash pool" — splash1 is placed exactly
+    // on fountain1's own spot (data/area1.js), so once it exists fountain1 is retired rather than
+    // left active underneath it (which would double-render and double-block the same tile).
+    if (zoneId === 'z_splash') { const old = w.stations.get('fountain1'); if (old) old.active = false; }
     refreshActive(w);
     emitWorld(w, { type: 'built', zoneId });
     return { spent, done: true };
@@ -215,6 +237,15 @@ export function stepMachines(w, dt, coffeeMult = 1) {
       st.timer += dt;
       const t = PRODUCTS[st.product].make / (coffeeMult * starMult(w, st.id));
       while (st.timer >= t && st.stock < st.buffer && st.beans > 0) { st.timer -= t; st.stock++; st.beans--; }
+    } else if (st.type === 'icecream') {
+      // Mirrors the coffee branch above exactly (cream instead of beans) so every generic system
+      // that already understands a coffee-shaped machine (runners, the bot, star tiers) works for
+      // the ice cream lane with zero extra code.
+      if (st.stock >= st.buffer || st.cream <= 0) { st.timer = 0; continue; }
+      maybeToggleRecipe(w, st);
+      st.timer += dt;
+      const t = PRODUCTS[st.product].make / (coffeeMult * starMult(w, st.id));
+      while (st.timer >= t && st.stock < st.buffer && st.cream > 0) { st.timer -= t; st.stock++; st.cream--; }
     } else if (st.type === 'blender') {
       if (st.stock >= st.buffer || st.fruit <= 0) { st.timer = 0; continue; }
       st.timer += dt;
@@ -241,6 +272,14 @@ export function refillBeans(w, id, sack = 20) {
   const room = Math.max(0, 20 - st.beans);
   const used = Math.max(0, Math.min(sack, room));
   st.beans += used;
+  return used;
+}
+// Ice cream lane's cream sack, same shape as refillBeans above.
+export function refillCream(w, id, sack = 20) {
+  const st = w.stations.get(id);
+  const room = Math.max(0, 20 - st.cream);
+  const used = Math.max(0, Math.min(sack, room));
+  st.cream += used;
   return used;
 }
 // Blender fruit buffer, cap 9.

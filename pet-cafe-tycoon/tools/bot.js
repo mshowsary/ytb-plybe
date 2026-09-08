@@ -3,7 +3,7 @@
 // Weekly Cups, day phases, service flow and the same owner priority loop used by the browser game.
 import {
   createWorld, activeZones, payZone, stepOvens, stepMachines, takeFromOven, takeFromMachine,
-  putOnDisplay, collectCash, refillBeans, refillBowl, harvestBush, addFruit as stationAddFruit, cleanSeat,
+  putOnDisplay, collectCash, refillBeans, refillBowl, refillCream, harvestBush, addFruit as stationAddFruit, cleanSeat,
 } from '../src/sim/world.js';
 import { createCustomer, stepCustomers } from '../src/sim/customers.js';
 import { createCustomerSpawnSequence } from '../src/sim/customerSpawn.js';
@@ -24,7 +24,10 @@ import { decide } from '../src/sim/botDecide.js';
 import { AREA1 } from '../data/area1.js';
 
 const DT = 1 / 30;
-const MAX_DAYS = 25;
+// Batch 1 (task E3): the terrace unlocks ~day 14, so a 25-day run (the old ceiling, set when Area 1
+// was the whole game) never simulates the terrace era at all. Raised to 40 so the ice cream lane,
+// register3 and the splash pool all actually run under the bot for a meaningful number of days.
+const MAX_DAYS = 40;
 const wallStart = Date.now();
 
 const world = createWorld(AREA1);
@@ -143,6 +146,8 @@ function ownerStep(dt) {
     case 'refillDrop': {
       const st = world.stations.get(target.stationId); if (!st || !carry.sack) return;
       if (carry.sack === 'beans') { const used = Math.min(carry.sackLeft, Math.max(0, 20 - st.beans)); refillBeans(world, st.id, used); useSack(carry, used); }
+      // Batch 1: cream mirrors beans exactly (refillCream is refillBeans's own mirror in world.js).
+      else if (carry.sack === 'cream') { const used = Math.min(carry.sackLeft, Math.max(0, 20 - st.cream)); refillCream(world, st.id, used); useSack(carry, used); }
       else { const used = refillBowl(world, st.id, carry.sackLeft); useSack(carry, used); }
       return;
     }
@@ -180,6 +185,12 @@ function ownerStep(dt) {
 
 const dayReport = [];
 let dayPurchases = [];
+// Task E3 (batch 1): the terrace era needs to be visible in the day table — ice cream units sold,
+// whether register3 (the terrace's own checkout) ever actually processes a sale, and missed seats
+// (Batch 0's dirty-table consequence — flagged as missing from this table before now).
+const ICE_PRODUCTS = new Set(['icecream', 'sundae', 'pupcup']);
+let dayIceUnits = 0, dayRegister3Sales = 0, dayMissedSeats = 0;
+let totalRegister3Sales = 0;
 const custSpawnPhase = new Map();
 const custWaitTime = new Map();
 const phaseFriction = { morning: { n: 0, over: 0 }, rush: { n: 0, over: 0 }, afternoon: { n: 0, over: 0 }, closing: { n: 0, over: 0 } };
@@ -286,7 +297,10 @@ while (G.dayState.day <= MAX_DAYS) {
       const order = paid && paid.order || [];
       ledger.record('sale', `service:${order.length ? order.join('+') : 'unknown'}`, e.amount, { meta:{ customerId:e.id, checkoutId:e.checkoutId || null } });
       recordRecipeOrder(G.meta, order);
+      for (const item of order) if (ICE_PRODUCTS.has(item)) dayIceUnits++;
+      if (e.checkoutId === 'register3') { dayRegister3Sales += e.amount; totalRegister3Sales += e.amount; }
     } else if (e.type === 'runnerStuck') runnerStuckEvents++;
+    else if (e.type === 'seatMissed') dayMissedSeats++;
     else if (e.type === 'lost') {
       G.dayStats.lost++; G.serviceStreak = { count: 0, t: 0 };
     } else if (e.type === 'built') dayPurchases.push('built ' + e.zoneId);
@@ -327,7 +341,9 @@ while (G.dayState.day <= MAX_DAYS) {
         served: G.dayStats.served, lost: G.dayStats.lost,
         goalText: careerGoalLabel(goal), goalMet: met, goalReward: met ? goal.reward : 0,
         cupReward: cup.awarded ? cup.reward : 0, afford: closingAfford, purchases: dayPurchases.slice(),
+        iceUnits: dayIceUnits, register3Sales: dayRegister3Sales, missedSeats: dayMissedSeats,
       });
+      dayIceUnits = 0; dayRegister3Sales = 0; dayMissedSeats = 0;
       dayPurchases = []; G.dayStats = { served: 0, lost: 0, earned: 0, bestStreak: 0 };
       G.serviceStreak = { count: 0, t: 0 }; G.shiftBestStreak = 0;
       nextDay(G.dayState); G.goal = chooseCareerGoal(G.dayState.day, G.meta);
@@ -344,13 +360,26 @@ while (G.dayState.day <= MAX_DAYS) {
 
 const wallMs = Date.now() - wallStart;
 console.log('Pet Café Tycoon — LIVE career economy bot');
-console.log('day'.padEnd(5) + 'sales'.padEnd(9) + 'collect'.padEnd(9) + 'served'.padEnd(8) + 'lost'.padEnd(6) + 'contract'.padEnd(28) + 'afford'.padEnd(9) + 'purchases');
+// Task E3 (batch 1): ice/reg3/miss columns make the terrace era (unlocks ~day 14) visible in this
+// table instead of requiring a separate report — icecream/sundae/pupcup units sold that day, coins
+// taken in at register3 specifically, and Batch 0's dirty-table 'seatMissed' consequence.
+console.log('day'.padEnd(5) + 'sales'.padEnd(9) + 'collect'.padEnd(9) + 'served'.padEnd(8) + 'lost'.padEnd(6) + 'contract'.padEnd(28) + 'afford'.padEnd(9) + 'ice'.padEnd(5) + 'reg3'.padEnd(7) + 'miss'.padEnd(6) + 'purchases');
 for (const r of dayReport) {
   const reward = (r.goalReward || 0) + (r.cupReward || 0);
   const goalStr = `${r.goalText} ${r.goalMet ? 'MET+' + reward : 'missed'}`;
-  console.log(String(r.day).padEnd(5) + String(r.sales).padEnd(9) + String(r.collected).padEnd(9) + String(r.served).padEnd(8) + String(r.lost).padEnd(6) + goalStr.padEnd(28) + String(r.afford).padEnd(9) + r.purchases.join(', '));
+  console.log(String(r.day).padEnd(5) + String(r.sales).padEnd(9) + String(r.collected).padEnd(9) + String(r.served).padEnd(8) + String(r.lost).padEnd(6) + goalStr.padEnd(28) + String(r.afford).padEnd(9)
+    + String(r.iceUnits || 0).padEnd(5) + String(r.register3Sales || 0).padEnd(7) + String(r.missedSeats || 0).padEnd(6) + r.purchases.join(', '));
 }
 console.log(`TOTAL game seconds: ${t.toFixed(1)} (${(t / 60).toFixed(1)} min, ${dayReport.length} days completed)`);
+console.log('--- terrace era (day 12 onward) ---');
+console.log('day'.padEnd(5) + 'sales'.padEnd(9) + 'served'.padEnd(8) + 'ice'.padEnd(5) + 'reg3'.padEnd(7) + 'miss'.padEnd(6) + 'afford'.padEnd(9) + 'purchases');
+for (const r of dayReport) {
+  if (r.day < 12) continue;
+  console.log(String(r.day).padEnd(5) + String(r.sales).padEnd(9) + String(r.served).padEnd(8) + String(r.iceUnits || 0).padEnd(5) + String(r.register3Sales || 0).padEnd(7) + String(r.missedSeats || 0).padEnd(6) + String(r.afford).padEnd(9) + r.purchases.join(', '));
+}
+console.log(`register3 processed a sale: ${totalRegister3Sales > 0 ? 'YES' : 'NO'} (${totalRegister3Sales} coins total)`);
+console.log(`ice cream units sold (lifetime): ${dayReport.reduce((s, r) => s + (r.iceUnits || 0), 0)}`);
+console.log(`missed seats (lifetime): ${dayReport.reduce((s, r) => s + (r.missedSeats || 0), 0)}`);
 
 function daySales(day) { const r = dayReport.find(x => x.day === day); return r ? r.sales : null; }
 const CHECKPOINTS = [

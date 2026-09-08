@@ -109,3 +109,63 @@ export function stepPetPlayBreak(G, dayState, dt) {
   }
   return { active: true, assigned };
 }
+
+// ---------------------------------------------------------------------------------------------
+// Task E4 (batch 1, plan 3.1): "After z_splash, petPlayBreak.js picks splash1.front as the play
+// spot for dogs; friendship +1 extra per play there."
+//
+// This file's existing job above (startPetPlayBreak/stepPetPlayBreak) is the "watch an ad, hold
+// two stressed guests' patience for 15s" Rush-relief placement — an entirely different mechanic
+// from a resident dog choosing a spot in the yard to play. The name is the plan's own pointer to
+// this file for that new mechanic, so what follows is additive to it, not a repurposing of the
+// relief boost above: no field or function above is touched.
+//
+// What this file owns is the DECISION — which spot, how much bonus — as small pure functions with
+// no DOM/render/movement dependency, exactly like PET_PLAY_BREAK_SLOTS above needs no mover of its
+// own. The actual "walk a resident dog to a spot and animate it playing there" lives in
+// systems/residentPets.js, and the actual "add friendship for a completed play" lives in
+// systems/petFriendship.js — neither is in this task's file list (src/ui/interactionCoach.js,
+// src/sim/botDecide.js, tools/bot.js, src/sim/petPlayBreak.js only), so wiring these into that
+// movement/friendship code is left as an explicit contract for whichever task owns those files,
+// rather than reaching into files this task does not own.
+export const SPLASH_STATION_ID = 'splash1';
+/** Extra friendship (on top of whatever a normal play awards) for playing at the splash pool. */
+export const SPLASH_PLAY_FRIENDSHIP_BONUS = 1;
+
+function splashStation(world) {
+  const stations = world && world.stations;
+  if (!stations || typeof stations.get !== 'function') return null;
+  const st = stations.get(SPLASH_STATION_ID);
+  return st && st.active ? st : null;
+}
+
+/**
+ * Where a dog should play, once the splash pool exists. Mirrors every other station's own `front`
+ * interaction point (world.js gives splash1 one exactly like fountain1's), so it drops straight
+ * into whatever `{x, z}`-walking code a resident/pet mover already has. Returns null before
+ * z_splash is built (or if the world has no stations at all) — "no dedicated play spot yet, keep
+ * doing whatever you already do for an idle dog's play spot".
+ */
+export function dogPlaySpot(world) {
+  const st = splashStation(world);
+  return st && st.front ? { x: st.front.x, z: st.front.z, stationId: st.id } : null;
+}
+
+/**
+ * Extra friendship earned for a play that happened at a given spot. `spot` is either the
+ * `{stationId}`-shaped object dogPlaySpot() returns or a bare station id string, so a caller that
+ * already tracks "which station this play happened at" some other way can pass that directly.
+ * +1 at the splash pool while it is built and active; 0 for every other spot, and 0 if the splash
+ * pool has since been deactivated (defensive — nothing deactivates it today).
+ */
+export function splashPlayFriendshipBonus(world, spot) {
+  const stationId = typeof spot === 'string' ? spot : spot && spot.stationId;
+  if (stationId !== SPLASH_STATION_ID) return 0;
+  return splashStation(world) ? SPLASH_PLAY_FRIENDSHIP_BONUS : 0;
+}
+
+/** True while a dog "should" prefer the splash pool over whatever the caller's own default spot
+ * picker returns — i.e. z_splash is built. A thin, testable name for `!!dogPlaySpot(world)`. */
+export function dogPrefersSplash(world) {
+  return !!splashStation(world);
+}

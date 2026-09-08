@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  ALL_REFILL_KEYS,
   CLOSING_GRACE_METERS,
   MODE_FADE_SECONDS,
   MODE_HOLD_SECONDS,
@@ -178,7 +179,10 @@ test('taking the right sack is half credit, and two refills prove every refill l
   bowl.stock = 10; G.carry = { sack: null, sackLeft: 0, fruit: 0 };
   progress.observe(G);
   assert.equal(progress.refills, REFILLS_TO_MASTER);
-  assert.deepEqual(progress.masteredKeys().sort(), [...REFILL_LESSON_KEYS].sort());
+  // Task E1 (batch 1): mastery now generalises to every refill lesson this file knows, not just the
+  // original two — two refills of ANY supply (beans/kibble here) also proves the ice cream lesson,
+  // since a player who has clearly learned "refill the machine" once already needs no repeat.
+  assert.deepEqual(progress.masteredKeys().sort(), [...ALL_REFILL_KEYS].sort());
 
   // Both machines run dry again with guests waiting: the coach stays quiet for good.
   coffee.beans = 0; bowl.stock = 0;
@@ -214,7 +218,7 @@ test('half credit and the refill tally round-trip through the learning payload',
   assert.equal(restored.hasSack('refillCoffee'), true);
   assert.equal(restored.refills, 1);
   restored.creditRefill('refillBowl');
-  assert.deepEqual(restored.masteredKeys().sort(), [...REFILL_LESSON_KEYS].sort());
+  assert.deepEqual(restored.masteredKeys().sort(), [...ALL_REFILL_KEYS].sort());
 
   // Junk never invents credit.
   const clean = createRefillProgress();

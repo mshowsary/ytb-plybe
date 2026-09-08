@@ -29,14 +29,36 @@ export function buildStatic(area) {
   // low fence on the east and south edges
   for (let z = -D / 2; z <= D / 2; z += 1.5) P.push(part('box', [0.14, 0.9, 0.14], C.cream, { x: W / 2, y: 0.45, z }));
   P.push(part('box', [0.1, 0.12, D], C.cream, { x: W / 2, y: 0.8 }));
-  for (let x = -W / 2; x <= W / 2; x += 1.5) P.push(part('box', [0.14, 0.9, 0.14], C.cream, { x, y: 0.45, z: D / 2 }));
-  P.push(part('box', [W, 0.12, 0.1], C.cream, { y: 0.8, z: D / 2 }));
+  // Batch 1 — the terrace gate (plan 3.1/7.1). GATE_HALF_W mirrors src/sim/nav.js's own constant
+  // (matching gate1's fw 2.4 in data/area1.js) — the gap the fence leaves for it is carved out of
+  // the ALWAYS-solid south rail/posts here, and refilled by a small, separately-merged "gate
+  // infill" mesh below (its own draw call) that starts closed and is the only piece
+  // g.gate.setOpen() ever needs to touch.
+  const GATE_HALF_W = 1.2;
+  for (let x = -W / 2; x <= W / 2; x += 1.5) {
+    if (Math.abs(x) < GATE_HALF_W) continue; // gate gap — filled by the removable gate mesh below
+    P.push(part('box', [0.14, 0.9, 0.14], C.cream, { x, y: 0.45, z: D / 2 }));
+  }
+  // South rail, split around the gate gap so the two permanently-solid halves never move.
+  const railHalfSpan = (W / 2 - GATE_HALF_W) / 2;
+  P.push(part('box', [W / 2 - GATE_HALF_W, 0.12, 0.1], C.cream, { x: -GATE_HALF_W - railHalfSpan, y: 0.8, z: D / 2 }));
+  P.push(part('box', [W / 2 - GATE_HALF_W, 0.12, 0.1], C.cream, { x: GATE_HALF_W + railHalfSpan, y: 0.8, z: D / 2 }));
   // corner plants
   for (const [x, z] of [[W / 2 - 0.8, -D / 2 + 0.8], [W / 2 - 0.8, D / 2 - 0.8], [-W / 2 + 0.8, D / 2 - 0.8]]) {
     P.push(part('cyl', [0.32, 0.26, 0.5, 10], C.coral, { x, y: 0.25, z }));
     P.push(part('sph', [0.55, 10], C.plant, { x, y: 0.95, z })); P.push(part('sph', [0.38, 10], C.plantDark, { x: x + 0.25, y: 1.25, z: z - 0.1 }));
   }
   const g = new THREE.Group(); g.add(mesh(P));
+  // Gate infill: starts CLOSED (matching the pre-terrace look — a solid, seamless fence) and is
+  // hidden by g.gate.setOpen(true) once z_terrace is bought. A separate small mesh so it never
+  // requires rebuilding the one big merged geometry above.
+  const gateMesh = mesh([
+    part('box', [0.14, 0.9, 0.14], C.cream, { x: -GATE_HALF_W * 0.55, y: 0.45, z: D / 2 }),
+    part('box', [0.14, 0.9, 0.14], C.cream, { x: GATE_HALF_W * 0.55, y: 0.45, z: D / 2 }),
+    part('box', [GATE_HALF_W * 2, 0.12, 0.1], C.cream, { y: 0.8, z: D / 2 }),
+  ]);
+  g.add(gateMesh);
+  g.gate = { setOpen(open) { gateMesh.visible = !open; } };
   // awning over the ovens row: striped, angled. M3 T3 layout: production row spans x -6..8.
   // Loop v2 Task 3 (design section 6 — "every 5 stars unlocks a decoration set: awning colour"):
   // split into two SEPARATE merged meshes (one per stripe parity, each its own material instance —
@@ -486,6 +508,123 @@ export function zoneRing() {
   const fill = new THREE.Mesh(new THREE.CircleGeometry(1.05, 40), new THREE.MeshBasicMaterial({ color: new THREE.Color(C.coin), transparent: true, opacity: 0.8 })); fill.rotation.x = -Math.PI / 2; fill.position.y = 0.025; fill.scale.setScalar(0.001); g.add(fill);
   g.ring = ring; g.pulse = new Spring(1, 120, 10);
   g.setProgress = t => fill.scale.setScalar(Math.max(0.001, t));
+  return g;
+}
+// ── The terrace deck (plan 3.1/7.1) ─────────────────────────────────────────────────────────────
+// buildRegion(area, region) renders a bought region's floor. It is deliberately generic over
+// `region` (any future region reuses it) rather than hard-coded to the terrace, even though only
+// the terrace exists this batch. One merged mesh (cheap: a border ring, a base slab, N plank
+// strips, four corner planters and a gate arch — well under a hundred triangles per plank row).
+export function buildRegion(area, region) {
+  const x0 = region.x0, x1 = region.x1, z0 = region.z0, z1 = region.z1;
+  const w = x1 - x0, d = z1 - z0, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+  const parts = [];
+  // Stone border, a wide flat ring under the whole deck.
+  parts.push(part('rbox', [w + 0.7, 0.42, d + 0.7, 0.1], '#E6E0D6', { x: cx, y: -0.24, z: cz }));
+  // Gap-colour base slab, then plank strips laid on top with a small reveal between them — cheaper
+  // than a separate gap box per plank and reads the same way.
+  parts.push(part('box', [w, 0.05, d], '#C69A6B', { x: cx, y: -0.05, z: cz }));
+  const plankD = 0.42, gap = 0.06, step = plankD + gap;
+  const rows = Math.max(1, Math.floor((d + gap) / step));
+  const usedD = rows * step - gap;
+  const startZ = cz - usedD / 2 + plankD / 2;
+  for (let i = 0; i < rows; i++) {
+    parts.push(part('box', [w - 0.06, 0.09, plankD], '#D9B48A', { x: cx, y: 0.0, z: startZ + i * step }));
+  }
+  // Corner planters, echoing buildStatic's own corner planters above.
+  const inset = 0.9;
+  for (const [px, pz] of [[x0 + inset, z0 + inset], [x1 - inset, z0 + inset], [x0 + inset, z1 - inset], [x1 - inset, z1 - inset]]) {
+    parts.push(part('cyl', [0.3, 0.24, 0.46, 10], '#A9764E', { x: px, y: 0.19, z: pz }));
+    parts.push(part('sph', [0.5, 9], '#6FB56F', { x: px, y: 0.82, z: pz }));
+    parts.push(part('sph', [0.35, 9], '#57A45C', { x: px + 0.22, y: 1.08, z: pz - 0.1 }));
+  }
+  // Gate arch, straddling gate1's position (x 0, the fence line just north of z0) — matches
+  // GATE_HALF_W (this file's buildStatic, and src/sim/nav.js's own copy) of 1.2.
+  const gateX = 0, gateZ = z0 - 0.2, archH = 2.5, halfGate = 1.35, postColor = '#C08A56';
+  parts.push(part('cyl', [0.1, 0.12, archH, 8], postColor, { x: gateX - halfGate, y: archH / 2 - 0.1, z: gateZ }));
+  parts.push(part('cyl', [0.1, 0.12, archH, 8], postColor, { x: gateX + halfGate, y: archH / 2 - 0.1, z: gateZ }));
+  parts.push(part('box', [halfGate * 2 + 0.3, 0.18, 0.18], postColor, { x: gateX, y: archH - 0.1, z: gateZ }));
+  parts.push(part('box', [halfGate * 2 + 0.2, 0.4, 0.05], '#D9A066', { x: gateX, y: archH + 0.05, z: gateZ }));
+  const g = new THREE.Group();
+  g.add(mesh(parts));
+  return g;
+}
+// ── Terrace station meshes (plan 3.1/7.2) ───────────────────────────────────────────────────────
+// icecream1 mirrors coffeeMesh's shape/scale (a counter-height machine) but in ice-cream pastels
+// with two swirl cones instead of a coffee spout.
+export function icecreamMesh() {
+  const g = new THREE.Group();
+  g.add(mesh([
+    part('rbox', [0.9, 0.62, 0.55, 0.06], '#EAF6FF', { y: 0.5 }),
+    part('box', [0.82, 0.06, 0.5], C.metal, { y: 0.82 }),
+    part('cyl', [0.16, 0.16, 0.05, 12], '#FFD6E7', { x: -0.22, y: 0.86 }),
+    part('cyl', [0.15, 0.15, 0.05, 12], '#FFF0F5', { x: 0.1, y: 0.86 }),
+    part('cone', [0.1, 0.24, 10], '#FFF0F5', { x: -0.22, y: 1.06 }),
+    part('cone', [0.09, 0.2, 10], '#FFD6E7', { x: 0.1, y: 1.02 }),
+    part('cyl', [0.05, 0.05, 0.28, 8], C.ink, { x: 0.38, y: 0.62, z: 0.2 }),
+  ]));
+  return g;
+}
+// coldPantry1 — pantryMesh's shape in icy tones, so the pair reads as a matched set from across
+// the deck.
+export function coldPantryMesh() {
+  const g = new THREE.Group();
+  g.add(mesh([
+    part('cyl', [0.32, 0.4, 0.06, 10], '#9BD9E8', { y: 0.03 }),
+    part('sph', [0.3, 8], '#DDF6FF', { x: -0.2, y: 0.28, sy: 1.1 }),
+    part('sph', [0.3, 8], '#BFEFFA', { x: 0.22, y: 0.28, sy: 1.1 }),
+    part('box', [0.16, 0.06, 0.02], '#FFFFFF', { x: -0.2, y: 0.46, rz: 0.3 }),
+    part('box', [0.16, 0.06, 0.02], '#FFFFFF', { x: 0.22, y: 0.46, rz: -0.3 }),
+  ]));
+  return g;
+}
+// The pet photo booth (z_photo). Scope note: this batch renders the booth only — no queue, no
+// mini-game (Batch 2, plan 3.2). A curtained cabinet with a lens front.
+export function photoBoothMesh() {
+  const g = new THREE.Group();
+  g.add(mesh([
+    part('box', [1.2, 1.9, 1.6], '#F2C4CE', { y: 0.95 }),
+    part('box', [1.3, 0.12, 1.7], C.woodDark, { y: 1.9 }),
+    part('rbox', [0.9, 1.0, 0.05, 0.05], C.wall, { y: 1.1, z: 0.83 }),
+    part('cyl', [0.16, 0.16, 0.1, 14], C.ink, { y: 1.2, z: 0.86, rx: Math.PI / 2 }),
+    part('cyl', [0.1, 0.1, 0.03, 14], '#9BF6FF', { y: 1.2, z: 0.92, rx: Math.PI / 2 }),
+  ]));
+  return g;
+}
+// The restroom hut (wc1) — a comfort buff, not a queue (plan 7.2's `tidy`). A small board hut.
+export function restroomMesh() {
+  const g = new THREE.Group();
+  g.add(mesh([
+    part('box', [1.4, 1.7, 1.2], '#EFE0CE', { y: 0.85 }),
+    part('box', [1.55, 0.12, 1.35], C.woodDark, { y: 1.72 }),
+    part('box', [0.5, 1.1, 0.05], C.wood, { y: 0.6, z: 0.61 }),
+    part('cyl', [0.04, 0.04, 0.2, 8], C.metal, { x: 0.18, y: 0.6, z: 0.64 }),
+  ]));
+  return g;
+}
+// fountain1 (decor, pre-splash) — a tiered stone fountain. z_splash later adds splash1 in the same
+// spot as a play pool (plan 3.1); the render/systems layer that toggles which one is visible when
+// both zones are built is outside this task's scope (props.js only supplies the two meshes).
+export function fountainMesh() {
+  const g = new THREE.Group();
+  g.add(mesh([
+    part('cyl', [1.1, 1.15, 0.22, 20], '#9CC08A', { y: 0.11 }),
+    part('cyl', [0.95, 0.95, 0.08, 20], '#A8DCEF', { y: 0.24 }),
+    part('cyl', [0.55, 0.6, 0.5, 14], '#E6E0D6', { y: 0.5 }),
+    part('cyl', [0.45, 0.45, 0.06, 14], '#A8DCEF', { y: 0.76 }),
+    part('cyl', [0.1, 0.14, 0.4, 10], '#E6E0D6', { y: 0.95 }),
+    part('sph', [0.16, 8], '#A8DCEF', { y: 1.18 }),
+  ]));
+  return g;
+}
+// splash1 — a low play pool for pets, replacing fountain1's spot once z_splash is built.
+export function splashPoolMesh() {
+  const g = new THREE.Group();
+  g.add(mesh([
+    part('cyl', [1.15, 1.2, 0.2, 20], '#E6E0D6', { y: 0.1 }),
+    part('cyl', [0.95, 0.95, 0.1, 20], '#A8DCEF', { y: 0.2 }),
+    part('cyl', [0.5, 0.5, 0.03, 16], '#D8F0FA', { y: 0.26 }),
+  ]));
   return g;
 }
 export function cashPile(max = 60) {

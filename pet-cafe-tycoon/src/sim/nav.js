@@ -6,11 +6,13 @@ const SQRT2 = Math.SQRT2;
 
 // Active-station footprints, expanded 0.25m on each side, rotated the same way
 // src/sim/collide.js's stationBoxes does (swap fw/fd when the station is turned ~90deg).
+// 'gate' is a non-blocking marker (the fence-row gap is handled by grid-row logic below, not by
+// a footprint) so it must never contribute a box here, or the terrace gate would be solid.
 function footprintBoxes(world) {
   const boxes = [];
   if (!world || !world.stations) return boxes;
   for (const st of world.stations.values()) {
-    if (!st.active) continue;
+    if (!st.active || st.type === 'gate') continue;
     let fw = st.fw != null ? st.fw : 1;
     let fd = st.fd != null ? st.fd : 1;
     if (Math.abs(Math.sin(st.rot || 0)) > 0.5) { const t = fw; fw = fd; fd = t; }
@@ -19,28 +21,59 @@ function footprintBoxes(world) {
   return boxes;
 }
 
+// The terrace gate gap: |x| <= this at the south fence line, matching gate1's fw 2.4 (data/area1.js).
+const GATE_HALF_W = 1.2;
+
 // Build a static walkability grid for `area` given the current active stations in `world`.
-// Origin: ox = -area.size.w/2 - 2 (a 2m street margin west of the wall, for the door lanes),
-// oz = -area.size.d/2. A cell is blocked when its centre falls inside an active station's
-// expanded footprint, when it's the wall column outside the door gap, or when it lies beyond
-// the floor rectangle and isn't a door-lane cell. Door lanes (west margin only): entry cells
-// (lane 1) at z in [door.z-1.2, door.z), exit cells (lane 2) at z in [door.z, door.z+1.2).
+//
+// Batch 1 — the regions engine (plan 7.1). `area.regions` (if any) are second physical spaces
+// outside the interior rectangle — the terrace, south of the fence. The grid now spans the
+// interior UNION every region (so cells south of the fence exist in the array at all), but a
+// cell out there is only ever WALKABLE when it falls inside a region whose `builtBy` is in
+// `world.built` — so an unbuilt region's cells stay blocked exactly like solid wall, and days
+// 1-12 (no region ever built) see a byte-identical grid to before this change: neither ox, oz
+// nor the interior cell indices move, because no region in this batch extends west or north of
+// the interior (only south, past z = halfD).
+//
+// Origin: ox = min(-halfW, every region.x0) - 2 (the 2m street margin, for the door lanes),
+// oz = min(-halfD, every region.z0). A cell is blocked when its centre falls inside an active
+// station's expanded footprint, when it's the wall column outside the door gap, when it's the
+// fence ROW south of the interior and not the gate gap (or the region behind the gate isn't
+// built yet), or when it lies outside every region it could belong to.
+//
+// Door lanes (west margin only): entry cells (lane 1) at z in [door.z-1.2, door.z), exit cells
+// (lane 2) at z in [door.z, door.z+1.2).
 export function buildGrid(area, world) {
   const halfW = area.size.w / 2, halfD = area.size.d / 2;
-  const ox = -halfW - 2, oz = -halfD;
-  const w = Math.ceil((area.size.w + 2) / CELL);
-  const h = Math.ceil(area.size.d / CELL);
+  const regions = (area && area.regions) || [];
+  let minX = -halfW, maxX = halfW, minZ = -halfD, maxZ = halfD;
+  for (const r of regions) {
+    if (r.x0 < minX) minX = r.x0;
+    if (r.x1 > maxX) maxX = r.x1;
+    if (r.z0 < minZ) minZ = r.z0;
+    if (r.z1 > maxZ) maxZ = r.z1;
+  }
+  const ox = minX - 2, oz = minZ;
+  const w = Math.ceil((maxX - minX + 2) / CELL);
+  const h = Math.ceil((maxZ - minZ) / CELL);
   const n = w * h;
   const blocked = new Uint8Array(n);
   const lane = new Uint8Array(n);
   const doorZ = area.door.z;
   const boxes = footprintBoxes(world);
+  const built = (world && world.built) || null;
   // The wall column is keyed by grid-column index, not by distance from x = -halfW: since the
   // margin is always exactly 2m and CELL is 0.5m, two cell centres (margin-side and floor-side)
   // land exactly 0.25m from the wall line — a tie that a distance threshold can't break. margin/
   // CELL columns (index 0..wallGx-1) are always fully inside the margin; column wallGx is the one
   // whose span starts exactly at x = -halfW (same floor-convention idx() uses), so it's the wall.
-  const wallGx = Math.round(2 / CELL);
+  const wallGx = Math.round((-halfW - ox) / CELL);
+  // Same tie-breaking problem, one axis over: the fence sits exactly at z = halfD, and CELL
+  // divides it evenly, so a distance check ties the same way the old wall check did. fenceGz is
+  // the single grid ROW whose span starts exactly at z = halfD — the row south of every ordinary
+  // interior row, and (this batch) the row the gate gap punches through once the terrace is
+  // built. Rows south of it are the region(s) themselves, tested by membership below.
+  const fenceGz = Math.round((halfD - oz) / CELL);
 
   for (let gz = 0; gz < h; gz++) {
     for (let gx = 0; gx < w; gx++) {
@@ -54,17 +87,37 @@ export function buildGrid(area, world) {
         if (Math.abs(cxv - b.x) < b.hw && Math.abs(czv - b.z) < b.hd) { isBlocked = true; break; }
       }
       if (!isBlocked) {
-        if (gx === wallGx) {
-          // the single wall column: free only inside the full door gap, no lane value
-          const inGap = czv >= doorZ - 1.2 && czv <= doorZ + 1.2;
-          if (!inGap) isBlocked = true;
-        } else if (gx < wallGx) {
-          // west margin: free only inside a door lane, blocked otherwise
-          if (czv >= doorZ - 1.2 && czv < doorZ) laneVal = 1;
-          else if (czv >= doorZ && czv < doorZ + 1.2) laneVal = 2;
-          else isBlocked = true;
-        } else if (cxv > halfW || czv < -halfD || czv > halfD) {
-          isBlocked = true;
+        if (gz < fenceGz) {
+          // Ordinary interior row — verbatim pre-regions logic, so every interior cell's
+          // blocked/lane value is unchanged bit-for-bit from before this task.
+          if (gx === wallGx) {
+            // the single wall column: free only inside the full door gap, no lane value
+            const inGap = czv >= doorZ - 1.2 && czv <= doorZ + 1.2;
+            if (!inGap) isBlocked = true;
+          } else if (gx < wallGx) {
+            // west margin: free only inside a door lane, blocked otherwise
+            if (czv >= doorZ - 1.2 && czv < doorZ) laneVal = 1;
+            else if (czv >= doorZ && czv < doorZ + 1.2) laneVal = 2;
+            else isBlocked = true;
+          } else if (cxv > halfW || czv < -halfD) {
+            isBlocked = true;
+          }
+        } else if (gz === fenceGz) {
+          // The fence row itself: solid everywhere except the gate gap, and only once SOME
+          // region reachable through it has been built (today, just the terrace).
+          let gateOpen = false;
+          for (const r of regions) {
+            if (r.z0 > halfD && built && built.has(r.builtBy)) { gateOpen = true; break; }
+          }
+          if (!(gateOpen && Math.abs(cxv) <= GATE_HALF_W)) isBlocked = true;
+        } else {
+          // South of the fence row: walkable only inside a BUILT region that actually covers
+          // this cell. An unbuilt region's cells (and any cell outside every region) block.
+          let free = false;
+          for (const r of regions) {
+            if (built && built.has(r.builtBy) && cxv >= r.x0 && cxv <= r.x1 && czv >= r.z0 && czv <= r.z1) { free = true; break; }
+          }
+          if (!free) isBlocked = true;
         }
       }
       blocked[i] = isBlocked ? 1 : 0;

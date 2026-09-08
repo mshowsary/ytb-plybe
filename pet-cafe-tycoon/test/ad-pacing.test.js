@@ -6,6 +6,7 @@ import {
   AD_PACING, interstitialDueAfterShift, interstitialGapSatisfied, bootInterstitialDue,
   markRewardedClaim, purchaseBridgeEnabled, rewardedClaimedForShift,
   summaryClaimedForShift, inShiftClaimedForShift,
+  SPEED_BUILD_MIN_PAID_RATIO, speedBuildEligible, speedBuildRewardKey,
 } from '../src/sim/adPacing.js';
 
 function host(calls, { rewardedResult = true, interstitialFails = false } = {}) {
@@ -89,6 +90,46 @@ test('placement model: each placement claims once per shift, independently of th
   assert.equal(markRewardedClaim(gift, 6, 'relief'), false, 'gift claim occupies the in-shift budget');
   assert.equal(summaryClaimedForShift(gift, 6), false);
   assert.equal(markRewardedClaim(gift, 6, 'summary'), true, 'summary stays available after a gift claim');
+});
+
+test('Task 1.7: speed-build is unavailable below 40% paid and available at/above it', () => {
+  assert.equal(SPEED_BUILD_MIN_PAID_RATIO, 0.4);
+  assert.equal(speedBuildEligible(0, 20000), false);
+  assert.equal(speedBuildEligible(7999, 20000), false, 'just under 40% is not eligible');
+  assert.equal(speedBuildEligible(8000, 20000), true, 'exactly 40% is eligible');
+  assert.equal(speedBuildEligible(8001, 20000), true);
+  assert.equal(speedBuildEligible(20000, 20000), true, 'fully paid (already built) still reads eligible');
+  assert.equal(speedBuildEligible(5000, 0), false, 'a non-positive price is never eligible');
+  assert.equal(speedBuildEligible(-100, 20000), false, 'negative paid clamps to 0, not negative ratio');
+});
+
+test('Task 1.7: speed-build claims once per shift and shares the in-shift budget with relief/gift', () => {
+  const s = { rewardedDays: {} };
+  assert.equal(inShiftClaimedForShift(s, 14), false);
+  assert.equal(markRewardedClaim(s, 14, 'speed-build'), true);
+  assert.equal(inShiftClaimedForShift(s, 14), true);
+  assert.equal(markRewardedClaim(s, 14, 'speed-build'), false, 'speed-build cannot double-claim');
+  assert.equal(rewardedClaimedForShift(s, 14), true);
+  // Sharing the budget: a speed-build claim occupies relief and gift too, and vice versa.
+  assert.equal(markRewardedClaim(s, 14, 'relief'), false, 'speed-build claim occupies the in-shift budget');
+  assert.equal(markRewardedClaim(s, 14, 'gift'), false, 'speed-build claim occupies the in-shift budget');
+  // Summary stays independent of the in-shift budget in either direction.
+  assert.equal(summaryClaimedForShift(s, 14), false);
+  assert.equal(markRewardedClaim(s, 14, 'summary'), true, 'summary stays available after a speed-build claim');
+
+  const r = { rewardedDays: {} };
+  assert.equal(markRewardedClaim(r, 9, 'relief'), true);
+  assert.equal(markRewardedClaim(r, 9, 'speed-build'), false, 'relief claim occupies speed-build too');
+
+  const g = { rewardedDays: {} };
+  assert.equal(markRewardedClaim(g, 9, 'gift'), true);
+  assert.equal(markRewardedClaim(g, 9, 'speed-build'), false, 'gift claim occupies speed-build too');
+
+  // A new shift resets the budget independently of the previous day.
+  const fresh = { rewardedDays: { [speedBuildRewardKey(14)]: 1 } };
+  assert.equal(inShiftClaimedForShift(fresh, 14), true);
+  assert.equal(inShiftClaimedForShift(fresh, 15), false, 'speed-build claim is per-shift, not global');
+  assert.equal(markRewardedClaim(fresh, 15, 'speed-build'), true);
 });
 
 test('Task 39: legacy numeric and relief claims are both recognized without save migration', () => {

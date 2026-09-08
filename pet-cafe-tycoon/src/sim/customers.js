@@ -9,7 +9,7 @@ import { emitWorld } from './events.js';
 // of paying on arrival at the old checkout. Every walk still goes through the grid
 // (src/sim/nav.js + src/sim/mover.js); the owner (tools/bot.js) stays player-like and steers
 // with moveToward directly.
-import { takeFromDisplay, takeTreat, freeSeat } from './world.js';
+import { takeFromDisplay, takeTreat } from './world.js';
 import { wishFor, familyOf } from './economy.js';
 import { createMover, setTarget, stepMover } from './mover.js';
 export const SPECIES = ['cat', 'dog', 'bunny'];
@@ -76,8 +76,9 @@ export function createCustomer(id, species, variant, area) {
     wish: null, patience: PATIENCE, _patQ: PATIENCE * 4, mood: 'none',
     seat: null, seatId: null, timer: 0, done: false, hop: 0, area,
     _doorReached: false, arrived: 0, regArrived: 0, _bowlSlot: null,
-    _settled: false, _treatGivenUp: false, // M3 T6 pass 2: settle-for rule, once per visit each
+    _settled: false, _treatGivenUp: false, _regSettled: false, // M3 T6 pass 2: settle-for rule, once per visit each
     noSeatT: 0, // Program §6.2: seconds spent under the "no clean table" bubble
+    terraceBound: false, // C1 (plan 3.1/7.1): settled once, on this customer's first tick — see below
     mover,
   };
 }
@@ -262,11 +263,74 @@ function anyStockedDisplay(w, excludeProduct) {
   }
   return null;
 }
+// C1/C2 (Batch 1 plan 3.1/7.1) — the terrace region, straight from the static area data (always
+// present, whether or not z_terrace has been bought yet). Geometric only: whether a station
+// actually sits inside it is a plain bounding-box test, entirely independent of `built`. Before
+// the terrace exists no seat/checkout station is ever placed inside these bounds (every terrace
+// station's coordinates live at z >= 7.4, the interior's own stations all sit at z <= 6.0 — see
+// data/area1.js), so every helper below that uses this is automatically a no-op pre-terrace.
+function terraceRegion(w) {
+  const regions = w.area && w.area.regions;
+  if (!regions) return null;
+  for (const r of regions) if (r.id === 'terrace') return r;
+  return null;
+}
+function inTerrace(st, r) {
+  return !!r && st.x >= r.x0 && st.x <= r.x1 && st.z >= r.z0 && st.z <= r.z1;
+}
+// C1: (active terrace seats, active seats overall) — the ratio drives the terrace-bound roll, and
+// scales up on its own as the player buys more deck tables (z_terraceSeats), with no extra code.
+function seatCounts(w, r) {
+  let terrace = 0, total = 0;
+  for (const st of w.stations.values()) {
+    if (st.type !== 'seat' || !st.active) continue;
+    total++;
+    if (inTerrace(st, r)) terrace++;
+  }
+  return { terrace, total };
+}
+// Terrace-aware replacement for world.js's freeSeat: a terrace-bound guest only ever considers a
+// seat on the deck, an ordinary guest only ever considers one in the interior — the exact same
+// "first active, free, clean seat found" rule world.js's own freeSeat uses, just partitioned by
+// region. Pre-terrace, `r` is still the (unbuilt) region descriptor but no terrace seat station is
+// ever active yet, so `inTerrace` is false for every active seat and the interior branch degrades
+// to plain freeSeat's exact behaviour — bit-identical for every caller that never sets
+// c.terraceBound (i.e. every day before the terrace exists).
+function seatFor(w, r, wantTerrace) {
+  for (const st of w.stations.values()) {
+    if (st.type !== 'seat' || !st.active || st.occupied || st.dirty) continue;
+    if (inTerrace(st, r) === wantTerrace) return st;
+  }
+  return null;
+}
+function pickSeat(w, c) {
+  return seatFor(w, terraceRegion(w), !!(c && c.terraceBound));
+}
 // Least-loaded active register (by how many customers are already assigned to it this frame,
 // tallied fresh in w._regTally before any new assignment — same trick pickCheckout used for the
 // old checkouts, so two customers reaching the front in the same frame don't both pick the one
 // that reads emptiest from last frame's stale count); ties fall back to straight-line distance.
-function pickRegister(w, c) {
+// C1: a terrace-bound guest only considers a register standing inside the terrace region (its own
+// register3, once built) — this is the actual "pays at the terrace register" routing, since the
+// distance/queue comparison alone (evaluated from the guest's position back at the interior
+// counter, long before it ever walks toward the deck) would otherwise almost always pick whichever
+// interior register is closest to the counter row instead. Falls back to the ordinary
+// distance+queue search across every active register when no terrace register exists yet (or ever
+// becomes available), so a terrace-bound guest is never left with nowhere to pay.
+// A single distant register can only absorb so much load from one cashier (see stepCashier's own
+// Batch 1 fix for the full reasoning): once every terrace register is already carrying this many
+// assigned customers, a NEW terrace-bound arrival settles for the nearest overall register instead
+// of stacking up further queue depth that will never be served in time — the same "give up on the
+// ideal, take what's actually reachable" idea SETTLE_WAIT already applies to a stuck product wish,
+// just decided once at assignment instead of after a timeout (there is no single register to wait
+// out here — every terrace register is equally overloaded). One below the register's own 5-slot
+// queue (data/area1.js's queueSlots), leaving it genuine headroom rather than perpetually full.
+const TERRACE_REGISTER_CAP = 1;
+// The plain "nearest register with the shortest queue" search across every active register, no
+// terrace preference at all — pickRegister's own fallback (a terrace-bound guest with nowhere
+// terrace-side to go) and the settle-for-register rule below (a guest already stuck too long at
+// its assigned register) both reduce to exactly this.
+function pickAnyRegister(w, c) {
   let best = null, bestN = Infinity, bestD = Infinity;
   for (const id of w.checkouts) {
     const st = w.stations.get(id);
@@ -276,9 +340,53 @@ function pickRegister(w, c) {
   }
   return best;
 }
+// The nearest/shortest-queue search, restricted to one side of the fence (terrace or interior).
+// This is what actually keeps an ordinary, interior-shopping guest from ever picking a register
+// clear across the deck just because it happens to be sitting empty (measured: with three active
+// registers and no side restriction, "least loaded, distance only a tie-break" alone sends a
+// steady trickle of guests who never leave the interior all the way to the terrace's own register
+// purely because it is idle — the single cashier then wastes most of its time on that long walk
+// instead of serving anyone, collapsing throughput). A terrace-bound guest applies the same cap
+// pickRegister already used; an ordinary guest never even considers a terrace register, so the cap
+// is meaningless there and left off.
+function pickSideRegister(w, c, wantTerrace, r) {
+  let best = null, bestN = Infinity, bestD = Infinity;
+  for (const id of w.checkouts) {
+    const st = w.stations.get(id);
+    if (inTerrace(st, r) !== wantTerrace) continue;
+    if (wantTerrace && (w._regTally.get(id) || 0) >= TERRACE_REGISTER_CAP) continue;
+    const n = w._regTally.get(id) || 0;
+    const d = (st.front.x - c.x) ** 2 + (st.front.z - c.z) ** 2;
+    if (n < bestN || (n === bestN && d < bestD)) { best = st; bestN = n; bestD = d; }
+  }
+  return best;
+}
+function pickRegister(w, c) {
+  const r = terraceRegion(w);
+  const wantTerrace = !!(c && c.terraceBound && r);
+  if (!wantTerrace) return pickSideRegister(w, c, false, r) || pickAnyRegister(w, c);
+  // A terrace-bound guest whose own register is at (or past) TERRACE_REGISTER_CAP settles for the
+  // INTERIOR side next — cheap for whichever cashier/owner is nearby — before ever falling back to
+  // the fully unrestricted search, which (with no cap of its own) could otherwise still hand it a
+  // terrace register that only READS as "least loaded" in that broader comparison.
+  return pickSideRegister(w, c, true, r) || pickSideRegister(w, c, false, r) || pickAnyRegister(w, c);
+}
 function activeBowl(w) {
   for (const st of w.stations.values()) if (st.type === 'bowl' && st.active) return st;
   return null;
+}
+// C4 (plan 3.1/1.5, restroom comfort buff): the one active restroom station, or null. There is
+// only ever one (wc1) in the shipped layout, but this mirrors activeBowl's "first active one
+// found" shape rather than hard-coding the id.
+function activeRestroom(w) {
+  for (const st of w.stations.values()) if (st.type === 'restroom' && st.active) return st;
+  return null;
+}
+// While wc1 is active and its tidy field (owned by the foundation agent, 0..1) is above 0.3: the
+// comfort buff is on. At/below 0.3 it switches off — a hard threshold, not a fade.
+function restroomBuffActive(w) {
+  const wc = activeRestroom(w);
+  return !!wc && wc.tidy > 0.3;
 }
 // Throttled patience event: pushes only when the integer part of value*4 changes (4 updates/sec
 // for the render bar), and doubles as the single place patience is ever assigned so drains and
@@ -370,6 +478,17 @@ export function stepCustomers(list, w, price, dt) {
       }
       c.recoveryQuote = (PRODUCTS[c.wish.product]?.price||8)*(2-c.id%2)+(c.wish.treat?8:0);
       emitWorld(w, { type: 'wish', id: c.id, product: c.wish.product, treat: c.wish.treat });
+      // C1 (plan 3.1/7.1): terrace-bound routing, decided once on this customer's effective
+      // "spawn" tick (the same tick its wish is first rolled). Probability is (terrace seats /
+      // all active seats) so the split scales up automatically as the player buys more deck
+      // tables; gated on a terrace seat genuinely being free RIGHT NOW, matching the plan's "when
+      // a terrace seat is free" condition. Short-circuited to zero w.rng draws whenever there are
+      // no active terrace seats at all (terrace === 0), so every pre-terrace call — every day
+      // before z_terrace is bought, this file's own untouched nav-fullhouse.test.js's pre-terrace
+      // ticks included — consumes exactly the rng sequence it always has.
+      const r = terraceRegion(w);
+      const { terrace, total } = seatCounts(w, r);
+      c.terraceBound = terrace > 0 && total > 0 && seatFor(w, r, true) != null && w.rng.chance(terrace / total);
     }
     // mask 1 (entry lane) while approaching/crossing the door; once truly on the floor, drop to
     // mask 0 so the mover no longer treats the west-margin lane cells as walkable (leave() sets
@@ -501,16 +620,21 @@ export function stepCustomers(list, w, price, dt) {
           // world.js's stepRegisters just reads c.amount back, no pricing knowledge needed
           // there). Seated-ness is a snapshot of seat availability at arrival, not a reservation
           // — the actual seat is claimed for real once paid, below.
-          const seat = freeSeat(w); const seated = !!seat;
+          const seat = pickSeat(w, c); const seated = !!seat;
           c.amount = (c.order || []).reduce((sum, key) => sum + price(key, seated), 0);
           // Loop v2 Task 3: a holidayCupcake customer (wishFor's `holiday` flag — economy.js) pays
           // double for its whole order, same as the design's "2x price" wording for that wish.
           if (c.wish && c.wish.holiday) c.amount *= 2;
+          // C4 (restroom comfort buff, plan 3.1/1.5): a seated guest tips 15% extra while wc1 is
+          // active and tidy > 0.3. Rounded like every other price computation in this file (the
+          // caller's own price()/economy.js's salePrice both round) so a buffed order stays whole
+          // coins.
+          if (seated && restroomBuffActive(w)) c.amount = Math.round(c.amount * 1.15);
         }
         if (c.state === 'atRegister') {
           if (c.paid) {
             c.registerId = null;
-            const seat = freeSeat(w);
+            const seat = pickSeat(w, c);
             // Defensive hasTarget clear on both exits (matches the patience-loss branch below and
             // the 'toSeat' handler's own clear on arrival): world.js's stepRegisters only pays a
             // customer once its mover reads !hasTarget AND is spatially at slot 0, so this should
@@ -538,6 +662,35 @@ export function stepCustomers(list, w, price, dt) {
             else if (w.dayState && dirtyTablesBlockingSeats(w)) { c.state = 'noSeat'; c.noSeatT = 0; c.mood = 'wait'; c.noSeatPoint = { x: c.x + .8, z: c.z + .8 }; }
             else { c.state = 'leave'; }
           } else if (st.serving === '') {
+            // C1/C2 settle-for-register (same idea as the counter's settle-for rule above, adapted
+            // to a register): a guest stuck unserved for SETTLE_WAIT seconds gives up on ITS
+            // register and reassigns to whichever active one is genuinely best right now — the
+            // plain nearest/shortest-queue search, with no terrace preference. This is what keeps
+            // a terrace-bound guest from bleeding out on 'lost' when the terrace register happens
+            // to be far from wherever the café's one cashier currently is (a real distance this
+            // batch introduces — register3 sits clear across the gate from register1/2) rather
+            // than piling up an unserved queue nobody will reach in time. Once per visit, like
+            // every other settle-for rule in this file.
+            if (!c._regSettled && (PATIENCE - c.patience) >= SETTLE_WAIT) {
+              // A terrace-bound guest may drop the terrace-only requirement entirely (pay
+              // anywhere reachable rather than lose the sale) — but an ORDINARY guest must never
+              // settle onto a terrace register just because it happens to be idle; that is the
+              // exact "least loaded, distance a tie-break only" leak pickRegister's own side
+              // restriction exists to close. Restricted to the interior side for it instead.
+              const alt = c.terraceBound ? pickAnyRegister(w, c) : pickSideRegister(w, c, false, terraceRegion(w));
+              if (alt && alt.id !== c.registerId) {
+                c._regSettled = true;
+                c.registerId = alt.id;
+                c.regArrived = w.seq = (w.seq || 0) + 1;
+                w._regTally.set(alt.id, (w._regTally.get(alt.id) || 0) + 1);
+                c.mover.hasTarget = false;
+                setPatience(w, c, PATIENCE);
+                c.mood = 'none';
+                c.state = 'toRegister';
+                emitWorld(w, { type: 'registerSettled', id: c.id, to: alt.id });
+                break;
+              }
+            }
             setPatience(w, c, c.patience - dt);
             c.mood = 'wait';
             if (c.patience <= 0) {
@@ -561,7 +714,7 @@ export function stepCustomers(list, w, price, dt) {
         break;
       }
       case 'waitSeat': {
-        const seat=freeSeat(w);
+        const seat=pickSeat(w, c);
         if(seat){seat.occupied=true;c.seat=seat;c.seatId=seat.id;c.state='toSeat';c.mover.hasTarget=false;break;}
         if(!dirtyTablesBlockingSeats(w)){c.state='leave';c.mover.hasTarget=false;break;}
         c.dirtyWait=(c.dirtyWait||0)+dt;
@@ -585,7 +738,7 @@ export function stepCustomers(list, w, price, dt) {
       // (0.49m for >1s). Clearing the queue line is also simply the right behaviour: a guest who
       // has already paid has no business blocking the register.
       case 'noSeat': {
-        const seat = freeSeat(w);
+        const seat = pickSeat(w, c);
         if (seat) {
           seat.occupied = true; c.seat = seat; c.seatId = seat.id;
           c.state = 'toSeat'; c.mood = 'none'; c.mover.hasTarget = false;
@@ -620,6 +773,11 @@ export function stepCustomers(list, w, price, dt) {
           // mover is cleanly at rest, like any other arrival.
           c.mover.hasTarget = false;
           emitWorld(w, { type: 'seated', id: c.id, seatId: c.seatId });
+          // C4 (restroom comfort buff, plan 3.1/1.5): tidy drains 0.08 per seated guest, whether or
+          // not the buff is currently on (it's what eventually turns it off) — owned field, clamp
+          // at 0 kept local rather than reaching back into world.js for a one-line floor.
+          const wc = activeRestroom(w);
+          if (wc) wc.tidy = Math.max(0, wc.tidy - 0.08);
         }
         break;
       }
@@ -629,7 +787,10 @@ export function stepCustomers(list, w, price, dt) {
         // regardless keeps the seat leak check in nav-fullhouse.test.js (occupied must go back to
         // false) satisfied even while dirty — a dirty seat is simply not yet reusable, not still
         // "occupied" by anyone.
-        c.timer += dt; if (c.timer >= EAT_TIME) {
+        // C4: the restroom comfort buff also eats 20% faster (a 1.2x timer rate, not a shortened
+        // EAT_TIME constant, so a guest already mid-meal when the buff flips on/off — tidy crossing
+        // 0.3 while it's seated — speeds up or slows down starting that same tick).
+        c.timer += dt * (restroomBuffActive(w) ? 1.2 : 1); if (c.timer >= EAT_TIME) {
           c.seat.occupied = false; c.seat.dirty = true;
           emitWorld(w, { type: 'dirtied', seatId: c.seat.id });
           c.seat = null; c.seatId = null; c.order = null; c.state = 'leave'; c.hop = 0.5;

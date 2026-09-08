@@ -13,14 +13,29 @@ const isRecord = value => !!value && typeof value === 'object' && !Array.isArray
 const finiteNumber = value => typeof value === 'number' && Number.isFinite(value);
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 
-function areaBounds(area) {
+// Batch 1 — the regions engine (plan 7.1). The owner's bounding box was the interior rectangle
+// alone; it is now the interior UNION every region whose builtBy is in `builtSet`, or the owner
+// could not walk onto the deck they just bought. `builtSet` is optional (a Set-like with `.has`,
+// or anything falsy) so every existing call site that doesn't have one yet keeps its old,
+// interior-only behaviour — see the file-level note on normalizeOwnerState/restoreOwnerState.
+export function areaBounds(area, builtSet) {
   const w = area && area.size && finiteNumber(area.size.w) ? Math.max(1, area.size.w) : 20;
   const d = area && area.size && finiteNumber(area.size.d) ? Math.max(1, area.size.d) : 14;
+  let minX = -w / 2, maxX = w / 2, minZ = -d / 2, maxZ = d / 2;
+  const regions = area && Array.isArray(area.regions) ? area.regions : [];
+  for (const r of regions) {
+    if (!r || !builtSet || typeof builtSet.has !== 'function' || !builtSet.has(r.builtBy)) continue;
+    if (!(finiteNumber(r.x0) && finiteNumber(r.x1) && finiteNumber(r.z0) && finiteNumber(r.z1))) continue;
+    if (r.x0 < minX) minX = r.x0;
+    if (r.x1 > maxX) maxX = r.x1;
+    if (r.z0 < minZ) minZ = r.z0;
+    if (r.z1 > maxZ) maxZ = r.z1;
+  }
   return {
-    minX: -w / 2 + 0.5,
-    maxX: w / 2 - 0.5,
-    minZ: -d / 2 + 0.5,
-    maxZ: d / 2 - 0.5,
+    minX: minX + 0.5,
+    maxX: maxX - 0.5,
+    minZ: minZ + 0.5,
+    maxZ: maxZ - 0.5,
   };
 }
 
@@ -32,8 +47,8 @@ function wrapAngle(value) {
   return n;
 }
 
-function normalizePosition(raw, area) {
-  const b = areaBounds(area);
+function normalizePosition(raw, area, builtSet) {
+  const b = areaBounds(area, builtSet);
   const src = isRecord(raw) ? raw : {};
   return {
     x: finiteNumber(src.x) ? clamp(src.x, b.minX, b.maxX) : clamp(OWNER_SPAWN.x, b.minX, b.maxX),
@@ -82,12 +97,16 @@ function normalizeInventory(productsRaw, carryRaw, upgrades) {
   return emptyInventory();
 }
 
-export function normalizeOwnerState(raw, area, upgrades = {}) {
+// `builtSet` (optional, Set-like) widens the position clamp to any built region — see areaBounds
+// above. It defaults to undefined (interior-only) so save.js's existing call (which validates a
+// save before a live `world` exists) keeps its current behaviour; restoreOwnerState below, which
+// DOES have a live world, passes world.built through.
+export function normalizeOwnerState(raw, area, upgrades = {}, builtSet) {
   if (raw == null) {
     return {
       ok: true,
       legacy: true,
-      data: { v: OWNER_STATE_VERSION, position: normalizePosition(null, area), ...emptyInventory() },
+      data: { v: OWNER_STATE_VERSION, position: normalizePosition(null, area, builtSet), ...emptyInventory() },
     };
   }
   if (!isRecord(raw)) return { ok: false, reason: 'shape' };
@@ -102,7 +121,7 @@ export function normalizeOwnerState(raw, area, upgrades = {}) {
     legacy: false,
     data: {
       v: OWNER_STATE_VERSION,
-      position: normalizePosition(raw.position, area),
+      position: normalizePosition(raw.position, area, builtSet),
       ...normalizeInventory(raw.products, raw.carry, upgrades),
     },
   };
@@ -125,7 +144,8 @@ export function snapshotOwnerState(P, carry, items, upgrades = {}, area = null) 
 
 export function restoreOwnerState(P, carry, owner, payload, area, upgrades = {}, makeItem = null, world = null) {
   if (!P || !carry || !owner) return false;
-  const normalized = normalizeOwnerState(payload, area, upgrades);
+  const builtSet = world && world.built;
+  const normalized = normalizeOwnerState(payload, area, upgrades, builtSet);
   if (!normalized.ok) return false;
   const data = normalized.data;
 
@@ -135,10 +155,11 @@ export function restoreOwnerState(P, carry, owner, payload, area, upgrades = {},
   P.vx = 0;
   P.vz = 0;
 
-  // The canonical position is inside the café bounds, but a newly restored build set may place a
-  // station footprint over it. Push against the refreshed collision boxes, then clamp once more.
+  // The canonical position is inside the café UNION built-regions bounds, but a newly restored
+  // build set may place a station footprint over it. Push against the refreshed collision boxes,
+  // then clamp once more.
   if (world && Array.isArray(world.boxes)) pushOut(P, 0.35, world.boxes);
-  const b = areaBounds(area);
+  const b = areaBounds(area, builtSet);
   P.x = clamp(P.x, b.minX, b.maxX);
   P.z = clamp(P.z, b.minZ, b.maxZ);
 

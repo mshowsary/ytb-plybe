@@ -79,7 +79,10 @@ function wishedProduct(customers) {
 // below used to walk every station in the world, and productOf() reports anything that is not an
 // oven or a coffee machine as 'smoothie' — so a stocked barSmoothie display (or even bowl1) could
 // be picked as the "source" for a smoothie wish and then drained straight back onto itself.
-const SOURCE_TYPES = { oven: 1, coffee: 1, blender: 1 };
+// C6 (Batch 1 plan 3.1/7.2): 'icecream' mirrors 'coffee' exactly (cream instead of beans, same
+// buffer/timer/stock shape — see world.js's stepMachines), so it slots into the runner's existing
+// machine-source ranking for free.
+const SOURCE_TYPES = { oven: 1, coffee: 1, blender: 1, icecream: 1 };
 // Task 4: a runner's source is whichever active production station — oven, coffee machine or
 // blender — currently holds the most ready stock, not just ovens.
 // M3 T6: `customers`, when passed, is preferred over raw stock — a runner that only ever chases
@@ -129,7 +132,10 @@ function pickSource(w, customers, wantProduct, assigned) {
   }
   return best;
 }
-function productOf(st) { return st.type === 'oven' ? st.product : st.type === 'coffee' ? st.product : 'smoothie'; }
+// C6: an icecream machine reports its own live product (icecream/sundae, same alternating-recipe
+// idea as oven1/coffee1's altProduct) rather than falling through to the blender's fixed 'smoothie'
+// label — st.product is already correct for it (world.js createWorld), same as oven/coffee.
+function productOf(st) { return st.type === 'oven' ? st.product : st.type === 'coffee' ? st.product : st.type === 'icecream' ? st.product : 'smoothie'; }
 // Loop v2 Task 1: one display per product — a direct lookup replaces the old "least-loaded
 // counter holding any product" pick (pickCounter). Only ever one candidate per product now.
 function displayFor(w, product) {
@@ -372,6 +378,9 @@ function stepRunner(s, w, dt, carryCap, customers) {
 }
 
 function regQueueLen(w, id) { const arr = w._regQueues && w._regQueues.get(id); return arr ? arr.length : 0; }
+// See stepCashier's own comment (Batch 1 fix) for why these exist.
+const CASHIER_MIN_DWELL = 3;
+const CASHIER_SWITCH_MARGIN = 1;
 // M3 T3: the cashier no longer sweeps piles on a timer — it mans a register. It walks to (and
 // stays at) an active checkout's cash spot and, once arrived, sets st.serving = 'cashier' every
 // frame; world.js's stepRegisters does the actual per-customer processing/pay from there (same
@@ -385,19 +394,59 @@ function regQueueLen(w, id) { const arr = w._regQueues && w._regQueues.get(id); 
 // completely — nobody there ever gets served, they all drain patience and leave 'lost', which
 // sank throughput well under the test's floor. Comparing queue length (not, say, alternating)
 // means it drifts to wherever people are actually waiting instead of oscillating.
-function stepCashier(s, w, dt, cashierLevel) {
+// C3 (Batch 1 plan 1.4): with 2+ cashiers on payroll, homing each one to a distinct register BY
+// INDEX replaces the patrol-to-longest-queue rule below. That rule ranks purely by raw queue
+// length, which (measured) keeps favouring whichever register is naturally busiest — register1,
+// right off the door — even once a second cashier exists, so both end up crowding it instead of
+// the second one covering the terrace's register3. `idx`/`total` are this cashier's position among
+// every cashier in the roster and how many there are, computed fresh each tick by stepStaff below
+// (list order is stable — hire order — so idx is too). Homed to w.checkouts[min(idx, len-1)]:
+// w.checkouts is already in stable definition order (refreshActive iterates the stations Map,
+// itself insertion-ordered from data/area1.js — register1, register2, register3), so cashier #2
+// (idx 1) lands on register3 whenever register2 isn't active yet (this batch's own scenario) or on
+// register2 once it is; the min() clamp means a cashier hired before its own home register exists
+// still mans SOME active register rather than idling. total <= 1 (the untouched single-cashier
+// case — see nav-fullhouse.test.js, which hires exactly one against two built registers) falls
+// through unchanged to the exact patrol logic that test depends on.
+function stepCashier(s, w, dt, cashierLevel, idx = 0, total = 1) {
+  if (total >= 2) {
+    if (!w.checkouts.length) return;
+    const home = w.checkouts[Math.min(idx, w.checkouts.length - 1)];
+    s.target = home;
+    const co = w.stations.get(home);
+    if (walkTo(s, co.cash.x, co.cash.z, w, dt)) { co.serving = 'cashier'; co.cashierLevel = cashierLevel; }
+    return;
+  }
   const curValid = s.target && w.stations.get(s.target) && w.stations.get(s.target).active;
   if (!curValid) {
     s.target = w.checkouts[0] || null;
+    s._dwellT = 0;
   } else if (!s.mover.hasTarget) {
-    let best = s.target, bestLen = regQueueLen(w, s.target);
-    for (const id of w.checkouts) {
-      const st = w.stations.get(id);
-      if (!st.active) continue;
-      const len = regQueueLen(w, id);
-      if (len > bestLen) { best = id; bestLen = len; }
+    // Batch 1 fix: the terrace's register3 is FAR from register1/2 (across the gate, ~10m+), not
+    // the few adjacent metres register1/register2 sit apart — so re-evaluating "whichever active
+    // register has a longer queue" on every single idle tick (the original rule, still exactly
+    // right for two nearby registers) now means a genuinely long, wasted walk every time the
+    // comparison flips by even one customer. Measured: with register3 live, this thrashed the
+    // single cashier back and forth so much that served throughput collapsed under nav-
+    // fullhouse.test.js's own floor. Two guards, both no-ops for the original two-close-registers
+    // case this rule was built for (curLen 0 there switches on the very first customer exactly as
+    // before — see the untouched acceptance test): once genuinely working a register (curLen > 0),
+    // a candidate must beat it by CASHIER_SWITCH_MARGIN, not just by one, and the cashier must have
+    // held its post for CASHIER_MIN_DWELL seconds — so a momentary blip elsewhere never pulls it
+    // off a register it is actively clearing.
+    const curLen = regQueueLen(w, s.target);
+    s._dwellT = (s._dwellT || 0) + dt;
+    if (curLen === 0 || s._dwellT >= CASHIER_MIN_DWELL) {
+      const margin = curLen === 0 ? 0 : CASHIER_SWITCH_MARGIN;
+      let best = s.target, bestLen = curLen;
+      for (const id of w.checkouts) {
+        const st = w.stations.get(id);
+        if (!st.active) continue;
+        const len = regQueueLen(w, id);
+        if (len > bestLen + margin) { best = id; bestLen = len; }
+      }
+      if (best !== s.target) { s.target = best; s._dwellT = 0; }
     }
-    s.target = best;
   }
   if (!s.target) return;
   const co = w.stations.get(s.target);
@@ -409,6 +458,9 @@ function stepCashier(s, w, dt, cashierLevel) {
 // Task 4: level-1 cleaning rate (seconds per seat) — matches the global-constants table
 // (owner 1.0s, level-1 cleaner 1.6s; see systems/stations.js for the owner's side of this).
 const CLEANER_RATE = 1.6;
+// C5 (Batch 1 plan 3.1/1.5): fixed duration for the restroom tidy chore — literal per the plan
+// ("works 2.2s"), not scaled by the cleaner's Speed level the way CLEANER_RATE is for seats.
+const RESTROOM_CLEAN_SECONDS = 2.2;
 function pickDirtySeat(s, w) {
   let best = null, bestD = Infinity;
   for (const st of w.stations.values()) {
@@ -418,9 +470,19 @@ function pickDirtySeat(s, w) {
   }
   return best;
 }
+// C4/C5: the one active restroom station (wc1 in the shipped layout), or null — same shape as
+// pickDirtySeat's "nothing found" contract.
+function activeRestroom(w) {
+  for (const st of w.stations.values()) if (st.type === 'restroom' && st.active) return st;
+  return null;
+}
 // Walks to the nearest dirty seat's front, cleans it in `rate` seconds (level 1 = CLEANER_RATE,
 // M3 T5's Speed level shortens it — see the rate computed in stepStaff below), repeats; idles at
 // spawn once nothing is dirty.
+// C5: when nothing is dirty and wc1 is active with tidy < 1, the cleaner tidies it instead of
+// idling at spawn — a chore, not a queue. A dirty seat always outranks it: 'idle' only picks the
+// chore once pickDirtySeat comes back empty, and both chore states re-check on every tick (a seat
+// dirtied mid-chore bounces the cleaner straight back to 'idle', which re-picks it next tick).
 function stepCleaner(s, w, dt, rate) {
   switch (s.state) {
     case 'idle': {
@@ -428,6 +490,8 @@ function stepCleaner(s, w, dt, rate) {
       // M3 T6: same hasTarget clear as the runner above — a fresh dirty-seat pick is a genuinely
       // new target, not a continuation of wherever the mover was last idly walking.
       if (st) { s.mover.hasTarget = false; s.target = st.id; s.state = 'toSeat'; return; }
+      const wc = activeRestroom(w);
+      if (wc && wc.tidy < 1) { s.mover.hasTarget = false; s.target = wc.id; s.state = 'toRestroom'; s.timer = 0; return; }
       walkTo(s, s.spawn.x, s.spawn.z, w, dt);
       return;
     }
@@ -446,6 +510,21 @@ function stepCleaner(s, w, dt, rate) {
       if (!st || !st.dirty) { s.state = 'idle'; s.timer = 0; return; }
       s.timer += dt;
       if (s.timer >= rate) { cleanSeat(w, st.id); s.state = 'idle'; s.timer = 0; }
+      return;
+    }
+    case 'toRestroom': {
+      const wc = w.stations.get(s.target);
+      if (!wc || !wc.active || wc.tidy >= 1) { s.state = 'idle'; return; }
+      if (pickDirtySeat(s, w)) { s.state = 'idle'; return; } // a dirty seat just outranked the chore
+      if (walkTo(s, wc.front.x, wc.front.z, w, dt)) { s.state = 'tidying'; s.timer = 0; }
+      return;
+    }
+    case 'tidying': {
+      const wc = w.stations.get(s.target);
+      if (!wc || !wc.active) { s.state = 'idle'; s.timer = 0; return; }
+      if (pickDirtySeat(s, w)) { s.state = 'idle'; s.timer = 0; return; } // dirty seat outranks the chore
+      s.timer += dt;
+      if (s.timer >= RESTROOM_CLEAN_SECONDS) { wc.tidy = 1; s.state = 'idle'; s.timer = 0; }
       return;
     }
   }
@@ -469,10 +548,15 @@ export function stepStaff(list, w, dt, onCollect, levels, customers) {
   const carryCap = RUNNER_CARRY_LEVELS[Math.min(RUNNER_CARRY_LEVELS.length - 1, Math.max(0, (L.runner.carry | 0)))];
   const cashierLevel = ((L.cashier.speed | 0)) + 1;
   const cleanerRate = CLEANER_RATE / (1 + 0.25 * (L.cleaner.speed | 0));
+  // C3: total cashier count, so stepCashier knows whether to home-by-index (2+) or keep the
+  // untouched single-cashier patrol (see its own comment).
+  let cashierTotal = 0;
+  for (const s of list) if (s.kind === 'cashier') cashierTotal++;
+  let cashierIdx = 0;
   for (const s of list) {
     s.mover.speed = (STAFF[s.kind] && STAFF[s.kind].speed || 2.2) * workerSpeedMult(L, s.kind);
     if (s.kind === 'runner') stepRunner(s, w, dt, carryCap, customers);
-    else if (s.kind === 'cashier') stepCashier(s, w, dt, cashierLevel);
+    else if (s.kind === 'cashier') { stepCashier(s, w, dt, cashierLevel, cashierIdx, cashierTotal); cashierIdx++; }
     else if (s.kind === 'cleaner') stepCleaner(s, w, dt, cleanerRate);
   }
   // M3 T3: stepStaff is the one sim-step function every caller (the running game, the bot, the

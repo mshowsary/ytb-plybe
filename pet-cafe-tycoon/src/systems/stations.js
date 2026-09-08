@@ -10,6 +10,7 @@ import {
   refillBeans, refillBowl, harvestBush, addFruit as stationAddFruit, ownerCleanSeat,
 } from '../sim/world.js';
 import { canTakeItems, takeSack, useSack, addFruit as carryAddFruit, returnAll } from '../sim/carry.js';
+import { areaBounds as ownerAreaBounds } from '../sim/ownerState.js';
 import { heldState, destinationFor, findReturnStation, heldLabel, destinationLabel } from '../sim/interaction.js';
 import { itemFor } from '../render/props.js';
 import { C } from '../render/palette.js';
@@ -248,8 +249,11 @@ export function createStations(G, S, ctx) {
       P.vx = damp(P.vx, mv.x * sp, 18, dt); P.vz = damp(P.vz, mv.z * sp, 18, dt);
       P.x += P.vx * dt; P.z += P.vz * dt;
       pushOut(P, 0.35, world.boxes);
-      P.x = Math.max(-area.size.w / 2 + 0.5, Math.min(area.size.w / 2 - 0.5, P.x));
-      P.z = Math.max(-area.size.d / 2 + 0.5, Math.min(area.size.d / 2 - 0.5, P.z));
+      // Batch 1 — regions engine (plan 7.1): clamp to the interior UNION every built region (the
+      // terrace), or the owner can never walk onto the deck they just bought.
+      { const b = ownerAreaBounds(area, world.built);
+        P.x = Math.max(b.minX, Math.min(b.maxX, P.x));
+        P.z = Math.max(b.minZ, Math.min(b.maxZ, P.z)); }
       owner.group.position.set(P.x, 0, P.z); owner.update(dt, P.vx, P.vz); S.follow(P.x, P.z, dt);
 
       if (sheetAnchorId && sheets.isOpen) {

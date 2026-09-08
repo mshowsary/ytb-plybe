@@ -92,7 +92,12 @@ function restockTarget(w, G, phase) {
       const keyFam = familyOf(key);
       for (const st of w.stations.values()) {
         if (!st.active || !(st.stock > 0)) continue;
-        const pk = st.type === 'oven' ? st.product : st.type === 'coffee' ? st.product : st.type === 'blender' ? 'smoothie' : null;
+        // Batch 1: 'icecream' mirrors 'coffee'/'oven' here exactly (world.js gives it the same
+        // {product, stock} shape) — a bare product-key lookup, not a family, since a station's
+        // own `product` field already IS the specific thing it makes (icecream1 makes 'icecream'
+        // even while dispensing its alt 'sundae' recipe some of the time).
+        const pk = st.type === 'oven' ? st.product : st.type === 'coffee' ? st.product
+          : st.type === 'icecream' ? st.product : st.type === 'blender' ? 'smoothie' : null;
         if (familyOf(pk) === keyFam) return { x: st.front.x, z: st.front.z, kind: 'fetch', stationId: st.id, product: key };
       }
     }
@@ -114,7 +119,8 @@ function restockTarget(w, G, phase) {
   const wishedFam = familyOf(wished);
   for (const st of w.stations.values()) {
     if (!st.active || !(st.stock > 0)) continue;
-    const pk = st.type === 'oven' ? st.product : st.type === 'coffee' ? st.product : st.type === 'blender' ? 'smoothie' : null;
+    const pk = st.type === 'oven' ? st.product : st.type === 'coffee' ? st.product
+      : st.type === 'icecream' ? st.product : st.type === 'blender' ? 'smoothie' : null;
     if (familyOf(pk) !== wishedFam) continue;
     if (st.stock > bestStock) { best = st; bestStock = st.stock; }
   }
@@ -140,6 +146,10 @@ function refillTarget(w, G) {
     for (const st of w.stations.values()) {
       if (!st.active) continue;
       if (carry.sack === 'beans' && st.type === 'coffee') return { x: st.front.x, z: st.front.z, kind: 'refillDrop', stationId: st.id };
+      // Cream targets the ice cream machine exactly like beans target the coffee machine, no room
+      // check needed for the same reason: it's only ever fetched when cream has hit exactly 0 (see
+      // needCream below), and refillCream (world.js) is capped at 20 same as refillBeans.
+      if (carry.sack === 'cream' && st.type === 'icecream') return { x: st.front.x, z: st.front.z, kind: 'refillDrop', stationId: st.id };
       if (carry.sack === 'kibble' && st.type === 'bowl' && st.stock < st.capacity) return { x: st.front.x, z: st.front.z, kind: 'refillDrop', stationId: st.id };
     }
     // No active bowl has ANY room right now (the one 20-unit kibble sack routinely outsizes the
@@ -157,16 +167,48 @@ function refillTarget(w, G) {
   // this check, a carry stuck holding leftover fruit (the blender's buffer near-full — see
   // harvestTarget above) kept re-issuing a pickup that could never actually succeed, forever.
   if (carry && (carry.fruit > 0 || (G.carryCount || 0) > 0)) return null;
-  let needBeans = false, needKibble = false;
+  let needBeans = false, needKibble = false, needCream = false;
   for (const st of w.stations.values()) {
     if (!st.active) continue;
     if (st.type === 'coffee' && st.beans === 0) needBeans = true;
     if (st.type === 'bowl' && st.stock === 0) needKibble = true;
+    // Batch 1: icecream mirrors coffee exactly (cream instead of beans).
+    if (st.type === 'icecream' && st.cream === 0) needCream = true;
   }
-  if (!needBeans && !needKibble) return null;
-  const pantry = w.stations.get('pantry1'); // was 'storage1' — see data/area1.js
-  if (!pantry || !pantry.active) return null;
-  return { x: pantry.front.x, z: pantry.front.z, kind: 'refillPickup', stationId: 'pantry1', sackKind: needBeans ? 'beans' : 'kibble' };
+  if (!needBeans && !needKibble && !needCream) return null;
+  const sackKind = needBeans ? 'beans' : needKibble ? 'kibble' : 'cream';
+  // data/area1.js has TWO pantries once the terrace's ice cream lane is built: pantry1 (the
+  // original, beans+kibble, no `supplies` field) and coldPantry1 (cream only, `supplies:['cream']`).
+  // A bare `w.stations.get('pantry1')` would send the bot to the wrong building for cream.
+  const pantry = pantryFor(w, sackKind);
+  if (!pantry) return null;
+  return { x: pantry.front.x, z: pantry.front.z, kind: 'refillPickup', stationId: pantry.id, sackKind };
+}
+// A pantry "supports" a supply if its DATA says so explicitly (coldPantry1's `supplies:['cream']`
+// in data/area1.js) or, for the classic interior pantry with no `supplies` field at all, if the
+// supply is one of the two original ones. Deliberately reads `w.area.stations` (the original
+// authored data createWorld was built from, kept on `w.area`) rather than the runtime station
+// object off `w.stations`: createWorld (src/sim/world.js, not owned by this task) copies only a
+// fixed field list onto each runtime station and `supplies` is not among them, so `st.supplies` is
+// always undefined at runtime regardless of what data/area1.js says — confirmed by
+// test/bot-decide-icecream.test.js, which failed against the runtime field before this. Rather than
+// touch world.js (owned by another task this batch), this reads the one place the real data still
+// lives. Mirrors the same rule src/ui/interactionCoach.js's pantryStation() uses (that file is
+// owned by the same task as this one but is a separate, independent copy, not a shared import).
+function pantrySupports(w, st, supply) {
+  if (!st) return false;
+  const data = w.area && w.area.stations && w.area.stations.find(s => s.id === st.id);
+  if (data && Array.isArray(data.supplies)) return data.supplies.includes(supply);
+  return supply === 'beans' || supply === 'kibble';
+}
+function pantryFor(w, supply) {
+  let fallback = null;
+  for (const st of w.stations.values()) {
+    if (!st.active || st.type !== 'pantry') continue;
+    if (!fallback) fallback = st;
+    if (pantrySupports(w, st, supply)) return st;
+  }
+  return fallback;
 }
 // Loop v2 Task 1: the return crate — a genuinely wedged owner (holding a product whose one
 // display has been full this whole time, or a sack/fruit with nowhere left to put it) hands it

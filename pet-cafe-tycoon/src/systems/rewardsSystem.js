@@ -139,6 +139,45 @@ function injectRewardsStyle() {
       50% { transform: translateY(-6px) scale(1.05); }
     }
 
+    /* Speed-Build Floating Chip (Task 1.7): offered only while the owner stands on a build
+       circle that is already >= 40% paid. Shares the mystery chip's fixed-corner convention
+       (icon + numeral, no prose) rather than a projected label, so it needs no labelLayout
+       registration — same precedent as .mystery-float-chip above. Sits one slot higher so the
+       two can never occupy the same pixels if both happen to be eligible at once. */
+    .speed-build-chip {
+      position: fixed;
+      right: calc(12px + env(safe-area-inset-right, 0px));
+      bottom: calc(148px + env(safe-area-inset-bottom, 0px));
+      z-index: 18;
+      min-height: 48px;
+      height: 48px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #D2F8E0, #6EE7A8);
+      color: #123D28;
+      font: 950 13px/1 system-ui;
+      box-shadow: 0 4px 0 #1B7A4A44, 0 8px 22px #34D17A55;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      animation: speedBuildPulse 1.6s infinite ease-in-out;
+      backdrop-filter: blur(4px);
+    }
+    .speed-build-chip.hidden { display: none; }
+    @media(max-width: 240px) {
+      .speed-build-chip {
+        font-size: 10px !important;
+        padding: 0 8px !important;
+        max-width: calc(100vw - 20px) !important;
+      }
+    }
+    @keyframes speedBuildPulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+
     /* Golden Hour HUD Indicator */
     .golden-indicator {
       display: flex; align-items: center; gap: 4px;
@@ -233,6 +272,24 @@ export function createRewardsSystem(G, S, platform) {
     <span>MYSTERY GIFT</span>
   `;
   document.body.appendChild(mysteryChip);
+
+  // 3b. Speed-Build Floating Chip (Task 1.7). Icon + numeral only, no prose on the play field:
+  // a bolt (finish now) + a coin (the remaining build cost this ad skips) + that remaining
+  // amount. `G.speedBuildOffer` is written every frame by the build-circle owner (zones.js/
+  // stations.js — see the wiring contract at the bottom of this file) as either `null` or
+  // `{ zoneId, price, paid }` once the owner stands inside an unbuilt zone's footprint that is
+  // already speedBuildEligible(paid, price). This file never computes that footprint itself.
+  const speedBuildChip = document.createElement('button');
+  speedBuildChip.type = 'button';
+  speedBuildChip.className = 'speed-build-chip hidden';
+  speedBuildChip.setAttribute('aria-label', 'Finish build now');
+  speedBuildChip.innerHTML = `
+    <span style="width:18px;height:18px;display:inline-block">${boltIcon()}</span>
+    <span style="width:15px;height:15px;display:inline-block">${coinIcon()}</span>
+    <span class="speed-build-num">0</span>
+  `;
+  document.body.appendChild(speedBuildChip);
+  const speedBuildNum = speedBuildChip.querySelector('.speed-build-num');
 
   // 4. Special and Golden chips in day top pill
   const dayTop = document.querySelector('.dayTop');
@@ -371,6 +428,34 @@ export function createRewardsSystem(G, S, platform) {
     G.requestCheckpoint?.('mystery-gift-claim');
   });
 
+  // Speed-build click handler (Task 1.7). Claiming finishes the build circle the owner is
+  // currently standing on for free by calling the completion hook the build system wires onto
+  // `G` (see the wiring contract above `speedBuildChip`). If that hook is not wired yet, or the
+  // offer already vanished (owner walked off the circle, or another placement claimed the shared
+  // in-shift budget first), this is a safe no-op — the chip is hidden either way.
+  speedBuildChip.addEventListener('click', async () => {
+    const day = G.dayState.day | 0;
+    const offer = G.speedBuildOffer;
+    if (!offer || inShiftClaimedForShift(G.meta, day)) {
+      speedBuildChip.classList.add('hidden');
+      return;
+    }
+    let earned = true;
+    if (platform && platform.rewardedAvailable) {
+      earned = await platform.requestRewardedAd('pet-cafe-speed-build');
+    }
+    if (!earned) {
+      G.hud?.toast?.('Speed Build unavailable');
+      return;
+    }
+    markRewardedClaim(G.meta, day, 'speed-build');
+    speedBuildChip.classList.add('hidden');
+    // The completion hook mirrors payZone's own 'built' event, so the usual build-complete
+    // sound/reveal (zones.js onBuilt) fires exactly as it would for a manually finished build.
+    G.finishSpeedBuild?.(offer.zoneId);
+    G.requestCheckpoint?.('speed-build-claim');
+  });
+
   refreshCalendarDot();
 
   return {
@@ -425,6 +510,19 @@ export function createRewardsSystem(G, S, platform) {
       if (inShiftClaimedForShift(G.meta, day)) {
         mysteryChip.classList.add('hidden');
       }
+
+      // Speed-Build offer (Task 1.7): visible only while G.speedBuildOffer names an eligible
+      // build circle the owner is standing on right now, and only while the shared in-shift
+      // budget is unclaimed. Independent of the mystery gift above — either, neither, or (were
+      // both eligible at once) the first one clicked; claiming one hides both via the shared key.
+      const speedOffer = G.speedBuildOffer;
+      if (speedOffer && !inShiftClaimedForShift(G.meta, day)) {
+        const remaining = Math.max(0, Math.round((Number(speedOffer.price) || 0) - (Number(speedOffer.paid) || 0)));
+        speedBuildNum.textContent = String(remaining);
+        speedBuildChip.classList.remove('hidden');
+      } else {
+        speedBuildChip.classList.add('hidden');
+      }
     },
     refresh() {
       refreshCalendarDot();
@@ -434,4 +532,11 @@ export function createRewardsSystem(G, S, platform) {
 
 function starIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" fill="#FFD700"/></svg>';
+}
+
+// icons.js has no "finish now" pictogram yet, so — matching the local starIcon() fallback above —
+// this stays a small inline SVG owned here rather than adding an export to a file this batch
+// doesn't touch.
+function boltIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="13 2 4 14 11 14 10 22 20 9 13 9" fill="#123D28"/></svg>';
 }

@@ -10,7 +10,10 @@ export function canTakeItems(c) { return c.sack == null && c.fruit === 0; }
 // Kibble is a single 10-unit refill portion: after any successful bowl refill the remaining scoop
 // is consumed/put away automatically. This removes the pointless "fill bowl, then walk leftovers
 // to RETURN" chore while keeping carry exclusivity and the Pantry interaction intact.
-export const SUPPLY_PORTIONS = Object.freeze({ beans: 20, kibble: 10 });
+// Cream (plan 3.1/7.2, Batch 1 terrace) is the ice cream lane's bean-equivalent: icecream1 takes
+// several top-ups the same way coffee1 does, so it is a reusable 20-unit bag, mirroring beans
+// exactly rather than kibble's single-portion rule.
+export const SUPPLY_PORTIONS = Object.freeze({ beans: 20, kibble: 10, cream: 20 });
 export function takeSack(c, kind) {
   if (!isEmpty(c)) return false;
   c.sack = kind;

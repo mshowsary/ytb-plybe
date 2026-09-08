@@ -34,10 +34,15 @@ test('every seat pair spot lies on a free grid cell', () => {
   }
 });
 
-test('every station front lies on a free grid cell', () => {
+test('every ACTIVE station front lies on a free grid cell', () => {
+  // Batch 1 (plan 3.1): z_splash retires fountain1 in favour of splash1 on the same tile (see
+  // world.js payZone) — buildAll no longer implies "every station in the data is active", so this
+  // now has to check the invariant it always meant ("a station the player can actually use has a
+  // reachable front"), not "every row that ever existed in data/area1.js".
   const w = createWorld(AREA1); buildAll(w);
   const grid = buildGrid(AREA1, w);
   for (const st of w.stations.values()) {
+    if (!st.active) continue;
     assert.ok(isFree(grid, idx(grid, st.front.x, st.front.z), 0), `${st.id} front at (${st.front.x},${st.front.z}) is blocked`);
   }
 });
@@ -63,9 +68,17 @@ test('exit corridor remains entirely free', () => {
   }
 });
 
-test('display/register queues stay north of the exit corridor', () => {
+test('interior display/register queues stay north of the exit corridor', () => {
+  // The 2.85 ceiling encodes "north of the door-side exit corridor" (the previous test, z 3.0-4.6)
+  // for the ORIGINAL interior stations, which sit in a single row a few metres from that door.
+  // Batch 1's terrace stations (plan 7.1) are a different physical space entirely, 5+ metres south
+  // of the fence with no exit corridor of their own to spill into — scope this check to the
+  // interior set it was written for instead of asserting an interior-specific bound on every
+  // present and future station in the game.
+  const INTERIOR_QUEUED = new Set(['dispCookie', 'dispCupcake', 'barCoffee', 'barSmoothie', 'register1', 'register2']);
   const w = createWorld(AREA1); buildAll(w);
   for (const id of [...w.displays, ...w.checkouts]) {
+    if (!INTERIOR_QUEUED.has(id)) continue;
     const st = w.stations.get(id);
     for (const p of st.queue) assert.ok(p.z <= 2.85, `${id} queue at z=${p.z} exceeds 2.85`);
   }
@@ -90,7 +103,12 @@ test('pantry, return and blender are physically separated', () => {
 });
 
 test('Task 25 progression makes Staff Desk and second register parallel after Cupcakes while preserving the smoothie chain', () => {
-  const order = ['z_seats1', 'z_oven2', 'z_register2', 'z_hire', 'z_coffee', 'z_bowl', 'z_blender', 'z_garden', 'z_seats2'];
+  // Batch 1 (plan 7.1) appends the terrace chain after z_seats2; the days 1-12 prefix asserted
+  // below (z_seats1..z_seats2) is unchanged.
+  const order = [
+    'z_seats1', 'z_oven2', 'z_register2', 'z_hire', 'z_coffee', 'z_bowl', 'z_blender', 'z_garden', 'z_seats2',
+    'z_terrace', 'z_icecream', 'z_register3', 'z_photo', 'z_terraceSeats', 'z_restroom', 'z_splash',
+  ];
   assert.deepEqual(AREA1.zones.map(z => z.id), order);
   const zones = new Map(AREA1.zones.map(z => [z.id, z]));
   const stationIds = new Set(AREA1.stations.map(s => s.id));

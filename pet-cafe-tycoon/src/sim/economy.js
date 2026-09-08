@@ -11,9 +11,16 @@ export const PRODUCTS = {
   treat:    { price: 8,  color: '#C97A3A' },
   brownie:  { price: 13, bake: 1.2, color: '#6B4023' },
   latte:    { price: 19, make: 2.5, color: '#C9A877' },
+  // Batch 1 — the ice cream lane (plan 3.1). icecream1 mirrors coffee1 exactly, so sundae is its
+  // alt recipe (world.js ALT_PRODUCT) the same way latte is coffee1's. pupcup is a pet-treat
+  // variant dispensed at icecream1 (plan: wishFor gives terrace-bound pet wishes a pupcup instead
+  // of a treat) — it has no `make`/`bake` because it costs 1 cream directly, not a buffer slot.
+  icecream: { price: 26, make: 2.0, color: '#FFF0F5' },
+  sundae:   { price: 34, make: 2.6, color: '#FFD6E7' },
+  pupcup:   { price: 14, color: '#FFE4C4' },
 };
 
-export const FAMILY = { cookie: 'cookie', brownie: 'cookie', coffee: 'coffee', latte: 'coffee' };
+export const FAMILY = { cookie: 'cookie', brownie: 'cookie', coffee: 'coffee', latte: 'coffee', sundae: 'icecream' };
 export const familyOf = key => FAMILY[key] || key;
 
 export function availableWishProducts(w) {

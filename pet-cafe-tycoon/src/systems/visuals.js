@@ -1,34 +1,50 @@
 // src/systems/visuals.js — builds a mesh per station, keeps physical stock props in sync, owns the
 // Task-31 glanceable stock truth, and runs Task-32's one-shot construction reveal.
 import * as THREE from 'three';
-import { ovenMesh, counterMesh, checkoutMesh, tableMesh, hireDeskMesh, kioskMesh, bowlMesh, bushMesh, coffeeMesh, pantryMesh, crateMesh, blenderMesh, chalkboardMesh, itemFor, cashPile, dirtyMesh, zoneRing } from '../render/props.js';
+import { ovenMesh, counterMesh, checkoutMesh, tableMesh, hireDeskMesh, kioskMesh, bowlMesh, bushMesh, coffeeMesh, pantryMesh, crateMesh, blenderMesh, chalkboardMesh, itemFor, cashPile, dirtyMesh, zoneRing, icecreamMesh, coldPantryMesh, photoBoothMesh, restroomMesh, fountainMesh, splashPoolMesh } from '../render/props.js';
 import { C } from '../render/palette.js';
 import { buildRevealPhase, buildRevealScale } from '../render/buildReveal.js';
-import { iconFor, treatIcon, coinIcon, sackIcon, returnIcon, leafIcon, gearIcon, personIcon, beanIcon } from '../ui/icons.js';
+import { iconFor, treatIcon, coinIcon, sackIcon, returnIcon, leafIcon, gearIcon, personIcon, beanIcon, creamIcon } from '../ui/icons.js';
 import { STAR_IDS } from '../sim/economy.js';
 
 const DISPLAY_POOL = 16;
 const DEMAND_DETAIL_RADIUS = 1.7;
 
+// Batch 1 terrace (plan 3.1/7.2): icecream/photo/restroom mirror the type-keyed lookup every other
+// station uses. `decor` covers fountain1 (the only decor station this batch) and `splash` covers
+// splash1, which occupies fountain1's exact spot once z_splash is built -- see the active-visibility
+// sync in update() below for how the swap actually happens on screen. `gate` renders nothing: it is
+// a non-blocking fence-gap marker (props.js's fence arch/gate-open animation is the actual visual),
+// so an empty group keeps it out of the generic reveal/pulse machinery's way without a special case.
 const MESH_FOR = {
   oven: ovenMesh, display: counterMesh, checkout: checkoutMesh, seat: tableMesh, hire: hireDeskMesh, kiosk: kioskMesh,
   bowl: bowlMesh, bush: bushMesh, coffee: coffeeMesh, pantry: pantryMesh, return: crateMesh, blender: blenderMesh,
+  icecream: icecreamMesh, photo: photoBoothMesh, restroom: restroomMesh, decor: fountainMesh, splash: splashPoolMesh,
+  gate: () => new THREE.Group(),
 };
+// coldPantry1 shares the generic 'pantry' type (so it keeps sheets.js/interactionCoach's pantry
+// plumbing for free) but wants the icy-toned mesh props.js built specifically for it; every other
+// pantry keeps the warm one. Keyed by station id, checked before the type map.
+const MESH_ID_OVERRIDE = { coldPantry1: coldPantryMesh };
 // Program §5.5. Every chalkboard used to carry an English caption -- "OVEN · cupcakes",
 // "COFFEE · needs beans", "PANTRY" -- and with one board per station that made words the most
 // repeated thing in the 3D frame. The board now says the same two things without any: WHAT it is
 // (the icon it already had) and WHETHER it has anything (a stock dot: green stocked, amber low,
 // red empty). "Needs beans" is not a sentence any more, it is the bean glyph with a red dot; the
 // interaction coach still points at whichever station actually wants the player.
-const CHALK_DOT_TYPES = new Set(['oven', 'display', 'bowl', 'coffee', 'blender', 'bush']);
+// Batch 1 terrace: icecream1 mirrors coffee1 exactly (§3.1), so it gets the same dot semantics --
+// empty when its supply (cream, not beans) runs out.
+const CHALK_DOT_TYPES = new Set(['oven', 'display', 'bowl', 'coffee', 'blender', 'bush', 'icecream']);
 const CHALK_LOW_FRACTION = 0.34;
 
 // Split key/html so the per-frame update can compare a short string instead of re-serialising an
-// SVG: only a family flip (oven/display) or the coffee machine running out of beans changes it.
+// SVG: only a family flip (oven/display) or the coffee/icecream machine running out of its input
+// changes it.
 function chalkIconKey(st) {
   switch (st.type) {
     case 'oven': case 'display': return st.product;
     case 'coffee': return (st.beans | 0) > 0 ? 'coffee' : 'beans';
+    case 'icecream': return (st.cream | 0) > 0 ? 'icecream' : 'cream';
     case 'blender': return 'smoothie';
     case 'pantry': return 'sack';
     case 'return': return 'return';
@@ -43,6 +59,7 @@ function chalkIconKey(st) {
 function chalkIconHtml(key) {
   switch (key) {
     case 'beans': return beanIcon();
+    case 'cream': return creamIcon();
     case 'sack': return sackIcon();
     case 'return': return returnIcon();
     case 'leaf': return leafIcon();
@@ -59,6 +76,7 @@ function chalkIconHtml(key) {
 export function chalkDotState(st) {
   if (!st || !CHALK_DOT_TYPES.has(st.type)) return null;
   if (st.type === 'coffee' && (st.beans | 0) <= 0) return 'empty';
+  if (st.type === 'icecream' && (st.cream | 0) <= 0) return 'empty';
   if (st.type === 'blender' && (st.fruit | 0) <= 0) return 'empty';
   const { n, cap } = stockAmountAndCap(st);
   if (n <= 0) return 'empty';
@@ -117,7 +135,7 @@ function rotateLocal(rot, right, forward) {
   const s = Math.sin(rot), c = Math.cos(rot);
   return { x: right * c + forward * s, z: -right * s + forward * c };
 }
-const DEMAND_Y = { display: 2.1, oven: 2.3, coffee: 1.55, blender: 1.55, bowl: 0.85, bush: 1.55 };
+const DEMAND_Y = { display: 2.1, oven: 2.3, coffee: 1.55, blender: 1.55, bowl: 0.85, bush: 1.55, icecream: 1.55 };
 
 function makeDemandEl(type) {
   const el = document.createElement('div'); el.className = 'demand hidden';
@@ -129,10 +147,13 @@ function makeDemandEl(type) {
   const main = document.createElement('div'); main.className = 'dmain'; main.style.display = 'none';
   el.append(state, main);
   let pips = null;
-  if (type === 'coffee' || type === 'blender') {
+  // icecream1's pips mirror coffee1's exactly (10, filled by cream/2) but style.css only tints
+  // '.dpip.bean'/'.dpip.fruit' (a file another task owns this batch); rather than add a class there,
+  // the cream tint below is set inline per-pip so this stays self-contained to visuals.js.
+  if (type === 'coffee' || type === 'blender' || type === 'icecream') {
     pips = document.createElement('div'); pips.className = 'dpips';
-    const n = type === 'coffee' ? 10 : 9;
-    const cls = type === 'coffee' ? 'dpip bean' : 'dpip fruit';
+    const n = type === 'coffee' ? 10 : type === 'icecream' ? 10 : 9;
+    const cls = type === 'coffee' ? 'dpip bean' : type === 'icecream' ? 'dpip' : 'dpip fruit';
     for (let i = 0; i < n; i++) { const p = document.createElement('div'); p.className = cls; pips.appendChild(p); }
     el.appendChild(pips);
   } else if (type === 'bush') {
@@ -155,7 +176,7 @@ function stationHasWaiter(st, customers) {
 function stockAmountAndCap(st) {
   if (!st) return { n: 0, cap: 1 };
   if (st.type === 'display' || st.type === 'bowl') return { n: Math.max(0, st.stock | 0), cap: Math.max(1, st.capacity | 0) };
-  if (st.type === 'oven' || st.type === 'coffee' || st.type === 'blender') return { n: Math.max(0, st.stock | 0), cap: Math.max(1, st.buffer | 0) };
+  if (st.type === 'oven' || st.type === 'coffee' || st.type === 'blender' || st.type === 'icecream') return { n: Math.max(0, st.stock | 0), cap: Math.max(1, st.buffer | 0) };
   if (st.type === 'bush') return { n: Math.max(0, st.stage | 0), cap: 3 };
   return { n: 0, cap: 1 };
 }
@@ -169,6 +190,7 @@ export function demandVisualState(st) {
   if (n >= cap) return 'full';
   if (n > 0) return 'ready';
   if (st.type === 'coffee') return (st.beans | 0) > 0 ? 'producing' : 'blocked';
+  if (st.type === 'icecream') return (st.cream | 0) > 0 ? 'producing' : 'blocked';
   if (st.type === 'blender') return (st.fruit | 0) > 0 ? 'producing' : 'blocked';
   if (st.type === 'oven') return Number(st.timer) > 0 ? 'producing' : 'empty';
   return 'empty';
@@ -185,6 +207,9 @@ function stateGlyph(state, st) {
   if (state === 'blocked' && st.type === 'coffee') {
     return beanIcon().replace('<svg ', '<svg width="12" height="12" ');
   }
+  if (state === 'blocked' && st.type === 'icecream') {
+    return creamIcon().replace('<svg ', '<svg width="12" height="12" ');
+  }
   return {
     empty: '○', producing: '◌', ready: '●', full: '◆', blocked: '×',
   }[state] || '';
@@ -199,7 +224,7 @@ function applyDemandState(dv, state, st, attention) {
     producing: { title: 'Producing', bg: '#f3f0ff', fg: '#6256b9', border: '1px solid #d7d0ff', opacity: '.9' },
     ready: { title: 'Ready', bg: 'var(--cream)', fg: 'var(--ink)', border: '1px solid transparent', opacity: '1' },
     full: { title: 'Full', bg: '#eef8ef', fg: '#417b49', border: '1px solid #b9dfbf', opacity: '1' },
-    blocked: { title: st.type === 'coffee' ? 'Needs beans' : st.type === 'blender' ? 'Needs fruit' : 'Blocked', bg: '#eee8e2', fg: '#554b46', border: '1px solid #b9aaa0', opacity: '.94' },
+    blocked: { title: st.type === 'coffee' ? 'Needs beans' : st.type === 'icecream' ? 'Needs cream' : st.type === 'blender' ? 'Needs fruit' : 'Blocked', bg: '#eee8e2', fg: '#554b46', border: '1px solid #b9aaa0', opacity: '.94' },
   }[state] || { title: '', bg: 'var(--cream)', fg: 'var(--ink)', border: '1px solid transparent', opacity: '1' };
   dv.state.innerHTML = stateGlyph(state, st);
   dv.state.title = spec.title;
@@ -226,7 +251,7 @@ export function createVisuals(G, S, ctx) {
   // odds of two simultaneous wipes are small, and the loser still gets its sparkle, pop and fade.
   let activeWipe = null;
   for (const st of world.stations.values()) {
-    const build = MESH_FOR[st.type] || tableMesh;
+    const build = MESH_ID_OVERRIDE[st.id] || MESH_FOR[st.type] || tableMesh;
     const g = build();
     g.position.set(st.x, 0, st.z); g.rotation.y = st.rot; g.visible = st.active;
     scene.add(g);
@@ -357,6 +382,14 @@ export function createVisuals(G, S, ctx) {
           }
         }
 
+        // Batch 1 terrace (D2): fountain1 goes inactive the instant z_splash completes (world.js's
+        // payZone), with no 'built' event of its own to hide it -- z_splash's event is for splash1,
+        // the new station occupying the same spot. Every other station's active flag has only ever
+        // gone true (via the reveal above), so this sync was previously a no-op everywhere; now it
+        // is what actually swaps the fountain mesh out for the splash pool on screen. Skipped while
+        // a reveal is in flight, since that already owns visibility/scale for its own duration.
+        if (!v.reveal && v.g.visible !== !!st.active) v.g.visible = !!st.active;
+
         // Program §6.3: the table acknowledges the wipe with a short squash-and-stretch pop (the
         // group-level twin of render/human.js's H.pop), started by the 'cleaned' event above. The
         // build reveal owns this group's scale while it runs, so the pop always yields to it.
@@ -431,6 +464,13 @@ export function createVisuals(G, S, ctx) {
           v._steamT = (v._steamT || 0) + dt;
           if (v._steamT > 0.5) { v._steamT = 0; fx.burst(st.x, 1.0, st.z, '#FFFFFF', 2); }
         }
+        // D2 — fountain particle ring: reuse fx.burst on a timer rather than a new particle system.
+        // Stops as soon as st.active flips false (the z_splash swap above), so it never runs behind
+        // the splash pool that replaces it.
+        if (st.type === 'decor' && st.active) {
+          v._fxT = (v._fxT || 0) + dt;
+          if (v._fxT > 1.1) { v._fxT = 0; fx.burst(st.x, 1.0, st.z, '#A8DCEF', 6); }
+        }
 
         if (v.demand) {
           const dv = v.demand;
@@ -449,6 +489,12 @@ export function createVisuals(G, S, ctx) {
             if (dv.lastPulse !== attention) { dv.el.classList.toggle('pulse', attention); dv.lastPulse = attention; }
             if (dv.pips) {
               if (st.type === 'coffee') { const filled = Math.round(st.beans / 2); for (let i = 0; i < dv.pips.children.length; i++) dv.pips.children[i].classList.toggle('filled', i < filled); }
+              else if (st.type === 'icecream') {
+                // No '.dpip.filled.cream' rule exists in style.css (owned elsewhere this batch), so
+                // the fill is painted directly rather than via a class the stylesheet won't pick up.
+                const filled = Math.round(st.cream / 2);
+                for (let i = 0; i < dv.pips.children.length; i++) dv.pips.children[i].style.background = i < filled ? '#F5C9DA' : '';
+              }
               else if (st.type === 'blender') { for (let i = 0; i < dv.pips.children.length; i++) dv.pips.children[i].classList.toggle('filled', i < st.fruit); }
               else if (st.type === 'bush') { for (let i = 0; i < dv.pips.children.length; i++) dv.pips.children[i].classList.toggle('filled', i < st.stage); }
             }

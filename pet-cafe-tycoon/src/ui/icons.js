@@ -37,9 +37,26 @@ export function latteIcon() {
     '<path d="M5 10h11v2.2H5z" fill="#EFE0C4"/>' +
     '<path d="M16 11.3h1.4a2.2 2.2 0 0 1 0 4.4H16" fill="none" stroke="#C9A877" stroke-width="1.3"/></svg>';
 }
+// Batch 1 terrace (plan 3.1): the ice cream lane mirrors the coffee lane, so it gets the same
+// icon/alt-recipe pairing -- icecreamIcon parallels coffeeIcon, sundaeIcon parallels latteIcon.
+// pupcupIcon is the pet-wish variant dispensed at icecream1 (a whipped-cream treat with a paw
+// print), distinct from both so a pet's wish bubble never reads as a human order.
+export function icecreamIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12h6l-2.2 8.2a1 1 0 0 1-1.9 0L9 12z" fill="#E8C58B"/>' +
+    '<circle cx="9.4" cy="9.2" r="3.3" fill="#FFF0F5"/><circle cx="14.6" cy="9.2" r="3.3" fill="#FFD6E7"/><circle cx="12" cy="6.4" r="3" fill="#FFF8FB"/></svg>';
+}
+export function sundaeIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9h12l-1.6 8.6a3 3 0 0 1-2.95 2.4h-2.9a3 3 0 0 1-2.95-2.4L6 9z" fill="#FFD6E7"/>' +
+    '<path d="M5.3 9.3a6.7 6.7 0 0 1 13.4 0z" fill="#FFF0F5"/><circle cx="12" cy="4.3" r="1.4" fill="#E5395C"/></svg>';
+}
+export function pupcupIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10h10l-1.1 7.4a2 2 0 0 1-2 1.7h-3.8a2 2 0 0 1-2-1.7L7 10z" fill="#FFE4C4"/>' +
+    '<path d="M8 10a4 4 0 0 1 8 0z" fill="#FFFFFF"/>' +
+    '<ellipse cx="12" cy="15" rx="2" ry="1.5" fill="#C97A3A"/><circle cx="10.2" cy="12.6" r="0.8" fill="#C97A3A"/><circle cx="13.8" cy="12.6" r="0.8" fill="#C97A3A"/></svg>';
+}
 export const PRODUCT_ICON = {
   cookie: cookieIcon, cupcake: cupcakeIcon, coffee: coffeeIcon, smoothie: smoothieIcon, treat: treatIcon,
-  brownie: brownieIcon, latte: latteIcon,
+  brownie: brownieIcon, latte: latteIcon, icecream: icecreamIcon, sundae: sundaeIcon, pupcup: pupcupIcon,
 };
 export function iconFor(key) { return (PRODUCT_ICON[key] || cookieIcon)(); }
 
@@ -50,6 +67,14 @@ export function beanIcon() {
 }
 export function kibbleIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="9" r="3" fill="#C97A3A"/><circle cx="15.5" cy="8" r="2.6" fill="#B86D35"/><circle cx="12" cy="15.5" r="3.2" fill="#D28A49"/><circle cx="18" cy="15" r="2" fill="#A95F2E"/></svg>';
+}
+// Batch 1 terrace (plan 3.1/7.2, D3/D4): the cream sack, third pantry supply -- coldPantry1's
+// bean-equivalent. Same "supply pictogram" convention as beanIcon/kibbleIcon above: a jug silhouette
+// so the cause (empty cream) and remedy (this glyph, in the pantry) read as the same object.
+export function creamIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 3h5l.8 3.4c2.1.6 3.7 2.5 3.7 4.8v6.3a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 4 17.5v-6.3c0-2.3 1.6-4.2 3.7-4.8L8.5 3z" fill="#FFF6FB"/>' +
+    '<path d="M8.5 3h5l.5 2.2h-6l.5-2.2z" fill="#E9C9DC"/>' +
+    '<path d="M7 13.5c1.8-.9 3.6-.9 5.4 0M7 16.5c1.8-.9 3.6-.9 5.4 0" stroke="#E9A9CB" stroke-width="1.1" stroke-linecap="round" fill="none"/></svg>';
 }
 
 // Loop v2 Task 2: chalkboard/pantry-popup icons — same viewBox 0 0 24 24 convention as the product

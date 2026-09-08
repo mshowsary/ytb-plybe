@@ -23,6 +23,7 @@ function activeDefinition(def, builtSet) {
 
 function baseProduct(def) {
   if (def.type === 'coffee') return 'coffee';
+  if (def.type === 'icecream') return 'icecream';
   if (def.type === 'blender') return 'smoothie';
   return typeof def.product === 'string' ? def.product : null;
 }
@@ -48,7 +49,7 @@ function outputCapacity(def, stars = {}) {
     return displayStarCap(tier) || def.capacity || 8;
   }
   if (def.type === 'oven') return def.buffer || 12;
-  if (def.type === 'coffee' || def.type === 'blender') return def.buffer || 8;
+  if (def.type === 'coffee' || def.type === 'blender' || def.type === 'icecream') return def.buffer || 8;
   if (def.type === 'bowl') return def.capacity || 10;
   return 0;
 }
@@ -70,6 +71,13 @@ function normalizeRow(def, row, stars, maxPile) {
         stock: boundedQuantity(row.stock, outputCapacity(def, stars)),
         product: compatibleProduct(def, row.product),
       };
+    case 'icecream':
+      // Mirrors 'coffee' exactly (cream instead of beans) — plan 7.2.
+      return {
+        cream: boundedQuantity(row.cream, 20),
+        stock: boundedQuantity(row.stock, outputCapacity(def, stars)),
+        product: compatibleProduct(def, row.product),
+      };
     case 'blender':
       return {
         fruit: boundedQuantity(row.fruit, 9),
@@ -79,6 +87,13 @@ function normalizeRow(def, row, stars, maxPile) {
       return { stock: boundedQuantity(row.stock, outputCapacity(def, stars)) };
     case 'seat':
       return { dirty: row.dirty === true };
+    case 'restroom': {
+      // Restore is untrusted (Task 1.1 brief) — tidy is bounded 0..1 like every other fraction in
+      // this file, a tampered/non-finite value collapsing to the safe default (a freshly-cleaned
+      // restroom) rather than to either extreme.
+      const t = row.tidy;
+      return { tidy: finiteNumber(t) ? Math.max(0, Math.min(1, t)) : 1 };
+    }
     default:
       return null;
   }
@@ -132,6 +147,9 @@ function resetRuntimeStation(st, def, stars) {
     case 'coffee':
       st.product = 'coffee'; st.beans = 20; st.stock = 0; st.timer = 0;
       break;
+    case 'icecream':
+      st.product = 'icecream'; st.cream = 20; st.stock = 0; st.timer = 0;
+      break;
     case 'blender':
       st.fruit = 0; st.stock = 0; st.timer = 0;
       break;
@@ -141,6 +159,9 @@ function resetRuntimeStation(st, def, stars) {
     case 'seat':
       // Customers intentionally restart after reload, so occupied is transient while dirt is durable.
       st.occupied = false; st.dirty = false;
+      break;
+    case 'restroom':
+      st.tidy = 1;
       break;
     default:
       break;
@@ -168,9 +189,11 @@ export function restoreStationState(world, payload, stars = {}, maxPile = DEFAUL
       case 'oven':
       case 'display': st.stock = row.stock; st.product = row.product; break;
       case 'coffee': st.beans = row.beans; st.stock = row.stock; st.product = row.product; break;
+      case 'icecream': st.cream = row.cream; st.stock = row.stock; st.product = row.product; break;
       case 'blender': st.fruit = row.fruit; st.stock = row.stock; break;
       case 'bowl': st.stock = row.stock; break;
       case 'seat': st.dirty = row.dirty; break;
+      case 'restroom': st.tidy = row.tidy; break;
       default: break;
     }
   }
