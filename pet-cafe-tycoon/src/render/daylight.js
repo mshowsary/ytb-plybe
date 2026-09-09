@@ -296,6 +296,10 @@ export function createDaylight(S, area) {
   }
 
   const api = {
+    // The string-light blend — 0 by day, rising through dusk — is the one number every "after dark"
+    // effect outside this module keys on, so the fireflies and the interior glow agree on when
+    // night is instead of each guessing from the clock.
+    get lights() { return state.lights; },
     state,
     // Cheap per-frame guard: a shift second is 1/240th of the day, so re-applying only every
     // ~0.3 s of sim time is imperceptible and skips the sky repaint on ~19 of every 20 frames.

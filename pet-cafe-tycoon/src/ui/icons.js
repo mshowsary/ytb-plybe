@@ -79,6 +79,12 @@ export function waterIcon() {
     '<path d="M12 2.8c3.2 4.2 6 7.6 6 11.2a6 6 0 0 1-12 0c0-3.6 2.8-7 6-11.2z" fill="none" stroke="#5FC4E0" stroke-width="1.2"/>' +
     '<path d="M9.2 13.6c.1 1.6 1 2.8 2.4 3.3" stroke="#FFFFFF" stroke-width="1.3" stroke-linecap="round" fill="none"/></svg>';
 }
+// A coat hanger: the boutique's floating action. The one play-field control that still spelled its
+// verb out ("BOUTIQUE" / "SUPPLIES" / "UPGRADES" / "STAFF") after the text pass.
+export function hangerIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.2a1.9 1.9 0 0 1 1.9 1.9c0 .9-.6 1.4-1.2 1.8-.4.3-.7.6-.7 1.1v.6" fill="none" stroke="#8B7CF6" stroke-width="1.6" stroke-linecap="round"/>' +
+    '<path d="M12 9.6 3.6 15.4c-.9.6-.5 2 .6 2h15.6c1.1 0 1.5-1.4.6-2L12 9.6z" fill="#B7ACFB" stroke="#8B7CF6" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+}
 export function creamIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 3h5l.8 3.4c2.1.6 3.7 2.5 3.7 4.8v6.3a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 4 17.5v-6.3c0-2.3 1.6-4.2 3.7-4.8L8.5 3z" fill="#FFF6FB"/>' +
     '<path d="M8.5 3h5l.5 2.2h-6l.5-2.2z" fill="#E9C9DC"/>' +

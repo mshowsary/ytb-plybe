@@ -287,7 +287,8 @@ export function createGame(S, area, els, platform = null) {
     const barista = G.baristaWorker?.prepare();
     beginActorStep(world, G.customers, G.staffList, barista ? [barista] : []);
     customers.update(dt); staff.update(dt); intro.update(dt);
-    ambience.update(dt); renovationDecor.update(dt); visuals.update(dt); registerCash.update(dt); objective.update(dt); economyExperience.update(dt); partyOrders.update(dt); fx.update(dt); hud.update();
+    ambience.update(dt); renovationDecor.update(dt);
+    { const night = S.daylight ? S.daylight.lights : 0; ambience.setNight(night); environment.setNight(night); environment.updateFireflies(dt); } visuals.update(dt); registerCash.update(dt); objective.update(dt); economyExperience.update(dt); partyOrders.update(dt); fx.update(dt); hud.update();
 
     G.serviceStreak.t = Math.max(0, G.serviceStreak.t - dt);
     for (const e of world.events) {

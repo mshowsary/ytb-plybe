@@ -280,6 +280,24 @@ async function showSavingRing(page) {
   });
 }
 
+// A complete party order puts TWO things on screen the audit had never measured: the HUD chip in
+// the left column (it sat on top of the followers pill for two batches) and the world collect pill.
+async function forcePartyOrder(page) {
+  return page.evaluate(() => {
+    const G = window.__game;
+    if (!G || !G.meta) return false;
+    if (!G.meta.partyOrders) G.meta.partyOrders = { nextId: 1, completed: 0, lastOfferDay: 0, active: null };
+    G.meta.partyOrders.active = {
+      id: 9001, title: 'Audit', subtitle: '', createdDay: G.dayState.day, expiresDay: G.dayState.day + 1,
+      reward: 130, claimed: false, requirements: [{ product: 'cookie', count: 4, target: 4 }],
+    };
+    // The chip renders on the system's own day-change sync; nudge the day and let its tick fire.
+    G.dayState.day += 1;
+    for (let i = 0; i < 40; i++) G.update(0.05);
+    return !!document.querySelector('.party-order-btn:not(.hidden)');
+  });
+}
+
 async function openPetBook(page, tab) {
   return page.evaluate(name => {
     const btn = document.querySelector('.meta-pawbook');
@@ -349,6 +367,13 @@ for (const vp of list) {
     await W(120);
     states.push({ name: 'ring', audit: await runAudit() });
     if (SHOTS) await page.screenshot({ path: `shots/responsive/${vp.tag}-${vp.w}x${vp.h}-ring.png` });
+  }
+
+  // State 6: a complete party order — the HUD chip and the world collect pill together.
+  if (await forcePartyOrder(page)) {
+    await W(120);
+    states.push({ name: 'party', audit: await runAudit() });
+    if (SHOTS) await page.screenshot({ path: `shots/responsive/${vp.tag}-${vp.w}x${vp.h}-party.png` });
   }
 
   const count = tally(audit) + states.reduce((s, st) => s + tally(st.audit), 0);

@@ -103,7 +103,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE8D8;font-family:"S
 
 /* Loop v2 Task 2: the floating kiosk/hire button (design section 3/4) — appears above whichever
    station the owner is standing in front of; #fx is pointer-events:none, so this needs its own auto. */
-.fbtn{position:absolute;transform:translate(-50%,-50%);left:0;top:0;min-height:48px;box-sizing:border-box;
+.fbtn{position:absolute;transform:translate(-50%,-50%);left:0;top:0;min-height:48px;min-width:48px;box-sizing:border-box;
   padding:0 22px;border:none;border-radius:999px;background:var(--coral);color:#fff;font-weight:800;
   font-size:15px;letter-spacing:.02em;box-shadow:0 4px 0 #0001,0 8px 20px #0002;cursor:pointer;
   pointer-events:auto;white-space:nowrap;z-index:2}
@@ -372,3 +372,11 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE8D8;font-family:"S
 .groomPip.active{background:#ffffffd0;box-shadow:0 0 0 3px #ffffff30}
 .groomPip.done{background:#ffd766;border-color:#ffd766}
 @media(prefers-reduced-motion:reduce){.groomPulse{transition:none}}
+
+/* Hidden means hidden. The `hidden` attribute is a UA-level display:none, which ANY author display
+   rule overrides — and .cueRow (the pictogram row every banner, toast and floating button now uses)
+   sets display:inline-flex. That combination left the party-order collect button drawn at its last
+   screen position after the order was claimed, sliding along with the camera as if it followed the
+   player. contractBadge.js had already scoped this same rule to itself once; it belongs here, once,
+   for everything. */
+[hidden]{display:none!important}

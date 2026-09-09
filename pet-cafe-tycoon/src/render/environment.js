@@ -933,7 +933,80 @@ export function buildEnvironment(area, seasonId = SEASON_IDS[0]) {
   applySeason(seasonId);
   // Consumed by whoever owns src/sim/seasons.js's day->season mapping (see this task's
   // wiringNeeded) once per day rollover. Cheap to over-call: no-ops when the id hasn't changed.
-  group.setSeason = applySeason;
+  // Fireflies over the flowers, after dark — the owner's request. An EFFECT layer, so it lives in its
+  // own child group rather than as a lit mesh of the scenery: two clouds, both on things the in-frame
+  // pass put in front of the camera — the ten window boxes on the fence's south face (whose x centres
+  // skip the gate gap, so nothing here enters the lane a body walks through) and the four planted pots
+  // on the fountain's diagonals. A fixed-seed LCG rather than Math.random so the layout is identical
+  // every load, and independent of the garden's own seeded stream so adding these moves nothing else.
+  const BOX_XS = [-9.2, -7.5, -5.8, -4.1, -2.4, 2.4, 4.1, 5.8, 7.5, 9.2];
+  const FLY_COUNT = 56;
+  const flyPos = new Float32Array(FLY_COUNT * 3);
+  const flyCol = new Float32Array(FLY_COUNT * 3);
+  let seed = 0x5eed1e5;
+  const rnd = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+  for (let i = 0; i < FLY_COUNT; i++) {
+    if (i >= 40) {
+      const ang = (i - 40) * (Math.PI * 2 / 16) + rnd() * 0.4;
+      const rad = 0.75 + rnd() * 0.75;
+      flyPos[i * 3] = Math.cos(ang) * rad; flyPos[i * 3 + 1] = 0.55 + rnd() * 0.65; flyPos[i * 3 + 2] = 10.6 + Math.sin(ang) * rad;
+    } else {
+      const bx = BOX_XS[i % BOX_XS.length];
+      flyPos[i * 3] = bx + (rnd() - 0.5) * 1.1; flyPos[i * 3 + 1] = 0.62 + rnd() * 0.7; flyPos[i * 3 + 2] = 6.98 + rnd() * 0.7;
+    }
+  }
+  const flyGeo = new THREE.BufferGeometry();
+  flyGeo.setAttribute('position', new THREE.BufferAttribute(flyPos, 3));
+  flyGeo.setAttribute('color', new THREE.BufferAttribute(flyCol, 3));
+  const flies = new THREE.Points(flyGeo, new THREE.PointsMaterial({
+    vertexColors: true, size: 0.05, transparent: true, opacity: 0, depthWrite: false, sizeAttenuation: true, toneMapped: false,
+  }));
+  flies.frustumCulled = false; flies.visible = false;
+  const fliesGroup = new THREE.Group(); fliesGroup.name = 'fireflies'; fliesGroup.add(flies);
+  group.add(fliesGroup);
+  // FIRST in the children order, on purpose. applySeason removes and re-appends the re-tintable
+  // dressing, so anything added after it at build time would sit BEFORE it after the first swap and
+  // shift every traversal index — test/season-visible.test.js pins that order. At index 0 the
+  // effect layer never moves and the rest keep the order they were built in.
+  group.children.unshift(group.children.pop());
+  // The same stringLight array that colours the fence festoon, so the swarm is seasonal too: warm
+  // by default, aqua in Splash, amber in Harvest, and the classic multicolour set in Lights.
+  const tintFireflies = pal => {
+    const set = (pal && Array.isArray(pal.stringLight) && pal.stringLight.length) ? pal.stringLight : ['#FFF1B8'];
+    const c = new THREE.Color();
+    for (let i = 0; i < FLY_COUNT; i++) {
+      c.set(set[i % set.length]);
+      flyCol[i * 3] = c.r; flyCol[i * 3 + 1] = c.g; flyCol[i * 3 + 2] = c.b;
+    }
+    flyGeo.attributes.color.needsUpdate = true;
+  };
+  tintFireflies(paletteForSeason(SEASON_IDS.includes(seasonId) ? seasonId : SEASON_IDS[0]));
+  const flyBase = flyPos.slice();
+  let flyT = 0;
+  group.setNight = k => {
+    const v = Math.max(0, Math.min(1, Number(k) || 0));
+    flies.material.opacity = 0.8 * v;
+    flies.visible = v > 0.02;
+  };
+  // A slow drift, only while visible: sinusoidal per-point offsets from the seeded base, so the cloud
+  // breathes without ever wandering off the flowers.
+  group.updateFireflies = dt => {
+    if (!flies.visible) return;
+    flyT += dt;
+    const p = flyGeo.attributes.position.array;
+    for (let i = 0; i < FLY_COUNT; i++) {
+      const ph = i * 1.7;
+      p[i * 3] = flyBase[i * 3] + Math.sin(flyT * 0.6 + ph) * 0.12;
+      p[i * 3 + 1] = flyBase[i * 3 + 1] + Math.sin(flyT * 0.9 + ph * 1.3) * 0.08;
+      p[i * 3 + 2] = flyBase[i * 3 + 2] + Math.cos(flyT * 0.5 + ph) * 0.1;
+    }
+    flyGeo.attributes.position.needsUpdate = true;
+  };
+  // A season swap re-tints the swarm along with everything else.
+  group.setSeason = id => {
+    applySeason(id);
+    tintFireflies(paletteForSeason(SEASON_IDS.includes(id) ? id : SEASON_IDS[0]));
+  };
 
   // For the same visual "pop" every other station build gets, animate deck.scale with
   // src/render/buildReveal.js's buildRevealScale the way systems/visuals.js already does; that

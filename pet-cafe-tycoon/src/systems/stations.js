@@ -16,8 +16,13 @@ import { itemFor } from '../render/props.js';
 import { C } from '../render/palette.js';
 import { damp } from '../core/tween.js';
 import { buildKioskModel } from '../ui/models.js';
-import { cue } from '../ui/hud.js';
-import { coinIcon, crossIcon, handIcon, returnIcon, coffeeIcon, smoothieIcon, treatIcon, iconFor } from '../ui/icons.js';
+import { cue, paintCue } from '../ui/hud.js';
+import { coinIcon, crossIcon, handIcon, returnIcon, coffeeIcon, smoothieIcon, treatIcon, iconFor, sackIcon, gearIcon, personIcon, hangerIcon } from '../ui/icons.js';
+
+// The floating action button's pictograms, by the label the action was authored with. The label
+// itself survives as the cue's aria text — and, through paintCue's visually-hidden span, as the
+// button's textContent, which tools/production-smoke*.js and the task25 cert read verbatim.
+const ACTION_ICON = { SUPPLIES: sackIcon, RETURN: returnIcon, UPGRADES: gearIcon, STAFF: personIcon, BOUTIQUE: hangerIcon };
 
 // One picture per carry destination, so the objective chevron over a delivery target draws the
 // THING being delivered to rather than the word "COFFEE". A display case shows the pastry it is
@@ -452,7 +457,11 @@ export function createStations(G, S, ctx) {
         const p = floatAction.point || floatAction.st;
         fx.project(p.x, 1.65, p.z, fbtnTmp);
         fbtn.style.left = fbtnTmp.sx + 'px'; fbtn.style.top = fbtnTmp.sy + 'px';
-        if (fbtn.textContent !== floatAction.label) fbtn.textContent = floatAction.label;
+        if (fbtn.dataset.label !== floatAction.label) {
+          fbtn.dataset.label = floatAction.label;
+          const icon = ACTION_ICON[floatAction.label] || handIcon;
+          paintCue(fbtn, cue([icon()], floatAction.label));
+        }
         fbtn.classList.toggle('hidden', !fbtnTmp.visible);
       } else fbtn.classList.add('hidden');
 

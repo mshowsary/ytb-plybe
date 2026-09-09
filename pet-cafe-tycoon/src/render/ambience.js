@@ -192,6 +192,16 @@ export function createAmbience(area) {
     depthWrite: false, sizeAttenuation: true, toneMapped: false,
   }));
   group.add(dust);
+  // The owner calls these fireflies, and likes them — after dark. By day they read as dust, or as
+  // dirt. Driven by daylight's own string-light blend rather than the clock so they come on with
+  // the lights; fully out below 2% so the draw is skipped, not merely faint.
+  const DUST_OPACITY = 0.42;
+  function setNight(k) {
+    const v = Math.max(0, Math.min(1, Number(k) || 0));
+    dust.material.opacity = DUST_OPACITY * v;
+    dust.visible = v > 0.02;
+  }
+  setNight(0);
 
   let t = 0, prestigeLevel = -1, celebrateT = 0;
   const LIGHT_BASE = new THREE.Color('#FFE0A8'), LIGHT_GOLD = new THREE.Color('#FFC24A');
@@ -254,5 +264,6 @@ export function createAmbience(area) {
 
   setPrestige(0);
   setGoldenPaw(false);
-  return { group, update, setPrestige, setGoldenPaw, celebrate };
+  return {
+    setNight, group, update, setPrestige, setGoldenPaw, celebrate };
 }
