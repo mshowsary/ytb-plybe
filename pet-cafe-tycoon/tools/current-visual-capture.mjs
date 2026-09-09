@@ -35,7 +35,12 @@ try{
   await page.evaluate(()=>{const G=window.__game,s=G.snapshot();s.meta.petFriendship={...(s.meta.petFriendship||{}),'cat:0':10};s.meta.career.renovationLevel=5;s.meta.reputation=220;if(!G.restore(s))throw new Error('Bestie fixture rejected');});
   await page.evaluate(()=>{const G=window.__game;G.P.x=8;G.P.z=4.5;window.__scene.snap(8,4.5);});
   await shot('bestie-renovated');
-  await page.locator('.meta-pawbook').click();await shot('pet-portraits');await page.locator('.meta-book-close').click();
+  await page.locator('.pause-btn').click();
+  await page.getByRole('button',{name:'Pets',exact:true}).click();
+  await page.getByRole('button',{name:/Pet Visitor Book/}).click();
+  await shot('pet-portraits');await page.locator('.meta-book-close').click();
+  await page.waitForFunction(()=>!document.querySelector('.pause-root').classList.contains('hidden'));
+  await page.locator('[data-action="resume"]').click();
   // Real event path: open the board, host through its button, serve actual guests, collect.
   await page.evaluate(()=>{
    const G=window.__game,s=G.snapshot();s.dayState={day:8,t:20,phase:'morning',_ended:false};s.meta.socials={};s.staff={runner:2,cashier:2,cleaner:1,barista:1};

@@ -41,7 +41,7 @@ test('applySave: legacy flat state is migrated onto canonical known fields', () 
     served: 12, lifetimeEarned: 4000, serviceFees: 0, wasteFees: 0,
     rewardedReliefCoins: 0, partyOrderCoins: 0,
   });
-  assert.deepEqual(state.settings, { sfx: false, music: true });
+  assert.deepEqual(state.settings, { sfx: false, music: true, reducedMotion: false });
   assert.equal(canonical.v, 5);
 });
 

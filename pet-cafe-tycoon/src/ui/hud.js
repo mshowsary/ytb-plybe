@@ -167,7 +167,13 @@ export function createHud() {
   const $ = id => document.getElementById(id);
   const hud = $('hud'), num = $('walletNum'), wallet = $('wallet'), hint = $('hint'), crowd = $('crowd'), crowdNum = $('crowdNum');
   let shown = 0, target = 0, from = 0, t0 = 0;
-  const fmt = n => Math.round(n).toLocaleString('en-US');
+  const exact = n => Math.round(n).toLocaleString('en-US');
+  const fmt = n => {
+    const value = Math.max(0, Math.round(n));
+    if (innerWidth >= 360 || value < 10000) return exact(value);
+    if (value < 1_000_000) return `${(value / 1000).toFixed(value < 100000 ? 1 : 0).replace(/\.0$/, '')}k`;
+    return `${(value / 1_000_000).toFixed(value < 10_000_000 ? 1 : 0).replace(/\.0$/, '')}m`;
+  };
   const H = { walletEl: wallet, coins: 0 };
   // "Hands full · <product>" tag under the crowd pill — shown while the owner dwells at a
   // different product's station with a non-empty single-product carry (systems/stations.js).
@@ -223,13 +229,13 @@ export function createHud() {
     else { ringIco.innerHTML = ''; wallet.classList.remove('saving', 'saving-ready'); targetEl.classList.add('hidden'); }
   };
 
-  H.setCoins = n => { from = shown; target = n; t0 = performance.now(); ringSettled = false; };
-  let bumpT = null;
-  H.bump = () => {
-    if (bumpT) presentationScheduler.cancel(bumpT);
-    wallet.style.transform = 'scale(1.12)';
-    bumpT = presentationScheduler.schedule(() => { wallet.style.transform = ''; bumpT = null; }, 120);
+  H.setCoins = n => {
+    from = shown; target = n; t0 = performance.now(); ringSettled = false;
+    const label = `${exact(n)} coins`;
+    wallet.title = label; wallet.setAttribute('aria-label', label);
   };
+  // Coin changes already roll numerically. A second scale bounce competes with gameplay.
+  H.bump = () => {};
   H.hint = text => { if (!text) { hint.classList.add('hidden'); return; } if (hint.textContent !== text) hint.textContent = text; hint.classList.remove('hidden'); };
   let lastN = -1, lastMax = -1, lastUrgent = null;
   // M3 T5: the crowd pill turns coral with a '!' badge while any customer's patience is under 4s.

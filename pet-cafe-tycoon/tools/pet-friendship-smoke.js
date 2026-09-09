@@ -72,7 +72,9 @@ await page.waitForFunction(() => {
     && /Marmalade is now a Regular/i.test(el.getAttribute('aria-label') || '');
 }, null, { timeout:2000 });
 
-await page.click('.meta-pawbook');
+await page.click('.pause-btn');
+await page.click('[data-page="pets"]');
+await page.click('[data-route="pets"]');
 await page.waitForFunction(() => {
   const root = document.querySelector('.meta-book-root');
   const card = document.querySelector('[data-pet-key="cat:0"]');

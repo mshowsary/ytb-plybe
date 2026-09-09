@@ -55,7 +55,7 @@ function injectStyle() {
     .meta-album-detail{position:absolute;inset:0;box-sizing:border-box;padding:20px;border-radius:25px;background:#fff4e6;display:flex;flex-direction:column;gap:12px;overflow:auto}
     .meta-album-detail.hidden{display:none}
     .meta-album-back{align-self:flex-start;min-height:44px;min-width:44px;padding:0 14px;border:0;border-radius:11px;background:#00000009;color:#3b2e2a;font:850 12px/1 system-ui,sans-serif;cursor:pointer}
-    .meta-album-big{width:min(220px,60vw);aspect-ratio:1/1;margin:0 auto;border-radius:20px;overflow:hidden;background:linear-gradient(160deg,#fbe7d8,#fff9f1);display:flex;align-items:center;justify-content:center}
+    .meta-album-big{width:min(220px,60vw);aspect-ratio:1/1;flex:none;margin:0 auto;border-radius:20px;overflow:hidden;background:linear-gradient(160deg,#fbe7d8,#fff9f1);display:flex;align-items:center;justify-content:center}
     .meta-album-big svg,.meta-album-big img{width:82%;height:82%;object-fit:contain;display:block}
     .meta-album-detail-name{font:950 20px/1.1 system-ui,sans-serif;text-align:center}
     .meta-album-detail-trait{font:700 12px/1.3 system-ui,sans-serif;opacity:.65;text-align:center}
@@ -97,7 +97,8 @@ export function createMetaUI() {
   const discoverPanel = bookRoot.querySelector('[data-panel="discover"]');
   const albumPanel = bookRoot.querySelector('[data-panel="album"]');
   const closeBook = () => { bookRoot.classList.add('hidden'); albumDetailEl.classList.add('hidden'); };
-  bookBtn.addEventListener('click', () => bookRoot.classList.remove('hidden'));
+  const openBook = () => bookRoot.classList.remove('hidden');
+  bookBtn.addEventListener('click', openBook);
   bookRoot.querySelector('.meta-book-close').addEventListener('click', closeBook);
   bookRoot.querySelector('.meta-book-backdrop').addEventListener('click', closeBook);
   for (const tabBtn of bookRoot.querySelectorAll('.meta-book-tab')) {
@@ -120,6 +121,9 @@ export function createMetaUI() {
   }, true);
 
   const M = {};
+  M.openBook = openBook;
+  M.closeBook = closeBook;
+  Object.defineProperty(M, 'isBookOpen', { get: () => !bookRoot.classList.contains('hidden') });
   M.toast = text => {
     if (toastTimer) clearTimeout(toastTimer);
     paintCue(toastEl, text); toastEl.classList.add('show');
@@ -148,7 +152,7 @@ export function createMetaUI() {
     for (const c of model.cards || []) {
       const el = document.createElement('div'); el.className = 'meta-pet-card' + (c.found ? '' : ' locked');
       if (c.found) {
-        const sw = document.createElement('div'); sw.className = 'meta-pet-swatch'; sw.style.background = c.profile.body; sw.style.setProperty('--accent', c.profile.accent); sw.innerHTML = petPortrait(c.species, c.profile);
+        const sw = document.createElement('div'); sw.className = 'meta-pet-swatch'; sw.style.background = c.profile.body; sw.style.setProperty('--accent', c.profile.accent); sw.innerHTML = petPortrait(c.species, c.profile, c.variant);
         const name = document.createElement('div'); name.className = 'meta-pet-name'; name.textContent = c.profile.name;
         const kind = document.createElement('div'); kind.className = 'meta-pet-kind'; kind.textContent = SPECIES_ICON[c.species] || c.species.toUpperCase();
         const rare = document.createElement('div'); rare.className = `meta-pet-rarity ${c.profile.rarity}`; rare.textContent = c.profile.rarity;
@@ -181,7 +185,7 @@ export function createMetaUI() {
     const big = document.createElement('div'); big.className = 'meta-album-big';
     // Cheap vector placeholder shown immediately; swapped for the real rendered portrait below
     // once (and only if) the lazy render resolves -- the album never blocks on it.
-    big.innerHTML = petPortrait(card.species, card.profile);
+    big.innerHTML = petPortrait(card.species, card.profile, card.variant);
     const name = document.createElement('div'); name.className = 'meta-album-detail-name'; name.textContent = card.found ? card.profile.name : 'Unknown';
     const trait = document.createElement('div'); trait.className = 'meta-album-detail-trait'; trait.textContent = card.found ? card.profile.trait : '';
     const friend = document.createElement('div'); friend.className = 'meta-album-detail-friend';
@@ -243,7 +247,7 @@ export function createMetaUI() {
       el.className = 'meta-album-card' + (shots > 0 ? '' : ' unshot') + (best === 2 ? ' gold' : '');
       const sw = document.createElement('div'); sw.className = 'meta-album-swatch';
       sw.innerHTML = c.found
-        ? petPortrait(c.species, c.profile)
+        ? petPortrait(c.species, c.profile, c.variant)
         : '<svg viewBox="0 0 80 88" aria-hidden="true"><circle cx="40" cy="45" r="36" fill="#00000012"/></svg>';
       const name = document.createElement('div'); name.className = 'meta-album-name'; name.textContent = c.found ? c.profile.name : '?';
       const shotsEl = document.createElement('div'); shotsEl.className = 'meta-album-shots'; shotsEl.textContent = shots > 0 ? String(shots) : '';
@@ -260,7 +264,7 @@ export function createMetaUI() {
     // will show -- and rarity becomes a run of stars in the rarity colour the book already uses
     // (.meta-pet-rarity). The pet's NAME stays: a proper noun is the one word the play field keeps.
     M.toast(cue(
-      [{ swatch: petPortrait(discovery.species, discovery.profile) }, rarityPips(discovery.profile.rarity), discovery.profile.name],
+      [{ swatch: petPortrait(discovery.species, discovery.profile, discovery.variant) }, rarityPips(discovery.profile.rarity), discovery.profile.name],
       `New visitor, ${discovery.profile.name}, ${discovery.profile.rarity}`,
     ));
     bookBtn.classList.add('bump');

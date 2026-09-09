@@ -1,6 +1,6 @@
 // Real-world ultra-narrow portrait regression test. The 218px publisher fixture is useful, but
-// browser/device emulation can expose the playable at ~183 CSS px wide. Keep both permanent HUD
-// controls and temporary celebrations non-overlapping there, including the real Day-3 Party Order.
+// browser/device emulation can expose the playable at ~183 CSS px wide. Keep the two-control HUD
+// and temporary celebrations non-overlapping there, including a real Day-3 Party Order event.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -42,7 +42,8 @@ await page.evaluate(() => {
 });
 await page.waitForFunction(() => {
   const el = document.querySelector('.party-order-btn');
-  return el && !el.classList.contains('hidden') && getComputedStyle(el).display !== 'none';
+  // The order is active, while its old floating opener stays suppressed by the Café menu.
+  return el && !el.classList.contains('hidden');
 }, null, { timeout:5000 });
 await page.waitForFunction(() => {
   const el = document.querySelector('#banner');
@@ -54,7 +55,7 @@ await page.waitForFunction(() => {
 await page.waitForTimeout(420);
 
 const layout = await page.evaluate(() => {
-  const permanentSelectors = ['#wallet','.pause-btn','#dayPill','.meta-reputation','.meta-pawbook','.party-order-btn'];
+  const permanentSelectors = ['#wallet','.pause-btn'];
   const rectFor = sel => {
     const el = document.querySelector(sel); if (!el) return null;
     const cs = getComputedStyle(el); if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) === 0) return null;
@@ -66,7 +67,7 @@ const layout = await page.evaluate(() => {
   return { viewport:[innerWidth,innerHeight], bodyWidth:document.body.scrollWidth, permanent, banner, bannerText:document.querySelector('#banner')?.textContent || '' };
 });
 
-const required = new Set(['#wallet','.pause-btn','#dayPill','.meta-reputation','.meta-pawbook','.party-order-btn']);
+const required = new Set(['#wallet','.pause-btn']);
 for (const [sel] of layout.permanent) required.delete(sel);
 if (required.size) throw new Error(`183x416 expected visible controls missing: ${[...required].join(', ')}`);
 if (!layout.banner || !/pet party order/i.test(layout.bannerText)) throw new Error('183x416 Party Order celebration banner was not measurable');
@@ -77,7 +78,7 @@ function overlap(a,b) {
 if (layout.bodyWidth > layout.viewport[0] + 1) throw new Error(`183x416 horizontal overflow: ${layout.bodyWidth}`);
 for (const [sel,r] of layout.permanent) {
   if (r.left < -1 || r.top < -1 || r.right > layout.viewport[0]+1 || r.bottom > layout.viewport[1]+1) throw new Error(`${sel} outside 183x416 viewport: ${JSON.stringify(r)}`);
-  if (/meta-reputation|meta-pawbook|party-order-btn/.test(sel) && r.height < 47.5) throw new Error(`${sel} lost 48px touch height`);
+  if (r.height < 47.5) throw new Error(`${sel} lost 48px touch height`);
 }
 for (let i=0;i<layout.permanent.length;i++) for (let j=i+1;j<layout.permanent.length;j++) {
   const [aSel,a]=layout.permanent[i], [bSel,b]=layout.permanent[j];

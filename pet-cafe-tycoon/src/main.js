@@ -264,6 +264,15 @@ function startGame(S, load, bootUi) {
   // The Franchise offer (plan §3.11). Surfaced from the day summary only; never auto-opens.
   const franchise = createFranchiseBridge(G);
   const rewardsSystem = createRewardsSystem(G, S, platform);
+  G.uiRoutes.calendar = { open: () => G.openCalendar?.(), root: '.cal-modal-root' };
+  const bonusSelectors = ['.mystery-float-chip', '.speed-build-chip', '.rare-visitor-chip', '.golden-shot-chip'];
+  const availableBonus = () => bonusSelectors
+    .map(selector => document.querySelector(selector))
+    .find(el => el && !el.classList.contains('hidden'));
+  G.uiRoutes.bonus = {
+    available: () => !!availableBonus(),
+    open: () => availableBonus()?.click(),
+  };
   const pauseOverlay = makePauseOverlay();
   // Time of day owns sun/hemi/sky/fog/grade and the after-dark interior glow. Created here (not in
   // createScene) because it needs the area for the window and pendant positions.
@@ -284,7 +293,7 @@ function startGame(S, load, bootUi) {
   coffeePolish.update();
   rewardsSystem.refresh();
   installHudLayout(); // last stylesheet wins: this module owns HUD placement
-  const pauseMenu = createPauseMenu(G, platform);
+  const pauseMenu = createPauseMenu(G, platform, G.uiRoutes);
   // Batch 6: the wallet, followers, Pet Book and ★ chips become one resource bar. Every one of them
   // exists by now (hud.js, meta.js and career.js all ran inside createGame), so this single call
   // adopts them all; arrangeHud is idempotent and also runs inside installHudLayout for the pieces

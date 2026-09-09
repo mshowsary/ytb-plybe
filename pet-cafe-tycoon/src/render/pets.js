@@ -4,6 +4,7 @@ import { part, merge } from './geo.js';
 import { C, toonMaterial, emissiveMaterial } from './palette.js';
 import { damp } from '../core/tween.js';
 import { petProfile, isLegendaryProfile } from '../sim/petBook.js';
+import { petAppearance } from './petAppearance.js';
 import {
   createPetTraitMotionState,
   petTraitContextActive,
@@ -33,7 +34,14 @@ const STRETCH_DUR = 1.5;
 function specFor(species, variant = 0) {
   const base = SPEC[species] || SPEC.cat;
   const coat = petProfile(species, variant);
-  return { ...base, body: coat.body, belly: coat.belly, accent: coat.accent };
+  const look = petAppearance(species, variant);
+  return {
+    ...base, ...look,
+    w: base.w * look.size * look.width,
+    h: base.h * look.size * look.height,
+    l: base.l * look.size * look.length,
+    body: coat.body, belly: coat.belly, accent: coat.accent,
+  };
 }
 
 function geosFor(species, variant = 0) {
@@ -58,17 +66,42 @@ function geosFor(species, variant = 0) {
     part('rbox', [s.w * 0.9, 0.09, s.l * 0.78, 0.035], s.accent, { y: 0.3 + s.h * 0.76, z: 0.02 }),
     part('sph', [0.055, 7], '#E7B64E', { x: 0, y: 0.3 + s.h * 0.69, z: s.l * 0.43 }),
   ];
+  // Broad markings survive the gameplay camera and are merged into the body draw call. They make
+  // variants identifiable by more than hue without adding textures, materials or save data.
+  if (s.pattern === 'saddle' || s.pattern === 'calico' || s.pattern === 'cloud') {
+    bodyParts.push(part('sph', [s.w * .38, 9], s.patch, { x: -s.w * .18, y: .3 + s.h * .88, z: -s.l * .08, sx: 1.05, sy: .28, sz: 1.5 }));
+  }
+  if (s.pattern === 'tabby' || s.pattern === 'constellation') {
+    bodyParts.push(
+      part('rbox', [s.w * .16, .035, s.l * .42, .016], s.patch, { x: -s.w * .18, y: .3 + s.h * 1.01, z: -.04, rz: -.10 }),
+      part('rbox', [s.w * .14, .035, s.l * .34, .016], s.patch, { x: s.w * .17, y: .3 + s.h * 1.01, z: -.12, rz: .12 }),
+    );
+  }
   if (species === 'cat') bodyParts.push(part('rbox', [s.w * 0.42, s.h * 0.12, s.l * 0.28, 0.04], s.accent, { y: 0.3 + s.h * 0.86, z: -s.l * 0.14 }));
   if (species === 'dog') bodyParts.push(part('rbox', [s.w * 0.48, s.h * 0.28, s.l * 0.22, 0.06], s.earCol, { x: -s.w * 0.16, y: 0.3 + s.h * 0.68, z: s.l * 0.2 }));
   const bodyGeo = merge(bodyParts);
 
+  const hw = s.w * (s.head || 1);
   const headParts = [
-    part('rbox', [s.w * 1.1, s.w * 0.95, s.w * 0.95, 0.14], s.body, { y: 0 }),
+    part('rbox', [hw * 1.1, hw * 0.95, hw * 0.95, Math.min(.14, hw * .28)], s.body, { y: 0 }),
     part('sph', [0.05, 8], species === 'dog' ? '#5A3D30' : C.pink, { y: -0.07, z: s.w * 0.515 }),
     part('rbox', [s.w * 0.52, s.w * 0.29, s.w * 0.3, 0.065], s.belly, { y: -0.13, z: s.w * 0.405 }),
     part('box', [0.09, 0.018, 0.02], '#6F4B43', { x: -0.055, y: -0.19, z: s.w * 0.54, rz: -0.25 }),
     part('box', [0.09, 0.018, 0.02], '#6F4B43', { x: 0.055, y: -0.19, z: s.w * 0.54, rz: 0.25 }),
   ];
+  if (s.pattern === 'tuxedo' || s.pattern === 'blaze' || s.pattern === 'mask') {
+    const wide = s.pattern === 'mask';
+    headParts.push(part('sph', [hw * (wide ? .31 : .19), 9], s.patch, {
+      x: wide ? -hw * .2 : 0, y: hw * .13, z: hw * .49,
+      sx: wide ? 1.25 : .72, sy: wide ? .9 : 1.45, sz: .20,
+    }));
+  }
+  if (s.pattern === 'calico') {
+    headParts.push(
+      part('sph', [hw * .23, 8], s.patch, { x: -hw * .28, y: hw * .18, z: hw * .45, sx: 1.1, sy: .75, sz: .22 }),
+      part('sph', [hw * .15, 8], s.accent, { x: hw * .28, y: -hw * .08, z: hw * .48, sx: 1.1, sy: .8, sz: .2 }),
+    );
+  }
 
   if (species === 'cat') {
     headParts.push(
@@ -81,19 +114,35 @@ function geosFor(species, variant = 0) {
     );
   }
   if (species === 'bunny') {
+    const lop = s.ears === 'lop';
+    const split = s.ears === 'split';
+    const leftRot = lop ? 1.0 : .15, rightRot = lop || split ? -1.0 : -.15;
+    const earY = lop ? s.w * .42 : s.w * .72;
     headParts.push(
-      part('rbox', [0.15, 0.58, 0.09, 0.05], s.body, { x: -s.w * 0.25, y: s.w * 0.72, rz: 0.15 }),
-      part('rbox', [0.15, 0.58, 0.09, 0.05], s.body, { x: s.w * 0.25, y: s.w * 0.72, rz: -0.15 }),
-      part('rbox', [0.07, 0.42, 0.035, 0.02], s.earCol, { x: -s.w * 0.25, y: s.w * 0.73, z: 0.05, rz: 0.15 }),
-      part('rbox', [0.07, 0.42, 0.035, 0.02], s.earCol, { x: s.w * 0.25, y: s.w * 0.73, z: 0.05, rz: -0.15 }),
+      part('rbox', [.15, .58, .09, .05], s.body, { x: -s.w * (lop ? .48 : .25), y: earY, rz: leftRot }),
+      part('rbox', [.15, .58, .09, .05], s.body, { x: s.w * ((lop || split) ? .48 : .25), y: split ? s.w * .48 : earY, rz: rightRot }),
+      part('rbox', [.07, .42, .035, .02], s.earCol, { x: -s.w * (lop ? .48 : .25), y: earY, z: .05, rz: leftRot }),
+      part('rbox', [.07, .42, .035, .02], s.earCol, { x: s.w * ((lop || split) ? .48 : .25), y: split ? s.w * .48 : earY, z: .05, rz: rightRot }),
     );
   }
   if (species === 'dog') {
-    headParts.push(
-      part('rbox', [0.13, 0.4, 0.23, 0.05], s.earCol, { x: -s.w * 0.59, y: s.w * 0.34, rz: -0.12 }),
-      part('rbox', [0.13, 0.4, 0.23, 0.05], s.earCol, { x: s.w * 0.59, y: s.w * 0.34, rz: 0.12 }),
-      part('rbox', [s.w * 0.34, s.w * 0.11, 0.025, 0.02], s.accent, { x: -s.w * 0.17, y: 0.24, z: s.w * 0.46, rz: -0.2 }),
-    );
+    if (s.ears === 'upright') {
+      headParts.push(
+        part('cone', [.13, .34, 5], s.earCol, { x: -s.w * .38, y: s.w * .58, ry: Math.PI / 4 }),
+        part('cone', [.13, .34, 5], s.earCol, { x: s.w * .38, y: s.w * .58, ry: Math.PI / 4 }),
+      );
+    } else if (s.ears === 'round') {
+      headParts.push(
+        part('sph', [s.w * .24, 8], s.earCol, { x: -s.w * .50, y: s.w * .31, sy: 1.2 }),
+        part('sph', [s.w * .24, 8], s.earCol, { x: s.w * .50, y: s.w * .31, sy: 1.2 }),
+      );
+    } else {
+      headParts.push(
+        part('rbox', [.13, .4, .23, .05], s.earCol, { x: -s.w * .59, y: s.w * .34, rz: -.12 }),
+        part('rbox', [.13, .4, .23, .05], s.earCol, { x: s.w * .59, y: s.w * .34, rz: .12 }),
+      );
+    }
+    headParts.push(part('rbox', [s.w * .34, s.w * .11, .025, .02], s.accent, { x: -s.w * .17, y: .24, z: s.w * .46, rz: -.2 }));
   }
   if (species === 'hamster') {
     headParts.push(
@@ -163,9 +212,10 @@ export function createPet(species, variant = 0) {
   const eyesGroup = new THREE.Group();
   const eyeMat = new THREE.MeshToonMaterial({ color: s.eye });
   const pupilMat = new THREE.MeshBasicMaterial({ color: '#FFFFFF' });
-  const leftEye = new THREE.Mesh(new THREE.SphereGeometry(0.058, 8, 8), eyeMat);
+  const eyeR = Math.max(.048, Math.min(.068, s.w * .112));
+  const leftEye = new THREE.Mesh(new THREE.SphereGeometry(eyeR, 8, 8), eyeMat);
   leftEye.position.set(-s.w * 0.25, 0.065, s.w * 0.47);
-  const rightEye = new THREE.Mesh(new THREE.SphereGeometry(0.058, 8, 8), eyeMat);
+  const rightEye = new THREE.Mesh(new THREE.SphereGeometry(eyeR, 8, 8), eyeMat);
   rightEye.position.set(s.w * 0.25, 0.065, s.w * 0.47);
   const leftPupil = new THREE.Mesh(new THREE.SphereGeometry(0.019, 6, 6), pupilMat);
   leftPupil.position.set(-s.w * 0.23, 0.087, s.w * 0.515);

@@ -96,7 +96,9 @@ export function renderPetPortrait(renderer, { petKey: petKeyStr, poseId, accesso
   pet.setLifePhase(0);
   POSES[resolvedPose](pet);
   pet.group.position.set(0, 0, 0);
-  pet.group.rotation.y = Math.PI * 0.82; // a flattering three-quarter turn toward the key light
+  // Pet faces are authored toward +Z and the portrait camera sits at +Z. The previous 0.82π turn
+  // showed the rump and tail in the Pet Book, hiding the identity detail this view exists for.
+  pet.group.rotation.y = -0.24; // slight three-quarter turn while keeping both eyes readable
 
   if (resolvedAccessory) {
     const built = accessoryMesh(resolvedAccessory);

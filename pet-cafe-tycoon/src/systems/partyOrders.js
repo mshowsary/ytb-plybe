@@ -35,7 +35,8 @@ function createUI(onClaim) {
   root.innerHTML = '<div class="party-backdrop"></div><div class="party-card"><div class="party-head"><div><div class="party-kicker">PET PARTY ORDER</div><div class="party-title"></div><div class="party-sub"></div></div><button type="button" class="party-close" aria-label="Close">×</button></div><div class="party-deadline"></div><div class="party-rows"></div><div class="party-foot"><div class="party-reward"><small>ORDER PAYOUT</small><span></span></div><button type="button" class="party-claim">KEEP SERVING</button></div></div>';
   document.body.appendChild(root);
   const close = () => root.classList.add('hidden');
-  btn.addEventListener('click', () => root.classList.remove('hidden'));
+  const open = () => { if (!btn.classList.contains('hidden')) root.classList.remove('hidden'); };
+  btn.addEventListener('click', open);
   root.querySelector('.party-close').addEventListener('click', close); root.querySelector('.party-backdrop').addEventListener('click', close);
   root.querySelector('.party-claim').addEventListener('click', () => { if (onClaim()) close(); });
   function render(active, day) {
@@ -57,7 +58,7 @@ function createUI(onClaim) {
     root.querySelector('.party-reward span').textContent = `🪙 ${active.reward.toLocaleString('en-US')}`;
     const claim = root.querySelector('.party-claim'); claim.disabled = !complete; claim.textContent = complete ? `CLAIM ${active.reward}` : 'KEEP SERVING';
   }
-  return { btn, root, render, bump() { btn.classList.remove('bump'); void btn.offsetWidth; btn.classList.add('bump'); }, destroy() { btn.remove(); root.remove(); } };
+  return { btn, root, open, close, render, bump() { btn.classList.remove('bump'); void btn.offsetWidth; btn.classList.add('bump'); }, destroy() { btn.remove(); root.remove(); } };
 }
 
 export function createPartyOrders(G, S, ctx, platform = null) {
@@ -117,6 +118,8 @@ export function createPartyOrders(G, S, ctx, platform = null) {
   return {
     sync,
     visual: crate,
+    open() { ui.open(); },
+    get available() { return !ui.btn.classList.contains('hidden'); },
     onSale(order) {
       // This observes the already-paid order. It never removes stock or creates another transaction;
       // the same count that drives persistence/UI is the sole source for the physical crate fill.

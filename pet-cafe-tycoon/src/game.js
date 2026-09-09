@@ -92,7 +92,7 @@ export function createGame(S, area, els, platform = null) {
     machineLevels: { oven: 0, coffee: 0, display: 0 },
     boosts: {},
     stats: { served: 0, lifetimeEarned: 0, serviceFees: 0, wasteFees: 0, rewardedReliefCoins: 0, partyOrderCoins: 0 },
-    settings: { sfx: true, music: true },
+    settings: { sfx: true, music: true, reducedMotion: false },
     meta: {
       rewardedDays: {}, completedDays: 0, reputation: 0, perfectShifts: 0,
       bestServiceStreak: 0, shiftRatings: {}, petBook: {}, petDiscoveries: 0, settlement: null, career: {}, partyOrders: {},
@@ -265,6 +265,15 @@ export function createGame(S, area, els, platform = null) {
   const visuals = createVisuals(G, S, ctx); const registerCash = createRegisterCash(G, S, ctx); const economyExperience = createEconomyExperience(G, S, ctx, platform);
   G.meta.servicePolicy = normalizeServicePolicy(G.meta.servicePolicy);
   const petSocials = createPetSocials(G, S, ctx); const partyOrders = createPartyOrders(G, S, ctx, platform); const objective = createObjective(G, S, ctx); const intro = createIntro(G, S, ctx);
+
+  // Deliberate destinations for the compact Café menu. Presentation entry points live here so the
+  // menu never has to fake clicks on HUD controls that are intentionally hidden during gameplay.
+  G.uiRoutes = {
+    pets: { open: () => metaUI.openBook(), root: '.meta-book-root' },
+    journey: { open: () => careerUI.open(), root: '.career-root' },
+    paw: { open: () => pawUI.open(), root: '.paw-root' },
+    party: { open: () => partyOrders.open(), root: '.party-root', available: () => partyOrders.available },
+  };
 
   let careerRefreshT = 0, dayTransitionPromise = null; hud.show();
   G.finishActorStep = () => endActorStep(world);
@@ -519,6 +528,7 @@ export function createGame(S, area, els, platform = null) {
     const canonical = applySave(G, save);
     if (!canonical) return false;
     if (typeof G.settings.music !== 'boolean') G.settings.music = true; if (typeof G.settings.sfx !== 'boolean') G.settings.sfx = true;
+    if (typeof G.settings.reducedMotion !== 'boolean') G.settings.reducedMotion = false;
     audio.setSfx(G.settings.sfx); audio.setMusic(G.settings.music); G.serviceStreak = { count: 0, t: 0 }; G.shiftBestStreak = G.dayStats.bestStreak | 0;
     ensureCareer(G.meta); ensurePartyOrders(G.meta); world.dayState = G.dayState; world.stars = G.stars; lastAwningSet = -1;
     G.golden = createGoldenHourState();

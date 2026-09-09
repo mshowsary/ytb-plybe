@@ -193,7 +193,7 @@ export function installPetFriendship(G, platform = null) {
         // is WHICH pet and that it likes you: its portrait, its name, a heart. The trait stays in
         // the aria text and in the Pet Book, where words are allowed.
         announce(cue(
-          [{ swatch: petPortrait(customer.species, result.profile) }, result.profile.name, heartIcon()],
+          [{ swatch: petPortrait(customer.species, result.profile, customer.petVariant) }, result.profile.name, heartIcon()],
           `${result.profile.name} ♥ ${result.profile.trait}`,
         ));
         if (bookButton) {

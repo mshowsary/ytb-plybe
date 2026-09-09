@@ -225,6 +225,7 @@ function normalizeSettings(raw) {
   return {
     sfx: typeof src.sfx === 'boolean' ? src.sfx : true,
     music: typeof src.music === 'boolean' ? src.music : true,
+    reducedMotion: typeof src.reducedMotion === 'boolean' ? src.reducedMotion : false,
   };
 }
 

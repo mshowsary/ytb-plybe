@@ -121,7 +121,7 @@ for (const [tag,width,height] of cases) {
   await page.waitForTimeout(300);
 
   const boot = await snapshot(page); validateLayout(boot, `${tag} boot`);
-  const bootTargets = (await visibleTargets(page)).filter(t => /pause-btn|meta-reputation|meta-pawbook|party-order-btn|skipPill|fbtn/.test(String(t.cls)));
+  const bootTargets = (await visibleTargets(page)).filter(t => /pause-btn|skipPill|fbtn/.test(String(t.cls)));
   validateTargets(bootTargets, `${tag} boot`);
   await page.screenshot({ path:path.join(shots, `01-${tag}-boot.png`) });
 
@@ -206,19 +206,27 @@ for (const [tag,width,height] of cases) {
   // Deep menus may scroll vertically but must remain inside the tiny viewport with tappable controls.
   // Batch 3: the ★ chip opens the Paw Rating now (a star for the star goal); Café Journey moved
   // to the day pill, which is the control that already means 'the days so far'.
-  await page.click('#dayPill');
+  await page.click('.pause-btn');
+  await page.getByRole('button', { name:'Journey', exact:true }).click();
+  await page.getByRole('button', { name:/Caf. Journey/ }).click();
   await page.waitForFunction(() => !document.querySelector('.career-root').classList.contains('hidden'));
   const journey = await snapshot(page, '.career-card'); validateLayout(journey, `${tag} journey`);
   validateTargets(await visibleTargets(page, '.career-card'), `${tag} journey`);
   await page.screenshot({ path:path.join(shots, `03-${tag}-journey.png`) });
   await page.click('.career-close');
+  await page.waitForFunction(() => !document.querySelector('.pause-root').classList.contains('hidden'));
+  await page.click('[data-action="resume"]');
 
-  await page.click('.meta-pawbook');
+  await page.click('.pause-btn');
+  await page.getByRole('button', { name:'Pets', exact:true }).click();
+  await page.getByRole('button', { name:/Pet Visitor Book/ }).click();
   await page.waitForFunction(() => !document.querySelector('.meta-book-root').classList.contains('hidden'));
   const book = await snapshot(page, '.meta-book'); validateLayout(book, `${tag} book`);
   validateTargets(await visibleTargets(page, '.meta-book'), `${tag} book`);
   await page.screenshot({ path:path.join(shots, `04-${tag}-book.png`) });
   await page.click('.meta-book-close');
+  await page.waitForFunction(() => !document.querySelector('.pause-root').classList.contains('hidden'));
+  await page.click('[data-action="resume"]');
 
   // Resize in-place (no reload) and prove state survives orientation/aspect changes.
   const marker = await page.evaluate(() => ({ day:window.__game.dayState.day, coins:window.__game.coins }));

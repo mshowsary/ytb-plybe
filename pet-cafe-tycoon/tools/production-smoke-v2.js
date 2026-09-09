@@ -104,7 +104,9 @@ for (const [tag,width,height,dpr] of cases) {
 
   // Batch 3: the ★ chip opens the Paw Rating now (a star for the star goal); Café Journey moved
   // to the day pill, which is the control that already means 'the days so far'.
-  await page.click('#dayPill');
+  await page.click('.pause-btn');
+  await page.click('[data-page="journey"]');
+  await page.click('[data-route="journey"]');
   await page.waitForFunction(() => !document.querySelector('.career-root').classList.contains('hidden'));
   const journey = await page.evaluate(() => ({days:document.querySelectorAll('.career-day').length,masteries:document.querySelectorAll('.career-master-row').length,reno:!!document.querySelector('.reno-buy'),overflow:document.body.scrollWidth>innerWidth+1}));
   let renovation=null;
@@ -114,6 +116,7 @@ for (const [tag,width,height,dpr] of cases) {
   }
   await page.screenshot({path:path.join(shots,`v2-02-journey-${tag}.png`)});
   await page.click('.career-close');
+  await page.click('[data-action="resume"]');
   await page.waitForTimeout(1800);
 
   let interaction=null;
@@ -151,9 +154,10 @@ for (const [tag,width,height,dpr] of cases) {
     await page.screenshot({path:path.join(shots,'v2-03-clean-gameplay-small.png')});
   }
 
-  await page.click('.meta-pawbook');await page.waitForFunction(()=>!document.querySelector('.meta-book-root').classList.contains('hidden'));
+  await page.click('.pause-btn');await page.click('[data-page="pets"]');await page.click('[data-route="pets"]');await page.waitForFunction(()=>!document.querySelector('.meta-book-root').classList.contains('hidden'));
   const book=await page.evaluate(()=>({cards:document.querySelectorAll('.meta-pet-card').length,found:document.querySelectorAll('.meta-pet-card:not(.locked)').length,overflow:document.body.scrollWidth>innerWidth+1}));
   await page.screenshot({path:path.join(shots,`v2-04-book-${tag}.png`)});await page.click('.meta-book-close');
+  await page.click('[data-action="resume"]');
 
   await page.evaluate(()=>{const g=window.__game;g.dayStats={served:42,lost:0,earned:1180,serviceFees:0,serviceMisses:0,wasteFees:0,bestStreak:14};g.shiftBestStreak=14;const d=g.dayState;d.t=239.99;d.phase='closing';d._ended=false;});
   await page.waitForFunction(()=>!!document.querySelector('.sheet-root .card')&&!!document.querySelector('.career-result')&&!!document.querySelector('.meta-rating'),null,{timeout:5000});await page.waitForTimeout(250);

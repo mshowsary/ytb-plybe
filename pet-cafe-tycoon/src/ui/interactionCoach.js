@@ -100,20 +100,22 @@ function injectStyle() {
     .interaction-coach .coach-caption{position:absolute;left:50%;top:37px;transform:translateX(-50%);width:30px;height:30px;padding:4px;box-sizing:border-box;border-radius:50%;background:#FFF8EFF2;box-shadow:0 3px 9px #00000026;opacity:0;transition:opacity .15s ease}
     .interaction-coach .coach-caption svg{width:100%;height:100%;display:block}
     .interaction-coach.has-caption .coach-caption{opacity:.94}
-    .interaction-coach .coach-ring{fill:none;stroke:#fff;stroke-width:2.3;opacity:.82;transform-origin:19px 19px;animation:coachTapRing 1.05s ease-out infinite}
-    .interaction-coach .coach-hand{fill:#fff8ef;stroke:#6c554c;stroke-width:1.35;stroke-linejoin:round;stroke-linecap:round;animation:coachTapHand 1.05s ease-in-out infinite;transform-origin:20px 23px}
+    .interaction-coach .coach-ring{fill:none;stroke:#fff;stroke-width:2.3;opacity:.68;transform-origin:19px 19px}
+    .interaction-coach .coach-hand{fill:#fff8ef;stroke:#6c554c;stroke-width:1.35;stroke-linejoin:round;stroke-linecap:round;transform-origin:20px 23px}
     .interaction-coach .coach-hold-dots{display:none}.interaction-coach .coach-hold-dot{fill:#fff;opacity:.8}
     .interaction-coach.route-mode{opacity:.9;filter:drop-shadow(0 4px 7px #0004)}
     .interaction-coach.route-mode .coach-ring{stroke-width:2.8}
-    @keyframes coachTapRing{0%{transform:scale(.55);opacity:.9}70%,100%{transform:scale(1.25);opacity:0}}
-    @keyframes coachTapHand{0%,100%{transform:translateY(1px) scale(.98)}45%{transform:translateY(-2px) scale(1.03)}}
+    .interaction-coach.coach-demo .coach-ring{animation:coachTapRing 1.4s ease-out 1}
+    .interaction-coach.coach-demo .coach-hand{animation:coachTapHand 1.4s ease-in-out 1}
+    @keyframes coachTapRing{0%{transform:scale(.72);opacity:.85}72%{transform:scale(1.16);opacity:.18}100%{transform:scale(1);opacity:.68}}
+    @keyframes coachTapHand{0%,100%{transform:translateY(0)}48%{transform:translateY(-3px)}}
     .interaction-coach.hold-mode{opacity:.64}
-    .interaction-coach.hold-mode .coach-ring{animation:coachHoldRing 1.3s ease-in-out infinite}
-    .interaction-coach.hold-mode .coach-hand{animation:coachHoldHand 1.3s ease-in-out infinite}
+    .interaction-coach.hold-mode.coach-demo .coach-ring{animation:coachHoldRing 1.4s ease-in-out 1}
+    .interaction-coach.hold-mode.coach-demo .coach-hand{animation:coachHoldHand 1.4s ease-in-out 1}
     .interaction-coach.hold-mode .coach-hold-dots{display:block}
-    .interaction-coach.hold-mode .coach-hold-dot:nth-child(1){animation:coachDot 1.2s ease-in-out infinite}
-    .interaction-coach.hold-mode .coach-hold-dot:nth-child(2){animation:coachDot 1.2s .16s ease-in-out infinite}
-    .interaction-coach.hold-mode .coach-hold-dot:nth-child(3){animation:coachDot 1.2s .32s ease-in-out infinite}
+    .interaction-coach.hold-mode.coach-demo .coach-hold-dot:nth-child(1){animation:coachDot 1.2s ease-in-out 1}
+    .interaction-coach.hold-mode.coach-demo .coach-hold-dot:nth-child(2){animation:coachDot 1.2s .16s ease-in-out 1}
+    .interaction-coach.hold-mode.coach-demo .coach-hold-dot:nth-child(3){animation:coachDot 1.2s .32s ease-in-out 1}
     @keyframes coachHoldRing{0%,100%{transform:scale(.78);opacity:.48}50%{transform:scale(1.02);opacity:.88}}
     @keyframes coachHoldHand{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(1.5px) scale(.98)}}
     @keyframes coachDot{0%,100%{opacity:.25;transform:translateY(0)}50%{opacity:.9;transform:translateY(-1px)}}
@@ -171,7 +173,7 @@ function distanceTo(G, target) {
   return Math.hypot(G.P.x - target.x, G.P.z - target.z);
 }
 function reducedMotion() {
-  try { return !!matchMedia('(prefers-reduced-motion: reduce)').matches; }
+  try { return document.body.classList.contains('reduced-motion') || !!matchMedia('(prefers-reduced-motion: reduce)').matches; }
   catch (_) { return false; }
 }
 
@@ -549,7 +551,7 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
     activeHold = null; activeHoldSnap = null;
   }
   function hide() {
-    root.classList.add('hidden'); root.classList.remove('hold-mode', 'route-mode', 'coach-fade');
+    root.classList.add('hidden'); root.classList.remove('hold-mode', 'route-mode', 'coach-fade', 'coach-demo');
     root.dataset.mode = ''; setCaption(''); currentKey = null;
     modeGate.clear();
     if (G) G.coachCueVisible = false;
@@ -557,6 +559,7 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
   function reveal(key, stage) {
     shown.add(key);
     root.classList.toggle('route-mode', stage === 'route');
+    root.classList.toggle('coach-demo', stage === 'demo');
     if (G) G.coachCueVisible = true;
     root.classList.remove('hidden');
   }
@@ -616,7 +619,7 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
       render() {
         currentKey = key; root.classList.remove('hold-mode'); root.dataset.mode = 'tap';
         setCaption(icon && candidateT >= 3.0 ? icon : '');
-        placeBeside(root, btn); reveal(key, 'pulse'); return true;
+        placeBeside(root, btn); reveal(key, candidateT >= 8 && candidateT < 9.5 ? 'demo' : 'static'); return true;
       },
     };
   }
@@ -628,7 +631,7 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
       render() {
         if (!placeAtWorld(root, S, target, layout)) return false;
         currentKey = key; root.classList.remove('hold-mode'); root.dataset.mode = 'route';
-        setCaption(icon); reveal(key, 'route'); return true;
+        setCaption(icon); reveal(key, candidateT >= 8 && candidateT < 9.5 ? 'demo' : 'route'); return true;
       },
     };
   }
@@ -645,7 +648,7 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
           ? (hold.key === 'refillCoffee' ? beanIcon() : hold.key === 'refillBowl' ? kibbleIcon()
             : hold.key === 'refillIce' ? creamIcon() : '')
           : '');
-        reveal(hold.key, 'pulse'); return true;
+        reveal(hold.key, candidateT >= 8 && candidateT < 9.5 ? 'demo' : 'static'); return true;
       },
     };
   }
@@ -724,7 +727,8 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
     }
     if (dist != null && (candidateDistance == null || dist < candidateDistance)) candidateDistance = dist;
     candidateT += Math.max(0, dt);
-    return live || candidateT >= plan.dwell;
+    const quietDwell = plan.mode === 'hold' ? 1 : 4;
+    return live || candidateT >= Math.max(plan.dwell, quietDwell);
   }
 
   const coach = {
