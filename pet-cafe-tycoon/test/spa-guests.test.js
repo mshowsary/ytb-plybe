@@ -19,7 +19,7 @@ import { AREA1 } from '../data/area1.js';
 import {
   createWorld, payZone, putOnDisplay, stepRegisters, stepGroomTable, stepBath,
 } from '../src/sim/world.js';
-import { createCustomer, stepCustomers, SPECIES, PATIENCE, SPA_CHANCE_MAX } from '../src/sim/customers.js';
+import { createCustomer, stepCustomers, SPECIES, PATIENCE, SPA_CHANCE_MAX, DIRTY_EVERY } from '../src/sim/customers.js';
 import { PRODUCTS } from '../src/sim/economy.js';
 
 // Unseated price only — a spa guest never sits (see the customers.js comment at its own pricing
@@ -38,6 +38,15 @@ function buildUpTo(w, targetId) {
   for (const id of need) { let guard = 0; while (!w.built.has(id) && guard++ < 2000) payZone(w, id, 1e9, 1); }
 }
 function manAll(w, ids) { for (const id of ids) { const st = w.stations.get(id); if (st && st.active) st.serving = 'owner'; } }
+
+// Batch 6: a seat is only wiped every DIRTY_EVERY-th sitting (src/sim/customers.js) — the owner
+// played the shipped build and found cleaning was the chore the shift was made of. The two
+// round-trip tests below still assert that a lounge seat is not exempt from getting dirty, so they
+// wind each seat's counter forward to the last sitting of its cycle first: this guest's release is
+// then the one that dirties it, and the assertion keeps meaning exactly what it always meant.
+function primeSeatsForDirt(w) {
+  for (const st of w.stations.values()) if (st.type === 'seat') st.uses = DIRTY_EVERY - 1;
+}
 
 // ---- spaBound: decided once, gated on w.dayState + a real station ------------------------------
 
@@ -179,6 +188,7 @@ test('a manned grooming table serves the guest, who then pays PRODUCTS.groom.pri
   buildUpTo(w, 'z_register3');
   buildUpTo(w, 'z_groom'); // groom1 active; bath1 not yet, so routing is unambiguous
   w.dayState = { day: 30, t: 0, phase: 'morning' };
+  primeSeatsForDirt(w);
   w.rng.chance = () => true;
   const c = createCustomer(1, 'cat', 0, AREA1);
   let pay = null;
@@ -223,6 +233,7 @@ test('a manned bath tub serves the guest, stamps c.sparkleUntil, and the guest s
   buildUpTo(w, 'z_register3'); // see the groom test above — a separate branch off z_terrace
   buildUpTo(w, 'z_bath');
   w.dayState = { day: 30, t: 0, phase: 'morning' };
+  primeSeatsForDirt(w);
   // Fast-forward straight into 'toBath' (routing itself is covered above) so this test is only
   // about the service -> payment -> sparkle leg, mirroring photo.test.js's own Object.assign style.
   const c = Object.assign(createCustomer(1, 'dog', 0, AREA1), {

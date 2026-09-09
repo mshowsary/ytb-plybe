@@ -1,4 +1,3 @@
-import { createGuestCare } from './systems/guestCare.js';
 import { normalizeServicePolicy, prepareServicePolicy, recordOrdinaryServiceShift } from './sim/servicePolicy.js';
 import { applySeatMiss } from './sim/serviceQuality.js';
 import { normalizeSocials } from './sim/petSocials.js';
@@ -49,7 +48,7 @@ import { createHud, cue } from './ui/hud.js';
 // Play-field cue glyphs. Every banner and toast below draws these instead of a sentence; the
 // sentence survives as the cue's aria text (see the contract at the top of src/ui/hud.js).
 import {
-  clockIcon, tableDirtyIcon, coinMinusIcon, coinIcon, crossIcon, checkIcon, sparkleIcon, brushIcon,
+  coinIcon, crossIcon, checkIcon, sparkleIcon, brushIcon,
   lockIcon, repIcon, cafeIcon, trophyIcon, weekendIcon, holidayIcon, giftIcon, sunIcon, moonIcon,
   streakIcon, iconFor,
 } from './ui/icons.js';
@@ -265,25 +264,21 @@ export function createGame(S, area, els, platform = null) {
   const spaBridge = createSpaBridge(G, S, ctx);
   const visuals = createVisuals(G, S, ctx); const registerCash = createRegisterCash(G, S, ctx); const economyExperience = createEconomyExperience(G, S, ctx, platform);
   G.meta.servicePolicy = normalizeServicePolicy(G.meta.servicePolicy);
-  const guestCare=createGuestCare(G,ctx); const petSocials = createPetSocials(G, S, ctx); const partyOrders = createPartyOrders(G, S, ctx, platform); const objective = createObjective(G, S, ctx); const intro = createIntro(G, S, ctx);
+  const petSocials = createPetSocials(G, S, ctx); const partyOrders = createPartyOrders(G, S, ctx, platform); const objective = createObjective(G, S, ctx); const intro = createIntro(G, S, ctx);
 
   let careerRefreshT = 0, dayTransitionPromise = null; hud.show();
   G.finishActorStep = () => endActorStep(world);
   G.update = dt => {
     updateInProgress = true;
+    // Batch 6: `servicePolicyActive` is kept, but the banner that used to announce it is gone and
+    // so is the charge behind it (src/sim/servicePolicy.js). What the flag still does is the KIND
+    // half of the rule -- a guest who has already paid waits for a table to be wiped instead of
+    // walking out -- and a policy that only ever helps the player does not need announcing, let
+    // alone announcing with a red minus-coin. The owner's note after playing on a phone was that
+    // constant reassuring, cleaning and recovering reads as nagging rather than challenge; a
+    // pink banner promising future fines was the loudest piece of that.
     G.time += dt; world.servicePolicyActive = prepareServicePolicy(G);
-    const policy=G.meta.servicePolicy;
-    // The service policy, drawn instead of explained. Left of the arrow are the two things that now
-    // cost money -- a clock (a guest waited too long) and the crossed table (a paid guest found no
-    // clean seat) -- and right of it the consequence, the wallet coin with a red minus. The trailing
-    // "<= n" is the shift cap, the one number that makes the rule feel survivable rather than
-    // punitive. A clock was chosen over an angry-guest face because the cost is metered by TIME, not
-    // by mood; the crossed table is the same glyph the guest already holds up in the room and the
-    // day summary already prints, so cause, consequence and report are one object. The sentence
-    // itself lives in the shift summary sheet (src/ui/meta.js decorateSummary), where words are
-    // allowed, and in this cue's aria text.
-    if(!policy.notice && G.dayState.day>=policy.enabledFrom-1){policy.notice=true;const cap=Math.floor(policy.baseline*.08);hud.banner(cue([clockIcon(), tableDirtyIcon(), '→', coinMinusIcon(), '≤', cap], `From day ${policy.enabledFrom}, long waits and dirty-table departures cost coins, capped at ${cap} per shift.`),6500);G.requestCheckpoint('service-policy-notice');}
-    petSocials.update(); guestCare.update(dt); input.update(); stations.update(dt); zones.update(dt); photoStudio.update(dt); spaBridge.update(dt);
+    petSocials.update(); input.update(); stations.update(dt); zones.update(dt); photoStudio.update(dt); spaBridge.update(dt);
     customers.prepare(dt); staff.prepare();
     const barista = G.baristaWorker?.prepare();
     beginActorStep(world, G.customers, G.staffList, barista ? [barista] : []);
@@ -401,17 +396,11 @@ export function createGame(S, area, els, platform = null) {
     if (rewardVisible) platform.noteAdEligible?.('rewarded', `summary:${completedDay}`);
     metaUI.decorateSummary({
       rating,
-      // The words the play-field policy banner no longer draws. `justEnabled` is the shift the rule
-      // switches on (the banner fires on the eve of enabledFrom, so the first summary that can
-      // explain it is enabledFrom - 1); `charged` is what it actually took, which is the only other
-      // shift on which the sentence is worth a player's attention.
-      servicePolicy: (() => {
-        const pol = G.meta.servicePolicy; if (!pol || !pol.enabledFrom) return null;
-        return {
-          enabledFrom: pol.enabledFrom, cap: Math.floor(pol.baseline * 0.08),
-          charged: settlement.stats.serviceFees | 0, justEnabled: completedDay >= pol.enabledFrom - 1 && completedDay <= pol.enabledFrom,
-        };
-      })(),
+      // Batch 6: no `servicePolicy` field any more. It fed a paragraph in the shift summary that
+      // explained a fine the game no longer levies (src/sim/servicePolicy.js), and explaining a
+      // consequence that cannot happen is the same nagging in a quieter font. G.meta.servicePolicy
+      // itself is untouched -- it is still normalised, still saved, and still drives the kind
+      // waitSeat behaviour; it simply has nothing left to say to the player.
       reputation: { awarded: repResult.awarded, levelUp: repResult.levelUp, title: reputationTitle(G.meta), nextTitle: REPUTATION_TITLES[repLevel + 1] || null, current: repProgress.current, needed: repProgress.needed, frac: repProgress.frac },
       rewardOffer: rewardVisible ? {
         amount: rewardAmount, claimed: rewardClaimed, liveAd: !!platform.rewardedAvailable, label: met ? 'DOUBLE CONTRACT REWARD' : 'BONUS TIP JAR',

@@ -10,7 +10,13 @@ export function createFx(scene, camera, layer, walletEl) {
   pm.count = 0; pm.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAXP * 3), 3); scene.add(pm);
   const hearts = []; const hg = heartGeo(); const hm = emissiveMaterial('#FF8A80');
   const F = { camera };
-  F.project = (x, y, z, out) => { _v.set(x, y, z).project(camera); out.sx = (_v.x * 0.5 + 0.5) * innerWidth; out.sy = (-_v.y * 0.5 + 0.5) * innerHeight; out.visible = _v.z < 1; return out; };
+  // `visible` used to mean only "in front of the camera", which is why a plot two screens away
+  // still reported visible=true and labelLayout.js dutifully clamped its pill onto the screen
+  // edge -- the "icon soup" the owner hit on a phone. It now means "in front of the camera AND
+  // inside the viewport, with a 12% margin so a pill does not pop in exactly at the frame edge".
+  // nx/ny (the raw NDC) are exposed for callers that want to reason about WHERE off-screen a point
+  // is, not just whether it's on-screen.
+  F.project = (x, y, z, out) => { _v.set(x, y, z).project(camera); out.sx = (_v.x * 0.5 + 0.5) * innerWidth; out.sy = (-_v.y * 0.5 + 0.5) * innerHeight; out.nx = _v.x; out.ny = _v.y; out.visible = _v.z < 1 && Math.abs(_v.x) <= 1.12 && Math.abs(_v.y) <= 1.12; return out; };
   F.burst = (x, y, z, hex, n = 12) => { const c = new THREE.Color(hex);
     for (let i = 0; i < n && parts.length < MAXP; i++) { const a = Math.random() * Math.PI * 2, sp = 1.5 + Math.random() * 2.5;
       parts.push({ x, y, z, vx: Math.cos(a) * sp, vy: 2.5 + Math.random() * 2.5, vz: Math.sin(a) * sp, life: 0.6, r: c.r, g: c.g, b: c.b, sz: 0.6 + Math.random() * 0.8 }); } };

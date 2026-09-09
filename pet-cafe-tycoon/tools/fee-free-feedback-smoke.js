@@ -75,9 +75,11 @@ try {
   const negativeMoney = text => /[-−]\s*\d/.test(String(text || ''));
   const failures = [];
   if (result.afterReturn.coins !== result.before || result.afterReturn.returns !== 1) failures.push('RETURN changed wallet or failed to record action');
-  if (!/Items returned/i.test(result.afterReturn.text) || negativeMoney(result.afterReturn.text)) failures.push('RETURN feedback is missing or still money-negative');
+  // Batch 6: the top-centre friction toast is gone (src/systems/serviceFriction.js draws nothing
+  // now); the crate itself is the RETURN feedback. Any text here means the toast crept back.
+  if (result.afterReturn.text !== '') failures.push('Batch 6: the service-friction toast must not exist (got "' + result.afterReturn.text + '")');
   if (result.afterSubstitute.coins !== result.before || result.afterSubstitute.misses < 1) failures.push('service-friction event changed wallet or was not recorded');
-  if (negativeMoney(result.afterSubstitute.text)) failures.push('service-friction feedback still presents a negative wallet amount');
+  if (result.afterSubstitute.text !== '') failures.push('Batch 6: the service-friction toast must not exist after a service miss either');
   if (result.afterLost.coins !== result.before || result.afterLost.misses < 2 || result.afterLost.lost < 1) failures.push('lost-sale recovery changed wallet or lost outcome disappeared');
   if (result.afterLost.deduction !== 0) failures.push(`economic ledger recorded ${result.afterLost.deduction} coins of Task-23 deductions`);
   if (errors.length) failures.push(`browser errors: ${errors.join(' | ')}`);

@@ -5,53 +5,24 @@ import { installEconomicLedger } from './economicLedger.js';
 // but removes the old direct debit: the real consequence is delayed/lost service, not bank erosion.
 import { PATIENCE, SETTLE_WAIT } from '../sim/customers.js';
 import { frictionSeverity } from '../sim/serviceFriction.js';
-import { presentationScheduler } from '../core/presentationScheduler.js';
-import { cue, paintCue } from '../ui/hud.js';
-import { displayIcon, crossIcon, returnIcon, registerIcon, clockIcon, personIcon, checkIcon } from '../ui/icons.js';
 
+// Batch 6: this layer is now SILENT. It used to raise a dark pill at the top of the screen every
+// time a guest waited, swapped an order or had items returned -- and after a phone session the
+// owner counted 20 of those on day 2 and 25 on day 6: "if the player is constantly reassuring,
+// cleaning, and recovering, the game is nagging them rather than challenging them." The standing
+// rule is that we never overwhelm or punish the player or raise his cortisol level; we only keep
+// the game from being boring, and a running commentary on the player's mistakes does the opposite.
+// The counting is untouched -- serviceMisses, returnActions and the economic ledger still record
+// every one of these moments, so the day summary, the stats and the tests read exactly what they
+// read before. The player just is not told off for them any more. The one consequence still shown
+// is the honest one: a guest who leaves.
 const SOFT_WAIT = 2.5;
-const STYLE_ID = 'pet-cafe-service-friction-style';
-// Pictograms, not sentences: this toast floats over the 3D world, which is the play field, and
-// the game's rule is icons and numerals there. The sentence survives as the cue's aria text.
-// Each pair reads as "where" then "what": the shelf and a cross, the shelf and a swap, the till
-// and a clock.
-const LABEL = {
-  shelfWait: () => cue([displayIcon(), crossIcon()], 'Shelf is empty'),
-  substitute: () => cue([displayIcon(), returnIcon()], 'Guest changed order'),
-  registerWait: () => cue([registerIcon(), clockIcon()], 'Checkout is backed up'),
-};
-const LABEL_DEFAULT = () => cue([personIcon(), crossIcon()], 'Guest had a rough service moment');
-const LABEL_RETURNED = () => cue([returnIcon(), checkIcon()], 'Items returned');
-
-function installStyle() {
-  if (typeof document === 'undefined' || document.getElementById(STYLE_ID)) return;
-  const style = document.createElement('style'); style.id = STYLE_ID;
-  style.textContent = `
-    .service-friction-toast{position:fixed;left:50%;top:calc(92px + env(safe-area-inset-top,0px));z-index:72;pointer-events:none;transform:translate(-50%,-5px);opacity:0;padding:7px 11px;border-radius:999px;background:#382d2ad9;color:#fff5e9;border:1px solid #ffffff2e;box-shadow:0 5px 16px #38261f24;font:850 10px/1 system-ui,sans-serif;letter-spacing:.03em;white-space:nowrap;transition:opacity .16s ease,transform .16s ease}
-    .service-friction-toast.show{opacity:.9;transform:translate(-50%,0)}
-    @media(max-width:240px){.service-friction-toast{font-size:9px;top:84px}}
-  `;
-  document.head.appendChild(style);
-}
-
-function makeToast() {
-  if (typeof document === 'undefined') return () => {};
-  const el = document.createElement('div'); el.className = 'service-friction-toast'; el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite'); document.body.appendChild(el);
-  let timer = 0;
-  return text => {
-    if (timer) presentationScheduler.cancel(timer);
-    paintCue(el, text); el.classList.add('show');
-    timer = presentationScheduler.schedule(() => { el.classList.remove('show'); timer = 0; }, 1050);
-  };
-}
 
 export function installServiceFriction(G) {
   if (!G || !G.world || !Array.isArray(G.world.events) || typeof G.update !== 'function') return { destroy() {} };
   // Task 20 composition boundary: keep shared accounting installed even though Task 23 removes
   // these deduction transactions. Purchases, sales, collections and bonuses still reconcile.
   installEconomicLedger(G);
-  installStyle();
-  const announce = makeToast();
   const records = new Map();
   const baseUpdate = G.update;
   const baseReturn = G.carry && G.carry.onReturn;
@@ -66,10 +37,12 @@ export function installServiceFriction(G) {
     return r;
   }
 
+  // `kind` is kept in the signature (and at every call site) even though nothing is drawn from it
+  // now: it is the record of WHICH observation fired, and the next thing that wants to read these
+  // moments -- a shift report, a tuning sweep -- should get the reason, not just a count.
   function mark(kind) {
     const stats = G.dayStats || (G.dayStats = {});
     stats.serviceMisses = (stats.serviceMisses | 0) + 1;
-    announce((LABEL[kind] || LABEL_DEFAULT)());
     return true;
   }
 
@@ -124,12 +97,13 @@ export function installServiceFriction(G) {
 
   // createEconomyExperience installs the old return-waste callback during createGame. Replace that
   // runtime callback after composition: RETURN still clears the held inventory through carry.js,
-  // but handling it never deducts banked money or emits a negative-coin toast/number.
+  // but handling it never deducts banked money or emits a negative-coin toast/number. Batch 6 also
+  // drops the "items returned" acknowledgement -- the shelf visibly empties in the player's hands,
+  // which is confirmation enough without a pill announcing it.
   if (G.carry) {
     G.carry.onReturn = () => {
       const stats = G.dayStats || (G.dayStats = {});
       stats.returnActions = (stats.returnActions | 0) + 1;
-      announce(LABEL_RETURNED());
     };
   }
 

@@ -2,6 +2,7 @@ import { createContractBadge } from './contractBadge.js';
 import {
   sunIcon, moonIcon, sunriseIcon, sunsetIcon, personIcon, coinIcon, streakIcon, heartIcon,
   cupcakeIcon, coffeeIcon, smoothieIcon, treatIcon, icecreamIcon, leafIcon, gearIcon, pawIcon,
+  waterIcon, sparkleIcon, hangerIcon,
 } from './icons.js';
 // src/ui/hud.js
 import { presentationScheduler } from '../core/presentationScheduler.js';
@@ -122,6 +123,15 @@ const ZONE_ICON = {
   z_coffee: coffeeIcon, z_bowl: treatIcon, z_blender: smoothieIcon, z_garden: leafIcon,
   z_seats2: pawIcon, z_terrace: sunIcon, z_icecream: icecreamIcon, z_register3: coinIcon,
   z_photo: photoIcon, z_terraceSeats: pawIcon,
+  // The spa chain (data/area1.js's Restroom -> Splash -> Spa -> Groom -> Bath -> Boutique ->
+  // Photographer run). Restroom and Bath both add a literal water fixture (a sink, the bath's own
+  // waterTank1 pantry); Splash is a pool, same water glyph again -- the ring only ever shows one of
+  // the three at a time, so the reuse never actually collides on screen. Spa is the gateway zone
+  // into that whole wing, so it gets an atmosphere glyph the same way z_terrace's sunIcon already
+  // does for the outdoor wing. Groom reuses the exact paw src/ui/groomGame.js draws over the pet
+  // during the brush-hold minigame, so the ring and the minigame it is saving toward agree.
+  z_restroom: waterIcon, z_splash: waterIcon, z_spa: sparkleIcon, z_groom: pawIcon,
+  z_bath: waterIcon, z_boutique: hangerIcon, z_photographer: photoIcon,
 };
 
 const RING_STYLE_ID = 'pet-cafe-wallet-ring';
@@ -131,26 +141,21 @@ function ensureRingStyle() {
   // conic-gradient + an inner disc, the same construction src/ui/contractBadge.js's .contract-ring
   // already uses, so the two progress rings in this HUD are visibly the same device.
   //
-  // FOOTPRINT: every rule here is position:absolute inside the existing .coin swatch, plus one
-  // `position:relative` that changes no geometry. #wallet's border box is byte-for-byte unchanged,
-  // which matters twice: src/ui/labelLayout.js keeps world labels out of that exact rect, and
-  // src/ui/hudLayout.js parks the crowd pill 102px to the wallet's right below 420px of height --
-  // a wallet already close to that at four digits. Growing the box was never an option.
-  // inset:-4px on a 22px coin (17px under body.playables-tiny, and this tracks it automatically
-  // because it is relative to the coin, not to the pill) leaves ~10px of clearance to the pill's
-  // top and bottom edges and stops ~5px short of the wallet numeral.
+  // The ring used to wrap the wallet's own .coin. On an actual phone (owner playtest) a four-digit
+  // balance sits close enough to that coin that the ring reads as circling the NUMBER ("1,018
+  // people") rather than a separate target glyph. It now lives in its own slot straight after
+  // #walletNum instead -- "[coin] 1,018 [ring]" -- built and hidden/shown entirely by
+  // H.setSavingFor below. Sized in `em` off #wallet's own (viewport-scaled, see hudLayout.js)
+  // font-size, same reasoning as `#wallet .coin`'s own em sizing in src/style.css.
   s.textContent = `
-    #wallet .coin{position:relative}
-    .wallet-ring{position:absolute;inset:-4px;border-radius:50%;display:none;place-items:center;
+    .wallet-target{display:inline-flex;align-items:center;justify-content:center;flex:none;
+      width:1.55em;height:1.55em;margin-left:.2em}
+    .wallet-ring{width:100%;height:100%;border-radius:50%;display:none;place-items:center;
       background:conic-gradient(var(--accent) var(--wallet-progress,0%),#00000021 0)}
     #wallet.saving .wallet-ring{display:grid}
     /* Full ring = you can buy it now. Green rather than the coral used for urgency elsewhere: this
        is an invitation, not a warning. */
     #wallet.saving-ready .wallet-ring{background:#4FB98A}
-    /* The tiny shell squeezes the coin to 17px and the pill's gap to 5px, which leaves the ring
-       about 1px short of the numeral at inset:-4. One pixel less overhang buys the gap back
-       without touching the pill (src/ui/playablesShell.js owns those sizes, not this file). */
-    body.playables-tiny .wallet-ring{inset:-3px}
     .wallet-ring-ico{width:74%;height:74%;border-radius:50%;background:var(--cream,#FFF4E6);
       display:grid;place-items:center}
     .wallet-ring-ico svg{width:74%;height:74%;display:block}
@@ -169,9 +174,9 @@ export function createHud() {
   const handsFullEl = document.createElement('div'); handsFullEl.className = 'pill hidden'; handsFullEl.id = 'handsFull'; hud.appendChild(handsFullEl);
   H.setHandsFull = text => { if (!text) { handsFullEl.classList.add('hidden'); return; } if (handsFullEl.textContent !== text) handsFullEl.textContent = text; handsFullEl.classList.remove('hidden'); };
 
-  // Followers pill (plan 3.3): icon + numeral only, no prose. Position comes entirely from
-  // hudLayout.js (the tall-column default AND the short-viewport row reflow), so this file only
-  // creates the element and its content.
+  // Followers pill (plan 3.3): icon + numeral only, no prose. Placement comes entirely from
+  // hudLayout.js's arrangeHud(), which re-parents this pill into the shared resource bar, so this
+  // file only creates the element and its content.
   const followersEl = document.createElement('div'); followersEl.className = 'pill'; followersEl.id = 'followers';
   followersEl.innerHTML = '<span class="picon">' + heartIcon() + '</span><span class="followersNum">0</span>';
   hud.appendChild(followersEl);
@@ -184,15 +189,17 @@ export function createHud() {
 
   // ---- the "saving for" ring (rule and styles at the top of this file) --------------------------
   ensureRingStyle();
-  const coinEl = wallet.querySelector('.coin');
+  // Its own slot AFTER the numeral, not on the coin (see ensureRingStyle's WHY above). Starts
+  // hidden: "nothing reachable left" and "no target computed yet" both look like an honest plain
+  // wallet, which is the whole point of this ring existing at all.
+  const targetEl = document.createElement('span'); targetEl.className = 'wallet-target hidden';
   const ringEl = document.createElement('div'); ringEl.className = 'wallet-ring'; ringEl.setAttribute('aria-hidden', 'true');
   const ringIco = document.createElement('span'); ringIco.className = 'wallet-ring-ico';
-  ringEl.appendChild(ringIco);
-  // If index.html ever loses the coin swatch the ring simply never exists; the wallet keeps working.
-  if (coinEl) coinEl.appendChild(ringEl);
+  ringEl.appendChild(ringIco); targetEl.appendChild(ringEl);
+  num.after(targetEl);
   let savingId = null, savingPrice = 0, ringPct = -1, ringSettled = true, lastBuiltSize = -2;
   const paintRing = coins => {
-    if (!savingPrice || !coinEl) return;
+    if (!savingPrice) return;
     const pct = Math.max(0, Math.min(100, Math.round((coins / savingPrice) * 100)));
     if (pct === ringPct) return;
     ringPct = pct;
@@ -203,7 +210,6 @@ export function createHud() {
   // lives here (pickSavingTarget above) so the ring's WHY stays with the ring, and the call site
   // only forwards `world.area.zones` and `world.built`. See this task's wiringNeeded.
   H.setSavingFor = (zones, built) => {
-    if (!coinEl) return;
     // The answer can only change when something is built, and this is called from the frame loop --
     // re-deriving it every frame would sort the zone list 60 times a second for one stable answer.
     const size = (built && typeof built.size === 'number') ? built.size : -1;
@@ -213,8 +219,8 @@ export function createHud() {
     const id = t ? t.id : null;
     if (id === savingId) return;
     savingId = id; savingPrice = t ? t.price : 0; ringPct = -1; ringSettled = false;
-    if (t) { ringIco.innerHTML = (ZONE_ICON[t.id] || gearIcon)(); wallet.classList.add('saving'); }
-    else { ringIco.innerHTML = ''; wallet.classList.remove('saving', 'saving-ready'); }
+    if (t) { ringIco.innerHTML = (ZONE_ICON[t.id] || gearIcon)(); wallet.classList.add('saving'); targetEl.classList.remove('hidden'); }
+    else { ringIco.innerHTML = ''; wallet.classList.remove('saving', 'saving-ready'); targetEl.classList.add('hidden'); }
   };
 
   H.setCoins = n => { from = shown; target = n; t0 = performance.now(); ringSettled = false; };

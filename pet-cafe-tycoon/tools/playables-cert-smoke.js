@@ -98,7 +98,7 @@ function validateLayout(s, label) {
   for (const [q,r] of s.permanent) if (!r.fits) throw new Error(`${label}: ${q} is outside viewport ${JSON.stringify(r)}`);
   for (let i=0;i<s.permanent.length;i++) for (let j=i+1;j<s.permanent.length;j++) {
     const [qa,a] = s.permanent[i], [qb,b] = s.permanent[j];
-    if (overlap(a,b)) throw new Error(`${label}: permanent controls overlap: ${qa} / ${qb}`);
+    if (overlap(a,b)) throw new Error(`${label}: permanent controls overlap: ${qa} ${JSON.stringify(a)} / ${qb} ${JSON.stringify(b)}`);
   }
   if (s.chosen && !s.chosen.fits) throw new Error(`${label}: modal outside viewport ${JSON.stringify(s.chosen)}`);
 }

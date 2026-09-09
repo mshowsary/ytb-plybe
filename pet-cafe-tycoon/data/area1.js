@@ -177,10 +177,14 @@ export const AREA1 = {
     // "then prices last" lever, applied only after confirming the policy fix alone wasn't enough.
     // Days 1-12 stay sales-for-sales identical (see tools/bot.js's day table) — the terrace zone
     // only ever becomes active starting day 12, so no earlier day reads any of these numbers.
-    { id: 'z_terrace',      x: 0.75, z: 5.0,  price: 6500, adds: ['gate1', 'fountain1', 'seat7', 'seat8'],            requires: 'z_seats2',     label: 'Terrace' },
-    { id: 'z_icecream',     x: 7.4,  z: 9.5,  price: 4500,  adds: ['icecream1', 'barIce', 'coldPantry1'],              requires: 'z_terrace',    label: 'Ice cream lane' },
+    // Batch 6: the terrace is the first ROOM the player unlocks and it used to land on day 14 in the
+    // bot (6500 behind z_seats2). The owner's verdict was that ten days of "+15% speed" is not a
+    // reward. 3600 behind the smoothie bar puts it within reach around day 9–10; the garden and the
+    // pet lounge stay buyable on the way, they are simply no longer the gate.
+    { id: 'z_terrace',      x: 0.75, z: 5.0,  price: 3600, adds: ['gate1', 'fountain1', 'seat7', 'seat8'],            requires: 'z_blender',    label: 'Terrace' },
+    { id: 'z_icecream',     x: 7.4,  z: 9.5,  price: 3600,  adds: ['icecream1', 'barIce', 'coldPantry1'],              requires: 'z_terrace',    label: 'Ice cream lane' },
     { id: 'z_register3',    x: -5.0, z: 9.6,  price: 4000,  adds: ['register3'],                                      requires: 'z_icecream',   label: 'Terrace register' },
-    { id: 'z_photo',        x: -9.0, z: 8.6,  price: 4500, adds: ['photo1'],                                         requires: 'z_terrace',    label: 'Pet photo studio' },
+    { id: 'z_photo',        x: -9.0, z: 8.6,  price: 3000, adds: ['photo1'],                                         requires: 'z_terrace',    label: 'Pet photo studio' },
     { id: 'z_terraceSeats', x: 0.0,  z: 12.8, price: 4000,  adds: ['seat9', 'seat10', 'seat11', 'seat12'],             requires: 'z_register3',  label: 'Terrace tables' },
     { id: 'z_restroom',     x: 6.0,  z: 13.2, price: 3500,  adds: ['wc1'],                                            requires: 'z_terraceSeats', label: 'Restroom' },
     { id: 'z_splash',       x: 4.0,  z: 10.2, price: 4000, adds: ['splash1'],                                        requires: 'z_photo',      label: 'Splash pool' },
@@ -204,7 +208,7 @@ export const AREA1 = {
     // be (a) above CONTENT_ZONE_PRICE (4000, economyConfig.js) so the bot's content-save policy
     // treats them as big content, and (b) far enough past the terrace chain that the spa cannot
     // open before it. A pacing agent replaces them.
-    { id: 'z_spa',          x: 9.0,  z: 0.8,  price: 14000, adds: ['gate2', 'spaSeat1', 'spaSeat2', 'spaSeat3', 'planters'], requires: 'z_splash',    label: 'Pet spa' },
+    { id: 'z_spa',          x: 9.0,  z: 0.8,  price: 9000, adds: ['gate2', 'spaSeat1', 'spaSeat2', 'spaSeat3', 'planters'], requires: 'z_splash',    label: 'Pet spa' },
     { id: 'z_groom',        x: 13.5, z: -4.4, price: 6000,  adds: ['groom1'],                                                requires: 'z_spa',       label: 'Grooming table' },
     { id: 'z_bath',         x: 13.5, z: -6.4, price: 7000,  adds: ['bath1', 'waterTank1'],                                   requires: 'z_groom',     label: 'Pet bath' },
     { id: 'z_boutique',     x: 14.8, z: 0.0,  price: 6500,  adds: ['boutique1'],                                             requires: 'z_bath',      label: 'Boutique' },

@@ -14,19 +14,32 @@ export function recordOrdinaryServiceShift(G) {
  if(G.meta.socials?.lastDay===day)return;
  p.ordinary.push(n(G.dayStats.earned));p.ordinary=p.ordinary.slice(-5);
 }
+// Batch 6: the policy OBSERVES, it never charges. The owner played the live build on a phone and
+// came back with 20 recovery moments on day 2 and 25 on day 6 -- "if the player is constantly
+// reassuring, cleaning, and recovering, the game is nagging them rather than challenging them" --
+// against the standing rule that we never overwhelm or punish the player or raise his cortisol
+// level, we only keep the shift from being boring. So the fee is unconditionally 0 now: a service
+// mistake costs nothing from the wallet, ever, and the one consequence left is the one that was
+// always fair and legible -- a guest who gives up and leaves.
+// Everything else is deliberately unchanged. The visit id is still consumed (one incident per
+// visit, so a later collection cannot double-count it), prepareServicePolicy still rolls the shift
+// over, and incidents/causes keep tallying -- causes now counts INCIDENTS rather than coins, since
+// coins are no longer a thing this function produces. G.dayStats.serviceFees therefore stays 0,
+// which is what the summary strip, the settlement sheet and the ledger all read.
 export function serviceIncident(G,customer,reason) {
  const p=G.meta.servicePolicy;
  if(!customer?.serviceVisitId||!['counter','register','bowl','table'].includes(reason))return {fee:0,duplicate:true};
  const id=String(customer.serviceVisitId);
  if(Object.hasOwn(p.incidents,id))return {fee:0,duplicate:true};
- // Consume the incident even when the cap/wallet is exhausted; later collections cannot charge it again.
- const enabled=prepareServicePolicy(G);
- const requested=reason==='table'?(customer.paid?Math.min(18,Math.floor((customer.amount||0)*.25)):0):Math.min(18,Math.max(4,Math.ceil((customer.recoveryQuote||0)*.25)));
- const fee=enabled?Math.max(0,Math.min(requested,Math.floor(p.baseline*.08)-p.spent,G.coins)):0;
- p.incidents[id]=fee;p.spent+=fee;p.causes[reason]+=fee;
- G.coins-=fee;G.dayStats.serviceFees=(G.dayStats.serviceFees||0)+fee;G.stats.serviceFees=(G.stats.serviceFees||0)+fee;
- return {fee,duplicate:false,capped:enabled&&p.spent>=Math.floor(p.baseline*.08)};
+ prepareServicePolicy(G);
+ p.incidents[id]=0;p.causes[reason]=(p.causes[reason]|0)+1;
+ return {fee:0,duplicate:false,capped:false};
 }
+// Batch 6: nothing calls these any more. The floating "reassure this guest" button they backed was
+// pure busywork -- hold still near a guest for 1.25s to buy patience -- and busywork is exactly the
+// nagging the owner asked us to take out, so src/systems/guestCare.js is gone. The two pure helpers
+// stay because a save carrying `reassured` still restores cleanly through them, and because a
+// future kindness that GIVES time (rather than demanding attention for it) can reuse the rule.
 export function canReassure(c) {return !!c&&!c.paid&&!c.reassured&&!c.done&&['queue','atRegister','atBowl'].includes(c.state)&&c.patience>0&&c.patience<12;}
 export function reassureGuest(c,initialPatience) {
  if(!canReassure(c))return false;c.reassured=true;c.patience=Math.min(initialPatience,c.patience+initialPatience*.2);return true;

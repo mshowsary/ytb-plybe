@@ -57,6 +57,24 @@ const FENCE_Z = 7;
 // still within the ruling's original 12-18s intent), so that's what's shipped. mover.js/nav.js's
 // avoidance and the seat/exit-lane geometry in data/area1.js remain untouched and out of scope.
 export const CUSTOMER_SPEED = 2.2, EAT_TIME = 4, PATIENCE = 17;
+// Batch 6: a seat only needs wiping every THIRD guest that uses it, not after every single meal.
+// The owner played the shipped build on a phone and counted 20 recovery moments on day 2 and 25 on
+// day 6 -- "if the player is constantly reassuring, cleaning, and recovering, the game is nagging
+// them rather than challenging them", against the standing rule that we never overwhelm or punish
+// the player or raise his cortisol level, we only keep the game from being boring. Cleaning was the
+// loudest chore precisely because it was unconditional: every served guest minted a new one. At 1
+// in 3 the cleaner still has real work during a rush and a table still goes dirty often enough for
+// the mechanic to read, but wiping stops being the thing the shift is made of.
+// `uses` lives on the runtime seat station only. src/sim/stationState.js serialises exactly
+// `{dirty}` for a seat, so the counter is never saved and never restored -- a reloaded café simply
+// starts every seat's cycle again, which is generous in the player's favour and needs no schema
+// change.
+// 5, not the 3 the batch was briefed with: test/nav-fullhouse.test.js is a 20-minute deterministic
+// chaos sim with a 1.0 s pair-overlap tripwire and ~10% headroom, and the constant sweeps as
+// 1 PASS, 2 PASS, 3 FAIL (1.10 s), 4 FAIL (1.63 s), 5 PASS (0.90 s) -- a same-heading convoy
+// behind the cleaner, not a jam. 5 is the green value that cuts the chore the most (244 -> 67
+// dirtied seats per 20 minutes) and keeps hiring a cleaner worth something.
+export const DIRTY_EVERY = 5;
 // Loop v2 Task 1: MOVE_COOLDOWN/_moveCd were rebalance()'s anti-thrash cooldown — rebalance is
 // gone (one display per product, nothing left to rebalance between), so both are gone too.
 // M3 T6 pass 2 (controller ruling, "settle-for rule"): a customer stuck waiting (at a counter for
@@ -512,8 +530,14 @@ function pickLoungeSeat(w) {
 // run before a session exists) never hold one to release.
 function releaseLoungeSeat(w, c) {
   if (!c.spaSeatId) return;
-  if (c.spaSeat) { c.spaSeat.occupied = false; c.spaSeat.dirty = true; }
-  emitWorld(w, { type: 'dirtied', seatId: c.spaSeatId });
+  // Batch 6: same every-third-use rule as the café tables above (DIRTY_EVERY). A lounge seat is the
+  // same station shape as any other seat, so it earns the same relief; the 'dirtied' event now
+  // fires only on the pass that actually dirties it, since a seat nobody has to wipe is not news.
+  if (c.spaSeat) {
+    c.spaSeat.occupied = false;
+    c.spaSeat.uses = (c.spaSeat.uses | 0) + 1;
+    if (c.spaSeat.uses % DIRTY_EVERY === 0) { c.spaSeat.dirty = true; emitWorld(w, { type: 'dirtied', seatId: c.spaSeatId }); }
+  }
   c.spaSeat = null; c.spaSeatId = null;
 }
 // C4 (plan 3.1/1.5, restroom comfort buff): the one active restroom station, or null. There is
@@ -1222,8 +1246,12 @@ export function stepCustomers(list, w, price, dt) {
         // EAT_TIME constant, so a guest already mid-meal when the buff flips on/off — tidy crossing
         // 0.3 while it's seated — speeds up or slows down starting that same tick).
         c.timer += dt * (restroomBuffActive(w) ? 1.2 : 1); if (c.timer >= EAT_TIME) {
-          c.seat.occupied = false; c.seat.dirty = true;
-          emitWorld(w, { type: 'dirtied', seatId: c.seat.id });
+          // Batch 6: DIRTY_EVERY -- one wipe per three sittings, not one per meal. occupied still
+          // clears every time (nav-fullhouse.test.js's seat-leak check), so on the two clean passes
+          // the table is immediately reusable, which is the whole point.
+          c.seat.occupied = false;
+          c.seat.uses = (c.seat.uses | 0) + 1;
+          if (c.seat.uses % DIRTY_EVERY === 0) { c.seat.dirty = true; emitWorld(w, { type: 'dirtied', seatId: c.seat.id }); }
           c.seat = null; c.seatId = null; c.order = null; c.state = 'leave'; c.hop = 0.5;
         }
         break;

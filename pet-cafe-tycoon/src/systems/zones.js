@@ -6,6 +6,7 @@ import { buildOutline } from '../render/props.js';
 import { semanticBuildGhost } from '../render/buildPreview.js';
 import { insideBuildFootprint, stepBuildIntent } from '../sim/buildIntent.js';
 import { Spring } from '../core/tween.js';
+import { pickSavingTarget } from '../ui/hud.js';
 
 const COIN_SVG = '<svg class="coin" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="#FFD84D" stroke="#C98A00" stroke-width="1.5"/></svg>';
 const fmt = n => Math.round(n).toLocaleString('en-US');
@@ -29,7 +30,14 @@ export function createZones(G, S, ctx) {
     const ghost = semanticBuildGhost(stDef, fw, fd); ghost.position.set(z.x, 0.025, z.z); ghost.rotation.y = rot; ghost.visible = false; scene.add(ghost);
 
     const price = document.createElement('div'); price.className = 'zprice'; price.style.display = 'none';
-    price.innerHTML = COIN_SVG + '<span></span>';
+    // Program's one-word-verb rule for action controls: BUILD is the pill's first child so it reads
+    // left of the coin, and it exists only while the owner is standing in THIS footprint -- the one
+    // plot they could actually commit coins to right now. Empty + display:none the rest of the time,
+    // set only on change below (see zv.lastWord).
+    const zword = document.createElement('span'); zword.className = 'zword';
+    zword.style.cssText = 'font-weight:900;font-size:11px;letter-spacing:.06em;margin-right:4px;display:none';
+    price.appendChild(zword);
+    price.insertAdjacentHTML('beforeend', COIN_SVG + '<span class="zamount"></span>');
 
     const arm = document.createElement('div');
     arm.className = 'build-intent-progress';
@@ -41,10 +49,10 @@ export function createZones(G, S, ctx) {
     els.fx.append(price, arm);
     const initialPaid = world.built.has(z.id) ? z.price : (world.partial[z.id] || 0);
     zonesMap.set(z.id, {
-      outline, ghost, price, priceSpan: price.querySelector('span'), arm, armFill,
+      outline, ghost, price, priceSpan: price.querySelector('.zamount'), zword, arm, armFill,
       z, fw, fd, rot, intent: { t: 0 }, pulse: new Spring(1, 120, 10), billT: 0, _lastRemaining: -1,
       checkpointPaid: initialPaid, paymentChanged: false,
-      revealAnticipation: -1,
+      revealAnticipation: -1, lastWord: '',
     });
   }
   const tmp = { sx: 0, sy: 0, visible: true };
@@ -87,6 +95,11 @@ export function createZones(G, S, ctx) {
     syncAll,
     update(dt) {
       const speed = Math.hypot(P.vx || 0, P.vz || 0);
+      // Recomputed at most once per frame, not per zone: world.activeZoneList tops out around two
+      // dozen reachable plots, so re-deriving "which one the wallet ring is already saving toward"
+      // here is cheap, and it is the one plot besides wherever the owner is standing that still
+      // earns a price pill below.
+      const savingTarget = pickSavingTarget(area.zones, world.built);
       for (const z of world.activeZoneList) {
         const zv = zonesMap.get(z.id); if (!zv) continue;
         zv.outline.visible = true; zv.ghost.visible = true;
@@ -131,7 +144,16 @@ export function createZones(G, S, ctx) {
         zv.arm.style.left = tmp.sx + 'px'; zv.arm.style.top = (tmp.sy + 34) + 'px';
         const remaining = Math.max(0, z.price - paid);
         if (zv._lastRemaining !== remaining) { zv.priceSpan.textContent = fmt(remaining); zv._lastRemaining = remaining; }
-        zv.price.style.display = tmp.visible ? '' : 'none';
+        // A price pill on every reachable plot was the other half of the owner's "icon soup"
+        // report: a column of coin glyphs down whichever screen edge held the far side of the map.
+        // It now shows for exactly two kinds of plot -- the one the wallet ring is already saving
+        // toward, or one the owner is standing in or genuinely close to (its footprint, or within
+        // 3 m of its centre) -- everywhere else keeps its ghost outline with no pill at all.
+        const near = inside || ((P.x - z.x) ** 2 + (P.z - z.z) ** 2 <= 9);
+        const isSavingTarget = !!savingTarget && savingTarget.id === z.id;
+        zv.price.style.display = tmp.visible && (near || isSavingTarget) ? '' : 'none';
+        const word = inside ? 'BUILD' : '';
+        if (zv.lastWord !== word) { zv.zword.textContent = word; zv.zword.style.display = word ? '' : 'none'; zv.lastWord = word; }
         zv.arm.style.display = tmp.visible && inside && !intent.armed ? '' : 'none';
       }
       for (const e of world.events) if (e.type === 'built') onBuilt(e);

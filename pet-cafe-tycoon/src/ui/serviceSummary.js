@@ -1,5 +1,16 @@
 // Compact end-of-shift service-quality readout. Presentation only: Task 23 reports outcomes and
 // recovery moments, never wallet penalties. Lost guests remain a real service consequence.
+//
+// Batch 6 narrows what "reports outcomes" means. The recap used to lead with "20 SERVICE
+// RECOVERIES" and then list the chores that produced them -- recovery moments, seat misses, a
+// service fee, and a tip telling the player to wipe seats between visits. The owner played the
+// shipped build on a phone and read exactly that back to us: "if the player is constantly
+// reassuring, cleaning, and recovering, the game is nagging them rather than challenging them."
+// The standing rule is that we never overwhelm or punish the player or raise his cortisol level;
+// we only keep the game from being boring. So the card now reports the ONE consequence that is
+// both real and fair -- guests who left -- alongside what the player gained, and says nothing at
+// all about chores. The model keeps every field (misses, missedSeats, returns are still computed
+// and still tested), it just stops drawing the ones that read as a scolding.
 import { heartIcon } from './icons.js';
 
 const n = value => Math.max(0, Number(value) | 0);
@@ -21,7 +32,11 @@ export function buildServiceSummaryModel(dayStats = {}, meta = null) {
   // Program 6.2: guests who paid and then found no clean table. A shift that turned anyone away
   // over dirty tables is not a clean shift, however good the rest of the service was.
   const missedSeats = n(dayStats.missedSeats);
-  const clean = misses === 0 && lost === 0 && missedSeats === 0;
+  // Batch 6: "clean" is now exactly "nobody left". Recovery moments and dirty tables are chores the
+  // card no longer holds against the player, so a shift full of them and empty of departures IS a
+  // clean shift by the only measure still reported -- and the served chip has to agree with the
+  // headline it sits under.
+  const clean = lost === 0;
 
   // Batch 3: two GAIN counters beside the service outcomes above. Both are null-when-unknown, not
   // 0-when-unknown: src/sim/saveSchema.js normalizeShiftStats rebuilds G.dayStats from a fixed key
@@ -41,15 +56,15 @@ export function buildServiceSummaryModel(dayStats = {}, meta = null) {
   const followers = (followersStart === null || followersNow === null)
     ? null : Math.max(0, followersNow - followersStart);
 
-  let headline = 'CLEAN SERVICE';
-  if (misses > 0) headline = `${misses} SERVICE ${misses === 1 ? 'RECOVERY' : 'RECOVERIES'}`;
-  else if (lost > 0) headline = `${lost} ${lost === 1 ? 'GUEST' : 'GUESTS'} LEFT`;
-
-  let tip = 'Great rhythm — keep the café stocked before the next rush.';
-  if (misses > 0) tip = 'Next rush: watch empty shelves, the register queue, pet treats and dirty tables.';
-  else if (lost > 0) tip = 'A few guests slipped away — build a little stock before traffic spikes again.';
-  else if (returns > 0) tip = 'Returned items are handled without taking coins from your wallet.';
-  if (missedSeats > 0) tip = 'Guests paid and found no clean table. Wipe seats between visits.';
+  // One question, asked once: did anyone leave? "20 SERVICE RECOVERIES" was a scoreboard of the
+  // player's mistakes at the exact moment the shift was over and nothing could be done about them.
+  const headline = lost === 0 ? 'CLEAN SERVICE' : `${lost} ${lost === 1 ? 'GUEST' : 'GUESTS'} LEFT`;
+  // And one line under it, phrased as help rather than correction. No chore advice at all: the
+  // "wipe seats between visits" sentence in particular was an instruction to do more of the thing
+  // the player was already doing too much of.
+  const tip = lost > 0
+    ? 'A few guests slipped away — a little more stock before the rush.'
+    : 'Great rhythm.';
 
   return { served, lost, misses, missedSeats, returns, photos, followers, clean, headline, tip };
 }
@@ -78,20 +93,13 @@ function chip(text, className = '') {
   const el = document.createElement('span'); el.className = `service-summary-chip ${className}`.trim(); el.textContent = text; return el;
 }
 
-// The same table-with-X the guest holds up on the play field (src/systems/visuals.js). Duplicated
-// rather than shared because src/ui/icons.js belongs to another task in this batch; both copies
-// should collapse into one icons.js export as soon as it is free.
-function seatMissIcon() {
-  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">'
-    + '<path d="M3 13h18"/><path d="M6 13v7"/><path d="M18 13v7"/>'
-    + '<path d="M8 3.5l8 7M16 3.5l-8 7" stroke="#E2483C"/>'
-    + '</svg>';
-}
+// Batch 6 removed this card's seat-miss chip, and with it the local copy of the table-with-X glyph
+// that used to live here. The play-field original stays where it belongs, in src/systems/visuals.js.
+//
 // The developed polaroid the player watched fly to the Pet Book (src/ui/photoGame.js's .polaroid --
 // white card, cream frame, deep bottom margin), not a camera: the card that landed is the thing
-// this chip is counting. Duplicated in src/ui/hud.js's ring, for the same reason seatMissIcon above
-// is duplicated from src/systems/visuals.js -- src/ui/icons.js belongs to another task in this
-// batch; all three copies should collapse into one icons.js export as soon as it is free.
+// this chip is counting. Duplicated in src/ui/hud.js's ring because src/ui/icons.js belongs to
+// another task in this batch; both copies should collapse into one icons.js export once it is free.
 export function photoIcon() {
   return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">'
     + '<rect x="3.6" y="3.4" width="16.8" height="17.4" rx="1.8" fill="#FFFDF8" stroke="#7A583A" stroke-width="1.4"/>'
@@ -120,10 +128,13 @@ function decorateCard(G, card) {
   const model = buildServiceSummaryModel(G && G.dayStats, G && G.meta);
   const strip = document.createElement('section'); strip.className = 'service-summary-strip';
   // Screen-reader text only -- never rendered, so it stays sentences while the chips stay glyphs.
-  // The two gain clauses are appended only when the counts are known, matching what is drawn.
-  const gains = (model.photos === null ? '' : ` ${model.photos} photos taken.`)
-    + (model.followers === null ? '' : ` ${model.followers} followers gained.`);
-  strip.setAttribute('aria-label', `Service summary. ${model.misses} recovery moments. ${model.lost} guests lost. ${model.missedSeats} guests found no clean table. ${model.returns} return actions. Service recovery ${n(G.dayStats.serviceFees)} coins.${gains}`);
+  // Batch 6: it must say what is DRAWN and nothing more. Reading out recovery moments, seat misses,
+  // returns and a service fee to a player who cannot see the card, when the card itself no longer
+  // shows any of them, would keep the nagging alive for exactly the players least able to ignore
+  // it. Lost guests are announced only when there were any, matching the chip.
+  const gains = (model.photos === null || model.photos <= 0 ? '' : ` ${model.photos} photos taken.`)
+    + (model.followers === null || model.followers <= 0 ? '' : ` ${model.followers} followers gained.`);
+  strip.setAttribute('aria-label', `Service summary. ${model.served} guests served.${model.lost > 0 ? ` ${model.lost} guests left.` : ''}${gains}`);
 
   const top = document.createElement('div'); top.className = 'service-summary-top';
   const label = document.createElement('span'); label.textContent = 'SERVICE QUALITY';
@@ -131,25 +142,21 @@ function decorateCard(G, card) {
   top.append(label, headline);
 
   const metrics = document.createElement('div'); metrics.className = 'service-summary-metrics';
-  metrics.append(
-    chip(`${model.served} served`, model.clean ? 'ok' : ''),
-    chip(`${model.lost} left`, model.lost ? 'attn' : 'ok'),
-    chip(`${model.misses} recovery ${model.misses === 1 ? 'moment' : 'moments'}`, model.misses ? 'attn' : 'ok'),
-    iconChip(seatMissIcon(), model.missedSeats, model.missedSeats ? 'attn' : 'ok'),
-  );
-  // Same icon+numeral idiom as the seat-miss chip, drawn only when the count is known AND non-zero.
-  // The four chips above are service OUTCOMES, where a 0 is itself the good news and so earns a
-  // permanent slot; these two are GAINS, and the photo studio does not exist at all until the
-  // terrace chain is bought. A "0 photos" chip on day 3 would be furniture, not information.
-  // `> 0` is also the null guard: an unknown count is neither drawn nor invented.
+  // Batch 6, the whole row. `served` is the shift, so it is always there. `lost` is the one
+  // remaining consequence, so it appears only when it happened -- a permanent "0 left" chip is a
+  // reminder that leaving is possible, printed on every clean shift the player ever has. The
+  // recovery-moment chip, the seat-miss chip and the service-fee chip are gone outright, and so is
+  // the per-cause tip override that told the player which chore to do more of. Returns are still
+  // counted in dayStats, never drawn: handing an item back is a correction the player already made.
+  metrics.append(chip(`${model.served} served`, model.clean ? 'ok' : ''));
+  if (model.lost > 0) metrics.append(chip(`${model.lost} left`, 'attn'));
+  // GAINS, drawn only when the count is known AND non-zero. The photo studio does not exist at all
+  // until the terrace chain is bought, so a "0 photos" chip on day 3 would be furniture, not
+  // information. `> 0` is also the null guard: an unknown count is neither drawn nor invented.
   if (model.photos > 0) metrics.append(iconChip(photoIcon(), model.photos, 'ok'));
   // heartIcon is imported rather than redrawn so this reads as the same quantity as the HUD's
   // followers pill (src/ui/hud.js), which uses the identical glyph.
   if (model.followers > 0) metrics.append(iconChip(heartIcon(), model.followers, 'ok'));
-  if (n(G.dayStats.serviceFees)>0) metrics.append(chip('−'+n(G.dayStats.serviceFees)+' service recovery','attn'));
-  const p=G.meta?.servicePolicy;
-  if(p&&p.day===G.dayState.day){const cause=Object.entries(p.causes).sort((a,b)=>b[1]-a[1])[0];if(cause?.[1]>0) model.tip=({table:'Clean tables before guests finish paying.',register:'Staff both registers or reassure guests before patience runs out.',counter:'Assign Runners to empty displays before the rush.',bowl:'Keep pet bowls stocked before the rush.'})[cause[0]];if(p.spent>=Math.floor(p.baseline*.08))metrics.append(chip('Shift recovery cap reached','attn'));}
-  if (model.returns > 0) metrics.append(chip(`${model.returns} returned`, 'ok'));
 
   const tip = document.createElement('div'); tip.className = 'service-summary-tip'; tip.textContent = model.tip;
   strip.append(top, metrics, tip);

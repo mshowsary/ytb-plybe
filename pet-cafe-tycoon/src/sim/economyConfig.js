@@ -13,13 +13,24 @@
 // Base menu value. The starter bakery remains intentionally modest; later product lines earn more
 // so the economy can reduce raw customer volume without making the developed café feel poorer.
 export const PRODUCTS = {
-  cookie:   { price: 8,  bake: 1.2, color: '#D9A066' },
+  // Owner feedback: "cookies on the counter share the counter's colour — hard to see even in
+  // daylight." This was the literal cause — '#D9A066' is BIT-FOR-BIT render/palette.js's C.wood,
+  // the display counter's own top surface (props.js counterMesh()) and the oven's output tray, so a
+  // cookie sitting on either one visually merged into it. Recoloured to a toasted, more saturated
+  // brown that's clearly darker in value than the wood (measured luma ~0.50 vs wood's ~0.67, a 26%
+  // drop) so it separates on VALUE, not just hue, and still reads as "cookie" rather than "chip".
+  cookie:   { price: 8,  bake: 1.2, color: '#B9702F' },
   cupcake:  { price: 13, bake: 1.6, color: '#FF8A80' },
   coffee:   { price: 12, make: 2.5, color: '#6B4A2B' },
   smoothie: { price: 24, make: 2.0, color: '#8B7CF6' },
   treat:    { price: 8,  color: '#C97A3A' },
   brownie:  { price: 13, bake: 1.2, color: '#6B4023' },
-  latte:    { price: 19, make: 2.5, color: '#C9A877' },
+  // Also within ~6% of wood '#D9A066' (checked every product's colour against it the same way the
+  // cookie collision was found) — coffee1 alternates onto 'latte' once it hits ★3 (world.js
+  // ALT_PRODUCT), and that display sits on the same wood-topped counter, so this one gets separated
+  // pre-emptively too rather than waiting for its own bug report. Lightened/creamed instead of
+  // darkened (unlike cookie) since a latte is supposed to read paler than a black coffee.
+  latte:    { price: 19, make: 2.5, color: '#E8C79A' },
   // Batch 1 — the ice cream lane (plan 3.1). icecream1 mirrors coffee1 exactly, so sundae is its
   // alt recipe (world.js ALT_PRODUCT) the same way latte is coffee1's. pupcup is a pet-treat
   // variant dispensed at icecream1 (plan: wishFor gives terrace-bound pet wishes a pupcup instead

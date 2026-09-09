@@ -307,6 +307,10 @@ let dayPurchases = [];
 // (Batch 0's dirty-table consequence — flagged as missing from this table before now).
 const ICE_PRODUCTS = new Set(['icecream', 'sundae', 'pupcup']);
 let dayIceUnits = 0, dayRegister3Sales = 0, dayMissedSeats = 0;
+// Batch 6 gate: how often the café asks for a wipe. Seats dirtied per guest served over the whole
+// run; the owner's device session counted 10 "no clean table" moments in a 25-guest day, so the
+// budget is a third (DIRTY_EVERY = 3 in sim/customers.js) with a little slack for spa lounge seats.
+let totalDirtied = 0, totalServedForDirty = 0;
 // Photo shots and the tips they bank. This bot models no friendship tiers, so every shot pays the
 // tier-0 base — the number is a floor on photo income, never an overstatement of it.
 let dayPhotoShots = 0, dayPhotoTips = 0;
@@ -612,8 +616,9 @@ while (G.dayState.day <= MAX_DAYS) {
   }
 
   for (const e of world.events) {
+    if (e.type === 'dirtied') totalDirtied++;
     if (e.type === 'pay') {
-      G.dayStats.served++; G.dayStats.earned += e.amount;
+      G.dayStats.served++; G.dayStats.earned += e.amount; totalServedForDirty++;
       G.serviceStreak.count = G.serviceStreak.t > 0 ? G.serviceStreak.count + 1 : 1;
       G.serviceStreak.t = 7;
       G.shiftBestStreak = Math.max(G.shiftBestStreak, G.serviceStreak.count);
@@ -1035,6 +1040,10 @@ let gateFail = false;
 if (ledgerMismatches.length > 0) { console.error('LEDGER FAILED TO RECONCILE WALLET'); gateFail = true; }
 if (stalls.length > 0) { console.error(`${stalls.length} STALLS (must be 0)`); gateFail = true; }
 if (teleports > 0) { console.error(`${teleports} TELEPORTS (must be 0)`); gateFail = true; }
+{ const perGuest = totalServedForDirty ? totalDirtied / totalServedForDirty : 0; const fees = (G.stats && G.stats.serviceFees) | 0;
+  console.log(`quiet gate: ${totalDirtied} seats dirtied over ${totalServedForDirty} guests = ${perGuest.toFixed(3)} per guest (must be <= 0.34); service fees ${fees} (must be 0)`);
+  if (perGuest > 0.34) { console.error(`QUIET GATE: ${perGuest.toFixed(3)} dirtied seats per guest > 0.34`); gateFail = true; }
+  if (fees > 0) { console.error(`QUIET GATE: service fees ${fees} > 0`); gateFail = true; } }
 if (invariantDViolations > 0) { console.error(`INVARIANT D: ${invariantDViolations} runner holds > 6s while a same-family display had room (must be 0)`); gateFail = true; }
 // 25 s: the run is 60 days now (was 40) over a grid a region wider, and measured at ~16 s here.
 // A budget is a tripwire for a runaway loop, not a performance target — but note the growth was

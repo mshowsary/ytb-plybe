@@ -321,7 +321,11 @@ The bot prints the config hash in its header so a balance result is tied to the 
 | Income | 400 | 650 | 950 | 1,400 | 1,600 | 1,900 | 2,200 | 3,000 | 3,800 | 4,400 | 5,000 | 6,200 | 7,000 | 7,500 |
 | Next content unlock affordable | — | seats/oven | coffee | bowl | blender | garden/seats2 | **terrace 20k** | ice cream | photo, seats | restroom, splash | **spa 45k** | groom | bath | boutique |
 
-Days 1–7 are the measured current curve (do not move them). Days 8–11 moved once, in Batch 4a,
+Days 1–7 were frozen through Batch 5. **Batch 6 lifts the freeze on purpose**: it makes tables dirty
+on every fifth use instead of every use, stops the service policy from charging, and re-prices the
+terrace, photo studio, ice cream lane and spa so the first *room* arrives around day 10 instead of
+day 14 — all of which move the ledger from day 1. The Batch 6 bot run is the new baseline.
+Before that: days 1–7 are the measured current curve (do not move them). Days 8–11 moved once, in Batch 4a,
 when `tools/bot.js` began simulating staff actors and the service policy — the earlier days-1–12
 freeze had been measuring a café with no staff on the floor, so preserving it would have preserved
 an artifact. Nothing can differ before day 8 (the policy's own floor, and the first hire). The step at 14–16 is the terrace
@@ -648,6 +652,36 @@ linearly with the wider grid — profile in Batch 5.
 **The program's remaining gate is the owner's:** a 30-minute real-device session in portrait and
 landscape on the live URL.
 
+**6 — "Less".** The owner's real-device session (2026-09-09, phone, both orientations) rejected the
+build: "icon soup" — five HUD pills of fixed 18 px / 48 px stacked down the left, floating prices,
+order bubbles, state chips and edge-clamped markers competing with the café until "the bot, customers
+and workers are invisible"; a service loop of 20–25 recovery moments per day that "nags rather than
+challenges"; upgrades that read as +15 % rather than "a beautiful new room"; a night too dark to read
+on a small screen; cookies the same hex as the wood they sit on; action buttons whose icons "say
+nothing". This batch adds no feature. It removes:
+- The left HUD column → **one resource bar** (`#resourceBar`: coin + number + the saving ring on the
+  target's glyph, ♥, 🐾, ★), scaled by `--hud` = clamp(0.72, min(vw, vh)/560, 1). Readouts shrink;
+  tap targets never below 48 px. (`src/ui/hudLayout.js`, `src/ui/hud.js`)
+- Off-screen labels dragged to the viewport edge: `fx.project` now reports `visible` only inside the
+  viewport (+12 %), so every world pill hides instead of clamping. Station chips draw only for
+  empty/blocked shelves or when the owner is near; the zone price draws only for the saving target or
+  the plot the owner stands on, with the word BUILD while standing on it. (`fx.js`, `visuals.js`,
+  `zones.js`)
+- The reassure button (`guestCare.js`, deleted), the service-policy coin charges (the policy observes,
+  never charges), the friction toasts, the "N recovery moments / no clean table / wipe seats" recap —
+  and tables now dirty every FIFTH use (`DIRTY_EVERY`; 3 was the brief, but 3 and 4 trip
+  `nav-fullhouse`'s 1 s overlap tripwire by a tenth of a second in a chaotic 20-minute sim, 5 is green
+  and cuts the chore most). Lost guests are the only consequence left.
+- The "DEV +80" label on the rewarded button outside a live ad host → gift icon.
+- The five English sentences on the play field ("X is now a Regular ♥") → name + hearts cue.
+- One word on action controls (SUPPLIES / RETURN / UPGRADE / HIRE / SHOP): the owner's decision on
+  2026-09-09; sentences stay banned.
+- Night: dusk/sunset ambient raised so floor and bodies read on a phone, sky and lights unchanged; lamp
+  pools over the seating. Cookies re-coloured off the wood hex and a paper tray under displayed food.
+- Transformation cadence: terrace 6500 → 3600 (after the smoothie bar), photo 4500 → 3000, ice cream
+  4500 → 3600, spa 14000 → 9000. The bot run records the new build days.
+Nothing is added until the owner has played a quieter build.
+
 ---
 
 ## 9. Definition of done for the program
@@ -657,7 +691,7 @@ landscape on the live URL.
 - By day ~15 the player buys the terrace and watches the garden become one; by ~28 the spa.
 - Pets are photographed, dressed, and move in; the album fills toward 20; followers change the café.
 - The Paw Rating reaches ★5 with a ceremony; Seasons keep changing the look; Franchise is offered.
-- Dirty tables cost something visible; runners never freeze holding stock; cleaning looks the same whoever does it; the coach never flickers.
+- Dirty tables are rare (every fifth use) and cost nothing but a seat; runners never freeze holding stock; cleaning looks the same whoever does it; the coach never flickers.
 - Every gate in §0 rule 2 is green, the responsive audit reports 0/13, and the increment is live.
 
 *End of program. Start with Batch 0, task 0.1.*
@@ -672,3 +706,19 @@ responsive audit 0 violations across 13 viewports × 6 states at the 48 px floor
 PASS, `production-smoke` exit 0, `playables-cert-smoke` exit 0, `ultra-narrow-smoke` exit 0,
 `franchise-smoke` 25/25, bot exit 0 and byte-identical across two 60-day runs with days 1–7 identical
 to Batch 4b, 0 stalls / 0 teleports / 0 ledger mismatches / invariant D 0 / A–C PASS through day 60.
+
+**Amended the same day.** The owner's device session failed the build on feel, not on any gate (§8,
+Batch 6). The lesson is recorded in the batch entry: the gates measured overlap, tap size, text and
+determinism, and none of them measured *how much is on screen at once* or *how often the game asks
+for a correction*. Batch 6's gate adds both: at 393×660 and 852×330 after 60 s of play, at most
+one floating price, no chip within 4 px of a viewport edge, and the resource bar the only HUD
+furniture on the left; and in the 60-day bot, dirtied seats per guest ≤ 0.34 and service fees 0.
+
+**Batch 6 shipped the same evening.** Gates at its commit: 954 tests (953 pass, 1 todo), postbuild
+OK, responsive audit 0 violations across 13 viewports × 6 states at 48 px, the quiet probe OK at
+393×660 / 852×330 / 360×640 (bar 142×100 / 265×48 / 136×102, at most one price, no price/chalk/party
+pill at an edge), bot exit 0 and deterministic across two runs, A–C PASS to day 60, runner watchdog
+0, invariant D 0, quiet gate 0.189 dirtied seats per guest and 0 service fees, terrace on day 11
+(was 14), photo studio 14 (19), spa 21 (26); production-smoke, playables-cert, ultra-narrow, task25,
+task38, franchise, pet-friendship and fee-free smokes all exit 0. The next gate is, again, the
+owner's phone.

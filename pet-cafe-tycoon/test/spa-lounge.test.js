@@ -15,12 +15,21 @@ import { AREA1 } from '../data/area1.js';
 import {
   createWorld, putOnDisplay, stepRegisters, stepGroomTable, stepBath, cleanSeat,
 } from '../src/sim/world.js';
-import { createCustomer, stepCustomers } from '../src/sim/customers.js';
+import { createCustomer, stepCustomers, DIRTY_EVERY } from '../src/sim/customers.js';
 import { PRODUCTS } from '../src/sim/economy.js';
 
 const price = (k, seated) => (seated ? 999 : (PRODUCTS[k] ? PRODUCTS[k].price : 5));
 const LOUNGE_IDS = ['spaSeat1', 'spaSeat2', 'spaSeat3'];
 function manAll(w, ids) { for (const id of ids) { const st = w.stations.get(id); if (st && st.active) st.serving = 'owner'; } }
+
+// Batch 6: a seat is wiped every DIRTY_EVERY-th sitting, not every one — the owner's note after
+// playing the shipped build was that constant cleaning reads as nagging, not challenge. The two
+// tests below are specifically about a spent lounge seat getting dirty and cleaning like any other
+// table, so they wind the counter forward to the last sitting of the cycle first; the sitting they
+// then run is the one that dirties the seat, which is exactly what they were always asserting.
+function primeSeatsForDirt(w) {
+  for (const st of w.stations.values()) if (st.type === 'seat') st.uses = DIRTY_EVERY - 1;
+}
 
 // ---- claimed only once a session is actually open, never at slot 0 on its own -------------------
 
@@ -54,6 +63,7 @@ test('a groom guest never holds a lounge seat before its session opens, even wit
 test('once a manned groom table opens a session, the guest walks to and holds a real lounge seat, freed and dirtied when the session resolves', () => {
   const w = createWorld(AREA1, { built: ['z_spa', 'z_groom'] }, 21);
   w.dayState = { day: 30, t: 0, phase: 'morning' };
+  primeSeatsForDirt(w);
   const c = Object.assign(createCustomer(1, 'cat', 0, AREA1), {
     state: 'toGroom', _spaTarget: 'groom1', spaBound: true, _spaDecided: true, order: ['groom'],
     wish: { product: 'cookie', treat: false }, spaArrived: 1, slot: 0,
@@ -188,6 +198,7 @@ test('a groom session and a bath session running at the same time each claim the
 test('a released lounge seat is cleaned by the ordinary cleanSeat API and can then be claimed by the next spa guest', () => {
   const w = createWorld(AREA1, { built: ['z_spa', 'z_groom'] }, 26);
   w.dayState = { day: 30, t: 0, phase: 'morning' };
+  primeSeatsForDirt(w);
   for (const id of LOUNGE_IDS.slice(1)) w.stations.get(id).occupied = true; // only spaSeat1 is free
   const first = Object.assign(createCustomer(1, 'cat', 0, AREA1), {
     state: 'toGroom', _spaTarget: 'groom1', spaBound: true, _spaDecided: true, order: ['groom'],

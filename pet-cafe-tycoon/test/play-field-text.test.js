@@ -43,7 +43,7 @@ const PLAY_FIELD_FILES = [
   'systems/stations.js',
   'systems/partyOrders.js',
   'systems/customers.js',
-  'systems/guestCare.js',
+  'systems/petFriendship.js',
   'systems/spa.js',
   'ui/groomGame.js',
 ];
@@ -198,7 +198,6 @@ test('B. a cue draws only pictograms, numerals, punctuation and proper nouns', (
 const WORLD_CONTROLS = [
   ['systems/objective.js', ['caption']],
   ['systems/petSocials.js', ['launch']],
-  ['systems/guestCare.js', ['button']],
   ['systems/partyOrders.js', ['collect', 'btn', 'party-order-progress']],
   ['systems/rewardsSystem.js', ['mysteryChip']],
 ];
@@ -284,12 +283,14 @@ test('E. the accessible name survives every conversion', () => {
   }
 });
 
-test('F. the service policy still explains itself in words, in the sheet that may use them', () => {
-  // The pink banner is a six-glyph cue now. The rule it announces is not self-evident from six
-  // glyphs alone, so the full sentence has to live somewhere a player can read at rest — the shift
-  // summary card, which is a sheet.
+test('F. Batch 6: the service policy never charges, so nothing explains a charge and nobody is reassured', () => {
+  // The owner's device session (2026-09-09) counted 20 recovery moments in a 25-guest day and
+  // called it nagging. The policy now only observes: no coin-minus banner in game.js, no policy
+  // block on the shift summary, and the reassure button's module is gone rather than dormant.
   const meta = read('ui/meta.js');
-  assert.match(meta, /meta-policy/, 'the shift summary must carry a service-policy block');
-  assert.match(meta, /costs you coins in recovery/, 'and it must spell the rule out');
-  assert.match(read('game.js'), /servicePolicy: \(\(\) => \{/, 'game.js must feed it the live policy');
+  assert.doesNotMatch(meta, /meta-policy/, 'the shift summary no longer carries a service-policy block');
+  assert.doesNotMatch(meta, /costs you coins in recovery/, 'and no sentence about recovery coins survives');
+  assert.doesNotMatch(read('game.js'), /coinMinusIcon\(\), '≤'/, 'the policy notice banner is gone');
+  assert.ok(!fs.existsSync(path.join(SRC, 'systems/guestCare.js')), 'systems/guestCare.js must not exist');
+  assert.doesNotMatch(read('game.js'), /guestCare/, 'game.js no longer wires guest care');
 });

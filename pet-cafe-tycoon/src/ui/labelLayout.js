@@ -1,7 +1,7 @@
 // src/ui/labelLayout.js — the single arbiter for every world-projected label on screen.
 //
 // WHY THIS EXISTS
-// Ten independent systems (customers, stations, zones, visuals, objective, guestCare, partyOrders,
+// Nine independent systems (customers, stations, zones, visuals, objective, partyOrders,
 // petMoments, interactionCoach, contractBadge) each projected a world point to screen coordinates
 // and wrote `style.left/top` with no knowledge of one another or of the viewport edge. At small
 // viewports that produced overlapping pills, labels escaping the frame, and captions clipped to
@@ -55,7 +55,7 @@ const PRIORITY = [
 const HIDEABLE = new Set(['.chalk', '.demand']);
 
 // HUD furniture that world labels must not sit under. Measured live so it tracks content changes.
-const HUD_KEEPOUT = '#wallet,#crowd,#dayPill,#goalPill,#hint,#banner,#handsFull,#followers,.meta-reputation,'
+const HUD_KEEPOUT = '#resourceBar,#wallet,#crowd,#dayPill,#goalPill,#hint,#banner,#handsFull,#followers,.meta-reputation,'
   + '.meta-pawbook,.contractBadge,.skipPill,#joy,.pause-btn,.rewards-cal-btn,.meta-toast,'
   + '.coach-caption,.friendship-toast,.golden-indicator,.toast,.build-intent-progress';
 

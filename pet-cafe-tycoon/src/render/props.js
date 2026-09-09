@@ -141,6 +141,15 @@ export function counterMesh() {
     part('box', [2.2, 0.5, 0.06], C.coral, { y: 0.5, z: 0.52 }),
     part('box', [2.2, 0.55, 0.42], '#DDF6FF', { y: 1.4, z: -0.27 }),       // glass display (back half)
     part('box', [2.3, 0.06, 0.5], C.wood, { y: 1.7, z: -0.27 }),           // wood lid over glass
+    // Owner feedback: "cookies on the counter share the counter's colour — hard to see even in
+    // daylight." The wood top above is C.wood ('#D9A066'), the exact hex economyConfig.js's cookie
+    // used to be — a cookie sitting flush on it visually merged into the surface. A pale paper tray
+    // board breaks the two apart by VALUE (near-white vs. mid-tan) rather than relying only on the
+    // hue fix below, so it still reads even for the couple of products (see economyConfig.js) that
+    // stayed close to wood in hue. Sits flush on the wood top (top at y=1.02+0.06=1.08; this box is
+    // 0.03 thick centred at 1.095, so its own top is 1.11) — the item slots below are raised by that
+    // same 0.03 so every display item still sits ON the tray instead of clipping into it.
+    part('box', [2.2, 0.03, 0.9], '#FFFDF7', { y: 1.095, z: 0.26 }),
   ]));
   // Final review fix: sized from DISPLAY_CAP_LEVELS' max (economy.js: [12,16,20,24]) — 24
   // positions as 6 columns x 4 rows, spacing tightened (0.6->0.36 across x, 0.16->0.14 across z)
@@ -150,8 +159,11 @@ export function counterMesh() {
   // loop fills a whole row (all 6 columns) before moving to the next one back, so
   // systems/visuals.js's v.items[i] — which lights up index 0..st.items.length-1 in slot order —
   // fills the visible front row first, exactly like the display filling up from what a customer
-  // actually sees.
-  g.slots = []; for (let r = 0; r < 4; r++) for (let c = 0; c < 6; c++) g.slots.push(new THREE.Vector3(-0.9 + c * 0.36, 1.16, 0.47 - r * 0.14));
+  // actually sees. y raised 1.16->1.19 (+0.03, the tray board's own thickness added above) so
+  // items sit on the tray's top face (1.11) with the same ~0.08-0.005 clearance they always had
+  // above the bare wood — see the item geometries in itemGeoFor(), whose lowest point (the cupcake's
+  // cup, -0.075 local) is what that clearance was ever sized against.
+  g.slots = []; for (let r = 0; r < 4; r++) for (let c = 0; c < 6; c++) g.slots.push(new THREE.Vector3(-0.9 + c * 0.36, 1.19, 0.47 - r * 0.14));
   // small chalkboard bar on the front — its own mesh so setProduct can swap the color without rebuilding the merged counter geometry
   const barMat = new THREE.MeshToonMaterial({ color: new THREE.Color(PRODUCTS.cookie.color) });
   const bar = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.12, 0.04), barMat); bar.position.set(0.9, 0.72, 0.54); bar.receiveShadow = true; g.add(bar);

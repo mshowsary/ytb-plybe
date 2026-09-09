@@ -509,7 +509,13 @@ export function createVisuals(G, S, ctx) {
             }
             fx.project(st.x, DEMAND_Y[st.type], st.z, demandTmp);
             dv.el.style.left = demandTmp.sx + 'px'; dv.el.style.top = demandTmp.sy + 'px';
-            const visible = demandTmp.visible;
+            // The owner's "icon soup" report: a chip over EVERY active station, on screen or not,
+            // piled little ◆/● glyphs at the frame edge once fx.project started respecting the
+            // viewport. A ready/full/producing shelf already shows its truth as physical stock, so
+            // the chip earns its pixels only when there's something to say a glance can't see:
+            // the owner is close enough to read the count, a guest is waiting on empty stock, or
+            // the state itself (empty/blocked) is the thing that needs fixing.
+            const visible = demandTmp.visible && (showDetail || attention || state === 'empty' || state === 'blocked');
             if (dv.lastVisible !== visible) { dv.el.classList.toggle('hidden', !visible); dv.lastVisible = visible; }
           }
         }
@@ -526,7 +532,13 @@ export function createVisuals(G, S, ctx) {
             }
             fx.project(ch.wx, CHALK_Y, ch.wz, demandTmp);
             ch.el.style.left = demandTmp.sx + 'px'; ch.el.style.top = demandTmp.sy + 'px';
-            if (ch.lastVisible !== demandTmp.visible) { ch.el.classList.toggle('hidden', !demandTmp.visible); ch.lastVisible = demandTmp.visible; }
+            // Same "icon soup" fix as the demand pill, for the menu-board chip: every kiosk/pantry/
+            // etc. used to carry one all the time, which is exactly the far-edge glyph column the
+            // owner flagged. A chalkboard is only worth reading from up close (5 m), including the
+            // tappable stars -- the floating action button already handles the near-field tap.
+            const near = !!G.P && (G.P.x - ch.wx) ** 2 + (G.P.z - ch.wz) ** 2 <= 25;
+            const visible = demandTmp.visible && near;
+            if (ch.lastVisible !== visible) { ch.el.classList.toggle('hidden', !visible); ch.lastVisible = visible; }
           }
         }
       }

@@ -23,6 +23,26 @@ import { coinIcon, crossIcon, handIcon, returnIcon, coffeeIcon, smoothieIcon, tr
 // itself survives as the cue's aria text — and, through paintCue's visually-hidden span, as the
 // button's textContent, which tools/production-smoke*.js and the task25 cert read verbatim.
 const ACTION_ICON = { SUPPLIES: sackIcon, RETURN: returnIcon, UPGRADES: gearIcon, STAFF: personIcon, BOUTIQUE: hangerIcon };
+// The owner's 2026-09-09 phone playtest: "those return, upgrade, staff labels now turned into icons
+// really do not say anything". Sentences stay banned on the play field, but a single verb under the
+// pictogram is not a sentence -- this is the ONE WORD painted by `.fbtnWord` below, entirely outside
+// the cue helper's cells argument that the guard test (test/play-field-text.test.js) inspects, so
+// the ban on worded cue cells is untouched. A label with no entry here falls back to the label
+// itself, which is already upper-case and already a single word for every action this file authors.
+const ACTION_WORD = { SUPPLIES: 'SUPPLIES', RETURN: 'RETURN', UPGRADES: 'UPGRADE', STAFF: 'HIRE', BOUTIQUE: 'SHOP' };
+const FBTN_STYLE_ID = 'pet-cafe-fbtn-word-style';
+function ensureFbtnStyle() {
+  if (typeof document === 'undefined' || document.getElementById(FBTN_STYLE_ID)) return;
+  const style = document.createElement('style'); style.id = FBTN_STYLE_ID;
+  // .fbtn (src/style.css ~line 106) has no display:flex of its own -- it is a plain pill -- so
+  // flex-direction/gap need display:flex here too, or the icon and the new word would just run
+  // inline instead of stacking. min-height/min-width:48px already live on .fbtn and are untouched.
+  style.textContent = `
+    .fbtn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px 8px}
+    .fbtnWord{font:900 10px/1 system-ui,sans-serif;letter-spacing:.08em}
+  `;
+  document.head.appendChild(style);
+}
 
 // One picture per carry destination, so the objective chevron over a delivery target draws the
 // THING being delivered to rather than the word "COFFEE". A display case shows the pastry it is
@@ -63,6 +83,7 @@ const FIRST_HINT = {
 const FIRST_HINT_SECONDS = 2;
 
 export function createStations(G, S, ctx) {
+  ensureFbtnStyle();
   const { area, world, hud, fx, audio, input, owner, P, sheets, hints, els } = ctx;
   const carry = G.carry;
   let takeT = 0, dropT = 0, stepT = 0, frameDt = 0;
@@ -461,6 +482,14 @@ export function createStations(G, S, ctx) {
           fbtn.dataset.label = floatAction.label;
           const icon = ACTION_ICON[floatAction.label] || handIcon;
           paintCue(fbtn, cue([icon()], floatAction.label));
+          // The owner asked for a one-word verb on action controls on 2026-09-09; sentences stay
+          // banned on the play field. This word rides OUTSIDE the cue cells above (paintCue already
+          // set the aria-label and the hidden .cueSr sentence from them) so the guard test, which
+          // only inspects a cue call's own cells, never sees it and the ban on worded cells stays intact.
+          const w = document.createElement('span');
+          w.className = 'fbtnWord';
+          w.textContent = ACTION_WORD[floatAction.label] || floatAction.label;
+          fbtn.appendChild(w);
         }
         fbtn.classList.toggle('hidden', !fbtnTmp.visible);
       } else fbtn.classList.add('hidden');

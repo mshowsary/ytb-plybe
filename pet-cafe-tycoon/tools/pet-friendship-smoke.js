@@ -62,9 +62,14 @@ const promotion = await page.evaluate(() => {
 if (promotion.coinsAfter !== promotion.coinsBefore) throw new Error(`friendship changed economy: ${JSON.stringify(promotion)}`);
 if (promotion.visits !== 2 || promotion.savedVisits !== 2 || promotion.promotionKey !== 'cat:0') throw new Error(`friendship promotion/save failed: ${JSON.stringify(promotion)}`);
 
+// The toast now draws a cue (pet name + hearts) instead of a sentence -- see
+// src/systems/petFriendship.js's promotion announce() call. The name still lands in the toast's
+// own text (the cue's proper-noun cell); the retired sentence now lives only in the aria-label,
+// which is where paintCue (src/ui/hud.js) puts a cue's second argument.
 await page.waitForFunction(() => {
   const el = document.querySelector('.friendship-toast');
-  return el && el.classList.contains('show') && /Marmalade is now a Regular/i.test(el.textContent || '');
+  return el && el.classList.contains('show') && /Marmalade/.test(el.textContent || '')
+    && /Marmalade is now a Regular/i.test(el.getAttribute('aria-label') || '');
 }, null, { timeout:2000 });
 
 await page.click('.meta-pawbook');

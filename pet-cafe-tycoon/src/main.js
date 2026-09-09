@@ -16,7 +16,7 @@ import { createResidentPets } from './systems/residentPets.js';
 import { createGoldenPawCeremony } from './systems/goldenPaw.js';
 import { createFranchiseBridge } from './systems/franchise.js';
 import { install as installDecor } from './systems/decor.js';
-import { installHudLayout } from './ui/hudLayout.js';
+import { installHudLayout, arrangeHud } from './ui/hudLayout.js';
 import { createPlayablesShell } from './ui/playablesShell.js';
 import { installCleanHud } from './ui/cleanHud.js';
 import { installCertificationPolish } from './ui/certificationPolish.js';
@@ -285,6 +285,11 @@ function startGame(S, load, bootUi) {
   rewardsSystem.refresh();
   installHudLayout(); // last stylesheet wins: this module owns HUD placement
   const pauseMenu = createPauseMenu(G, platform);
+  // Batch 6: the wallet, followers, Pet Book and ★ chips become one resource bar. Every one of them
+  // exists by now (hud.js, meta.js and career.js all ran inside createGame), so this single call
+  // adopts them all; arrangeHud is idempotent and also runs inside installHudLayout for the pieces
+  // that already existed then.
+  arrangeHud();
   platform.sendScore(G.meta && G.meta.reputation);
   daylight.update(G.dayState.t, S.goldenHour);
   responsive.update(); shell.refresh();

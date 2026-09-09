@@ -8,7 +8,7 @@ import { presentationScheduler } from '../core/presentationScheduler.js';
 import { admitResident, currentResidentStars } from './residentPets.js';
 import { addFollowers, followersForBestie } from '../sim/followers.js';
 import { cue, paintCue } from '../ui/hud.js';
-import { heartIcon } from '../ui/icons.js';
+import { heartIcon, giftIcon } from '../ui/icons.js';
 import { petPortrait } from '../ui/petPortrait.js';
 
 const STYLE_ID = 'pet-cafe-friendship-style';
@@ -27,6 +27,11 @@ function ensureStyle() {
     .meta-pawbook.pet-forward .meta-paw{font-size:15px;line-height:1}.meta-pawbook.pet-forward .meta-book-count{font-size:12px;letter-spacing:.02em}
     .friendship-toast{position:fixed;left:50%;bottom:calc(172px + env(safe-area-inset-bottom,0px));z-index:82;pointer-events:none;transform:translate(-50%,10px) scale(.96);opacity:0;max-width:min(330px,calc(100vw - 24px));box-sizing:border-box;padding:10px 15px;border-radius:999px;background:#fff4f7f2;color:#704250;border:1px solid #fff;box-shadow:0 10px 28px #7e394431;font:900 12px/1.15 system-ui,sans-serif;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:.2s ease}
     .friendship-toast.show{opacity:1;transform:translate(-50%,0) scale(1)}
+    /* The toast now draws a cue row (name + hearts, sometimes a gift) instead of a sentence -- see
+       the promotion announce() call below. .cueIco (src/ui/hud.js's injected sizing) already scales
+       an inline svg to 1.2em, but this belt-and-suspenders rule keeps the hearts a fixed, legible
+       size regardless of the toast's own font-size tweaks (the 380px media query below shrinks it). */
+    .friendship-toast svg{width:14px;height:14px;vertical-align:-2px}
     @media(max-width:380px){.pet-friendship-top{font-size:7px}.pet-friendship-visits{display:none}.friendship-toast{font-size:11px}.meta-pawbook.pet-forward .meta-book-count:before{display:none}}
     @media(max-width:240px){.pet-friendship{display:none}}
   `;
@@ -159,9 +164,20 @@ export function installPetFriendship(G, platform = null) {
 
       if (result.promoted) {
         lastPromotionKey = result.key;
-        announce(keepsakeAwarded
+        // The owner's 2026-09-09 phone playtest: five English sentences ("Calico is now a Regular
+        // ♥") printed over the play field in five minutes. The tier is now READ, not printed: the
+        // pet's name plus one heart per tier already reached (Regular 1, Friend 2, Bestie 3, taken
+        // straight from friendship.level -- src/sim/petBook.js's PET_FRIENDSHIP_TIERS index, so a
+        // tier added later still counts correctly), plus a gift glyph when a keepsake was just won.
+        // The sentence survives verbatim as the cue's aria text; only the DRAWING changed.
+        const sentence = keepsakeAwarded
           ? `${result.profile.name} is your Bestie ♥ · a memory joins the café`
-          : `${result.profile.name} is now a ${result.friendship.label} ♥`);
+          : `${result.profile.name} is now a ${result.friendship.label} ♥`;
+        const tierHearts = Array.from({ length: Math.max(0, Math.min(3, result.friendship.level)) }, () => heartIcon());
+        announce(cue(
+          [result.profile.name, ...tierHearts, ...(keepsakeAwarded ? [giftIcon()] : [])],
+          sentence,
+        ));
         if (bookButton) {
           bookButton.classList.add('bump');
           presentationScheduler.schedule(() => bookButton.classList.remove('bump'), 500);

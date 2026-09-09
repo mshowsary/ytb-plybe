@@ -64,7 +64,11 @@ export const KEYFRAMES = [
   {
     t: 215, name: 'sunset',
     sun: '#FF9E6A', sunI: 1.5, elevation: 18, azimuth: -42,
-    hemiSky: '#D9C4FF', hemiGround: '#8C7A9E', hemiI: 0.70, fill: '#A8BFFF', fillI: 0.42,
+    // Owner feedback, playing on a phone: at dusk "the floor, furniture and characters are hard to
+    // distinguish" even though the mood itself should stay. hemiI/fillI raised here so bodies and
+    // floor already read before the sun finishes dropping, not just at the very last keyframe.
+    // skyTop/skyHorizon/fog untouched — the mood lives in the sky, not the ambient floor.
+    hemiSky: '#D9C4FF', hemiGround: '#8C7A9E', hemiI: 0.85, fill: '#A8BFFF', fillI: 0.5,
     skyTop: '#6C7FCF', skyHorizon: '#FF9F7A', fog: '#F5C7B4',
     // Cool shadows are what makes a warm sun read as low. The base grade stays neutral (§5.2);
     // only the last two keyframes tint, and they tint BLUE, never sepia.
@@ -73,10 +77,29 @@ export const KEYFRAMES = [
   },
   {
     t: 240, name: 'dusk',
-    sun: '#5E6FB8', sunI: 0.5, elevation: 14, azimuth: -52,
-    hemiSky: '#4A5A9C', hemiGround: '#2C3350', hemiI: 0.62, fill: '#CFE0FF', fillI: 0.26,
+    // Sun stays cool/dim (colour untouched) — this is intensity only, so the low-angle blue key
+    // light brightens without turning warm or losing "the sun is basically gone" read. Measured
+    // (see below) it moves the needle far less than the ambient terms, so it is nudged rather than
+    // carrying the fix — a strong low-angle key would also throw harder, longer shadows, which reads
+    // as MORE contrast/gloom on a small screen even while the lit side gets brighter.
+    sun: '#5E6FB8', sunI: 1.2, elevation: 14, azimuth: -52,
+    // Measured with a canvas luma readback of an 852x393 screenshot (owner idle at the boot spot,
+    // camera framing fixed, two fixed sample rects: the owner's torso, a bare floor-tile patch),
+    // before vs. after this keyframe's edit, both against the SAME midday (t=130) reading:
+    //   BEFORE (hemiI .62, hemiGround #2C3350, fillI .26, sunI .5, exposure 1.30):
+    //     floor 60.5 / midday 206.8 = 29.2%   body 39.6 / midday 168.4 = 23.5%
+    //   AFTER  (this keyframe): floor 136.6 / 206.8 = 66.1%   body 94.6 / 168.4 = 56.2%
+    // Both clear the phone-readability bar (floor >=45%, body >=55%) with a margin. Getting there
+    // took much more out of hemiI/hemiGround/fillI than out of sunI or exposure: the ambient terms
+    // light every surface regardless of its angle to the (very low, near-set) sun, so they were the
+    // efficient lever. hemiGround moved from a near-black navy to a lit slate-blue (still cool, never
+    // sepia — §5.2) since the ground bounce is what lights faces and the floor from below/around.
+    // skyTop/skyHorizon/fog/shadowTint (the actual "cozy evening" mood) are UNTOUCHED, so the sky and
+    // shadow colour read exactly as dark and blue as before — only what stands on the floor got easier
+    // to see.
+    hemiSky: '#4A5A9C', hemiGround: '#747A9E', hemiI: 1.52, fill: '#CFE0FF', fillI: 1.12,
     skyTop: '#1E2A5A', skyHorizon: '#4C4E8C', fog: '#2E355C',
-    shadowTint: '#DDE5FF', exposure: 1.30, warmth: 0.02,
+    shadowTint: '#DDE5FF', exposure: 1.42, warmth: 0.02,
     lights: 1, interior: 1,
   },
 ];
@@ -163,7 +186,7 @@ function radialTexture(size = 64) {
 
 // After dark the café is lit from within. No point lights: three shadowless point lights would
 // still cost a per-fragment loop on every toon material in the room for a look we can fake exactly
-// with four additive draw calls that are hidden outright while the sun is up.
+// with five additive draw calls that are hidden outright while the sun is up.
 function buildNightLayer(S, area) {
   const scene = S && S.scene;
   if (!scene) return { set() {}, dispose() {} };
@@ -221,6 +244,34 @@ function buildNightLayer(S, area) {
   const stringGlow = instanced(quadGeo, stringMat, stringBulbs, billboard);
   const lampGlow = instanced(quadGeo, lampMat, lampBulbs, billboard);
   const lampPool = instanced(poolGeo, poolMat, PENDANT_X.map(x => [x, 0.028, PENDANT_Z, 1]), flat);
+
+  // Owner feedback (playing on a phone): at dusk the service row (above) was the only place with a
+  // warm pool of light, so guests actually SEATED at tables sat in the dark. Pulled straight from
+  // data/area1.js's own `type: 'seat'` stations rather than a second hardcoded literal table, so a
+  // future layout change to the seating rows moves these pools with it for free. Bounded to the
+  // INTERIOR room (|x|<=W/2, |z|<=D/2) so the terrace/spa regions — open-air, already ringed by the
+  // fence's own string lights — don't also get an indoor pendant-pool look. Grouped into a handful
+  // of clusters (not one pool per chair) because a 2.05 m pool already covers 2-3 chairs at the
+  // ~1.4 m station spacing this area uses, same footprint as the service row's pools above.
+  const interiorSeats = (area && area.stations || []).filter(s => s.type === 'seat' && Math.abs(s.x) <= W / 2 && Math.abs(s.z) <= D / 2);
+  interiorSeats.sort((a, b) => a.x - b.x);
+  const SEAT_POOL_CLUSTERS = Math.min(4, Math.max(1, Math.ceil(interiorSeats.length / 2)));
+  const seatPoolEntries = [];
+  if (interiorSeats.length) {
+    const perCluster = Math.ceil(interiorSeats.length / SEAT_POOL_CLUSTERS);
+    for (let i = 0; i < interiorSeats.length; i += perCluster) {
+      const group2 = interiorSeats.slice(i, i + perCluster);
+      const cx = group2.reduce((sum, s) => sum + s.x, 0) / group2.length;
+      const cz = group2.reduce((sum, s) => sum + s.z, 0) / group2.length;
+      seatPoolEntries.push([cx, 0.028, cz, 1]);
+    }
+  } else {
+    // No seat stations in this area's data (e.g. a stub area passed to a test) — fall back to a
+    // fixed spread across the room so the layer still degrades gracefully instead of lighting nothing.
+    for (const z of [2.5, 4.5]) for (const x of [-6, 0, 6]) seatPoolEntries.push([x, 0.028, z, 1]);
+  }
+  const seatPoolMat = additive('#FFB861');
+  const seatPool = instanced(poolGeo, seatPoolMat, seatPoolEntries, flat);
   // Windows are the merged north wall in props.js (x −5/0/5, y 1.7). The pane box front face sits
   // at z = −D/2 + 0.25, so this overlay hovers 20 mm in front of it, facing the room.
   const paneGlow = instanced(paneGeo, paneMat, [-5, 0, 5].map(x => [x, 1.7, -D / 2 + 0.27, 1]), flat);
@@ -251,14 +302,16 @@ function buildNightLayer(S, area) {
       stringMat.opacity = L * 0.85;
       lampMat.opacity = I * 0.9;
       poolMat.opacity = I * 0.72;
+      seatPoolMat.opacity = I * 0.6;
       paneMat.opacity = I * 0.95;
       stringGlow.visible = L > 0.012;
       lampGlow.visible = lampPool.visible = paneGlow.visible = I > 0.012;
+      seatPool.visible = I > 0.012;
     },
     dispose() {
       scene.remove(group);
-      for (const m of [stringGlow, lampGlow, lampPool, paneGlow]) m.dispose();
-      for (const m of [stringMat, lampMat, poolMat, paneMat]) m.dispose();
+      for (const m of [stringGlow, lampGlow, lampPool, seatPool, paneGlow]) m.dispose();
+      for (const m of [stringMat, lampMat, poolMat, seatPoolMat, paneMat]) m.dispose();
       quadGeo.dispose(); poolGeo.dispose(); paneGeo.dispose(); glowTex.dispose();
     },
   };

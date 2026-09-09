@@ -1,5 +1,6 @@
 import { petPortrait } from './petPortrait.js';
 import { paintCue, cue } from './hud.js';
+import { giftIcon } from './icons.js';
 import { ACCESSORIES } from '../../data/accessories.js';
 // Retention/meta presentation layered on top of the existing HUD/sheets without owning simulation.
 const STYLE_ID = 'pet-cafe-meta-style';
@@ -37,8 +38,7 @@ function injectStyle() {
     body.meta-summary-open #hint,body.meta-summary-open .objCaption,body.meta-summary-open .fbtn,body.meta-summary-open .skipPill,body.meta-summary-open .meta-pawbook{opacity:0!important;pointer-events:none!important}
     .meta-rating{width:100%;box-sizing:border-box;margin:0 auto 2px;padding:8px 11px;border-radius:15px;background:#ffffffa8;border:1px solid #0000000a;display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left}.meta-rating-copy{display:flex;align-items:center;gap:7px;min-width:0}.meta-kicker{font:900 9px/1 system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;opacity:.48}.meta-rating-note{display:none}.meta-rating-stars{font:950 22px/1 system-ui,sans-serif;letter-spacing:.03em;color:#f4b942;text-shadow:0 2px 0 #9a65182a;white-space:nowrap}
     .meta-rep-summary{width:100%;box-sizing:border-box;padding:8px 11px;border-radius:15px;background:linear-gradient(135deg,#fff7dd,#fff);border:1px solid #e6b74c38;text-align:left}.meta-rep-summary-top{display:flex;align-items:center;justify-content:space-between;gap:8px}.meta-rep-summary-title{font:950 11px/1 system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.meta-rep-gain{font:950 13px/1 system-ui,sans-serif;color:#bd7c11;white-space:nowrap}.meta-rep-levelup{margin-top:5px;font:950 9px/1 system-ui,sans-serif;color:#7b5ed5;letter-spacing:.05em;text-transform:uppercase}
-    .meta-reward{width:100%;box-sizing:border-box;padding:8px 9px;border-radius:15px;background:linear-gradient(135deg,#fff,#f3efff);border:1px solid #8b7cf635;box-shadow:inset 0 1px 0 #fff,0 5px 15px #5d4bc214;display:flex;align-items:center;justify-content:space-between;gap:8px;text-align:left}.meta-reward-copy{display:flex;min-width:0;flex:1;align-items:center}.meta-reward-title{font:950 10px/1 system-ui,sans-serif;color:#5b4ab6;letter-spacing:.06em}.meta-reward-sub{display:none}.meta-reward-btn{min-height:48px;min-width:106px;border:0;border-radius:13px;padding:0 12px;background:linear-gradient(135deg,#8b7cf6,#6b58e4);color:#fff;font:950 13px/1 system-ui,sans-serif;box-shadow:0 4px 0 #5145b8,0 8px 18px #5d4bc229;display:flex;align-items:center;justify-content:center;gap:7px;cursor:pointer}.meta-reward-btn:disabled{cursor:default;background:#d8d2ea;color:#777;box-shadow:none}.meta-ad{height:21px;min-width:28px;box-sizing:border-box;border-radius:7px;border:1px solid #ffffff66;background:#ffffff25;display:inline-flex;align-items:center;justify-content:center;padding:0 5px;font-size:9px;letter-spacing:.08em}
-    .meta-policy{margin-top:10px;padding:11px 12px;border-radius:16px;background:#ffffffa8;border:1px solid #ffffffd0;color:var(--ink,#3B2E2A);text-align:left}.meta-policy-body{margin:6px 0 0;font:700 11px/1.4 system-ui,sans-serif;opacity:.72}
+    .meta-reward{width:100%;box-sizing:border-box;padding:8px 9px;border-radius:15px;background:linear-gradient(135deg,#fff,#f3efff);border:1px solid #8b7cf635;box-shadow:inset 0 1px 0 #fff,0 5px 15px #5d4bc214;display:flex;align-items:center;justify-content:space-between;gap:8px;text-align:left}.meta-reward-copy{display:flex;min-width:0;flex:1;align-items:center}.meta-reward-title{font:950 10px/1 system-ui,sans-serif;color:#5b4ab6;letter-spacing:.06em}.meta-reward-sub{display:none}.meta-reward-btn{min-height:48px;min-width:106px;border:0;border-radius:13px;padding:0 12px;background:linear-gradient(135deg,#8b7cf6,#6b58e4);color:#fff;font:950 13px/1 system-ui,sans-serif;box-shadow:0 4px 0 #5145b8,0 8px 18px #5d4bc229;display:flex;align-items:center;justify-content:center;gap:7px;cursor:pointer}.meta-reward-btn:disabled{cursor:default;background:#d8d2ea;color:#777;box-shadow:none}.meta-ad{height:21px;min-width:28px;box-sizing:border-box;border-radius:7px;border:1px solid #ffffff66;background:#ffffff25;display:inline-flex;align-items:center;justify-content:center;padding:0 5px;font-size:9px;letter-spacing:.08em}.meta-ad svg{width:14px;height:14px;display:block}
     .meta-toast{position:fixed;left:50%;bottom:calc(172px + env(safe-area-inset-bottom,0px));z-index:80;pointer-events:none;transform:translate(-50%,10px);opacity:0;padding:9px 15px;border-radius:999px;background:#302824;color:#fff;font:800 13px/1 system-ui,sans-serif;box-shadow:0 8px 24px #0004;transition:.2s ease;white-space:nowrap}.meta-toast.show{opacity:1;transform:translate(-50%,0)}
     @media(max-width:520px){.meta-reputation{min-width:0;max-width:124px}.meta-rep-title{max-width:68px}.meta-rep-value{display:none}.meta-book-grid{gap:7px}.meta-pet-card{min-height:101px;padding:8px}}
     @media(max-width:300px){.meta-rating,.meta-rep-summary,.meta-reward{padding:7px 8px}.meta-rating-stars{font-size:19px}.meta-reward-title{display:none}.meta-reward-btn{width:100%;min-width:0}.meta-reward-copy:empty{display:none}}
@@ -302,19 +302,12 @@ export function createMetaUI() {
         anchor.after(rep); anchor = rep;
       }
 
-      // The service policy, explained in full. The play-field banner that used to carry this
-      // sentence is a six-glyph cue now (src/game.js), which is the right density for something
-      // that flashes over a rush -- but the rule still has to be READABLE somewhere, and this card
-      // is where the shift is being read back anyway. Rendered only on the shift the rule turns on,
-      // and on any shift it actually charged, so it never becomes wallpaper.
-      if (model.servicePolicy && (model.servicePolicy.justEnabled || model.servicePolicy.charged > 0)) {
-        const pol = document.createElement('div'); pol.className = 'meta-policy';
-        const head = document.createElement('div'); head.className = 'meta-kicker'; head.textContent = 'SERVICE POLICY';
-        const body = document.createElement('p'); body.className = 'meta-policy-body';
-        body.textContent = `From day ${model.servicePolicy.enabledFrom}, a guest who waits too long or pays and finds no clean table costs you coins in recovery. Never more than ${model.servicePolicy.cap} coins across a whole shift, and never more than you are holding.`;
-        pol.append(head, body);
-        anchor.after(pol); anchor = pol;
-      }
+      // Batch 6: the SERVICE POLICY paragraph that stood here is gone, and so is the `servicePolicy`
+      // model field that fed it (src/game.js decorateSummary). It explained a fine the game no
+      // longer levies -- src/sim/servicePolicy.js charges 0, always -- and a summary card that
+      // warns about a punishment that cannot arrive is the same nagging in a quieter font. The
+      // owner's rule after playing on a phone: never overwhelm or punish the player or raise his
+      // cortisol level, just keep it from being boring.
 
       if (!model.rewardOffer) return;
       const reward = document.createElement('div'); reward.className = 'meta-reward';
@@ -323,7 +316,12 @@ export function createMetaUI() {
       const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'meta-reward-btn';
       const paintButton = () => {
         btn.disabled = !!model.rewardOffer.claimed;
-        btn.innerHTML = model.rewardOffer.claimed ? `<span>✓ +${model.rewardOffer.amount.toLocaleString('en-US')}</span>` : `<span class="meta-ad">${model.rewardOffer.liveAd ? 'AD' : 'DEV'}</span><span>+${model.rewardOffer.amount.toLocaleString('en-US')}</span>`;
+        // Batch 6: on a build with no ad SDK this badge used to read "DEV", which testers saw on
+        // their phones as a literal offer of "DEV +80" -- our build plumbing leaking into the
+        // player's reward. A gift box says the same thing to the only audience that matters (here
+        // is a bonus) and says nothing at all about how it is being funded. "AD" survives on a live
+        // ad only, where it is a promise the player is entitled to before they tap.
+        btn.innerHTML = model.rewardOffer.claimed ? `<span>✓ +${model.rewardOffer.amount.toLocaleString('en-US')}</span>` : `<span class="meta-ad">${model.rewardOffer.liveAd ? 'AD' : giftIcon()}</span><span>+${model.rewardOffer.amount.toLocaleString('en-US')}</span>`;
         btn.setAttribute('aria-label', model.rewardOffer.claimed ? `Bonus claimed, ${model.rewardOffer.amount} coins` : `${model.rewardOffer.label}, ${model.rewardOffer.liveAd ? 'watch rewarded ad for' : 'claim preview'} ${model.rewardOffer.amount} coins`);
       };
       paintButton();

@@ -206,7 +206,7 @@ for (const [tag, width, height, dpr] of viewports) {
 
     await clearHands();
     await placeAt('kiosk1');
-    await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'UPGRADES' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelector('.fbtn')?.dataset.label === 'UPGRADES' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
     await page.click('.fbtn');
     await page.waitForFunction(() => !!document.querySelector('.sheet-root .sheet'));
     await page.evaluate(() => { const g = window.__game; g.P.x = 0; g.P.z = 2.5; g.P.vx = 0; g.P.vz = 0; });
@@ -214,7 +214,7 @@ for (const [tag, width, height, dpr] of viewports) {
 
     await clearHands();
     await placeAt('pantry1');
-    await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'SUPPLIES' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelector('.fbtn')?.dataset.label === 'SUPPLIES' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
     await page.click('.fbtn');
     await page.waitForFunction(() => document.querySelectorAll('.sheet .sbtn').length >= 2);
     await page.click('.sheet .sbtn');
@@ -223,7 +223,7 @@ for (const [tag, width, height, dpr] of viewports) {
 
     const supplyCoinsBefore = await page.evaluate(() => window.__game.coins);
     await placeAt('return1');
-    await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'RETURN' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelector('.fbtn')?.dataset.label === 'RETURN' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
     await page.click('.fbtn'); await page.waitForTimeout(250);
     const supplyReturn = await page.evaluate(before => ({ empty: !window.__game.carry.sack, delta: window.__game.coins - before }), supplyCoinsBefore);
 
@@ -238,7 +238,7 @@ for (const [tag, width, height, dpr] of viewports) {
     const returnActionsBefore = await page.evaluate(() => window.__game.dayStats.returnActions | 0);
     const wasteBefore = await page.evaluate(() => { const g = window.__game; g.coins = 1000; g.carry.fruit = 2; return g.coins; });
     await placeAt('return1');
-    await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'RETURN' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelector('.fbtn')?.dataset.label === 'RETURN' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
     await page.click('.fbtn'); await page.waitForTimeout(250);
     const wasteReturn = await page.evaluate(before => ({
       fruit: window.__game.carry.fruit,
