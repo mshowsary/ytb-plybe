@@ -127,8 +127,14 @@ try {
   // phases by requiring the total SDK write count to remain zero forever.
   if (recovered.loadCalls !== 2 || recovered.saveProtected) throw new Error(`retry authorization wrong: ${JSON.stringify(recovered)}`);
   if (recovered.coins !== 777) throw new Error(`coins migration wrong: ${JSON.stringify(recovered)}`);
-  if (JSON.stringify(recovered.upgrades) !== JSON.stringify({ speed:3, carry:0, income:2 })) throw new Error(`upgrade clamp wrong: ${JSON.stringify(recovered.upgrades)}`);
-  if (recovered.staff.runner !== 2 || recovered.staff.cashier !== 1 || recovered.staff.cleaner !== 0 || recovered.staff.barista !== 0) throw new Error(`staff clamp wrong: ${JSON.stringify(recovered.staff)}`);
+  // Certification batch 5: "Make the economy endless" (pre-Batch-0) widened these restore
+  // ceilings from the old authored-array-length caps (speed<=3, staff<=2/1, star<=3) to the
+  // v5 SAVE_LIMITS in src/sim/saveSchema.js (maxUpgradeTier/maxStaffPerRole/maxStarTier = 50/12/30)
+  // so a legitimate progressed save no longer gets demoted on load. This tool's expectations were
+  // never updated then and have been silently wrong since before Batch 0 -- update to match the
+  // clamps a tampered save of these inputs (speed:99, staff.runner:99, stars.oven1:99) now hits.
+  if (JSON.stringify(recovered.upgrades) !== JSON.stringify({ speed:50, carry:0, income:2 })) throw new Error(`upgrade clamp wrong: ${JSON.stringify(recovered.upgrades)}`);
+  if (recovered.staff.runner !== 12 || recovered.staff.cashier !== 9 || recovered.staff.cleaner !== 0 || recovered.staff.barista !== 0) throw new Error(`staff clamp wrong: ${JSON.stringify(recovered.staff)}`);
   // The migration target is exactly t=70, but once gameReady fires the live simulation is running.
   // Accept only a small forward drift so this still catches bad migration/backward time while avoiding
   // a race against the first few animation frames.
@@ -138,7 +144,8 @@ try {
   }
   if (JSON.stringify(recovered.built) !== JSON.stringify(expectedBuilt)) throw new Error(`build dependency validation wrong: ${JSON.stringify(recovered.built)}`);
   if (JSON.stringify(recovered.partial) !== JSON.stringify({ z_hire:200 })) throw new Error(`partial validation wrong: ${JSON.stringify(recovered.partial)}`);
-  if (JSON.stringify(recovered.stars) !== JSON.stringify({ oven1:3 })) throw new Error(`star validation wrong: ${JSON.stringify(recovered.stars)}`);
+  // Same widened ceiling as above: maxStarTier is now 30 (was the authored 3-tier ladder length).
+  if (JSON.stringify(recovered.stars) !== JSON.stringify({ oven1:30 })) throw new Error(`star validation wrong: ${JSON.stringify(recovered.stars)}`);
   if (recovered.reputation !== 6 || recovered.completedDays !== 2 || recovered.perfectShifts !== 2 || recovered.renovationLevel !== 0) throw new Error(`meta progression clamp wrong: ${JSON.stringify(recovered)}`);
   if (recovered.snapshot.v !== CURRENT_SAVE_VERSION || recovered.snapshot.coins !== 777) throw new Error(`canonical snapshot wrong: ${JSON.stringify(recovered.snapshot)}`);
 

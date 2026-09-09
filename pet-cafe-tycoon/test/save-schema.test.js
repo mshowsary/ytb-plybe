@@ -200,7 +200,7 @@ test('v4 migrates to v5 with a bounded default for every new meta field', () => 
   assert.deepEqual(meta.decor, []);
   assert.equal(meta.goldenPaw, false);
   assert.deepEqual(meta.season, { index: 0, dayStart: 1 });
-  assert.deepEqual(meta.franchise, { level: 0 });
+  assert.deepEqual(meta.franchise, { level: 0, multiplier: 1 });
   // nothing the migration adds may disturb what v4 already carried
   assert.equal(meta.completedDays, 5);
   assert.equal(meta.reputation, 9);
@@ -238,7 +238,7 @@ test('v5 keeps legitimate values and clamps every tampered one', () => {
   // NOT { index: 2, dayStart: 4 } as saved: the season is a pure function of the day (day 6 is
   // still Blossom, which began on day 1), so the saved pair is a cache the boundary rebuilds.
   assert.deepEqual(meta.season, { index: 0, dayStart: 1 });
-  assert.deepEqual(meta.franchise, { level: 3 });
+  assert.deepEqual(meta.franchise, { level: 3, multiplier: 1.24 });
 
   const tampered = validate(v4Fixture({
     meta: {
@@ -269,7 +269,7 @@ test('v5 keeps legitimate values and clamps every tampered one', () => {
   assert.deepEqual(bad.decor, [DECOR_IDS[0], DECOR_IDS[1]]);             // deduped, unknown ids dropped
   assert.equal(bad.goldenPaw, false);                                    // only a real boolean grants it
   assert.deepEqual(bad.season, { index: 0, dayStart: 1 });
-  assert.deepEqual(bad.franchise, { level: CORE_LIMITS.maxFranchiseLevel });
+  assert.deepEqual(bad.franchise, { level: CORE_LIMITS.maxFranchiseLevel, multiplier: 1.4 });
 
   // and the clamped shape is itself canonical
   assert.deepEqual(validate(tampered.data).data, tampered.data);
@@ -307,7 +307,7 @@ test('a wrong-typed v5 container degrades to its default instead of inventing pr
   assert.deepEqual(meta.residents, []);
   assert.deepEqual(meta.decor, []);
   assert.deepEqual(meta.season, { index: 0, dayStart: 1 });
-  assert.deepEqual(meta.franchise, { level: 0 });
+  assert.deepEqual(meta.franchise, { level: 0, multiplier: 1 });
 });
 
 // economy.js buyDecor pays +1 reputation per piece. The restore ceiling has to know that, or a

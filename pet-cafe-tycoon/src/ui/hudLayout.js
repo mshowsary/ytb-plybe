@@ -45,7 +45,7 @@ export function installHudLayout() {
   .meta-reputation{left:calc(10px + var(--sal))!important;top:calc(62px + var(--sat))!important;
     min-width:0!important;max-width:130px!important}
   .meta-pawbook{left:calc(148px + var(--sal))!important;
-    top:calc(62px + var(--sat))!important;min-height:44px!important}
+    top:calc(62px + var(--sat))!important;min-height:48px!important}
   #followers{left:calc(10px + var(--sal))!important;top:calc(116px + var(--sat))!important;
     font-size:14px!important}
   /* The top-right corner is already owned by the pause (right:12) and calendar (right:68)
@@ -71,7 +71,7 @@ export function installHudLayout() {
 }
 
 /* Tap targets stay at the platform minimum at every size. */
-.fbtn,.meta-pawbook,.skipPill,.meta-book-close{min-height:44px!important}
+.fbtn,.meta-pawbook,.skipPill,.meta-book-close{min-height:48px!important}
 `;
   document.head.appendChild(s);
 }

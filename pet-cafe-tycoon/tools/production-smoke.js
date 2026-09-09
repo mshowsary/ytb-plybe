@@ -227,11 +227,25 @@ for (const [tag, width, height, dpr] of viewports) {
     await page.click('.fbtn'); await page.waitForTimeout(250);
     const supplyReturn = await page.evaluate(before => ({ empty: !window.__game.carry.sack, delta: window.__game.coins - before }), supplyCoinsBefore);
 
+    // Returning held fruit used to charge a wasteFees debit (economyExperience.js's onReturn hook,
+    // added in 5385390). Commit c900588 "Make service friction feedback fee-free" (2026-09-06)
+    // overrides that hook from installServiceFriction(G) — called in main.js AFTER createGame(),
+    // so its replacement wins — to stop deducting coins entirely (owner's difficulty rule §2.3:
+    // never punish the player to move a number). The new hook instead counts the action in
+    // dayStats.returnActions and shows a fee-free "Items returned" toast. So a RETURN on carried
+    // fruit today must cost 0 and must NOT touch wasteFees; the observable success signal is
+    // returnActions incrementing. Verified live: spent 0, tracked(wasteFees) 0, returnActions 1.
+    const returnActionsBefore = await page.evaluate(() => window.__game.dayStats.returnActions | 0);
     const wasteBefore = await page.evaluate(() => { const g = window.__game; g.coins = 1000; g.carry.fruit = 2; return g.coins; });
     await placeAt('return1');
     await page.waitForFunction(() => document.querySelector('.fbtn')?.textContent === 'RETURN' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
     await page.click('.fbtn'); await page.waitForTimeout(250);
-    const wasteReturn = await page.evaluate(before => ({ fruit: window.__game.carry.fruit, spent: before - window.__game.coins, tracked: window.__game.dayStats.wasteFees | 0 }), wasteBefore);
+    const wasteReturn = await page.evaluate(before => ({
+      fruit: window.__game.carry.fruit,
+      spent: before - window.__game.coins,
+      tracked: window.__game.dayStats.wasteFees | 0,
+    }), wasteBefore);
+    wasteReturn.returnActions = (await page.evaluate(() => window.__game.dayStats.returnActions | 0)) - returnActionsBefore;
 
     await page.evaluate(() => { const g = window.__game; g.carry.fruit = 2; const b = g.world.stations.get('blender1'); b.fruit = 0; b.stock = 0; });
     await placeAt('blender1'); await page.waitForTimeout(650);
@@ -300,7 +314,10 @@ for (const [tag, width, height, dpr] of viewports) {
 
   const overflow = journeyBefore.bodyWidth > journeyBefore.viewportWidth + 1 || busy.bodyWidth > busy.viewportWidth + 1 || book.bodyWidth > book.viewportWidth + 1 || meta.bodyWidth > meta.viewportWidth + 1;
   const proseLeak = busy.hintVisible || busy.handsVisible || busy.goalVisible;
-  const interactionBad = tag === 'small' && (!interaction || interaction.pantry.sack !== 'beans' || interaction.pantry.guide !== 'COFFEE' || !interaction.supplyReturn.empty || interaction.supplyReturn.delta !== 0 || interaction.wasteReturn.fruit !== 0 || interaction.wasteReturn.spent <= 0 || interaction.wasteReturn.tracked <= 0 || (interaction.blender.machineFruit + interaction.blender.stock) <= 0 || interaction.cash.pile !== 0 || interaction.cash.gained !== 206 || interaction.cash.collectButton || interaction.cash.cashLabel || interaction.cash.legacyLabel || interaction.cleaning.dirty || interaction.cleaning.cleanButton);
+  // wasteReturn: fee-free since c900588 (see the comment at the wasteReturn capture above) — RETURN
+  // on carried fruit must cost nothing and must not touch wasteFees; returnActions incrementing is
+  // the current proof the RETURN action actually ran.
+  const interactionBad = tag === 'small' && (!interaction || interaction.pantry.sack !== 'beans' || interaction.pantry.guide !== 'COFFEE' || !interaction.supplyReturn.empty || interaction.supplyReturn.delta !== 0 || interaction.wasteReturn.fruit !== 0 || interaction.wasteReturn.spent !== 0 || interaction.wasteReturn.tracked !== 0 || interaction.wasteReturn.returnActions <= 0 || (interaction.blender.machineFruit + interaction.blender.stock) <= 0 || interaction.cash.pile !== 0 || interaction.cash.gained !== 206 || interaction.cash.collectButton || interaction.cash.cashLabel || interaction.cash.legacyLabel || interaction.cleaning.dirty || interaction.cleaning.cleanButton);
   const buildBad = tag === 'small' && (!buildIntent || buildIntent.walkPaid !== 0 || buildIntent.earlyPaid !== 0 || !(buildIntent.heldPaid > 0));
   const pauseBad = tag === 'small' && (!pauseState || !pauseState.frozen || !pauseState.musicOff);
   const journeyBad = journeyBefore.days !== 7 || journeyBefore.masteries !== 5 || !journeyBefore.renovation || journeyBefore.renoButtonDisabled;

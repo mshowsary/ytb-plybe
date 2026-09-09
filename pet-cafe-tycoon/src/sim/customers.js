@@ -106,6 +106,15 @@ export function createCustomer(id, species, variant, area) {
     // as always, this file never draws the sparkle itself, only carries the timestamp.
     _spaDecided: false, spaBound: false, _spaTarget: null, spaArrived: 0, _spaSettled: false,
     sparkleUntil: 0,
+    // Follow-up (plan 3.9's own stated line, "pets' owners sit while pets are pampered"): the
+    // lounge seat (spaSeat1-3) this guest has claimed for the rest of an OPEN session, or null
+    // while it hasn't claimed one (no session open for it yet, or no seat was free — see
+    // pickLoungeSeat's and the toGroom/atGroom case's own comments for why it's claimed only once
+    // a session exists, never earlier). Named distinctly from c.seat/c.seatId (the ordinary
+    // café-table pair, which a spa guest never touches — pinned by test/spa-guests.test.js's own
+    // "a spa guest never sits" assertion) so the two can never be confused by a future reader or a
+    // stray shared helper.
+    spaSeat: null, spaSeatId: null,
     mover,
   };
 }
@@ -462,6 +471,50 @@ function pickSpaStation(w, c) {
   const gD = (groom.front.x - c.x) ** 2 + (groom.front.z - c.z) ** 2;
   const bD = (bath.front.x - c.x) ** 2 + (bath.front.z - c.z) ** 2;
   return gD <= bD ? groom : bath;
+}
+// Follow-up (plan 3.9's own stated line: "pets' owners sit while pets are pampered"). The spa
+// region descriptor, mirroring terraceRegion()'s exact shape — same w.area.regions array, just a
+// different id — so pickLoungeSeat below gets the same "degrades to nothing, safely, pre-spa" and
+// "genuinely spa-shaped rectangle once z_spa is bought" guarantees terraceRegion already has.
+function spaRegion(w) {
+  const regions = w.area && w.area.regions;
+  if (!regions) return null;
+  for (const r of regions) if (r.id === 'spa') return r;
+  return null;
+}
+// The spa's own lounge seats (spaSeat1-3, data/area1.js): first active, free, clean one — the
+// exact "first found" rule seatFor already uses for the interior/terrace, scoped to the spa
+// rectangle only via inTerrace (a plain rectangle test with a name left over from when only one
+// region existed — Batch 4b already reuses it this way for the spa in inAnyRegion, this is the
+// same reuse). This is purely additive, never a second way for a non-spa guest to end up here:
+// seatFor's own inAnyRegion check already excludes every seat inside ANY built region (terrace or
+// spa) for an ordinary guest, and wantTerrace's inTerrace check excludes every non-terrace seat
+// (spa included) for a terrace-bound one — pickLoungeSeat is the only caller that ever looks
+// inside the spa rectangle, and only a spa-bound guest (the switch/case below) ever calls it.
+function pickLoungeSeat(w) {
+  const r = spaRegion(w);
+  if (!r) return null; // pre-spa: no active seat is ever inside this (unbuilt) rectangle anyway
+  for (const st of w.stations.values()) {
+    if (st.type !== 'seat' || !st.active || st.occupied || st.dirty) continue;
+    if (!inTerrace(st, r)) continue;
+    return st;
+  }
+  return null;
+}
+// Hands a lounge seat back exactly like an ordinary seat's own 'eating'->'leave' hand-off
+// (occupied=false, dirty=true, a 'dirtied' event) — lounge seats are NOT exempt from getting
+// dirty: they are the same station shape (type 'seat') every other table is, and staff.js's own
+// cleaner already picks up any dirty active seat by type, id-agnostic (pickDirtySeat), so this
+// needs no cleaning-side change at all to be cleaned like any other table. Called on every exit
+// out of the toGroom/atGroom/toBath/atBath case below that could hold a seat (a resolved session,
+// or the station going inactive mid-session) — a no-op otherwise, since a seat is only ever
+// claimed once a session is already open, so the settle-for and patience-loss branches (which only
+// run before a session exists) never hold one to release.
+function releaseLoungeSeat(w, c) {
+  if (!c.spaSeatId) return;
+  if (c.spaSeat) { c.spaSeat.occupied = false; c.spaSeat.dirty = true; }
+  emitWorld(w, { type: 'dirtied', seatId: c.spaSeatId });
+  c.spaSeat = null; c.spaSeatId = null;
 }
 // C4 (plan 3.1/1.5, restroom comfort buff): the one active restroom station, or null. There is
 // only ever one (wc1) in the shipped layout, but this mirrors activeBowl's "first active one
@@ -978,20 +1031,69 @@ export function stepCustomers(list, w, price, dt) {
       // that IS served carries the order set back in 'enter' into the ordinary
       // assignRegister/toRegister path below, which is what actually charges PRODUCTS.groom/bath
       // and counts the sale — no separate spa payment code exists or is needed.
+      //
+      // Follow-up (plan 3.9's own stated line: "pets' owners sit while pets are pampered"): once
+      // world.js has actually opened a session for this guest (st.session.customerId === c.id —
+      // see below), it tries to claim one of the spa's 3 lounge seats (spaSeat1-3, pickLoungeSeat
+      // above) and walks over to sit there for the rest of the session, instead of standing at the
+      // groom/bath table itself. No seat free -> it simply never leaves the table's own queue
+      // spot, the exact pre-follow-up behaviour (rule 9: a full lounge only ever costs a guest the
+      // nicer wait, never the service — nothing here can block or anger a guest that didn't get a
+      // seat).
+      //
+      // The seat-seeking deliberately waits for a session to exist FIRST, rather than happening at
+      // slot 0 the moment this guest becomes head-of-line: world.js's stepGroomTable/stepBath (not
+      // mine to edit) decide whether to OPEN a session with a physical-proximity check against the
+      // table's own queue slot 0 (`!c.mover.hasTarget && Math.hypot(c.x-q0.x,c.z-q0.z)<0.15`), and
+      // that check only ever runs while `st.session` is still falsy — the instant a session
+      // exists, both step functions skip the whole per-tick head search entirely
+      // (`if (st.session) { ...; continue; }`) and never look at this guest's position again until
+      // the session resolves. So standing at the table until the session opens (unchanged from
+      // before this follow-up) and only THEN walking to the lounge satisfies world.js's read-side
+      // contract exactly as it already is, with no change to that file needed at all — the "guest
+      // sits ... while pets are pampered" the plan asks for literally becomes "sits once the
+      // pampering (the session) has started", which is the same thing this guest is waiting for
+      // anyway. The seated pose itself, and keeping the pet visually at the table while its owner
+      // sits at the lounge, is the render layer's job — see wiringNeeded for the exact hook this
+      // file has no access to.
       case 'toGroom':
       case 'atGroom':
       case 'toBath':
       case 'atBath': {
         const st = w.stations.get(c._spaTarget);
-        if (!st || !st.active) { c._spaTarget = null; c.state = 'leave'; c.mover.hasTarget = false; break; }
-        const slot = queuePos(st, c.slot);
-        const here = walkTo(c, slot.x, slot.z, w, dt);
+        if (!st || !st.active) { releaseLoungeSeat(w, c); c._spaTarget = null; c.state = 'leave'; c.mover.hasTarget = false; break; }
+        const inSession = !!(st.session && st.session.customerId === c.id);
+        // Try for a lounge seat only once a session is actually open for THIS guest and only once
+        // (re-checked every tick until one is free, in case the lounge frees up partway through a
+        // session) — see the case comment above for why not any earlier.
+        if (inSession && !st.session.resolved && !c.spaSeatId) {
+          const lounge = pickLoungeSeat(w);
+          if (lounge) {
+            lounge.occupied = true;
+            c.spaSeat = lounge; c.spaSeatId = lounge.id;
+            // Fresh redirect off the table's queue spot and onto the seat instead — same
+            // hasTarget clear every other reassignment in this file uses so the walk starts from a
+            // clean baseline rather than an old, now-irrelevant target.
+            c.mover.hasTarget = false;
+          }
+        }
+        let here;
+        if (c.spaSeatId) {
+          const { human } = c.spaSeat.pair;
+          here = walkTo(c, human.x, human.z, w, dt);
+          // I6-style: face the table its pet is actually at, not the seat itself — the same "face
+          // what matters" convention 'toSeat' uses (there it faces the table it's eating at).
+          if (here) c.rot = Math.atan2(st.x - c.x, st.z - c.z);
+        } else {
+          const slot = queuePos(st, c.slot);
+          here = walkTo(c, slot.x, slot.z, w, dt);
+        }
         if ((c.state === 'toGroom' || c.state === 'toBath') && here) {
           c.state = c.state === 'toGroom' ? 'atGroom' : 'atBath';
           c.mood = 'none';
         }
         if (c.state === 'atGroom' || c.state === 'atBath') {
-          if (st.session && st.session.customerId === c.id) {
+          if (inSession) {
             if (st.session.resolved) {
               // world.js's own clearBathSession comment: "the guest FSM ... stamps its pet's
               // c.sparkleUntil = w.t + BATH_SPARKLE_SECONDS" — a render-only sim flag (the pet
@@ -999,6 +1101,7 @@ export function stepCustomers(list, w, price, dt) {
               // itself, only carries the timestamp for whichever render layer does).
               if (st.type === 'bath') { c.sparkleUntil = (w.t || 0) + BATH_SPARKLE_SECONDS; clearBathSession(w, st.id); }
               else clearGroomSession(w, st.id);
+              releaseLoungeSeat(w, c);
               c._spaTarget = null;
               c.mover.hasTarget = false;
               assignRegister(c, w);
@@ -1006,6 +1109,8 @@ export function stepCustomers(list, w, price, dt) {
               c.mood = 'none'; // service in progress — resolved by the station agent's own step function
             }
           } else if (c.slot === 0) {
+            // No session open yet (unmanned, or about to be) — c.spaSeatId is always null on this
+            // branch (only ever claimed once inSession, above), so there is no seat to release here.
             setPatience(w, c, c.patience - dt);
             c.mood = 'wait';
             // Settle-for rule (once per visit, like every other settle-for in this file): after

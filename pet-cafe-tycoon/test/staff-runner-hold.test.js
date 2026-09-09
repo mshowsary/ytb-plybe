@@ -50,6 +50,9 @@ import { createWorld } from '../src/sim/world.js';
 import { createStaff, stepStaff } from '../src/sim/staff.js';
 
 const DT = 1 / 30;
+// staff.js keeps HOLD_LIMIT private; restated here so the second-pass tests below read against the
+// same number rather than a magic 6.
+const HOLD_LIMIT = 6;
 
 test('a runner pinned at the ~0.19m gap measured on the live run (past the old 0.12m fallback, inside the new 0.3m one) still delivers', () => {
   const w = createWorld(AREA1, { built: ['z_oven2'] });
@@ -105,4 +108,58 @@ test('a runner within real arrival range (no pin) is unaffected by the wider fal
 
   stepStaff([runner], w, DT, () => {});
   assert.notEqual(runner.state, 'toCounter', 'a genuinely-arrived runner must not need the fallback at all to proceed');
+});
+
+// ---- SECOND PASS (runner watchdog attribution) --------------------------------------------------
+// The ~12-a-day HOLD_LIMIT recoveries this file's header treats as a background hum were attributed
+// by instrumenting a throwaway copy of tools/bot.js: 701 of 703 fired from 'waiting', PARKED beside
+// the display the batch was bound for, at the exact tick a customer freed 1-2 slots; 2 from
+// 'unload'; none from anywhere else. Cause and fix live in test/runner-recovery.test.js (a runner
+// over-fetching past what the shelf could hold, and several runners fetching into the same free
+// capacity). What belongs HERE is the pair of properties that pin down what the watchdog itself
+// is and is not — because the count above was easy to read as "twelve rescues a day", and it never
+// was one.
+test('the watchdog force-route is behaviourally identical to the recovery it pre-empts', () => {
+  // Same situation twice, differing only in how long the batch has been in hand. Under HOLD_LIMIT
+  // the 'waiting' branch does the work; over it the watchdog gets there first. Both must leave the
+  // runner in exactly the same state, so the event is a report, never a different outcome.
+  const settle = holdT => {
+    const w = createWorld(AREA1, { built: ['z_oven2'] });
+    const ct = w.stations.get('dispCupcake');
+    ct.stock = ct.capacity - 1; // room appeared: one slot free
+    const runner = createStaff('runner', ct.front);
+    runner.items = ['cupcake', 'cupcake']; runner.srcId = 'oven2';
+    runner.state = 'waiting'; runner.target = 'dispCupcake'; runner.waitParked = true; runner.holdT = holdT;
+    stepStaff([runner], w, DT, () => {});
+    return { state: runner.state, target: runner.target, events: w.events.filter(e => e.type === 'runnerStuck').length };
+  };
+  const quiet = settle(1), tripped = settle(HOLD_LIMIT + 1);
+  assert.equal(quiet.state, 'toCounter', "the 'waiting' branch recovers on its own well before the watchdog");
+  assert.equal(quiet.events, 0, 'and does so silently');
+  assert.equal(tripped.state, quiet.state, 'the watchdog reaches the same state');
+  assert.equal(tripped.target, quiet.target, 'and the same display');
+  assert.equal(tripped.events, 1, 'the only difference is that it says so');
+});
+
+test('the watchdog still rescues a batch stranded by something outside the load path', () => {
+  // The fix removes the CAUSE of long holds, not the safety net. Hand a runner a surplus it could
+  // never have fetched for itself (a shelf downgraded under it, say) and the net must still catch
+  // it: nothing about the load cap should make the watchdog unreachable.
+  const w = createWorld(AREA1, { built: ['z_oven2'] });
+  const ct = w.stations.get('dispCupcake');
+  ct.stock = ct.capacity;
+  // Back the whole family up: with its oven at buffer too, unloadSource has nowhere to hand the
+  // surplus back, which is the one situation that genuinely keeps a runner in 'waiting'.
+  const oven = w.stations.get('oven2'); oven.stock = oven.buffer;
+  const runner = createStaff('runner', { x: ct.front.x, z: ct.front.z - 1.2 });
+  runner.items = ['cupcake', 'cupcake', 'cupcake']; runner.srcId = 'oven2';
+  runner.state = 'waiting'; runner.target = 'dispCupcake';
+
+  // Hold the shelf full past HOLD_LIMIT so the hold clock genuinely runs out, then free a slot.
+  for (let t = 0; t < HOLD_LIMIT + 1; t += DT) stepStaff([runner], w, DT, () => {});
+  assert.equal(runner.state, 'waiting', 'a full shelf with no source room is exactly what waiting is for');
+  ct.stock = ct.capacity - 1;
+  stepStaff([runner], w, DT, () => {});
+  assert.equal(w.events.filter(e => e.type === 'runnerStuck').length, 1, 'the watchdog fires');
+  assert.equal(runner.state, 'toCounter', 'and routes the batch at the display');
 });

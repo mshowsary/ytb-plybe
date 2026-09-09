@@ -135,6 +135,9 @@ test('runner Carry levels: 6 -> 9 -> 12 -> 16 via RUNNER_CARRY_LEVELS, applied t
   assert.deepEqual(RUNNER_CARRY_LEVELS, [6, 9, 12, 16]);
   const w = createWorld(AREA1, { built: ['z_seats1', 'z_oven2', 'z_register2', 'z_coffee'] });
   const oven = w.stations.get('oven1'); oven.stock = 12;
+  // Batch 5: the batch is bounded by the destination's room too (staff.js loadCap); star the shelf
+  // so the CARRY TIER is what this test measures.
+  w.stations.get('dispCookie').capacity = 20;
   const levels = { runner: { speed: 0, carry: 2 }, cashier: { speed: 0 }, cleaner: { speed: 0 } };
   const runner = createStaff('runner', oven.front);
   for (let t = 0; t < 4; t += 1 / 30) stepStaff([runner], w, 1 / 30, () => {}, levels);
@@ -149,6 +152,8 @@ test('after three Carry purchases (tier 3), a runner carries up to 16', () => {
   assert.ok(workerUpgradeCost('runner', 'carry', s.staffLevels) > 1300);
   const w = createWorld(AREA1, { built: ['z_seats1', 'z_oven2', 'z_register2', 'z_coffee'] });
   const oven = w.stations.get('oven1'); oven.stock = 20;
+  // Batch 5: same reason as above — the shelf's room, not the carry tier, would bind otherwise.
+  w.stations.get('dispCookie').capacity = 20;
   const runner = createStaff('runner', oven.front);
   for (let t = 0; t < 5; t += 1 / 30) stepStaff([runner], w, 1 / 30, () => {}, s.staffLevels);
   assert.equal(runner.items.length, 16);

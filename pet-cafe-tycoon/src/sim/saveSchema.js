@@ -16,6 +16,7 @@ import {
   PAW_MAX_STAR, PAW_SEAT_WINDOW_DAYS, PAW_SEAT_WINDOW_KEEP, pawEntitlementCeiling,
 } from './pawRating.js';
 import { deriveSeasonMeta } from './seasons.js';
+import { franchiseMultiplier } from './franchise.js';
 
 export const CURRENT_SAVE_VERSION = 5;
 export const SAVE_LIMITS = Object.freeze({
@@ -458,9 +459,18 @@ function normalizeSeason(raw, day) {
   return deriveSeasonMeta(Math.max(1, day | 0));
 }
 
+// A save cannot declare its franchise BONUS, only its level -- the same rule, and the same reason,
+// as normalizeSeason directly above: `multiplier` is a pure function of `level`
+// (sim/franchise.js franchiseMultiplier), so a stored one is a cache of what the level already
+// says, and a cache a hand-edited save could raise is just a free income upgrade. The level itself
+// stays clamped to SAVE_LIMITS.maxFranchiseLevel rather than to franchise.js's design ceiling:
+// this bound is about what a tampered save may claim, and demoting a real player's level would be
+// the same confiscation the ladder ceilings above exist to avoid. The multiplier is capped inside
+// franchiseMultiplier regardless, so a level past the design ceiling buys nothing either way.
 function normalizeFranchise(raw) {
   const src = isRecord(raw) ? raw : {};
-  return { level: clampInt(src.level, 0, SAVE_LIMITS.maxFranchiseLevel, 0) };
+  const level = clampInt(src.level, 0, SAVE_LIMITS.maxFranchiseLevel, 0);
+  return { level, multiplier: franchiseMultiplier(level) };
 }
 
 function normalizeCareer(raw, completedDays, repEntitlement) {
@@ -729,10 +739,29 @@ export function validateAndMigrateSave(raw, area = null) {
     stats, built: buildState.builtSet, area: null,
   }));
   const pawBest = clampInt(metaRaw.pawBest, 0, Math.max(0, pawCeiling), 0);
+  // --- the franchise carry-over (plan §3.11: a branch KEEPS "accessories (equipped + bought)" and
+  // "decor unlocks") -----------------------------------------------------------------------------
+  // A second branch has reset its builds by design, so the boutique and the terrace those cosmetics
+  // were bought from are gone with them -- and the zone gates in pass 1 would confiscate every one
+  // of those purchases on the very next load. Those gates exist so a hand-edited save cannot INVENT
+  // a purchase; they were never meant to take back a purchase a legitimate reset moved out from
+  // under. So a franchised save re-admits exactly the cosmetics it already owned.
+  //
+  // Only HERE, in pass 2, and deliberately not in pass 1: the reputation ceiling and the renovation
+  // entitlement above are computed from `decorZoneGated`, so they still count only what the CURRENT
+  // café has built. A forged `franchise.level` therefore buys pictures and umbrellas and not one
+  // point of progression. The door itself is pawBest AT THE CAP -- the one field on this record a
+  // save cannot declare, since it was just clamped to the entitlement its own evidence proves.
+  const franchise = normalizeFranchise(metaRaw.franchise);
+  const branchCarryOver = franchise.level > 0 && pawBest >= PAW_MAX_STAR;
+  // A set-like that answers "built" to every zone gate. Used ONLY to re-admit already-owned
+  // cosmetics; it never reaches a normaliser that grants progression.
+  const carryOverZones = { has: () => true };
   // Pass 2: now the rating is known, drop every star row this save has not earned. Without it the
   // boundary confiscates nothing and a hand-edited meta.decor holds the whole ★5 set on an empty
   // café — the same gate the terrace rows have had since Batch 1.
-  const decor = decorZoneGated.filter(id => decorUnlocked(DECOR_BY_ID.get(id), buildState.builtSet, pawBest));
+  const decorOwned = branchCarryOver ? normalizeDecor(metaRaw.decor, carryOverZones) : decorZoneGated;
+  const decor = decorOwned.filter(id => decorUnlocked(DECOR_BY_ID.get(id), branchCarryOver ? carryOverZones : buildState.builtSet, pawBest));
   const normalized = {
     v: CURRENT_SAVE_VERSION,
     coins: clampInt(raw.coins, 0, SAVE_LIMITS.maxCoins, 0),
@@ -767,12 +796,14 @@ export function validateAndMigrateSave(raw, area = null) {
       equipped: normalizeEquipped(metaRaw.equipped),
       residents: normalizeResidents(metaRaw.residents),
       decor,
-      accessoriesBought,
+      accessoriesBought: branchCarryOver
+        ? normalizeAccessoriesBought(metaRaw.accessoriesBought, carryOverZones)
+        : accessoriesBought,
       goldenPaw: metaRaw.goldenPaw === true,
       pawBest,
       pawSeatWindow,
       season: normalizeSeason(metaRaw.season, day.dayState.day),
-      franchise: normalizeFranchise(metaRaw.franchise),
+      franchise,
       ...(metaRaw.rewards && isRecord(metaRaw.rewards) ? { rewards: normalizeRewards(metaRaw.rewards) } : {}),
     },
     dayState: day.dayState,

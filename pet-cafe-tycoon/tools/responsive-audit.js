@@ -51,7 +51,9 @@ const CONTENT = [
 ].join(',');
 
 const INTERACTIVE = ['button', '[role="button"]', 'a[href]', 'input', 'select', '.fbtn', '.skipPill'].join(',');
-const MIN_TAP = 44;          // px, the platform-standard minimum touch target
+// 48, not 44: tools/playables-cert-smoke.js enforces the publisher's 47.5px floor and caught a 44px
+// control this audit had passed. One floor, the stricter one, so the two can never disagree again.
+const MIN_TAP = 48;
 const OVERLAP_TOLERANCE = 4; // px of intersection forgiven (border radii, shadows)
 
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.json': 'application/json' };

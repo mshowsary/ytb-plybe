@@ -65,7 +65,20 @@ export const PAW_AWNING_SETS = 6; // props.js AWNING_SETS must hold this many; i
 const clampStar = star => Math.max(0, Math.min(PAW_MAX_STAR, star | 0));
 
 export function pawArrivalMultiplier(best) { return 1 + PAW_ARRIVAL_BONUS_PER_STAR * clampStar(best); }
-export function pawResidentSlots(best) { return Math.min(PAW_RESIDENT_SLOTS_MAX, PAW_RESIDENT_SLOTS_BASE + clampStar(best)); }
+// `franchiseLevel` is the Franchise prestige's "+1 resident slot" (plan §3.11), added HERE because
+// this is the ratchet every consumer already reads for the slot count -- a second slot formula
+// somewhere else would be a second answer to the same question.
+//
+// HONEST LIMIT, not a bug: the cap still bites first. A franchise is only ever offered after the
+// Golden Paw, so `best` is 5 by then, and BASE(3) + 5 is already PAW_RESIDENT_SLOTS_MAX(8) --
+// which is also exactly how many furniture spots systems/residentPets.js authors. So the bonus
+// computes correctly and currently grants nothing. It is left bounded rather than allowed past the
+// cap because a ninth resident would have nowhere to sit: raising this needs both a higher
+// PAW_RESIDENT_SLOTS_MAX and a new entry in RESIDENT_SPOTS, and neither belongs to this task.
+export function pawResidentSlots(best, franchiseLevel = 0) {
+  const bonus = Math.max(0, Math.trunc(Number(franchiseLevel) || 0));
+  return Math.min(PAW_RESIDENT_SLOTS_MAX, PAW_RESIDENT_SLOTS_BASE + clampStar(best) + bonus);
+}
 export function pawAwningSetIndex(best) { return Math.min(PAW_AWNING_SETS - 1, clampStar(best)); }
 
 // The ratchet itself, for callers that only need the number (petBook.js's legendary gate, HUD).

@@ -272,7 +272,23 @@ Spa guests are a new arrival type (`c.spaBound`) from day 28: they skip food, qu
 A stair at the north-east corner to a rooftop with lanterns, a night market stall, and evening-only
 guests. Not designed here; it exists so the Paw Rating and price curve have a horizon.
 
-### 3.11 Franchise (optional prestige, after Golden Paw)
+### 3.11 Franchise (optional prestige, after Golden Paw) — shipped in Batch 5
+
+**As shipped.** `src/sim/franchise.js` builds the branch from an explicit KEEP list, a RESET list and
+a DROP list; a field in none of them is reported in `unknown` and the bridge refuses the whole reset
+rather than half-applying it (a browser smoke, `tools/franchise-smoke.mjs`, runs the real accept and
+asserts every kept field is identical and the new state round-trips a save). Two keep-list decisions
+worth knowing: `stats` is KEPT, because ★1's evidence is lifetime served and the save boundary
+clamps `pawBest` to what the evidence supports — zeroing it would collapse a restored ★5 to ★0 and
+take the awning, the legendary coats and the ★-gated décor with it; and the calendar (day, career,
+reputation) CONTINUES, as the owner's record. The multiplier is derived from level at the boundary
+(1 + 0.08·level, capped 1.4), never declared. The offer is a row on the day summary after the Golden
+Paw — never auto-opened, and a decline is remembered for the session only, so "not now" on day 60
+can become "yes" on day 90. The accept button arms on the first tap and commits on the second.
+
+**Not shipped:** the "new café sign colour" — there is no café sign mesh; the awning is the exterior
+identity and it is already the Paw Rating's reward. Leave it. The +1 resident slot is arithmetically
+a no-op today (★5 already reaches the eight authored spots); the hook exists in `pawResidentSlots`.
 
 `meta.franchise = { level, multiplier }`. "Open a second branch": resets builds, coins, staff and
 stars to a fresh café; **keeps** the Pet Book, album, accessories, followers, residents (they visit
@@ -605,12 +621,32 @@ linearly with the wider grid — profile in Batch 5.
 
 ### Batch 5 — Franchise and hardening (1 session)
 
-§3.11; then a full certification pass: audit, `production-smoke.js` (the `nextChase`/`perfectText`
-empties were cleared in Batch 3; one pre-existing assertion about returned waste still fails and
-predates every batch — root-cause it), `playables-cert-smoke.js`, task25, task38, a 30-minute
-real-device session in portrait and landscape. Also from Batch 4a: the runner watchdog fires ~11
-recoveries/day (`runnerStuck`, self-correcting but wasteful) and `src/sim/world.js` seats a display's
-queue slot 0 only 0.1 m beyond the display's front — the geometric root of the runner pin.
+**5 ✅ live.** The Franchise (§3.11 above). Hardening, each root-caused by measurement:
+- **The runner watchdog: 703 recoveries in 60 days → 0.** 701 of 703 fired from a runner PARKED beside
+  one full shelf, drip-feeding leftovers. Two mechanisms: over-fetching (the batch filled to the carry
+  tier with no reference to the destination's room) and no in-flight accounting (several runners read
+  the same free capacity and all set off for the same shelf). Fixed with a destination-bounded load and
+  a committed-capacity term; served +45, lost sales 101 → 88, sales +7% over 60 days. The watchdog itself
+  turned out never to rescue anything — it pre-empts the same transition one tick early — and is kept as
+  the tripwire it always was.
+- **The queue-slot geometry: built, measured, REVERTED.** Spacing the queue evenly from the front
+  (slot 0 at 2.0 m) moves days 2–7 of the frozen ledger. The Batch 4a arrival-tolerance mitigation
+  stands; the patch is preserved in the session scratchpad with its measurements.
+- **`production-smoke`'s last failing assertion: the tool was stale, not the game.** Commit c900588 made
+  the RETURN action fee-free on purpose (the owner's §2.3 rule); the tool still expected a waste fee.
+  It now asserts the fee-free behaviour and passes for the first time.
+- **The publisher's touch floor is 48 px, not 44.** `playables-cert-smoke` enforces 47.5 px; the
+  responsive audit enforced 44 and had passed four controls the cert would reject. The audit adopts
+  48; those controls are 48.
+- **Spa guests sit on the lounge seats** while their pet is at the table or tub (plan §3.9's own line).
+- **Every other smoke** re-run and made honest (`ultra-narrow`, `task38`, the play-break and rush-help
+  smokes, `save-schema-smoke`, `production-smoke-v2`); the 60-day bot profiled (13–14 s against a 25 s
+  budget; three allocation-free fixes, byte-identical output).
+- Found on the way: `accessoriesBought` was missing from the snapshot literal since Batch 4b — every
+  boutique purchase was lost on the next save. The Franchise's keep-list test is what caught it.
+
+**The program's remaining gate is the owner's:** a 30-minute real-device session in portrait and
+landscape on the live URL.
 
 ---
 
@@ -625,3 +661,14 @@ queue slot 0 only 0.1 m beyond the display's front — the geometric root of the
 - Every gate in §0 rule 2 is green, the responsive audit reports 0/13, and the increment is live.
 
 *End of program. Start with Batch 0, task 0.1.*
+
+---
+
+## 10. Status at 2026-09-09
+
+Every item in §9 is met on the live build except the last clause of the last line, which is the
+owner's real-device session. Gates at the final commit: 951 tests (1 documented todo), postbuild OK,
+responsive audit 0 violations across 13 viewports × 6 states at the 48 px floor, task25 PASS, task38
+PASS, `production-smoke` exit 0, `playables-cert-smoke` exit 0, `ultra-narrow-smoke` exit 0,
+`franchise-smoke` 25/25, bot exit 0 and byte-identical across two 60-day runs with days 1–7 identical
+to Batch 4b, 0 stalls / 0 teleports / 0 ledger mismatches / invariant D 0 / A–C PASS through day 60.

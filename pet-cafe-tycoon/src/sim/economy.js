@@ -101,8 +101,22 @@ export function incomeMult(up, boosts, now) {
   // every cost curve here and turns coins back into a meaningless number.
   return asymptote(up.income | 0, INCOME_ASYMPTOTE.authoredTiers, t => 1 + INCOME_ASYMPTOTE.coef * t, INCOME_ASYMPTOTE.span, INCOME_ASYMPTOTE.decay) * x2;
 }
-export function salePrice(key, up, boosts, seated, now, tipMult = 1) {
-  return Math.round(PRODUCTS[key].price * incomeMult(up, boosts, now) * (seated ? 2.0 : 1) * tipMult);
+// `franchiseMult` is the Franchise prestige's +8%/level (plan §3.11), passed in rather than read
+// from a meta this module has no access to -- sim/franchise.js derives it from meta.franchise.level
+// and game.js's price() hands it over.
+//
+// WHY HERE. This is the ONE place a sale becomes coins: every seller in the game (game.js's price
+// closure, the bot, every balance experiment) computes a sale through this function, and the pay
+// path downstream only moves the number this produced. Applying it at the pay event instead would
+// mean finding every credit site -- and would also apply a *sales* bonus to party-order rewards,
+// contract payouts and rewarded-ad coins, which are authored payouts, not income.
+//
+// It MULTIPLIES alongside incomeMult rather than replacing it: the income upgrade is a curve the
+// player buys inside one café, the franchise a flat step they carry between cafés, and a branch
+// that cancelled the upgrade ladder would make the reset strictly worse than not franchising.
+// Default 1 keeps every existing caller -- tools/bot.js included -- byte-identical.
+export function salePrice(key, up, boosts, seated, now, tipMult = 1, franchiseMult = 1) {
+  return Math.round(PRODUCTS[key].price * incomeMult(up, boosts, now) * (seated ? 2.0 : 1) * tipMult * franchiseMult);
 }
 export function upgradeCost(key, up) {
   const cfg = UPGRADES[key];

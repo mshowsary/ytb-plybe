@@ -119,6 +119,11 @@ test('fix round 1: a runner Speed level (tier 2) rescales its mover speed to STA
 test('fix round 1: a runner Carry level 1 (RUNNER_CARRY_LEVELS[1] = 9) lets it carry up to 9 items', () => {
   const w = createWorld(AREA1);
   const oven = w.stations.get('oven1'); oven.stock = 20;
+  // Batch 5: a runner's batch is bounded by what its DESTINATION can hold as well as by its carry
+  // tier (staff.js loadCap — test/runner-recovery.test.js has the 703-event measurement behind it),
+  // and dispCookie's base capacity is 8, below this tier's 9. Star the shelf up so the carry tier is
+  // the binding constraint again and this test still measures what it was written to measure.
+  w.stations.get('dispCookie').capacity = 12;
   const runner = createStaff('runner', oven.front);
   const levels = { runner: { speed: 0, carry: 1 }, cashier: { speed: 0 }, cleaner: { speed: 0 } };
   let maxItems = 0;

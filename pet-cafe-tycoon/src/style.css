@@ -380,3 +380,75 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE8D8;font-family:"S
    player. contractBadge.js had already scoped this same rule to itself once; it belongs here, once,
    for everything. */
 [hidden]{display:none!important}
+
+/* --- Franchise (plan §3.11) --------------------------------------------------------------------
+   Two surfaces: the offer row inside the day-summary card, and the offer sheet itself.
+
+   The sheet copies .paw-card's skeleton on purpose — fixed head, ONE internal scroller, fixed
+   action row — so the certification viewports (280x653 and 653x280) scroll the BODY and never the
+   page, and the two decision buttons are always on screen without hunting for them. That is not a
+   nicety here: this is the one sheet whose buttons cannot be allowed to sit below a fold. */
+.franchise-offer{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;
+  box-sizing:border-box;margin-top:8px;padding:8px 11px;border-radius:15px;text-align:left;
+  background:linear-gradient(135deg,#eef6ff,#fff);border:1px solid #6fa8dc38;box-shadow:inset 0 1px 0 #fff}
+.franchise-offer-copy{display:flex;flex-direction:column;gap:2px;min-width:0}
+.franchise-offer-kicker{font:950 10px/1 system-ui,sans-serif;color:#2f6ea8;letter-spacing:.06em}
+.franchise-offer-sub{font:800 11px/1.25 system-ui,sans-serif;opacity:.72;min-width:0}
+ /* 48px, not 44: .card animates in from transform:scale(.92), and the sibling .meta-reward-btn is
+    48 for the same reason -- a 44px box in a 0.92-scaled card measures 40 under a certification
+    audit. The two buttons in this row must also read as one control set. */
+.franchise-offer-btn{min-height:48px;min-width:88px;flex:none;border:0;border-radius:13px;padding:0 12px;
+  background:linear-gradient(135deg,#6fa8dc,#4b86bd);color:#fff;font:950 13px/1 system-ui,sans-serif;
+  box-shadow:0 4px 0 #3a6c9a,0 8px 18px #3a6c9a29;display:flex;align-items:center;justify-content:center;gap:7px;cursor:pointer}
+.franchise-offer-ico{width:18px;height:18px;display:inline-flex}
+.franchise-offer-ico svg{width:100%;height:100%;display:block}
+@media(max-width:300px){.franchise-offer{padding:7px 8px}.franchise-offer-sub{display:none}.franchise-offer-btn{min-width:0;padding:0 10px}}
+
+.fr-root{position:fixed;inset:0;z-index:78;display:grid;place-items:center;padding:12px;box-sizing:border-box;font-family:system-ui,sans-serif}
+.fr-backdrop{position:absolute;inset:0;background:#211a178c;backdrop-filter:blur(5px)}
+.fr-card{position:relative;width:min(430px,100%);max-height:min(660px,92vh);box-sizing:border-box;
+  display:flex;flex-direction:column;gap:10px;overflow:hidden;border-radius:24px;padding:14px;
+  background:linear-gradient(180deg,#fff8eb,#fff1df);color:var(--ink);
+  box-shadow:0 24px 70px #0006;border:1px solid #fff}
+.fr-head{flex:none;display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:48px}
+.fr-title{font:950 18px/1.05 system-ui,sans-serif;letter-spacing:-.01em;min-width:0}
+.fr-close{width:48px;height:48px;flex:none;padding:0;border:0;border-radius:50%;background:#49372c10;
+  color:var(--ink);font:800 22px/1 system-ui,sans-serif;cursor:pointer}
+.fr-body{flex:1 1 auto;min-height:0;overflow-y:auto;touch-action:pan-y;overflow-x:hidden;-webkit-overflow-scrolling:touch;
+  display:flex;flex-direction:column;gap:10px}
+.fr-lead{margin:0;font:800 13px/1.4 system-ui,sans-serif;opacity:.8}
+.fr-foot{margin:0;font:800 11px/1.4 system-ui,sans-serif;opacity:.55}
+.fr-section{display:flex;flex-direction:column;gap:6px;padding:10px 11px;border-radius:16px;
+  background:#ffffffa8;border:1px solid #5f45300e}
+.fr-section.is-gain{background:linear-gradient(135deg,#fff6dd,#fff);border-color:#e6b74c38}
+.fr-section.is-reset{background:linear-gradient(135deg,#fff0ec,#fff);border-color:#e4694f2e}
+.fr-section-title{font:950 10px/1 system-ui,sans-serif;letter-spacing:.07em;text-transform:uppercase;opacity:.6}
+/* minmax(0,1fr) on the text column is what stops a long line pushing the row past a 280px frame. */
+.fr-line{display:grid;grid-template-columns:22px minmax(0,1fr);align-items:center;gap:9px}
+.fr-line-icon{width:22px;height:22px;display:block}
+.fr-line-icon svg{width:100%;height:100%;display:block}
+.fr-line-text{font:800 12px/1.35 system-ui,sans-serif;min-width:0;overflow-wrap:anywhere}
+.fr-actions{flex:none;display:flex;align-items:stretch;gap:9px}
+/* Both are >= 44px tall. Decline is deliberately the calmer of the two and stays first in the DOM,
+   so a keyboard/screen-reader pass reaches "Not now" before the destructive control. */
+.fr-decline{flex:1 1 0;min-height:48px;border:0;border-radius:14px;padding:0 12px;background:#49372c12;
+  color:var(--ink);font:950 13px/1 system-ui,sans-serif;cursor:pointer}
+.fr-accept{flex:1.3 1 0;min-height:48px;border:0;border-radius:14px;padding:0 12px;
+  background:linear-gradient(135deg,#6fa8dc,#4b86bd);color:#fff;font:950 13px/1.1 system-ui,sans-serif;
+  box-shadow:0 4px 0 #3a6c9a,0 8px 18px #3a6c9a29;cursor:pointer}
+/* Armed = the next tap resets the café. Red, not blue: the colour changes with the consequence. */
+.fr-accept.is-armed{background:linear-gradient(135deg,#f08a72,#d9573c);box-shadow:0 4px 0 #a83f2c,0 8px 18px #a83f2c33}
+.fr-accept:disabled,.fr-decline:disabled{opacity:.6;cursor:default}
+@media(max-width:340px){
+  .fr-root{padding:6px}
+  .fr-card{padding:10px;gap:8px;border-radius:20px}
+  .fr-title{font-size:15px}
+  .fr-section{padding:8px 9px}
+  .fr-line-text{font-size:11px}
+  .fr-actions{flex-direction:column}
+}
+@media(max-height:430px){
+  .fr-card{max-height:96vh;padding:10px;gap:7px}
+  .fr-lead{font-size:12px}
+  .fr-section{padding:8px 9px;gap:5px}
+}

@@ -17,6 +17,7 @@ const specialFor = day => {
 };
 import { normalizeCalendar } from './sim/rewards.js';
 import { familyOf, salePrice, cafeLevel, STAFF } from './sim/economy.js';
+import { franchiseIncomeMultiplier } from './sim/franchise.js';
 import { beginActorStep, endActorStep } from './sim/actorRoster.js';
 // src/game.js — binds simulation, rendering, UI, audio and YouTube platform services.
 import { createWorld, refreshActive, cleanSeat } from './sim/world.js';
@@ -102,7 +103,7 @@ export function createGame(S, area, els, platform = null) {
       // Save v5 surfaces. Batch 0 only writes `decor`; the rest are declared now so later batches
       // (album, followers, residents, seasons, franchise) inherit a migration that already exists.
       decor: [], followers: 0, album: {}, equipped: {}, residents: [],
-      goldenPaw: false, season: { index: 0, dayStart: 1 }, franchise: { level: 0 },
+      goldenPaw: false, season: { index: 0, dayStart: 1 }, franchise: { level: 0, multiplier: 1 },
     },
     golden: createGoldenHourState(),
     special: specialFor(1),
@@ -241,7 +242,7 @@ export function createGame(S, area, els, platform = null) {
   G.botDecide = () => { G.carryKey = owner.items.length ? owner.items[0].userData.product : null; G.carryCount = owner.items.length; return decide(world, G); };
 
   const price = (key, seated) => {
-    const base = salePrice(key, G.up, G.boosts, seated, Date.now(), tipMult(G.dayState)) * masteryMultiplier(G.meta, key);
+    const base = salePrice(key, G.up, G.boosts, seated, Date.now(), tipMult(G.dayState), franchiseIncomeMultiplier(G.meta)) * masteryMultiplier(G.meta, key);
     const themeBonus = (G.special && saleMatchesTheme(G.special, key, familyOf)) ? G.special.tipBonus : 0;
     const gMult = goldenHourMult(G.golden);
     return Math.round(base * (1 + themeBonus) * gMult);
@@ -497,7 +498,10 @@ export function createGame(S, area, els, platform = null) {
       settlement: cloneSettlement(G.meta.settlement),
       decor: [...(G.meta.decor || [])], followers: G.meta.followers | 0,
       album: { ...G.meta.album }, equipped: { ...G.meta.equipped },
-      residents: [...(G.meta.residents || [])], goldenPaw: !!G.meta.goldenPaw,
+      // accessoriesBought was missing from this literal since Batch 4b: every boutique purchase was
+      // lost on the next save. Found by the Franchise's keep-list test, which reports any field the
+      // snapshot drops.
+      residents: [...(G.meta.residents || [])], accessoriesBought: [...(G.meta.accessoriesBought || [])], goldenPaw: !!G.meta.goldenPaw,
       season: { ...(G.meta.season || { index: 0, dayStart: 1 }) },
       pawBest: G.meta.pawBest | 0,
       pawSeatWindow: G.meta.pawSeatWindow

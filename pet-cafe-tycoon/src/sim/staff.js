@@ -101,15 +101,16 @@ const SOURCE_TYPES = { oven: 1, coffee: 1, blender: 1, icecream: 1 };
 // already sitting at 8/8, then has nowhere to go with them. Ranking is now by DISPLAY NEED
 // (capacity - stock; 0 when there is no active display for that family, or it is already full),
 // tie-broken by source stock, and a source whose display need is 0 is skipped outright.
-function pickSource(w, customers, wantProduct, assigned) {
+function pickSource(w, customers, wantProduct, assigned, crew, self) {
   // An assigned runner skips its source entirely while its OWN display is full — fetching a batch
-  // it provably cannot deliver is exactly what stranded it in front of the shelf.
-  if (assigned && (!assigned.active || assigned.stock >= assigned.capacity)) return null;
+  // it provably cannot deliver is exactly what stranded it in front of the shelf. A sibling's batch
+  // already in transit counts as filled for this purpose (see committed below).
+  if (assigned && (!assigned.active || assigned.stock + committed(w, crew, self, assigned) >= assigned.capacity)) return null;
   const want = wantProduct || (customers ? wishedProduct(customers) : null);
   // M3 T6's wished-product preference, kept intact but now gated on that wish's display having
   // room: when it has not, fall through to the need ranking below (restock something that CAN be
   // delivered) instead of fetching into a full shelf.
-  if (want && displayNeed(w, want) > 0) {
+  if (want && displayNeed(w, want, crew, self) > 0) {
     // Loop v2 Task 3: family match, not exact — a brownie-family shelf might be labelled 'brownie'
     // while oven1 itself currently reads 'cookie' (mid-batch), or vice versa; either is the right
     // source for the other.
@@ -126,7 +127,7 @@ function pickSource(w, customers, wantProduct, assigned) {
   let best = null, bestNeed = 0, bestStock = 0;
   for (const st of w.stations.values()) {
     if (!st.active || !SOURCE_TYPES[st.type] || !(st.stock > 0)) continue;
-    const need = displayNeed(w, productOf(st));
+    const need = displayNeed(w, productOf(st), crew, self);
     if (need <= 0) continue; // its display is full (or gone): fetching from here achieves nothing
     if (need > bestNeed || (need === bestNeed && st.stock > bestStock)) { best = st; bestNeed = need; bestStock = st.stock; }
   }
@@ -146,10 +147,37 @@ function displayFor(w, product) {
 // Task 0.5 — the number everything below ranks and decides on: how much room a product's display
 // actually has right now. 0 when there is no active display for its family, or it is already full.
 // Raw source stock says how much there is to fetch; this says whether fetching it can ever land.
-function displayNeed(w, product) {
+function displayNeed(w, product, crew, self) {
   const ct = displayFor(w, product);
   if (!ct || !ct.active) return 0;
-  return Math.max(0, ct.capacity - ct.stock);
+  return Math.max(0, ct.capacity - ct.stock - committed(w, crew, self, ct));
+}
+// How many items OTHER runners are already carrying toward `ct` right now. Without this, every
+// unassigned runner reads the same raw free capacity and they all set off for the same shelf:
+// measured on the 60-day bot, once the roster reached 2-4 runners, every remaining runnerStuck
+// event was one runner arriving at a display a sibling had just topped up, with 1-2 undeliverable
+// items still in hand. A batch in transit is capacity that is already spoken for, so it is
+// subtracted here — at the one place (displayNeed) that both the source ranking and the load cap
+// already read. holdDisplay is exactly "which shelf is that batch bound for", so no new bookkeeping
+// is needed; a runner with an empty batch has claimed nothing yet and is skipped. `crew` is
+// optional: standalone callers that never pass a roster (test/nav-fullhouse.test.js) keep their
+// exact prior single-runner arithmetic, where this term is 0 by definition anyway.
+function committed(w, crew, self, ct) {
+  if (!crew || !ct) return 0;
+  let n = 0;
+  for (const r of crew) {
+    if (r === self || r.kind !== 'runner' || !r.items.length) continue;
+    if (holdDisplay(w, r) === ct) n += r.items.length;
+  }
+  return n;
+}
+// How many items this runner may pick up from a `product` source right now: its carry tier, clamped
+// to the free capacity of the display it will actually walk that batch to (its assigned one, else
+// the family match). See the 'loading' case for the measurement that motivated the clamp.
+function loadCap(w, s, product, carryCap, crew) {
+  const ct = s.assign ? w.stations.get(s.assign) : displayFor(w, product);
+  if (!ct || !ct.active) return 0;
+  return Math.min(carryCap, Math.max(0, ct.capacity - ct.stock - committed(w, crew, s, ct)));
 }
 // The display the batch currently in hand belongs to: an assigned runner's own display, otherwise
 // the family-matching one.
@@ -240,7 +268,7 @@ const HOLD_LIMIT = 6;
 // state-machine defect; see the handoff notes for that measurement.
 const ARRIVE_FALLBACK_EPS = 0.3;
 
-function stepRunner(s, w, dt, carryCap, customers) {
+function stepRunner(s, w, dt, carryCap, customers, crew) {
   // Task 0.5 watchdog. Counts only time spent holding a batch OUTSIDE the load -> deliver pipeline
   // ('loading' is still filling the batch; 'toCounter'/'dropping' are actively delivering it), so a
   // legitimate 16-item batch walking the length of the café never trips it, while anything else
@@ -288,7 +316,7 @@ function stepRunner(s, w, dt, carryCap, customers) {
         walkTo(s, s.spawn.x, s.spawn.z, w, dt);
         return;
       }
-      const src = pickSource(w, customers, assigned ? assigned.product : null, assigned);
+      const src = pickSource(w, customers, assigned ? assigned.product : null, assigned, crew, s);
       if (src) { s.mover.hasTarget = false; s.target = src.id; s.state = 'toOven'; return; }
       walkTo(s, s.spawn.x, s.spawn.z, w, dt); // nothing to do: return to spawn and idle there
       return;
@@ -355,14 +383,28 @@ function stepRunner(s, w, dt, carryCap, customers) {
       if (!src) { s.state = 'idle'; return; }
       const take = src.type === 'oven' ? takeFromOven : takeFromMachine;
       const key = productOf(src);
+      // Runner-watchdog investigation: the batch is capped by what its DESTINATION can actually
+      // hold, not by the runner's own carry tier. Ranking sources by displayNeed (pickSource, above)
+      // only asks "is there ANY room" — so a carry-16 runner cheerfully drained an oven for a shelf
+      // with two free slots, delivered two, and then babysat the other fourteen: 'dropping' bails to
+      // 'idle' on the first refused placement, 'idle' sees a full display and parks it in 'waiting',
+      // and 'waiting' can only end via unloadSource, which is null exactly when the family is backed
+      // up (oven at buffer BECAUSE the shelf is full). Measured on the 60-day bot: 701 of 703
+      // runnerStuck events fired from 'waiting', parked, at a display that had just freed 1-2 slots —
+      // i.e. a runner standing beside one full shelf drip-feeding leftovers while the other four
+      // displays went unserviced. Capping here is what frees it: it delivers what fits and returns to
+      // 'idle', where pickSource re-ranks by need across every family. Read live rather than once on
+      // entry, so a sale during the 0.2s-per-item load immediately widens the batch.
       s.timer += dt;
-      while (s.timer >= 0.2 && s.items.length < carryCap && src.stock > 0) {
+      while (s.timer >= 0.2 && s.items.length < loadCap(w, s, key, carryCap, crew) && src.stock > 0) {
         s.timer -= 0.2;
         // Task 0.5: remember the source so 'unload' can put an undeliverable batch back exactly
         // where it came from instead of guessing.
         if (take(w, src.id, 1) > 0) { s.items.push(key); s.srcId = src.id; }
       }
-      if (s.items.length >= carryCap || src.stock <= 0) s.state = 'idle';
+      // A cap of 0 (the shelf filled while we walked here) satisfies this on the first tick, so the
+      // runner never parks at the oven front holding nothing: 'idle' re-picks a source or goes home.
+      if (s.items.length >= loadCap(w, s, key, carryCap, crew) || src.stock <= 0) s.state = 'idle';
       return;
     }
     case 'toCounter': {
@@ -654,7 +696,7 @@ export function stepStaff(list, w, dt, onCollect, levels, customers) {
   let photographerIdx = 0;
   for (const s of list) {
     s.mover.speed = (STAFF[s.kind] && STAFF[s.kind].speed || 2.2) * workerSpeedMult(L, s.kind);
-    if (s.kind === 'runner') stepRunner(s, w, dt, carryCap, customers);
+    if (s.kind === 'runner') stepRunner(s, w, dt, carryCap, customers, list);
     else if (s.kind === 'cashier') { stepCashier(s, w, dt, cashierLevel, cashierIdx, cashierTotal); cashierIdx++; }
     else if (s.kind === 'cleaner') stepCleaner(s, w, dt, cleanerRate);
     else if (s.kind === 'photographer') { stepPhotographer(s, w, dt, photographerIdx, photographerTotal); photographerIdx++; }

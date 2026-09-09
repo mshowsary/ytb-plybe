@@ -14,6 +14,7 @@ import { createResponsivePolish } from './ui/responsive.js';
 import { createLabelLayout } from './ui/labelLayout.js';
 import { createResidentPets } from './systems/residentPets.js';
 import { createGoldenPawCeremony } from './systems/goldenPaw.js';
+import { createFranchiseBridge } from './systems/franchise.js';
 import { install as installDecor } from './systems/decor.js';
 import { installHudLayout } from './ui/hudLayout.js';
 import { createPlayablesShell } from './ui/playablesShell.js';
@@ -260,6 +261,8 @@ function startGame(S, load, bootUi) {
   const residentPets = createResidentPets(S, G, els);
   // ambience and fx belong to game.js and reach here through G (see the two exposures there).
   const goldenPaw = createGoldenPawCeremony(S, G, { ambience: G.ambience, fx: G.fx, residents: residentPets });
+  // The Franchise offer (plan §3.11). Surfaced from the day summary only; never auto-opens.
+  const franchise = createFranchiseBridge(G);
   const rewardsSystem = createRewardsSystem(G, S, platform);
   const pauseOverlay = makePauseOverlay();
   // Time of day owns sun/hemi/sky/fog/grade and the after-dark interior glow. Created here (not in
@@ -277,6 +280,7 @@ function startGame(S, load, bootUi) {
   // Same rule as the keepsake above: an award already in the save is a plaque that has always been
   // on the wall. This mounts it with no animation and retires the ceremony for the session.
   goldenPaw.refresh();
+  franchise.refresh();
   coffeePolish.update();
   rewardsSystem.refresh();
   installHudLayout(); // last stylesheet wins: this module owns HUD placement
@@ -288,6 +292,7 @@ function startGame(S, load, bootUi) {
   const frameMetrics = createFrameMetrics();
   window.__performanceCapture = frameMetrics;
   window.__game = G;
+  window.__franchise = franchise;
   window.__scene = S;
   window.__audio = G.audio;
   window.__pauseMenu = pauseMenu;
@@ -359,6 +364,7 @@ function startGame(S, load, bootUi) {
       butterflies.update(dt);
       residentPets.update(dt);
       goldenPaw.update(dt);
+      franchise.update();
       rewardsSystem.update(dt);
       // After rewardsSystem: it is what moves S.goldenHour, and Golden Hour is a boost layered on
       // top of the current time-of-day keyframe rather than a palette of its own.

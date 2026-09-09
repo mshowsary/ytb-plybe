@@ -149,7 +149,7 @@ export function createCustomers(G, S, ctx) {
     }
     rec.set(c.id, {
       human, pet, leash, identity, profile,
-      px: c.x, pz: c.z, eating: false, bub,
+      px: c.x, pz: c.z, eating: false, spaSeated: false, bub,
       lastState: c.state, petHappyT: 0, petBreakActive: false, treatCelebrated: false, tablePenalty: false,
       regularCandidate: c.regularCandidate, regularGreeted: false, regularGreetingT: 0, regularDay: day,
     });
@@ -296,11 +296,33 @@ export function createCustomers(G, S, ctx) {
           r.regularGreetingT = Math.max(0, r.regularGreetingT - dt);
           if (r.regularGreetingT === 0 && !r.petBreakActive && r.petHappyT <= 0) r.pet.setMood('none');
         }
+        // Batch 5 (plan §3.9, "pets' owners sit while pets are pampered"): sim/customers.js moves a
+        // spa guest onto a free lounge seat (c.spaSeatId) for the length of an OPEN groom/bath
+        // session while its state stays 'atGroom'/'atBath', so this cannot reuse the 'eating'
+        // switch above. It keys on r.px/r.pz having actually converged on the seat's human spot —
+        // the ordinary walk rendering drives them there first — so the guest is seen walking over,
+        // never teleporting. The pet stays at the table/tub: the one place its drawn position is not
+        // the leash-follow spot.
+        const spaLoungeSeat = c.spaSeatId ? seatById(world, c.spaSeatId) : null;
+        const spaSeatedNow = !!(spaLoungeSeat && Math.hypot(r.px - spaLoungeSeat.pair.human.x, r.pz - spaLoungeSeat.pair.human.z) < 0.08);
+        if (!r.spaSeated && spaSeatedNow) {
+          r.human.group.position.set(spaLoungeSeat.pair.human.x, 0, spaLoungeSeat.pair.human.z);
+          r.px = spaLoungeSeat.pair.human.x; r.pz = spaLoungeSeat.pair.human.z;
+          r.human.group.rotation.y = c.rot;
+          r.human.sit(); r.human.setMood('none');
+          r.bub.wrap.classList.add('hidden'); r.bub.bar.classList.add('hidden');
+          const spaTableSt = c._spaTarget ? world.stations.get(c._spaTarget) : null;
+          if (spaTableSt) { r.pet.group.position.set(spaTableSt.front.x, 0, spaTableSt.front.z); r.pet.sit(); }
+          r.spaSeated = true;
+        } else if (r.spaSeated && !spaSeatedNow) {
+          r.pet.stand(); r.human.stand(); r.spaSeated = false;
+          r.px = r.human.group.position.x; r.pz = r.human.group.position.z;
+        }
         if (r.eating && c.state !== 'eating') {
           r.pet.stand(); r.human.stand(); r.eating = false; r.identity.setSeated(false);
           r.px = r.human.group.position.x; r.pz = r.human.group.position.z;
         }
-        if (r.eating) {
+        if (r.eating || r.spaSeated) {
           r.pet.update(dt, false, 0);
         } else {
           const step = cappedVisualStep(r.px, r.pz, c.x, c.z, GUEST_VISUAL_MAX_SPEED, dt);

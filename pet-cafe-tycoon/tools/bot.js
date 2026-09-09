@@ -70,6 +70,15 @@ const MAX_DAYS = 60;
 const wallStart = Date.now();
 
 const world = createWorld(AREA1);
+// Perf: world.stations never gains or loses entries after createWorld (only st.active flips when a
+// zone is bought — world.js:122 is the only stations.set call), and station type never changes. The
+// tick loop below used to re-filter all 49 stations by type twice a tick just to find the lone photo
+// station and the lone groom/bath pair (see cs_temp_check tally: photo:1, groom:1, bath:1 of 49) —
+// same "keep an id array by kind" idea world.js already applies to w.checkouts/w.displays, just done
+// here in bot.js instead since world.js is out of scope. Cuts the per-tick owner-proximity scan from
+// ~98 Map-iterator steps to 3 plain array ones, with zero change to which stations end up `serving`.
+const photoStations = [...world.stations.values()].filter(st => st.type === 'photo');
+const spaStations = [...world.stations.values()].filter(st => st.type === 'groom' || st.type === 'bath');
 const G = {
   coins: 0,
   up: { speed: 0, carry: 0, income: 0 },
@@ -448,6 +457,12 @@ function checkDayInvariants(day, income, endWallet) {
 }
 
 let teleports = 0; const stalls = [];
+// Perf: reused across ticks instead of rebuilt (`[ownerMover, ...customers.map(...), ...staffList
+// .map(...)]` allocated a fresh map-result array per side plus the spread-copy, three arrays every
+// tick for a list that's only read once below). `.length = 0` keeps the backing store so pushing back
+// up to last tick's size costs no reallocation; order (owner, then customers, then staff) is
+// unchanged, so `stalls` — order-sensitive, printed verbatim — still fills in the same sequence.
+const movers = [];
 // Invariant D (plan section 4.3): "no runner holds items for > 6s while a same-family display has
 // free capacity". Measured straight off sim state every tick, deliberately INDEPENDENT of
 // src/sim/staff.js's own watchdog (which force-routes a delivery at the same threshold and emits
@@ -554,8 +569,8 @@ while (G.dayState.day <= MAX_DAYS) {
   // that increment lives here rather than in a second, redundant place.
   stepGroomTable(world, DT); stepBath(world, DT);
   for (const id of world.checkouts) { const co = world.stations.get(id); if (co.active && near(owner, co.front, 1.2)) co.serving = 'owner'; }
-  for (const st of world.stations.values()) if (st.type === 'photo' && st.active && near(owner, st.front, 1.2)) st.serving = true;
-  for (const st of world.stations.values()) if ((st.type === 'groom' || st.type === 'bath') && st.active && near(owner, st.front, 1.2)) st.serving = true;
+  for (const st of photoStations) if (st.active && near(owner, st.front, 1.2)) st.serving = true;
+  for (const st of spaStations) if (st.active && near(owner, st.front, 1.2)) st.serving = true;
   stepCustomers(customers, world, price, DT);
   // Levels was `undefined` (stepStaff's own DEFAULT_LEVELS) while staffList was always empty, so it
   // never mattered; now that gap (a) puts real actors in staffList, G.staffLevels must be passed
@@ -565,17 +580,26 @@ while (G.dayState.day <= MAX_DAYS) {
   stepStaff(staffList, world, DT, () => {}, G.staffLevels, customers);
   checkRunnerInvariant(DT);
 
+  let anyDone = false;
   for (const c of customers) {
     if (c.mood === 'wait') custWaitTime.set(c.id, (custWaitTime.get(c.id) || 0) + DT);
     if (c.done) {
+      anyDone = true;
       const phase = custSpawnPhase.get(c.id) || 'morning'; const bucket = phaseFriction[phase];
       bucket.n++; if ((custWaitTime.get(c.id) || 0) > 6) bucket.over++;
       custSpawnPhase.delete(c.id); custWaitTime.delete(c.id);
     }
   }
-  customers = customers.filter(c => !c.done); G.customers = customers;
+  // Perf: skip the filter's array rebuild on the (large majority of) ticks where nobody finished —
+  // anyDone was already computed for free by the loop above, so this is the same emptiness check
+  // customers.filter(c => !c.done) would do internally, just without allocating a same-contents copy.
+  if (anyDone) customers = customers.filter(c => !c.done);
+  G.customers = customers;
 
-  const movers = [ownerMover, ...customers.map(c => c.mover), ...staffList.map(s => s.mover)];
+  movers.length = 0;
+  movers.push(ownerMover);
+  for (const c of customers) movers.push(c.mover);
+  for (const s of staffList) movers.push(s.mover);
   for (const m of movers) {
     teleports += m.teleports; m.teleports = 0;
     if (m.hasTarget) {

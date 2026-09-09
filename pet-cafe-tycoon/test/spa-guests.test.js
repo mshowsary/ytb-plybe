@@ -5,6 +5,14 @@
 // branch) because the spa detour is built the same way the photo detour was: a new arrival kind,
 // decided once and gated on w.dayState so the untouchable test/nav-fullhouse.test.js and this file's
 // own pre-Batch-4b sibling (test/customers.test.js) keep replaying their exact old paths.
+//
+// Follow-up (plan 3.9's own stated line, "pets' owners sit while pets are pampered"): the two
+// round-trip tests below now also track the lounge-seat leg of the SAME full run (claimed once a
+// session opens, released once it resolves) so the existing "pay -> served -> c.seat stays null"
+// assertions and the new "sat on a real lounge seat for the session" ones are proven against one
+// single, real play-through rather than two disconnected setups. The dedicated coverage for the
+// lounge seat itself (timing, the no-seat-free fallback, region exclusivity, dirty/clean, two
+// concurrent sessions) lives in test/spa-lounge.test.js.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { AREA1 } from '../data/area1.js';
@@ -174,12 +182,20 @@ test('a manned grooming table serves the guest, who then pays PRODUCTS.groom.pri
   w.rng.chance = () => true;
   const c = createCustomer(1, 'cat', 0, AREA1);
   let pay = null;
+  // Follow-up: which lounge seat (if any) this guest sat on, and whether it was ever actually
+  // marked occupied while held — sampled every tick alongside the existing pay/served tracking, so
+  // this stays one continuous run rather than a second setup duplicating the whole round trip.
+  let sawSpaSeatId = null, seatWasOccupied = false;
   for (let i = 0; i < 30 * 60 && !c.done; i++) {
     manAll(w, ['groom1', ...w.checkouts]);
     stepCustomers([c], w, price, 1 / 30);
     stepGroomTable(w, 1 / 30);
     stepRegisters(w, 1 / 30);
     for (const e of w.events) if (e.type === 'pay' && e.id === c.id) pay = e;
+    if (c.spaSeatId) {
+      sawSpaSeatId = c.spaSeatId;
+      if (w.stations.get(c.spaSeatId).occupied) seatWasOccupied = true;
+    }
     w.events.length = 0;
   }
   assert.ok(pay, 'a pay event must fire for this guest');
@@ -187,8 +203,19 @@ test('a manned grooming table serves the guest, who then pays PRODUCTS.groom.pri
   assert.equal(pay.amount, price('groom', false));
   assert.ok(pay.amount >= 60 && pay.amount <= 90, `plan's 60-90 band: got ${pay.amount}`);
   assert.equal(c.done, true);
-  assert.equal(c.seat, null, 'a spa guest never sits');
+  assert.equal(c.seat, null, 'a spa guest never sits at an ordinary café table');
   assert.equal(c.seatId, null);
+  // Follow-up (plan 3.9's own stated line, "pets' owners sit while pets are pampered"): a lounge
+  // seat (spaSeat1-3, always active once z_spa is built — see buildUpTo above) was free the whole
+  // time, so this guest must have actually used one for its session, and it must have been marked
+  // occupied while it did.
+  assert.ok(/^spaSeat[123]$/.test(sawSpaSeatId || ''), `expected a real lounge seat id, got ${sawSpaSeatId}`);
+  assert.ok(seatWasOccupied, 'the claimed lounge seat must be marked occupied while this guest holds it');
+  assert.equal(c.spaSeatId, null, 'released once the session resolved and the guest moved on to pay');
+  assert.equal(c.spaSeat, null);
+  const seat = w.stations.get(sawSpaSeatId);
+  assert.equal(seat.occupied, false, 'freed, not left stuck occupied');
+  assert.equal(seat.dirty, true, 'a lounge seat gets dirty like any other table once its guest is done with it');
 });
 
 test('a manned bath tub serves the guest, stamps c.sparkleUntil, and the guest still pays and counts as served', () => {
@@ -203,17 +230,32 @@ test('a manned bath tub serves the guest, stamps c.sparkleUntil, and the guest s
     wish: { product: 'cookie', treat: false }, spaArrived: 1, slot: 0,
   });
   let pay = null;
+  // Follow-up: BATH_DURATION (3s) is shorter than the walk from bath1 to the lounge (~12m at
+  // CUSTOMER_SPEED), so this guest's session can resolve before it physically arrives — the seat
+  // is still claimed (and marked occupied) the instant the session opens, which is what this
+  // samples, regardless of whether the walk itself ever completes.
+  let sawSpaSeatId = null, seatWasOccupied = false;
   for (let i = 0; i < 30 * 60 && !c.done; i++) {
     manAll(w, ['bath1', ...w.checkouts]);
     stepCustomers([c], w, price, 1 / 30);
     stepBath(w, 1 / 30);
     stepRegisters(w, 1 / 30);
     for (const e of w.events) if (e.type === 'pay' && e.id === c.id) pay = e;
+    if (c.spaSeatId) {
+      sawSpaSeatId = c.spaSeatId;
+      if (w.stations.get(c.spaSeatId).occupied) seatWasOccupied = true;
+    }
     w.events.length = 0;
   }
   assert.ok(pay);
   assert.equal(pay.checkoutId, 'register3');
   assert.equal(pay.amount, price('bath', false));
+  assert.ok(/^spaSeat[123]$/.test(sawSpaSeatId || ''), `expected a real lounge seat id, got ${sawSpaSeatId}`);
+  assert.ok(seatWasOccupied, 'the claimed lounge seat must be marked occupied while this guest holds it');
+  assert.equal(c.spaSeatId, null, 'released once the bath resolved');
+  const seat = w.stations.get(sawSpaSeatId);
+  assert.equal(seat.occupied, false);
+  assert.equal(seat.dirty, true, 'a lounge seat gets dirty like any other table once its guest is done with it');
   assert.ok(c.sparkleUntil > 0, 'a bath must stamp the render-only sparkle flag (world.js\'s own clearBathSession comment)');
   assert.ok(c.done);
 });

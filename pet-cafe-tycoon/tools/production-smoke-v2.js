@@ -176,8 +176,12 @@ for (const [tag,width,height,dpr] of cases) {
     interaction.cash.pile!==0||interaction.cash.gained!==206||interaction.cash.collectVisible||interaction.cash.cashLabel||interaction.cash.legacyCashLabel||
     interaction.cleaning.dirty||interaction.cleaning.cleanVisible||interaction.prose.hint||interaction.prose.hands||interaction.prose.goal
   );
-  const bad=!boot.platform||boot.metaVersion!==4||!boot.clean||boot.overflow||boot.hint||boot.hands||boot.goal||goalBad||cleanBad||
-    journey.days!==7||journey.masteries!==5||!journey.reno||journey.overflow||book.cards!==12||book.found<7||book.overflow||
+  // Certification batch 5: save schema moved v4->v5 (src/sim/saveSchema.js CURRENT_SAVE_VERSION)
+  // and the pet roster grew from 12 to 20 entries (src/render/pets.js / the pet book catalogue)
+  // in Batches 2-4. Neither this cert nor its expectations were run/updated since, so it was
+  // failing on both stale numbers rather than catching anything real.
+  const bad=!boot.platform||boot.metaVersion!==5||!boot.clean||boot.overflow||boot.hint||boot.hands||boot.goal||goalBad||cleanBad||
+    journey.days!==7||journey.masteries!==5||!journey.reno||journey.overflow||book.cards!==20||book.found<7||book.overflow||
     summary.stars!=='★★★'||summary.result!=='WON ✓'||!summary.cup||!summary.reward||!summary.fits||summary.overflow||summary.details.length>2||summary.nextVisible||smallBad||errors.length;
   if(bad)failed=true;
   report.push({tag,boot,smallChecks,goal,journey,renovation,interaction,book,summary,ui,errors,bad});
