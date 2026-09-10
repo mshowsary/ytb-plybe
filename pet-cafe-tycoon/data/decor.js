@@ -110,6 +110,9 @@ const stringLightIcon = () => '<svg viewBox="0 0 24 24" aria-hidden="true">'
 // only appears once its star is awarded. Every item is +1 reputation, so the catalogue is worth
 // exactly 39 reputation in total — meaningful, but far below what shift ratings pay.
 export const DECOR = Object.freeze([
+  { id: 'd_play_wand', price: 180, rep: 1, region: 'interior', kind: 'play', slot: { x: 8.85, y: 0, z: 5.8, rot: -0.3 }, icon: catTreeIcon() },
+  { id: 'd_play_wheel', price: 360, rep: 1, region: 'interior', kind: 'play', slot: { x: -8.9, y: 0, z: -1.5, rot: 0.6 }, icon: rugIcon('#80977C', '#FFF1D8') },
+  { id: 'd_play_fountain', price: 640, rep: 1, region: 'interior', kind: 'play', slot: { x: -9, y: 0, z: 4, rot: 0 }, icon: feederIcon() },
   // -- interior, cheap tier (days 2-6 always have one of these in reach) --
   { id: 'd_paw_sign',    price: 60,  rep: 1, region: 'interior', kind: 'sign',    slot: { x: -9.7,  y: 1.55, z: 5.7,  rot: Math.PI / 2 },  icon: pawSignIcon() },
   { id: 'd_rug_door',    price: 70,  rep: 1, region: 'interior', kind: 'rug',     slot: { x: -7.4,  y: 0.02, z: 4.2,  rot: 0 },            icon: rugIcon('#E4694F', '#F5C784') },

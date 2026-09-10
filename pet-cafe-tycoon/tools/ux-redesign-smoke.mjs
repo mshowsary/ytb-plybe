@@ -56,15 +56,15 @@ try {
 
     await page.locator('.pause-view:not(.hidden) .cafe-back').click();
     await page.getByRole('button', { name: 'Journey', exact: true }).click();
-    const bonusLink = page.getByRole('button', { name: /Available bonus/ });
-    assert.equal(await bonusLink.isDisabled(), true, 'bonus route stays quiet when no contextual offer is waiting');
+    const bonusLink = page.locator('[data-perk="mystery-float-chip"]');
+    assert.equal(await bonusLink.isVisible(), false, 'bonus route stays quiet when no contextual offer is waiting');
     await page.evaluate(() => {
       const oldChip = document.querySelector('.mystery-float-chip');
       const chip = oldChip.cloneNode(true);
       chip.classList.remove('hidden');
       chip.addEventListener('click', () => { window.__bonusRouteSmoke = true; });
       oldChip.replaceWith(chip);
-      window.__pauseMenu.sync();
+      window.__cafeJournal.refresh();
     });
     assert.equal(await bonusLink.isEnabled(), true, 'a waiting contextual offer becomes reachable through Journey');
     await bonusLink.click();

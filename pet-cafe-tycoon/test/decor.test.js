@@ -22,9 +22,9 @@ const openInterior = () => interior().filter(i => !i.star);
 
 // ---------------------------------------------------------------------------------------------
 // catalogue
-test('the catalogue is 39 authored items with unique ids inside the authored price band', () => {
-  assert.equal(DECOR.length, 39);
-  assert.equal(new Set(DECOR_IDS).size, 39);
+test('the catalogue is 42 authored items with unique ids inside the authored price band', () => {
+  assert.equal(DECOR.length, 42);
+  assert.equal(new Set(DECOR_IDS).size, 42);
   for (const item of DECOR) {
     assert.equal(typeof item.id, 'string', item.id);
     assert.ok(Number.isInteger(item.price) && item.price >= 60 && item.price <= 900, `${item.id} price ${item.price}`);

@@ -5,6 +5,7 @@ import { C, toonMaterial, emissiveMaterial } from './palette.js';
 import { damp } from '../core/tween.js';
 import { petProfile, isLegendaryProfile } from '../sim/petBook.js';
 import { petAppearance } from './petAppearance.js';
+import { petSocialPose } from './petSocialPose.js';
 import {
   createPetTraitMotionState,
   petTraitContextActive,
@@ -300,6 +301,24 @@ export function createPet(species, variant = 0) {
   P.sit = () => { P._sitting = true; };
   P.stand = () => { P._sitting = false; };
   P.setHop = h => { P._hop = h; };
+  P.social = (dt, { state = '', target = null, reducedMotion = false } = {}) => {
+    const changed = P._socialState !== state;
+    P._socialState = state;
+    const near = target && Math.hypot(target.x - group.position.x, target.z - group.position.z) < 2.5;
+    P._socialCooldown = Math.max(0, (P._socialCooldown || 0) - dt);
+    if (reducedMotion || P._moving || P._traitActive) { P._socialT = 0; return; }
+    if (!P._socialCooldown && ((near && !P._socialNear) || (changed && ['eating', 'atBowl', 'atRegister'].includes(state)))) {
+      P._socialT = 1.9; P._socialCooldown = 9 + (variant | 0);
+    }
+    P._socialNear = near;
+    P._socialT = Math.max(0, (P._socialT || 0) - dt);
+    if (!P._socialT) return;
+    const pose = petSocialPose(species, variant, 1 - P._socialT / 1.9, state === 'eating' || state === 'atBowl' ? 'eat' : 'greet');
+    head.rotation.z += pose.tilt; head.rotation.x += pose.nod;
+    tail.rotation.y = pose.wag;
+    body.scale.y *= 1 + pose.squash;
+    if (near) { const a = Math.atan2(target.x - group.position.x, target.z - group.position.z) - group.rotation.y; head.rotation.y += Math.max(-.55, Math.min(.55, Math.atan2(Math.sin(a), Math.cos(a)))) * Math.sin(Math.PI * (1 - P._socialT / 1.9)); }
+  };
   P.update = (dt, moving, hop) => {
     P._moving = !!moving;
     head.rotation.y = 0;

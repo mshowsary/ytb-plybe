@@ -1,4 +1,5 @@
 import { createFrameMetrics } from './core/frameMetrics.js';
+import { createCafeJournal } from './ui/cafeJournal.js';
 // Host-aware boot: paint recovery shell → resolve cloud save → create playable runtime → game ready.
 import { createScene } from './render/scene.js';
 import { createDaylight } from './render/daylight.js';
@@ -28,7 +29,6 @@ import { createCashTrays } from './render/cashTrays.js';
 import { createCoffeePolish } from './render/coffeePolish.js';
 import { createButterflies } from './render/butterflies.js';
 import { createRewardsSystem } from './systems/rewardsSystem.js';
-import { bootInterstitialDue } from './sim/adPacing.js';
 import { AREA1 } from '../data/area1.js';
 
 const $ = id => document.getElementById(id);
@@ -294,6 +294,8 @@ function startGame(S, load, bootUi) {
   rewardsSystem.refresh();
   installHudLayout(); // last stylesheet wins: this module owns HUD placement
   const pauseMenu = createPauseMenu(G, platform, G.uiRoutes);
+  const cafeJournal = createCafeJournal(G, platform);
+  window.__cafeJournal = cafeJournal;
   // Batch 6: the wallet, followers, Pet Book and ★ chips become one resource bar. Every one of them
   // exists by now (hud.js, meta.js and career.js all ran inside createGame), so this single call
   // adopts them all; arrangeHud is idempotent and also runs inside installHudLayout for the pieces
@@ -365,6 +367,7 @@ function startGame(S, load, bootUi) {
     const frameMs = Math.max(0, now - last);
     const dt = Math.min(0.05, frameMs / 1000); last = now;
     const paused = applyPauseState();
+    cafeJournal.update();
 
     if (!paused) {
       G.update(dt);
@@ -406,10 +409,7 @@ function startGame(S, load, bootUi) {
       first = false;
       bootUi.hide();
       platform.gameReady();
-      if (platform && bootInterstitialDue(G.meta?.completedDays) && platform.canRequestAd?.('interstitial') !== false) {
-        platform.noteAdEligible?.('interstitial', 'boot:returning');
-        platform.requestInterstitialAd().catch(() => {});
-      }
+      // YouTube owns pre-roll. Interstitial requests remain at the natural shift transition.
     }
     scheduleFrame();
   }

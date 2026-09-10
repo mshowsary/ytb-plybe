@@ -53,6 +53,7 @@ for (const [tag,width,height,dpr] of cases) {
     const t0 = await page.evaluate(() => window.__game.dayState.t);
     await page.waitForTimeout(500);
     const pauseFrozen = await page.evaluate(t => Math.abs(window.__game.dayState.t-t)<.001 && window.__audio.paused, t0);
+    await page.click('[data-page="settings"]');
     await page.click('[data-setting="music"]');
     const musicIndependent = await page.evaluate(() => window.__game.settings.music===false && window.__audio.musicEnabled===false && window.__audio.sfxEnabled===true);
     await page.click('[data-setting="music"]');

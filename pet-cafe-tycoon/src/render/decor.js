@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import { part, mesh, merge } from './geo.js';
 import { C, emissiveMaterial } from './palette.js';
 import { DECOR_BY_ID } from '../../data/decor.js';
+import { createPet } from './pets.js';
 
 const TAU = Math.PI * 2;
 
@@ -199,7 +200,43 @@ function stringLights() {
 }
 
 // ---------------------------------------------------------------------------------------------
+function petPlayground(kind) {
+  const g = new THREE.Group();
+  const base = [part('rbox', [1.05, .12, .85, .08], '#D8CBB8', { y: .06 }), part('rbox', [.9, .04, .7, .06], '#80977C', { y: .14 })];
+  const moving = new THREE.Group(); moving.name = 'play-motion';
+  if (kind === 'wand') {
+    base.push(part('cyl', [.075, .09, 1.1, 10], '#BF9E75', { x: -.28, y: .7 }));
+    base.push(part('rbox', [.65, .10, .6, .04], '#E5AD9E', { x: -.15, y: 1.28 }));
+    moving.position.set(.1, 1.28, .15);
+    moving.add(mesh([part('cyl', [.014, .014, .55, 6], '#66574C', { y: -.27 }), part('sph', [.1, 10], '#E7BE65', { y: -.58 }), part('sph', [.085, 8], '#D98C82', { y: -.69, sy: 1.7, sx: .5 })]));
+  } else if (kind === 'wheel') {
+    base.push(part('box', [.11, .65, .12], '#A68059', { x: -.35, y: .45 }), part('box', [.11, .65, .12], '#A68059', { x: .35, y: .45 }));
+    moving.position.y = .72;
+    const wheel = [];
+    for (let i = 0; i < 18; i++) { const a = i / 18 * TAU; wheel.push(part('box', [.15, .07, .44], '#D8AD7B', { x: Math.cos(a) * .43, y: Math.sin(a) * .43, rz: a + Math.PI / 2 })); }
+    wheel.push(part('box', [.8, .065, .05], '#B38860'), part('box', [.065, .8, .05], '#B38860'));
+    moving.add(mesh(wheel));
+  } else {
+    base.push(part('cyl', [.43, .36, .22, 18], '#D98C82', { y: .28 }), part('cyl', [.36, .36, .025, 18], '#91CFD3', { y: .40 }), part('cyl', [.09, .15, .38, 12], '#FFF0DC', { y: .54 }));
+    moving.position.set(.2, .46, .1);
+    moving.add(mesh([part('sph', [.09, 10], '#E7BE65'), part('sph', [.035, 8], '#FFF9F1', { x: .035, y: .05, z: .055 })]));
+  }
+  g.add(mesh(base), moving); g.userData.playKind = kind;
+  if (kind === 'wand' || kind === 'wheel') {
+    const pet = createPet(kind === 'wand' ? 'cat' : 'hamster', kind === 'wand' ? 1 : 0);
+    pet.setBaseScale(kind === 'wand' ? .66 : .48); pet.setLifePhase(kind === 'wand' ? 2.4 : 5.1);
+    const perch = new THREE.Group(); perch.position.set(kind === 'wand' ? -.15 : 0, kind === 'wand' ? 1.34 : .31, 0);
+    perch.rotation.y = kind === 'wand' ? .45 : Math.PI / 2;
+    perch.add(pet.group); g.add(perch); g.userData.playPet = pet;
+    if (kind === 'wand') pet.sit();
+  }
+  return g;
+}
+
 export const DECOR_MESH = {
+  d_play_wand: () => petPlayground('wand'),
+  d_play_wheel: () => petPlayground('wheel'),
+  d_play_fountain: () => petPlayground('fountain'),
   d_paw_sign: pawSign,
   d_rug_door: () => rug('#E4694F', '#F5C784', 2.0, 1.3),
   d_art_cat: () => framedArt({ motif: C.cat }),

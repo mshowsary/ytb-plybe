@@ -365,6 +365,12 @@ export function createCustomers(G, S, ctx) {
         } else if (Math.abs(r.pet.group.rotation.z) > 0.001) {
           r.pet.group.rotation.z *= Math.max(0, 1 - dt * 12);
         }
+        const calm = !!G.settings.reducedMotion || !!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        r.pet.social(dt, { state: c.state, target: G.P, reducedMotion: calm || r.petBreakActive || r.regularGreetingT > 0 });
+        if (r._socialState !== c.state) {
+          if (!calm && (c.state === 'atRegister' || (c.state === 'leave' && c.mood !== 'angry'))) r.human.greet();
+          r._socialState = c.state;
+        }
         r.leash.update();
 
         // toPhoto/atPhoto join this list because the guest's order is already paid for by then —

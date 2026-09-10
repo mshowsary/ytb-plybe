@@ -158,6 +158,7 @@ export function createGame(S, area, els, platform = null) {
   G.awning = staticGroup.awning; let lastAwningSet = -1;
 
   const input = createInput(els.joy, els.joyKnob); const hud = createHud(); const metaUI = createMetaUI();
+  G.hud = hud;
   const careerUI = createCareerUI(); const renovationUI = createRenovationUI();
   const pawUI = createPawSheet();
   // Attached after createCareerUI() has finished with the HUD so the two openers cannot race for

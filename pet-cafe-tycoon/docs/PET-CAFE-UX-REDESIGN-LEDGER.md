@@ -2,7 +2,24 @@
 
 Development branch: `chatgpt/pet-cafe-production`
 Starting SHA: `1fc193b2218a825c4c963c7b3f38ad713b11e947`
-Working tree: uncommitted implementation batch
+First redesign deployed as `f163eb82ec6832e2f37c7705081f5dd348bca000`.
+
+## September 10: café life expansion
+
+- Added a compact day badge and a quiet 15-second pre-rush countdown within the existing menu control. No third persistent HUD container.
+- Added Today: actual shift phase, time until the next phase, themed-service progress, settlement reward, season, tomorrow's theme and current career-goal progress. This exposes the existing seasonal/theme simulation; it does not invent a second event economy.
+- Added a Café workshop with direct access to existing speed/carry/income upgrades and an explanation of the next actual build. Prices and effects use the existing economy functions.
+- Added three new permanent coin purchases: feather perch (180), hamster playground (360), paw splash garden (640). Each awards +1 reputation and survives the canonical save path. These are pet-play furnishings, not new production lanes. They contain authored merged geometry; the perch and wheel have decorative companion pets. Their toy motion starts on approach, lasts 2.4 seconds and settles.
+- Added bounded social head/torso/tail performances across all 20 pet looks, plus customer greeting/thank-you waves. Motion changes no navigation, collision or simulation RNG. New social/toy motion respects Reduced motion.
+- Replaced the blind bonus button with named, explained reward choices. Preview uses “Try bonus”; YouTube uses “Watch ad”. Missing/cancelled/failed YouTube ads cannot grant these rewards; duplicate and changed-shift completions are rejected.
+- Removed the returning-player boot interstitial: YouTube owns pre-roll. Existing paced interstitials at shift transitions remain. Portal monetization settings and revenue-sharing eligibility still require the developer's YouTube account; Pages is a preview, not a revenue-generating YouTube placement.
+- Fixed the old visual smoke's Music navigation to enter Settings, and blocked opening a second pause menu while a child destination is open.
+
+Validation: 961 unit/simulation tests, 960 passed, 0 failed, 1 existing TODO; build/postbuild 1,228 KB; fee-removal certification passed. New browser smoke verifies purchases, refused repeat purchases, carry upgrade, saved projects, rendered equipment, and reachable 48px controls through 183×416, 218×418, 320×480, 480×320 and 1280×360. Existing UX, publisher and ultra-narrow smokes pass. Screenshots: `output/playwright/cafe-expansion/`.
+
+Release limitation: the previous full Production run `34403467524` failed visual/economy checks (including obsolete experiment source anchors and missing bot reports). This update is a live testing preview, not a claim that those failures have been resolved or that the game is fully certified. No measured revenue or studio-quality claim is made.
+
+Official ad references checked September 10: https://developers.google.com/youtube/gaming/playables/reference/monetization and https://developers.google.com/youtube/gaming/playables/certification/requirements_monetization .
 
 ## Implemented
 

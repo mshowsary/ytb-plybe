@@ -96,6 +96,7 @@ export function createPauseMenu(G, platform, routes = {}) {
     root.querySelector('.bonus-route-state').textContent = bonusAvailable ? 'Ready to use' : 'None waiting';
   }
   function open() {
+    if (childObserver) return;
     if (!root.classList.contains('hidden')) return;
     clearMovement(); G.userPaused = true; presentationScheduler.setPaused('user', true);
     root.classList.remove('hidden'); root.setAttribute('aria-hidden', 'false'); sync(); showView('home');

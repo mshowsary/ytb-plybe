@@ -142,6 +142,7 @@ export function createHuman(variant = {}, role = 'customer') {
   H.setCarry = n => { H._carryN = n | 0; };
   H.setMood = m => { bubble.visible = m !== 'none'; bWait.visible = m === 'wait'; bAngry.visible = m === 'angry'; };
   H.tap = () => { H._tapT = 0.2; };
+  H.greet = () => { H._greetT = 1.2; };
   // Program §6.3: the cleaner used to stand perfectly still for the 1.6 s it takes to wipe a
   // table. systems/staff.js calls this every frame the sim's cleaner is in its 'cleaning' state;
   // each call just refreshes the window (it never restarts the stroke), so the sweep runs
@@ -183,6 +184,11 @@ export function createHuman(variant = {}, role = 'customer') {
     }
 
     // Acceleration drives the spring; the spring drives the silhouette.
+    if (H._greetT > 0) {
+      H._greetT = Math.max(0, H._greetT - dt);
+      const p = 1 - H._greetT / 1.2, e = Math.sin(p * Math.PI) ** 2;
+      if (!H._carryN) { armL.rotation.x -= 1.8 * e; armL.rotation.z = Math.sin(p * Math.PI * 6) * .22 * e; }
+    } else armL.rotation.z = 0;
     const accel = (sp - H._lastSp) / Math.max(dt, 1e-4);
     H._lastSp = sp;
     H._sqV += Math.max(-0.9, Math.min(0.9, accel * 0.0062));

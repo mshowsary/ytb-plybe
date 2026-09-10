@@ -10,6 +10,7 @@ import {
   goldenHourForDay, createGoldenHourState, stepGoldenHour, goldenHourMult,
 } from '../sim/specialDays.js';
 import { inShiftClaimedForShift, markRewardedClaim, rareVisitorEligible } from '../sim/adPacing.js';
+import { requestCafeReward } from '../platform/cafeReward.js';
 import { subscribeWorld } from '../sim/events.js';
 import {
   calendarIcon, giftIcon, sunIcon, pawIcon, coinIcon, checkIcon,
@@ -436,10 +437,7 @@ export function createRewardsSystem(G, S, platform) {
     calClaimBtn.disabled = !canClaim;
     calClaimBtn.onclick = canClaim ? async () => {
       calClaimBtn.disabled = true;
-      let earned = true;
-      if (platform && platform.rewardedAvailable) {
-        earned = await platform.requestRewardedAd('pet-cafe-calendar');
-      }
+      const earned = await requestCafeReward(platform, 'pet-cafe-calendar');
       if (!earned) {
         G.hud?.toast?.(cue([giftIcon(), crossIcon()], 'Gift unavailable'));
         calClaimBtn.disabled = false;
@@ -478,15 +476,12 @@ export function createRewardsSystem(G, S, platform) {
       mysteryChip.classList.add('hidden');
       return;
     }
-    let earned = true;
-    if (platform && platform.rewardedAvailable) {
-      earned = await platform.requestRewardedAd('pet-cafe-mystery-gift');
-    }
+    const earned = await requestCafeReward(platform, 'pet-cafe-mystery-gift');
     if (!earned) {
       G.hud?.toast?.(cue([giftIcon(), crossIcon()], 'Mystery Gift unavailable'));
       return;
     }
-    markRewardedClaim(G.meta, day, 'gift');
+    if (G.dayState.day !== day || !markRewardedClaim(G.meta, day, 'gift')) return;
     mysteryChip.classList.add('hidden');
 
     const kind = mysteryRewardKindForDay(day, G.golden ? G.golden.active : false);
@@ -530,15 +525,12 @@ export function createRewardsSystem(G, S, platform) {
       speedBuildChip.classList.add('hidden');
       return;
     }
-    let earned = true;
-    if (platform && platform.rewardedAvailable) {
-      earned = await platform.requestRewardedAd('pet-cafe-speed-build');
-    }
+    const earned = await requestCafeReward(platform, 'pet-cafe-speed-build');
     if (!earned) {
       G.hud?.toast?.(cue([boltIcon(), crossIcon()], 'Speed Build unavailable'));
       return;
     }
-    markRewardedClaim(G.meta, day, 'speed-build');
+    if (G.dayState.day !== day || !markRewardedClaim(G.meta, day, 'speed-build')) return;
     speedBuildChip.classList.add('hidden');
     // The completion hook mirrors payZone's own 'built' event, so the usual build-complete
     // sound/reveal (zones.js onBuilt) fires exactly as it would for a manually finished build.
@@ -555,15 +547,12 @@ export function createRewardsSystem(G, S, platform) {
       rareVisitorChip.classList.add('hidden');
       return;
     }
-    let earned = true;
-    if (platform && platform.rewardedAvailable) {
-      earned = await platform.requestRewardedAd('pet-cafe-rare-visitor');
-    }
+    const earned = await requestCafeReward(platform, 'pet-cafe-rare-visitor');
     if (!earned) {
       G.hud?.toast?.(cue([pawIcon(), crossIcon()], 'Rare Visitor unavailable'));
       return;
     }
-    markRewardedClaim(G.meta, day, 'rare-visitor');
+    if (G.dayState.day !== day || !markRewardedClaim(G.meta, day, 'rare-visitor')) return;
     rareVisitorChip.classList.add('hidden');
     G.rareVisitorPending = true;
     G.requestCheckpoint?.('rare-visitor-claim');
@@ -578,15 +567,12 @@ export function createRewardsSystem(G, S, platform) {
       goldenShotChip.classList.add('hidden');
       return;
     }
-    let earned = true;
-    if (platform && platform.rewardedAvailable) {
-      earned = await platform.requestRewardedAd('pet-cafe-golden-shot');
-    }
+    const earned = await requestCafeReward(platform, 'pet-cafe-golden-shot');
     if (!earned) {
       G.hud?.toast?.(cue([sparkleIcon(), crossIcon()], 'Golden Shot unavailable'));
       return;
     }
-    markRewardedClaim(G.meta, day, 'golden-shot');
+    if (G.dayState.day !== day || !markRewardedClaim(G.meta, day, 'golden-shot')) return;
     goldenShotChip.classList.add('hidden');
     G.goldenShotMult = 2;
     G.requestCheckpoint?.('golden-shot-claim');

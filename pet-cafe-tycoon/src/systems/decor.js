@@ -69,6 +69,22 @@ export function install(G, scene, world = null) {
     // here without the buy site having to remember to call reveal(). One integer compare a frame.
     const owned = ownedList(G).length;
     if (owned !== lastOwnedCount) { lastOwnedCount = owned; sync(); }
+    for (const entry of live.values()) {
+      const moving = entry.obj.getObjectByName('play-motion');
+      if (!moving) continue;
+      const reduced = G.settings?.reducedMotion || globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      const near = Math.hypot((G.P?.x || 0) - entry.obj.position.x, (G.P?.z || 0) - entry.obj.position.z) < 3;
+      if (near && !entry.near) entry.playT = 2.4;
+      entry.near = near;
+      entry.playT = Math.max(0, (entry.playT || 0) - dt);
+      const t = 2.4 - entry.playT, envelope = reduced ? 0 : Math.sin(Math.PI * Math.min(1, t / 2.4)) * Math.exp(-t * .6);
+      moving.rotation.z = Math.sin(t * (entry.obj.userData.playKind === 'wheel' ? 7 : 9)) * envelope * .65;
+      const pet = entry.obj.userData.playPet;
+      if (pet) {
+        pet.update(dt, !reduced && entry.playT > 0 && entry.obj.userData.playKind === 'wheel', 0);
+        pet.idleLife(dt, { reducedMotion: reduced, lookYaw: near ? .4 : 0 });
+      }
+    }
     if (popping <= 0) return;
     const step = Number.isFinite(dt) ? Math.max(0, dt) : 0;
     for (const entry of live.values()) {
