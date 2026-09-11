@@ -125,6 +125,22 @@
       "timeoutMs": 300000
     },
     {
+      "name": "World label overflow and scale smoke",
+      "command": [
+        "node",
+        "tools/label-overflow-smoke.js"
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "name": "Daylight insect and flowerbed ambience smoke",
+      "command": [
+        "node",
+        "tools/ambience-smoke.js"
+      ],
+      "timeoutMs": 300000
+    },
+    {
       "name": "First-use interaction coach smoke",
       "command": [
         "node",

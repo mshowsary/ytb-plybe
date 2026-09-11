@@ -140,6 +140,9 @@ export function createGame(S, area, els, platform = null) {
   // read as a bug rather than as weather.
   const environment = buildEnvironment(area, seasonForDay(G.dayState.day).id);
   scene.add(environment);
+  // Exposed for the render-side ambience: environment.bedAnchors is where the flower beds ended up,
+  // and render/butterflies.js anchors the daytime insects to them (main.js wires the two together).
+  G.environment = environment;
   // Every region, by data — not the terrace by name. Two things happen per region: the reveal
   // (floor + planting, environment.setRegionBuilt) and the gate infill (props.js gates[id]),
   // which has had NO caller since Batch 1 — the fence drew as closed across an open gateway the

@@ -107,6 +107,13 @@ export function createScene(canvas) {
   S.follow = (x, z, dt) => { goal.set(x, 0, z); target.x = damp(target.x, goal.x, 6, dt); target.z = damp(target.z, goal.z, 6, dt); place(dt); };
   S.snap = (x, z) => { target.set(x, 0, z); place(); };
 
+  // Metres of world covered by one CSS pixel of viewport height, at the camera target's depth.
+  // S.dist is owned here (S.resize sets it) and FOV lives here too, so this is the only place that
+  // can answer it. src/ui/labelLayout.js uses it to keep world labels in proportion: portrait fits
+  // 10 m across where landscape fits 16.25 m, which puts the portrait camera ~24 m out against
+  // ~12.6 m, so a label drawn at a fixed pixel size covers twice as much café.
+  S.worldPerPixel = () => 2 * S.dist * Math.tan(FOV * Math.PI / 360) / Math.max(1, innerHeight);
+
   // The post chain tone-maps in its composite, so the renderer must not also do it on the way
   // into the render target — that would compress highlights twice and flatten every bloom.
   const post = createPostFX(renderer, scene, camera);

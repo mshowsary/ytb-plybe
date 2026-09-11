@@ -454,9 +454,16 @@ function buildScenery(area, seasonId) {
   // triangles against 12 for a box, which is the entire flower budget spent on a planter.
   const soilY = -0.12;   // top of the soil; every stem starts here
   let blooms = 0;
+  // Where the beds actually ended up, so daylight insects can be anchored to real planting instead
+  // of to hand-copied coordinates. Without this the butterflies orbited three hardcoded points that
+  // happened to be the z_garden bushes — a late paid unlock — so for most of the early game they
+  // fluttered over bare floor. NOTE: nothing here may call r(); the seeded stream decides the whole
+  // layout, and one extra draw would shift every bed, path stone and bloom in the café.
+  const bedAnchors = [];
   for (let i = 0; i < 14; i++) {
     const bx = -13 + i * 2.15 + r() * 0.5;
     const bz = south + 0.9 + r() * 0.5;
+    bedAnchors.push({ x: bx, z: bz });
     const garden = inTerrace(bx, bz);
     const sArr = garden ? gSolid : solid, bArr = garden ? gBright : bright;
     sArr.push(part('box', [2.0, 0.34, 1.15], P.planterBody, { x: bx, y: -0.36, z: bz }));
@@ -787,7 +794,7 @@ function buildScenery(area, seasonId) {
     }
   }
 
-  return { solid, bright, gSolid, gBright, dSolid, dBright, blooms, terrace };
+  return { solid, bright, gSolid, gBright, dSolid, dBright, blooms, terrace, bedAnchors };
 }
 
 // Wraps `parts` (or a single-item placeholder for an empty array — mergeGeometries cannot merge
@@ -830,6 +837,10 @@ function brightMaterial() {
 export function buildEnvironment(area, seasonId = SEASON_IDS[0]) {
   const group = new THREE.Group();
   group.name = 'environment';
+  // Where the flower beds currently are. buildScenery rebuilds them on every season change and their
+  // positions are seeded per season, so this is refreshed rather than captured once — the insects
+  // read group.bedAnchors live, and would otherwise work a bed layout that no longer exists.
+  let bedAnchors = [];
 
   const garden = new THREE.Group();
   garden.name = 'garden';
@@ -888,6 +899,7 @@ export function buildEnvironment(area, seasonId = SEASON_IDS[0]) {
     currentSeason = resolved;
     const data = buildScenery(area, resolved);
     group.userData.blooms = data.blooms;   // near-band bloom count, for the triangle-budget check
+    bedAnchors = data.bedAnchors || [];
 
     disposeLit(solidNode); disposeBright(brightNode);
     disposeLit(gSolidNode); disposeBright(gBrightNode);
@@ -988,6 +1000,10 @@ export function buildEnvironment(area, seasonId = SEASON_IDS[0]) {
     flies.material.opacity = 0.8 * v;
     flies.visible = v > 0.02;
   };
+  // The 14 bed positions buildScenery placed for the CURRENT season. Surfaced on the group so
+  // render/butterflies.js anchors the daytime insects to real planting rather than copied numbers.
+  // A getter, not a copied value, so a season change cannot leave the insects on a stale layout.
+  Object.defineProperty(group, 'bedAnchors', { get: () => bedAnchors, enumerable: true });
   // A slow drift, only while visible: sinusoidal per-point offsets from the seeded base, so the cloud
   // breathes without ever wandering off the flowers.
   group.updateFireflies = dt => {

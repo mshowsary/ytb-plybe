@@ -249,7 +249,7 @@ function startGame(S, load, bootUi) {
   const reliefAttention = installReliefAttention(G);
   const serviceSummary = installServiceSummary(G);
   const responsive = createResponsivePolish(G);
-  const labelLayout = createLabelLayout(els);
+  const labelLayout = createLabelLayout(els, { worldPerPixel: () => S.worldPerPixel() });
   // The photo studio's ring is built inside createGame, which already ran, so it reaches the label
   // arbiter through G rather than through its constructor (see systems/photo.js's avoid hook).
   G.labelLayout = labelLayout;
@@ -257,7 +257,16 @@ function startGame(S, load, bootUi) {
   installCertificationPolish();
   const interactionCoach = createInteractionCoach(G, S, labelLayout);
   const cashTrays = createCashTrays(G.world, S.scene);
-  const butterflies = createButterflies(S.scene);
+  const butterflies = createButterflies(S.scene, {
+    // The environment GROUP, not a snapshot of its bed list: buildScenery reseeds the beds on every
+    // season change, and the insects resolve their bed by index each frame so they follow it.
+    beds: G.environment,
+    // The SAME dusk signal game.js already sends to ambience.setNight and environment.setNight:
+    // one authority for when the café is dark, so the day insects and the fireflies hand over
+    // together instead of each keeping its own clock.
+    night: () => (S.daylight ? S.daylight.lights : 0),
+  });
+  G.butterflies = butterflies;
   const residentPets = createResidentPets(S, G, els);
   // ambience and fx belong to game.js and reach here through G (see the two exposures there).
   const goldenPaw = createGoldenPawCeremony(S, G, { ambience: G.ambience, fx: G.fx, residents: residentPets });
