@@ -39,11 +39,11 @@ function buildUpTo(w, targetId) {
 }
 function manAll(w, ids) { for (const id of ids) { const st = w.stations.get(id); if (st && st.active) st.serving = 'owner'; } }
 
-// Batch 6: a seat is only wiped every DIRTY_EVERY-th sitting (src/sim/customers.js) — the owner
-// played the shipped build and found cleaning was the chore the shift was made of. The two
-// round-trip tests below still assert that a lounge seat is not exempt from getting dirty, so they
-// wind each seat's counter forward to the last sitting of its cycle first: this guest's release is
-// then the one that dirties it, and the assertion keeps meaning exactly what it always meant.
+// Batch 7: DIRTY_EVERY is back to 1 (every use dirties a seat, for coherence — see
+// src/sim/customers.js). The two round-trip tests below still assert that a lounge seat is not
+// exempt from getting dirty, so primeSeatsForDirt still winds each seat's counter forward to the
+// last sitting of its cycle first — a no-op with a cycle of 1, but this guest's release is still
+// the one that dirties it, and the assertion keeps meaning exactly what it always meant.
 function primeSeatsForDirt(w) {
   for (const st of w.stations.values()) if (st.type === 'seat') st.uses = DIRTY_EVERY - 1;
 }

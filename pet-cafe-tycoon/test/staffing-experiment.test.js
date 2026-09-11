@@ -63,7 +63,8 @@ test('Task 25 live winner is Desk 300 + first Runner 150 with later hire prices 
   assert.equal(STAFF.runner.costs[0], 150);
   assert.equal(STAFF.runner.costs[1], 2800);
   assert.equal(STAFF.cashier.costs[0], 1550);
-  assert.equal(STAFF.cleaner.costs[0], 1350);
+  // Batch 7: the cleaner's first tier is now 220 (was 1350) — see economyConfig.js's own comment.
+  assert.equal(STAFF.cleaner.costs[0], 220);
   assert.equal(hireCost('runner', {runner:0}), 150);
   assert.equal(hireCost('runner', {runner:1}), 2800);
 });

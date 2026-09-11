@@ -3,7 +3,7 @@ import {normalizeServicePolicy,prepareServicePolicy,serviceIncident,recordOrdina
 import {validateAndMigrateSave,applySave} from '../src/sim/save.js';
 import {AREA1} from '../data/area1.js';
 import {createWorld} from '../src/sim/world.js';
-import {createCustomer,stepCustomers,PATIENCE} from '../src/sim/customers.js';
+import {createCustomer,stepCustomers,PATIENCE,WAIT_SEAT_GRACE} from '../src/sim/customers.js';
 function game(day=8){const G={coins:1000,dayState:{day},meta:{servicePolicy:normalizeServicePolicy({enabledFrom:8,notice:true})},dayStats:{earned:700,serviceFees:0},stats:{}};prepareServicePolicy(G);return G;}
 test('old mature saves get a protected shift and early days never charge',()=>{
  const G=game(12);G.meta.servicePolicy=normalizeServicePolicy();assert.equal(prepareServicePolicy(G),false);assert.equal(G.meta.servicePolicy.enabledFrom,13);
@@ -30,12 +30,16 @@ test('incident is once per visit including after restore, and never takes a coin
 test('table incidents are still counted for paid and unpaid guests, and refund nothing',()=>{const G=game();assert.equal(serviceIncident(G,{serviceVisitId:1,paid:true,amount:31},'table').fee,0);assert.equal(serviceIncident(G,{serviceVisitId:2,paid:false,amount:31},'table').fee,0);assert.equal(G.coins,1000);assert.equal(G.meta.servicePolicy.causes.table,2);});
 test('only ordinary product sales inform the next frozen baseline',()=>{const G=game();G.meta.socials={lastDay:8};recordOrdinaryServiceShift(G);assert.deepEqual(G.meta.servicePolicy.ordinary,[]);for(const day of [9,10,11]){G.dayState.day=day;G.dayStats.earned=1000;recordOrdinaryServiceShift(G);}G.dayState.day=12;prepareServicePolicy(G);assert.equal(G.meta.servicePolicy.baseline,1000);G.dayStats.earned=999999;prepareServicePolicy(G);assert.equal(G.meta.servicePolicy.baseline,1000);});
 test('reassurance restores 20 percent once and cannot revive a departed visitor',()=>{const c={state:'atRegister',patience:5};assert.equal(reassureGuest(c,PATIENCE),true);assert.equal(c.patience,5+PATIENCE*.2);assert.equal(reassureGuest(c,PATIENCE),false);assert.equal(reassureGuest({state:'leave',patience:5},PATIENCE),false);});
-test('dirty-table waiting gives eight seconds to recover, with no clean-occupied penalty',()=>{
+// Batch 7: the grace is WAIT_SEAT_GRACE (12s) now, not the old mature-policy-only 8s, and it
+// applies whenever dirty tables block seating (servicePolicyActive is left set here purely as
+// documentation of the mature-policy scenario this test models — the waitSeat case itself no
+// longer reads that flag at all, see src/sim/customers.js's proceedToSeatOrLeave).
+test('dirty-table waiting gives twelve seconds to recover, with no clean-occupied penalty',()=>{
  const w=createWorld(AREA1,{built:['z_seats1']},42);w.servicePolicyActive=true;
  const seats=[...w.stations.values()].filter(s=>s.type==='seat'&&s.active);assert.ok(seats.length);for(const s of seats){s.dirty=true;s.occupied=false;}
  const c=createCustomer(1,'cat',0,AREA1);Object.assign(c,{state:'waitSeat',paid:true,amount:24,dirtyWait:0,wish:{product:'cookie',treat:false}});
- for(let i=0;i<7;i++)stepCustomers([c],w,()=>8,1);assert.equal(c.state,'waitSeat');assert.equal(w.events.some(e=>e.type==='tableRefund'),false);
+ for(let i=0;i<11;i++)stepCustomers([c],w,()=>8,1);assert.equal(c.state,'waitSeat');assert.equal(w.events.some(e=>e.type==='tableRefund'),false);
  seats[0].dirty=false;stepCustomers([c],w,()=>8,.1);assert.equal(c.state,'toSeat');assert.equal(w.events.some(e=>e.type==='tableRefund'),false);
- for(const s of seats){s.dirty=true;s.occupied=false;}Object.assign(c,{state:'waitSeat',dirtyWait:0});stepCustomers([c],w,()=>8,8);assert.equal(c.state,'leave');assert.equal(w.events.filter(e=>e.type==='tableRefund').length,1);
- w.events.length=0;for(const s of seats){s.dirty=false;s.occupied=true;}Object.assign(c,{state:'waitSeat',dirtyWait:0});stepCustomers([c],w,()=>8,8);assert.equal(w.events.some(e=>e.type==='tableRefund'),false);
+ for(const s of seats){s.dirty=true;s.occupied=false;}Object.assign(c,{state:'waitSeat',dirtyWait:0});stepCustomers([c],w,()=>8,WAIT_SEAT_GRACE+0.1);assert.equal(c.state,'leave');assert.equal(w.events.filter(e=>e.type==='tableRefund').length,1);
+ w.events.length=0;for(const s of seats){s.dirty=false;s.occupied=true;}Object.assign(c,{state:'waitSeat',dirtyWait:0});stepCustomers([c],w,()=>8,WAIT_SEAT_GRACE+0.1);assert.equal(w.events.some(e=>e.type==='tableRefund'),false);
 });

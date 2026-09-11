@@ -307,10 +307,11 @@ let dayPurchases = [];
 // (Batch 0's dirty-table consequence — flagged as missing from this table before now).
 const ICE_PRODUCTS = new Set(['icecream', 'sundae', 'pupcup']);
 let dayIceUnits = 0, dayRegister3Sales = 0, dayMissedSeats = 0;
-// Batch 6 gate: how often the café asks for a wipe. Seats dirtied per guest served over the whole
-// run; the owner's device session counted 10 "no clean table" moments in a 25-guest day, so the
-// budget is a third (DIRTY_EVERY = 3 in sim/customers.js) with a little slack for spa lounge seats.
-let totalDirtied = 0, totalServedForDirty = 0;
+// Batch 6 measured seats dirtied per guest; Batch 7 put DIRTY_EVERY back to 1 for coherence (every
+// used table shows its dishes), so that number is ~1 by design and only informs. The pain the
+// owner reported — "10 found no clean table" in a 25-guest day — is a paid guest giving up on a
+// table, which the patient-guest flow (WAIT_SEAT_GRACE) and the cheap cleaner must keep rare.
+let totalDirtied = 0, totalServedForDirty = 0, totalMissedSeats = 0;
 // Photo shots and the tips they bank. This bot models no friendship tiers, so every shot pays the
 // tier-0 base — the number is a floor on photo income, never an overstatement of it.
 let dayPhotoShots = 0, dayPhotoTips = 0;
@@ -637,7 +638,7 @@ while (G.dayState.day <= MAX_DAYS) {
     else if (e.type === 'groom') { dayGroomSessions++; dayGroomTips += e.tip | 0; }
     else if (e.type === 'bath') { dayBathSessions++; dayBathTips += e.tip | 0; }
     else if (e.type === 'runnerStuck') runnerStuckEvents++;
-    else if (e.type === 'seatMissed') dayMissedSeats++;
+    else if (e.type === 'seatMissed') { dayMissedSeats++; totalMissedSeats++; }
     else if (e.type === 'lost') {
       G.dayStats.lost++; G.serviceStreak = { count: 0, t: 0 };
     } else if (e.type === 'built') {
@@ -1041,8 +1042,9 @@ if (ledgerMismatches.length > 0) { console.error('LEDGER FAILED TO RECONCILE WAL
 if (stalls.length > 0) { console.error(`${stalls.length} STALLS (must be 0)`); gateFail = true; }
 if (teleports > 0) { console.error(`${teleports} TELEPORTS (must be 0)`); gateFail = true; }
 { const perGuest = totalServedForDirty ? totalDirtied / totalServedForDirty : 0; const fees = (G.stats && G.stats.serviceFees) | 0;
-  console.log(`quiet gate: ${totalDirtied} seats dirtied over ${totalServedForDirty} guests = ${perGuest.toFixed(3)} per guest (must be <= 0.34); service fees ${fees} (must be 0)`);
-  if (perGuest > 0.34) { console.error(`QUIET GATE: ${perGuest.toFixed(3)} dirtied seats per guest > 0.34`); gateFail = true; }
+  const missPerGuest = totalServedForDirty ? totalMissedSeats / totalServedForDirty : 0;
+  console.log(`quiet gate: ${totalMissedSeats} guests gave up on a table over ${totalServedForDirty} served = ${missPerGuest.toFixed(4)} per guest (must be <= 0.02); ${totalDirtied} seats dirtied (${perGuest.toFixed(2)} per guest, information only); service fees ${fees} (must be 0)`);
+  if (missPerGuest > 0.02) { console.error(`QUIET GATE: ${missPerGuest.toFixed(4)} seat misses per guest > 0.02`); gateFail = true; }
   if (fees > 0) { console.error(`QUIET GATE: service fees ${fees} > 0`); gateFail = true; } }
 if (invariantDViolations > 0) { console.error(`INVARIANT D: ${invariantDViolations} runner holds > 6s while a same-family display had room (must be 0)`); gateFail = true; }
 // 25 s: the run is 60 days now (was 40) over a grid a region wider, and measured at ~16 s here.

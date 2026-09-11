@@ -317,6 +317,10 @@ function startGame(S, load, bootUi) {
   const frameMetrics = createFrameMetrics();
   window.__performanceCapture = frameMetrics;
   window.__game = G;
+  // Hidden owner tool, never shipped to players: only loads when the page is opened with ?dev=1
+  // AND outside the YouTube Playables host, so the code-split chunk is never even requested during
+  // normal play or inside the host. See src/dev/devPanel.js.
+  if (new URLSearchParams(location.search).get('dev') === '1' && !platform.inPlayables) import('./dev/devPanel.js').then(m => m.installDevPanel(G, S, platform)).catch(err => console.warn('dev panel failed', err));
   window.__franchise = franchise;
   window.__scene = S;
   window.__audio = G.audio;

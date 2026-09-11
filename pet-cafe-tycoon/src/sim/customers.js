@@ -57,24 +57,30 @@ const FENCE_Z = 7;
 // still within the ruling's original 12-18s intent), so that's what's shipped. mover.js/nav.js's
 // avoidance and the seat/exit-lane geometry in data/area1.js remain untouched and out of scope.
 export const CUSTOMER_SPEED = 2.2, EAT_TIME = 4, PATIENCE = 17;
-// Batch 6: a seat only needs wiping every THIRD guest that uses it, not after every single meal.
-// The owner played the shipped build on a phone and counted 20 recovery moments on day 2 and 25 on
-// day 6 -- "if the player is constantly reassuring, cleaning, and recovering, the game is nagging
-// them rather than challenging them", against the standing rule that we never overwhelm or punish
-// the player or raise his cortisol level, we only keep the game from being boring. Cleaning was the
-// loudest chore precisely because it was unconditional: every served guest minted a new one. At 1
-// in 3 the cleaner still has real work during a rush and a table still goes dirty often enough for
-// the mechanic to read, but wiping stops being the thing the shift is made of.
+// Batch 7 (owner playtest, 2026-09-11): "the used tables majority of times do not show that they
+// were used or need cleaning, only sometimes randomly." Root cause was exactly this constant --
+// Batch 6 set it to 5 (dirty one sitting in five) specifically to dodge a nav-fullhouse mover-
+// overlap tripwire (history kept below), and a mechanic that fires one time in five reads as
+// random rather than as a mechanic at all. The owner's ruling, recorded so it is never repeated: a
+// visible state is never rationed to dodge a test -- the CHORE around it is what gets removed
+// instead. Batch 7 returned this to 1 for coherence; the nav-fullhouse tripwire is re-measured
+// with the patient-guest flow below (proceedToSeatOrLeave's waitSeat path, now the only path a
+// blocked guest can take, plus the cheap cleaner in economyConfig.js and the 2.2m
+// AUTO_CLEAN_RADIUS walk-past wipe in systems/stations.js) rather than by hiding the state again.
+//
+// HISTORY (Batch 6, kept for context, not current behaviour): a seat needed wiping only every Nth
+// use. The owner had played the shipped build on a phone and counted 20 recovery moments on day 2
+// and 25 on day 6 -- "if the player is constantly reassuring, cleaning, and recovering, the game is
+// nagging them rather than challenging them." 5, not the 3 the batch was briefed with:
+// test/nav-fullhouse.test.js is a 20-minute deterministic chaos sim with a 1.0 s pair-overlap
+// tripwire and ~10% headroom, and the constant swept as 1 PASS, 2 PASS, 3 FAIL (1.10 s), 4 FAIL
+// (1.63 s), 5 PASS (0.90 s) -- a same-heading convoy behind the cleaner, not a jam.
+//
 // `uses` lives on the runtime seat station only. src/sim/stationState.js serialises exactly
 // `{dirty}` for a seat, so the counter is never saved and never restored -- a reloaded café simply
 // starts every seat's cycle again, which is generous in the player's favour and needs no schema
 // change.
-// 5, not the 3 the batch was briefed with: test/nav-fullhouse.test.js is a 20-minute deterministic
-// chaos sim with a 1.0 s pair-overlap tripwire and ~10% headroom, and the constant sweeps as
-// 1 PASS, 2 PASS, 3 FAIL (1.10 s), 4 FAIL (1.63 s), 5 PASS (0.90 s) -- a same-heading convoy
-// behind the cleaner, not a jam. 5 is the green value that cuts the chore the most (244 -> 67
-// dirtied seats per 20 minutes) and keeps hiring a cleaner worth something.
-export const DIRTY_EVERY = 5;
+export const DIRTY_EVERY = 1;
 // Loop v2 Task 1: MOVE_COOLDOWN/_moveCd were rebalance()'s anti-thrash cooldown — rebalance is
 // gone (one display per product, nothing left to rebalance between), so both are gone too.
 // M3 T6 pass 2 (controller ruling, "settle-for rule"): a customer stuck waiting (at a counter for
@@ -94,10 +100,23 @@ export const SETTLE_WAIT = 6;
 // half the throughput two lines can, so it should only draw half as many spa-bound guests as a
 // fully-built spa would, or every guest it draws queues far longer than PATIENCE tolerates.
 export const SPA_CHANCE_MAX = 0.3;
-// Program §6.2: how long a paid guest stands under the "no clean table" bubble before giving up.
-// Short on purpose -- it is a beat the owner can read and act on, not a second waiting queue. The
-// mature service policy (day >= 8) still grants its own, much longer 'waitSeat' grace below.
+// Program §6.2: how long a paid guest used to stand under the "no clean table" bubble before
+// giving up. This is what read as "10 found no clean table" on the owner's day-2 phone playtest --
+// short on purpose as a beat the owner could read and act on, but too short to ever be rescued by
+// a wipe. Batch 7 retired the 'noSeat' path that used this (nothing sets that state any more; see
+// proceedToSeatOrLeave and the 'noSeat' case below, kept only for an old save resuming mid-hold).
+// The constant itself stays exported for that dead path's own use.
 export const NO_SEAT_HOLD = 1.2;
+// Batch 7: the owner's decision -- a paying guest who finds only dirty tables WAITS for a wipe
+// rather than turning away. This is that grace, in seconds, and it now applies to every day-driven
+// guest (see proceedToSeatOrLeave above), not just the mature service policy that used to gate it.
+// 12, not the old mature-only value of 8: a longer wait gives the cheap cleaner (economyConfig.js)
+// and the 2.2m AUTO_CLEAN_RADIUS walk-past (systems/stations.js) genuine room to rescue the guest
+// before it gives up, without the wait itself becoming the new chore.
+// 18, not 12: measured in the 60-day bot with two seats and no cleaner (days 3-8), a 12 s grace
+// still lost 8-14 guests a day to a dirty table -- the owner's day-2 complaint, reproduced. At 18 s
+// a guest outlasts one eating turn plus the walk a wipe takes; the broom bubble shows the wait.
+export const WAIT_SEAT_GRACE = 18;
 
 export function createCustomer(id, species, variant, area) {
   const mover = createMover(area.spawnStart.x, area.spawnStart.z, 0.30, CUSTOMER_SPEED);
@@ -530,9 +549,8 @@ function pickLoungeSeat(w) {
 // run before a session exists) never hold one to release.
 function releaseLoungeSeat(w, c) {
   if (!c.spaSeatId) return;
-  // Batch 6: same every-third-use rule as the café tables above (DIRTY_EVERY). A lounge seat is the
-  // same station shape as any other seat, so it earns the same relief; the 'dirtied' event now
-  // fires only on the pass that actually dirties it, since a seat nobody has to wipe is not news.
+  // Batch 7: same every-use rule as the café tables above (DIRTY_EVERY, now 1). A lounge seat is
+  // the same station shape as any other seat, so it tells the same coherent story every time.
   if (c.spaSeat) {
     c.spaSeat.occupied = false;
     c.spaSeat.uses = (c.spaSeat.uses | 0) + 1;
@@ -642,14 +660,24 @@ function assignBathSlots(list, w) {
   }
 }
 // Program §6.2's post-payment seat routing, factored out so Task 2.1's post-photo guest rejoins it
-// at exactly the same behaviour (pickSeat/waitSeat/noSeat/leave), rather than a second, drifting
-// copy. Byte-identical to the logic this replaced inline in the 'atRegister' paid branch.
+// at exactly the same behaviour (pickSeat/waitSeat/leave), rather than a second, drifting copy.
+//
+// Batch 7 (the owner's ruling, verbatim: "a paying guest who finds only dirty tables WAITS for a
+// wipe, it does not turn away after 1.2 s"): waitSeat is now the ONLY path a guest blocked by dirty
+// tables can take, for every day-driven guest -- not just once the mature service policy (day >= 8)
+// is live. The `w.servicePolicyActive &&` gate that used to reserve waitSeat for that mature policy
+// is gone; `w.dayState` alone (every real run, game.js/tools/bot.js/tools/runtime-bot-parity.js
+// included) is what still keeps the untouchable test/nav-fullhouse.test.js's own bare-harness path
+// (no dayState) on its old, byte-identical "leave" behaviour. servicePolicyActive still gates the
+// refund/reputation FEE math over in sim/servicePolicy.js -- nothing here. The old 1.2 s 'noSeat'
+// hold (below, in the switch) is what produced the owner's "10 found no clean table" on day 2;
+// nothing sets that state any more, but the case stays in the switch so an old save resuming
+// mid-hold still finishes cleanly instead of getting stuck in a state nothing steps.
 function proceedToSeatOrLeave(w, c) {
   const seat = pickSeat(w, c);
   c.mover.hasTarget = false;
   if (seat) { seat.occupied = true; c.seat = seat; c.seatId = seat.id; c.state = 'toSeat'; return; }
-  if (w.servicePolicyActive && dirtyTablesBlockingSeats(w)) { c.state = 'waitSeat'; c.dirtyWait = 0; c.waitSeatPoint = { x: c.x + .8, z: c.z + .8 }; return; }
-  if (w.dayState && dirtyTablesBlockingSeats(w)) { c.state = 'noSeat'; c.noSeatT = 0; c.mood = 'wait'; c.noSeatPoint = { x: c.x + .8, z: c.z + .8 }; return; }
+  if (w.dayState && dirtyTablesBlockingSeats(w)) { c.state = 'waitSeat'; c.dirtyWait = 0; c.waitSeatPoint = { x: c.x + .8, z: c.z + .8 }; return; }
   c.state = 'leave';
 }
 // Loop v2 Task 1: rebalance() (moving a customer between two counters holding the same product)
@@ -1175,16 +1203,19 @@ export function stepCustomers(list, w, price, dt) {
         c.dirtyWait=(c.dirtyWait||0)+dt;
         if(c.waitSeatPoint)walkTo(c,c.waitSeatPoint.x,c.waitSeatPoint.z,w,dt);
         // Program §6.2: the refund was invisible bookkeeping on its own. Giving up now also
-        // reports the seat miss, so the mature-policy path feeds dayStats.missedSeats and the
-        // reputation cost exactly like the pre-policy 'noSeat' path does. The state transition
-        // itself is untouched (test/service-policy.test.js pins it).
-        if(c.dirtyWait>=8){emitWorld(w,{type:'tableRefund',id:c.id});emitWorld(w,{type:'seatMissed',id:c.id});c.state='leave';c.mover.hasTarget=false;}
+        // reports the seat miss, so this feeds dayStats.missedSeats and the reputation cost exactly
+        // like the retired 'noSeat' path did. The state transition itself is untouched
+        // (test/service-policy.test.js and test/dirty-tables.test.js both pin it).
+        if(c.dirtyWait>=WAIT_SEAT_GRACE){emitWorld(w,{type:'tableRefund',id:c.id});emitWorld(w,{type:'seatMissed',id:c.id});c.state='leave';c.mover.hasTarget=false;}
         break;
       }
-      // Program §6.2. The guest has paid, no seat is clean and at least one is dirty. It holds
-      // for NO_SEAT_HOLD seconds under a table-with-X bubble (drawn by src/systems/visuals.js)
-      // and then leaves reporting 'seatMissed'. Wiping a table inside the window still seats it,
-      // which is what makes the wipe urgent.
+      // Program §6.2, retired by Batch 7. The guest has paid, no seat is clean and at least one is
+      // dirty. It used to hold for NO_SEAT_HOLD (1.2 s) under a table-with-X bubble (drawn by
+      // src/systems/visuals.js) and then leave reporting 'seatMissed' -- exactly the 1.2 s hold the
+      // owner's day-2 playtest counted as "10 found no clean table". proceedToSeatOrLeave no longer
+      // ever sets this state (waitSeat, above, is the only path now); this case stays in the switch
+      // only so an old save that resumes mid-hold still finishes on its own instead of getting
+      // stuck in a state nothing else steps.
       //
       // It steps aside while it holds, the same 0.8m diagonal 'waitSeat' uses. Standing still was
       // the obvious implementation and it is wrong: the guest is parked exactly on register slot 0,
@@ -1246,9 +1277,10 @@ export function stepCustomers(list, w, price, dt) {
         // EAT_TIME constant, so a guest already mid-meal when the buff flips on/off — tidy crossing
         // 0.3 while it's seated — speeds up or slows down starting that same tick).
         c.timer += dt * (restroomBuffActive(w) ? 1.2 : 1); if (c.timer >= EAT_TIME) {
-          // Batch 6: DIRTY_EVERY -- one wipe per three sittings, not one per meal. occupied still
-          // clears every time (nav-fullhouse.test.js's seat-leak check), so on the two clean passes
-          // the table is immediately reusable, which is the whole point.
+          // Batch 7: DIRTY_EVERY back to 1 -- every finished meal leaves dishes (props.js's
+          // dirtyMesh is what actually reads as a bussed table now, not just three crumbs), every
+          // time. occupied still clears every time (nav-fullhouse.test.js's seat-leak check), so
+          // the seat is reusable the instant it's wiped, not the instant it's vacated.
           c.seat.occupied = false;
           c.seat.uses = (c.seat.uses | 0) + 1;
           if (c.seat.uses % DIRTY_EVERY === 0) { c.seat.dirty = true; emitWorld(w, { type: 'dirtied', seatId: c.seat.id }); }

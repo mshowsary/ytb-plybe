@@ -22,11 +22,11 @@ const price = (k, seated) => (seated ? 999 : (PRODUCTS[k] ? PRODUCTS[k].price : 
 const LOUNGE_IDS = ['spaSeat1', 'spaSeat2', 'spaSeat3'];
 function manAll(w, ids) { for (const id of ids) { const st = w.stations.get(id); if (st && st.active) st.serving = 'owner'; } }
 
-// Batch 6: a seat is wiped every DIRTY_EVERY-th sitting, not every one — the owner's note after
-// playing the shipped build was that constant cleaning reads as nagging, not challenge. The two
-// tests below are specifically about a spent lounge seat getting dirty and cleaning like any other
-// table, so they wind the counter forward to the last sitting of the cycle first; the sitting they
-// then run is the one that dirties the seat, which is exactly what they were always asserting.
+// Batch 7: DIRTY_EVERY is back to 1 (every use dirties a seat, for coherence — see
+// src/sim/customers.js). primeSeatsForDirt is kept, unchanged, so these two tests keep their
+// original documented intent — "wind the counter to the last sitting of the cycle, then run the
+// sitting that dirties it" — even though a cycle of 1 makes the winding a no-op now; the sitting
+// each test runs still ends the seat's cycle and dirties it either way.
 function primeSeatsForDirt(w) {
   for (const st of w.stations.values()) if (st.type === 'seat') st.uses = DIRTY_EVERY - 1;
 }

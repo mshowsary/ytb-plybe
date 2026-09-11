@@ -471,11 +471,31 @@ export function fruitMesh() {
   ]));
   return g;
 }
-// Task 4: a dirty seat's plate + crumbs, parented to the table mesh and toggled by st.dirty.
+// Task 4 / Batch 7: a dirty seat's bussed meal, parented to the table mesh and toggled by
+// st.dirty. The owner's coherence ask (Batch 7, after DIRTY_EVERY went back to 1 in
+// src/sim/customers.js) was that a used table reads as "a finished meal" at the game's own camera
+// distance, not three crumbs on a saucer -- so this stacks a second plate and adds a coffee cup and
+// a dropped fork alongside the original plate and crumbs. The cup mirrors itemGeoFor('coffee')'s
+// own cup-plus-dark-disc construction below, just smaller and off to one side. Footprint stays
+// inside ~0.5m so it still sits on the table top; visuals.js owns positioning the group at
+// DIRTY_PROP_Y and fading it on 'cleaned' -- both untouched here.
 export function dirtyMesh() {
   const g = new THREE.Group();
   g.add(mesh([
-    part('cyl', [0.2, 0.2, 0.03, 16], C.cream, { y: 0.02 }),
+    // Sized for the game's camera, not for a close-up: at play distance a 0.2 m plate read as "a
+    // plate" (Batch 7's first screenshot), and the owner's whole point is that a used table must
+    // be unmistakable. Plates 0.26 / 0.2, a cup you can see the top of, a fork the length of a hand.
+    part('cyl', [0.26, 0.26, 0.035, 16], C.cream, { y: 0.02 }),
+    part('cyl', [0.25, 0.25, 0.006, 16], '#F0D9C4', { y: 0.041 }),                       // plate rim shadow
+    // A second, smaller plate stacked slightly askew on the first -- how a bussed table actually
+    // looks, not a second identical plate set neatly beside it.
+    part('cyl', [0.2, 0.2, 0.03, 14], C.cream, { x: 0.04, y: 0.058, z: -0.03 }),
+    // The cup, and its dark coffee disc, parked to one side rather than centred.
+    part('cyl', [0.08, 0.075, 0.13, 12], C.cream, { x: -0.3, y: 0.065, z: 0.14 }),
+    part('cyl', [0.068, 0.068, 0.01, 12], '#422A20', { x: -0.3, y: 0.132, z: 0.14 }),
+    part('box', [0.06, 0.02, 0.02], C.cream, { x: -0.2, y: 0.07, z: 0.14 }),               // handle
+    // A dropped fork, its own thin metal sliver rather than another crumb.
+    part('box', [0.17, 0.012, 0.02], C.metal, { x: 0.24, y: 0.045, z: 0.17, ry: 0.4 }),
     part('sph', [0.02, 6], C.woodDark, { x: 0.08, y: 0.04, z: 0.05 }),
     part('sph', [0.02, 6], C.woodDark, { x: -0.06, y: 0.04, z: -0.04 }),
     part('sph', [0.02, 6], C.woodDark, { x: 0.02, y: 0.04, z: -0.09 }),

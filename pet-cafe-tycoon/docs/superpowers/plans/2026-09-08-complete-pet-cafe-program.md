@@ -682,6 +682,47 @@ nothing". This batch adds no feature. It removes:
   4500 → 3600, spa 14000 → 9000. The bot run records the new build days.
 Nothing is added until the owner has played a quieter build.
 
+**7 — Tables that tell their story.** The owner played Batch 6 (2026-09-11): "you did nothing about
+the tables … the used tables majority of times do not show that they were used or need cleaning,
+only sometimes randomly". Correct: Batch 6's `DIRTY_EVERY = 5` traded a coherent mechanic for a
+test tripwire, and a mechanic that fires one time in five reads as random. The lesson, recorded
+here so it is never repeated: **a visible state is never rationed to dodge a test; the chore around
+it is what gets removed.** Decision taken with the owner: a paying guest who finds only dirty
+tables waits for a wipe. As built:
+- Every used table leaves DISHES (plate stack, cup, fork, crumbs — `props.js dirtyMesh`), every
+  time (`DIRTY_EVERY = 1`). Occupied / dishes / being wiped (ring + sparkle) / clean are the four
+  readable states.
+- A paid guest with no clean table waits under a broom bubble for `WAIT_SEAT_GRACE` (18 s; 12 s
+  still lost 8–14 guests a day on days 3–8 in the bot) from day 1 — the 1.2 s `noSeat` hold that
+  produced "10 found no clean table" on day 2 is gone.
+- The bot's own policy was part of the problem: `sim/botDecide.js` hired a 1,550 cashier before a
+  220 cleaner (an order written when the cleaner cost 1,350) and finished a restock while a guest
+  stood under the broom bubble. Runner → cleaner → cashier now, and a waiting guest outranks a
+  shelf. Result over 60 days: 0 guests gave up on a table (was 67), served per day up (day 7:
+  39, was 26), cleaner hired on day 3, terrace day 10, photo studio 14, spa 21.
+- The owner wipes by walking past (`AUTO_CLEAN_RADIUS` 2.2 m); flies/stink arrive later (20 s /
+  40 s); the cleaner's first tier costs 220 (was 1350 — the reason nobody hired one before day 8),
+  and after six hand wipes a broom→person banner points at the staff desk, once.
+- The bot's quiet gate now measures the pain, not the state: guests who gave up on a table per
+  guest served ≤ 0.02 (dirtied seats are reported as information).
+- A developer panel at `?dev=1` (never inside the Playables host; `src/dev/devPanel.js`, lazily
+  imported): +1 / +5 days through the real day-end and settlement with plan §4.2's income, +1,000
+  coins, build next zone, hire, dusk, discover pets — so the owner can look at day 12 in a minute
+  instead of an hour.
+
+**Discovered while gating Batch 7.** Three commits landed on `chatgpt/pet-cafe-production` between
+Batch 6 and this batch that this program did not make (`f163eb8` "Redesign Pet Cafe HUD, menu,
+guidance and pet appearances", `a3d28a0` "Add cafe day journal, pet playground, social animation
+and explicit ad rewards", `1dc03fb` "Batch 7: labels that shrink with the characters…"), with their
+own brief in `docs/PET-CAFE-UX-REDESIGN.md` that explicitly supersedes this plan's HUD direction:
+the Batch 6 resource bar is gone, replaced by a wallet and one café-menu button ("calm HUD"). The
+live build the owner played was that HEAD. This batch is built on top of it and touches only the
+simulation, the props, the bot and the dev panel. At that HEAD — before any Batch 7 change —
+`tools/production-smoke.js` (pause-menu music toggle not visible), `tools/task25-live-cert.mjs`
+("contract must fit at 320px": the badge is hidden) and `tools/pet-friendship-smoke.js`
+(`[data-route="pets"]` gone) already fail; they encode the old HUD and need a decision on who owns
+presentation before they are rewritten. Every other gate is green on this batch.
+
 ---
 
 ## 9. Definition of done for the program

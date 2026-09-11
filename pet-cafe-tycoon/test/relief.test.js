@@ -60,12 +60,17 @@ test('purchase-bridge classifier rejects players who have barely begun saving', 
   assert.equal(recommendSmartReliefCandidate(G, fakeWorld()), null);
 });
 
+// Batch 7 dropped the cleaner's first tier from 1350 to 220 (economyConfig.js) — cheap enough that
+// a 500-coin wallet can already afford it outright, which is no longer a "purchase bridge"
+// candidate at all (see candidate()'s own `G.coins >= cost` refusal in src/sim/relief.js). 150 coins
+// sits back in the classifier's "almost there" band for a 220 cost, so the pressure-gating this
+// test exists to pin (no candidate below 2 dirty seats, a real one at 3) still applies.
 test('cleaner purchase-bridge candidate is tied to dirty-table pressure rather than day number alone', () => {
-  const G = state({ coins: 500 });
+  const G = state({ coins: 150 });
   assert.equal(recommendSmartReliefCandidate(G, fakeWorld({ dirty: 0 })), null);
   const r = recommendSmartReliefCandidate(G, fakeWorld({ dirty: 3 }));
   assert.equal(r.key, 'cleaner');
-  assert.equal(r.cost, 1350);
+  assert.equal(r.cost, 220);
 });
 
 test('reward claim key is stable and namespaced away from end-of-day claims', () => {

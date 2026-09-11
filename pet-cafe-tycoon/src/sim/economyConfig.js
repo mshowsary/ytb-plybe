@@ -117,7 +117,13 @@ export const DEMAND = {
 export const STAFF = {
   runner:  { costs: [150, 2800, 5400, 9600], speed: 2.8, carry: 6 },
   cashier: { costs: [1550, 4200], speed: 2.2 },
-  cleaner: { costs: [1350, 3600], speed: 2.2 },
+  // Batch 7: the runner (150) is the earliest useful automation; a 1350 cleaner was why nobody
+  // hired one before day 8 and wiped every dirty table by hand instead, despite tables now going
+  // dirty on every single use (DIRTY_EVERY = 1, src/sim/customers.js) -- the owner's own read: the
+  // cleaner is the obvious day-2 hire. 220 prices it as the second thing a new café saves for,
+  // right after the runner; the second tier is scaled down to match (was 3600 -> 1800). Changing
+  // this changes tools/bot.js's printed "economy config identity" hash -- expected.
+  cleaner: { costs: [220, 1800], speed: 2.2 },
   barista: { costs: [2300, 6000], speed: 2.4, carry: 4 },
   // Batch 4b — the Photographer (plan 3.9: hired at photoDesk1, auto-takes `Good` shots at
   // photo1). Two tiers like every non-runner role, priced between the barista and the runner's own

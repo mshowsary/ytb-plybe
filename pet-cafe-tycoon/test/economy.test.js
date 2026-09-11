@@ -74,19 +74,23 @@ test('Task 25 makes only the first Runner an early relief purchase', () => {
   assert.equal(STAFF.runner.costs[0], 150);
   assert.equal(STAFF.runner.costs[1], 2800);
   assert.equal(STAFF.cashier.costs[0], 1550);
-  assert.equal(STAFF.cleaner.costs[0], 1350);
+  // Batch 7: the cleaner's first tier is now 220 (was 1350) — the reason nobody hired one before
+  // day 8 and wiped every dirty table by hand instead. See src/sim/economyConfig.js.
+  assert.equal(STAFF.cleaner.costs[0], 220);
   const state = { coins: 20000, up: { speed: 0, carry: 0, income: 0 }, staff: { runner: 0, cashier: 0, cleaner: 0 } };
   const h1 = hire(state, 'runner'); assert.equal(h1.ok, true); assert.equal(h1.cost, 150); assert.equal(state.staff.runner, 1);
   const h2 = hire(state, 'runner'); assert.equal(h2.ok, true); assert.equal(h2.cost, 2800); assert.equal(state.staff.runner, 2);
   const h3 = hire(state, 'cashier'); assert.equal(h3.ok, true); assert.equal(h3.cost, 1550); assert.equal(state.staff.cashier, 1);
   // A second cashier is now hireable — register2 physically exists and used to stand unstaffable.
   const h4 = hire(state, 'cashier'); assert.equal(h4.ok, true); assert.equal(h4.cost, STAFF.cashier.costs[1]);
-  const h5 = hire(state, 'cleaner'); assert.equal(h5.ok, true); assert.equal(h5.cost, 1350);
+  const h5 = hire(state, 'cleaner'); assert.equal(h5.ok, true); assert.equal(h5.cost, 220);
 });
-test('early Runner is affordable while specialist hires remain savings goals', () => {
+test('early Runner and Cleaner are affordable while the cashier remains a savings goal', () => {
   const wallet = 1300;
   assert.ok(hireCost('runner', { runner: 0 }) <= wallet);
-  assert.ok(hireCost('cleaner', { cleaner: 0 }) > wallet);
+  // Batch 7: the cleaner (220, was 1350) is now the other cheap, early hire — the owner's own
+  // "obvious day-2 hire" read — no longer a savings goal the way the cashier (1550) still is.
+  assert.ok(hireCost('cleaner', { cleaner: 0 }) <= wallet);
   assert.ok(hireCost('cashier', { cashier: 0 }) > wallet);
 });
 test('hireCost quotes each successive hire and still terminates at the end of the table', () => {

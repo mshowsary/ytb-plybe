@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { ovenMesh, counterMesh, checkoutMesh, tableMesh, hireDeskMesh, kioskMesh, bowlMesh, bushMesh, coffeeMesh, pantryMesh, crateMesh, blenderMesh, chalkboardMesh, itemFor, cashPile, dirtyMesh, zoneRing, icecreamMesh, coldPantryMesh, groomTableMesh, bathTubMesh, waterTankMesh, boutiqueRackMesh, planterClusterMesh, spaLoungeMesh, photoBoothMesh, restroomMesh, fountainMesh, splashPoolMesh } from '../render/props.js';
 import { C } from '../render/palette.js';
 import { buildRevealPhase, buildRevealScale } from '../render/buildReveal.js';
-import { iconFor, treatIcon, coinIcon, sackIcon, returnIcon, leafIcon, gearIcon, personIcon, beanIcon, creamIcon } from '../ui/icons.js';
+import { iconFor, treatIcon, coinIcon, sackIcon, returnIcon, leafIcon, gearIcon, personIcon, beanIcon, creamIcon, broomIcon } from '../ui/icons.js';
 import { STAR_IDS } from '../sim/economy.js';
 
 const DISPLAY_POOL = 16;
@@ -92,24 +92,24 @@ export function chalkDotState(st) {
   return n / cap <= CHALK_LOW_FRACTION ? 'low' : 'stocked';
 }
 
-// Program §6.2: the "no clean table" bubble a paid guest holds up before giving up. Inline rather
-// than in src/ui/icons.js only because that file belongs to another task this batch -- it should
-// move there (and be shared with the day summary's copy) the moment it is free.
-function seatMissIcon() {
-  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">'
-    + '<path d="M3 13h18"/><path d="M6 13v7"/><path d="M18 13v7"/>'
-    + '<path d="M8 3.5l8 7M16 3.5l-8 7" stroke="#E2483C"/>'
-    + '</svg>';
-}
+// Program §6.2, Batch 7: the wait-for-a-wipe bubble a paid guest holds up while dirty tables block
+// every seat. Batch 6's crossed-table icon is gone (it is now src/ui/icons.js's tableDirtyIcon,
+// shared with the day summary's chip) -- Batch 7 draws the owner's own broom instead: the guest is
+// not being told the table is dirty (it already knows -- that's why it's standing there), it is
+// waiting for the thing that fixes it.
 const NO_SEAT_POOL = 4;
 const NO_SEAT_BUBBLE_Y = 1.3;
 
 // Program §6.2 escalation on a seat nobody has wiped. Crumbs land the moment it goes dirty (the
 // dirtyMesh below); flies join after DIRTY_FLIES_AT seconds and a stink wisp after DIRTY_STINK_AT,
 // so a table left alone through a rush is visibly worse than one left alone for a moment. Both are
-// built lazily -- a cafe that is kept clean never allocates them.
-const DIRTY_FLIES_AT = 12;
-const DIRTY_STINK_AT = 25;
+// built lazily -- a cafe that is kept clean never allocates them. Batch 7: pushed later (12->20,
+// 25->40) now that DIRTY_EVERY=1 (src/sim/customers.js) means every finished meal leaves a full,
+// readable "bussed table" prop (props.js's dirtyMesh) the instant it's dirtied -- the escalation is
+// for a table that has genuinely been ignored, not for the ordinary look every seat now carries
+// between uses.
+const DIRTY_FLIES_AT = 20;
+const DIRTY_STINK_AT = 40;
 function fliesMesh() {
   const g = new THREE.Group();
   const geo = new THREE.SphereGeometry(0.035, 6, 4);
@@ -294,14 +294,17 @@ export function createVisuals(G, S, ctx) {
   }
   const cleanRing = zoneRing(); cleanRing.scale.setScalar(0.6); cleanRing.visible = false; scene.add(cleanRing);
 
-  // Program §6.2. A small fixed pool (guests in 'noSeat' hold for 1.2 s, so more than a handful at
-  // once cannot happen) of table-with-X bubbles. They carry the .wish class deliberately: that is
-  // the class src/ui/labelLayout.js already anchors and arbitrates for guest bubbles, so these are
-  // decluttered by the same pass and cannot be the thing that breaks the 0-violation audit.
+  // Program §6.2. A small fixed pool of broom bubbles, kept at its historical size (Batch 7 didn't
+  // grow it even though guests in 'waitSeat' now hold for up to WAIT_SEAT_GRACE (12 s) rather than
+  // the old 1.2 s 'noSeat' hold -- the owner's "icon soup" batch spent real effort capping how many
+  // floating chips can be on screen at once, and a bigger pool would undo exactly that; any waiter
+  // beyond the first NO_SEAT_POOL simply goes unbubbled). They carry the .wish class deliberately:
+  // that is the class src/ui/labelLayout.js already anchors and arbitrates for guest bubbles, so
+  // these are decluttered by the same pass and cannot be the thing that breaks the 0-violation audit.
   const noSeatPool = [];
   function noSeatSlot() {
     const el = document.createElement('div'); el.className = 'wish noseat hidden';
-    const icon = document.createElement('span'); icon.className = 'wishIcon'; icon.innerHTML = seatMissIcon();
+    const icon = document.createElement('span'); icon.className = 'wishIcon'; icon.innerHTML = broomIcon();
     el.appendChild(icon); els.fx.appendChild(el);
     return { el, visible: false };
   }
@@ -542,10 +545,10 @@ export function createVisuals(G, S, ctx) {
           }
         }
       }
-      // Program §6.2: one bubble per guest currently holding out for a table that never came.
+      // Program §6.2, Batch 7: one broom bubble per guest currently waiting for a wipe.
       let noSeatUsed = 0;
       if (G.customers) for (const c of G.customers) {
-        if (c.done || c.state !== 'noSeat' || noSeatUsed >= NO_SEAT_POOL) continue;
+        if (c.done || c.state !== 'waitSeat' || noSeatUsed >= NO_SEAT_POOL) continue;
         const slot = noSeatPool[noSeatUsed] || (noSeatPool[noSeatUsed] = noSeatSlot());
         noSeatUsed++;
         fx.project(c.x, NO_SEAT_BUBBLE_Y, c.z, demandTmp);

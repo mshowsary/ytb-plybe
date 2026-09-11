@@ -17,7 +17,7 @@ import { C } from '../render/palette.js';
 import { damp } from '../core/tween.js';
 import { buildKioskModel } from '../ui/models.js';
 import { cue, paintCue } from '../ui/hud.js';
-import { coinIcon, crossIcon, handIcon, returnIcon, coffeeIcon, smoothieIcon, treatIcon, iconFor, sackIcon, gearIcon, personIcon, hangerIcon } from '../ui/icons.js';
+import { coinIcon, crossIcon, handIcon, returnIcon, coffeeIcon, smoothieIcon, treatIcon, iconFor, sackIcon, gearIcon, personIcon, hangerIcon, broomIcon } from '../ui/icons.js';
 
 // The floating action button's pictograms, by the label the action was authored with. The label
 // itself survives as the cue's aria text — and, through paintCue's visually-hidden span, as the
@@ -66,7 +66,10 @@ const dist2 = (a, b) => (a.x - b.x) ** 2 + (a.z - b.z) ** 2;
 const DWELL_SPEED = 0.6, DWELL_TIME = 0.25, DWELL_FACING = 0.3;
 const SHEET_CLOSE_RADIUS = 2.45;
 const AUTO_CASH_RADIUS = 1.2;
-const AUTO_CLEAN_RADIUS = 1.35;
+// Batch 7 (the owner's rule: "remove the chore, not the state") -- wiping is a walk-past, not an
+// errand. Widened from 1.35m so a seat gets wiped simply by the owner passing near it on the way to
+// somewhere else, the same way AUTO_CASH_RADIUS already makes collecting cash a walk-past too.
+const AUTO_CLEAN_RADIUS = 2.2;
 
 const FIRST_HINT = {
   oven: 'Take food',
@@ -92,6 +95,10 @@ export function createStations(G, S, ctx) {
   const dwellT = new Map();
   ctx.cleanProg = cleanProg;
   P.rot = P.rot || 0;
+  // Batch 7: after this many hand wipes with no cleaner ever hired, point at the obvious fix once
+  // per session -- a pictogram-only banner (icons plus the arrow glyph only; test/play-field-
+  // text.test.js scans every call to the cue helper in this file for stray words in cells).
+  let ownerWipeCount = 0, cleanerHintShown = false;
 
   let guideT = 0, guideText = null;
   function clearGuide() {
@@ -460,6 +467,13 @@ export function createStations(G, S, ctx) {
             // presentation — a second copy here is what made one actor's wipe look like a
             // different mechanic from the other's.
             ownerCleanSeat(world, st.id); hints.clean = 1;
+            // Batch 7: the cleaner is the obvious day-2 hire (economyConfig.js's 220) once the
+            // owner has been doing this by hand for a while and the staff desk already exists.
+            ownerWipeCount++;
+            if (!cleanerHintShown && ownerWipeCount >= 6 && (G.staff.cleaner | 0) === 0 && world.built.has('z_hire')) {
+              cleanerHintShown = true;
+              hud.banner(cue([broomIcon(), '→', personIcon()], 'A cleaner can do this — hire one at the staff desk'), 3200);
+            }
           }
         }
 

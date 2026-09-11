@@ -375,8 +375,12 @@ function buildTarget(w, G) {
 // directly contradicting the brief's "hire in this order". Returns null once all four slots are
 // filled. Shared by tryHiresAndUpgrades (the actual purchase) and money() below (the "hold off
 // funding a big zone, save toward the pending hire instead" guard).
+// Batch 7: the cleaner's first tier is 220 (was 1350) and every used table now shows its dishes, so
+// the sensible opening is runner (150), cleaner (220), THEN the 1,550 cashier — the old order had the
+// bot wiping by hand until day 8 and losing 8-14 guests a day to dirty tables on days 3-8. The game
+// itself points the player at the cleaner after six hand wipes (systems/stations.js).
 const HIRE_ORDER = [
-  'cashier', 'runner', 'cleaner', 'runner',   // the authored opening four, unchanged
+  'runner', 'cleaner', 'cashier', 'runner',
   'barista', 'cashier', 'cleaner', 'runner', 'barista', 'runner',
 ];
 function nextHireKind(staff) {
@@ -584,7 +588,10 @@ export function decide(w, G) {
   const now = G.time || 0;
   if (B.lastMoneyT == null) B.lastMoneyT = now;
   const moneyDue = now - B.lastMoneyT > 15;
-  const chores = () => restockTarget(w, G) || returnTarget(w, G, B) || photoTarget(w) || groomTarget(w) || bathTarget(w) || refillTarget(w, G) || cleanTarget(w, G) || harvestTarget(w, G);
+  // A paid guest under a broom bubble outranks a shelf: with two seats and no cleaner yet, finishing
+  // the restock first is exactly how the early days lost a guest every few minutes.
+  const guestWaitsForTable = Array.isArray(G.customers) && G.customers.some(c => !c.done && c.state === 'waitSeat');
+  const chores = () => (guestWaitsForTable ? cleanTarget(w, G) : null) || restockTarget(w, G) || returnTarget(w, G, B) || photoTarget(w) || groomTarget(w) || bathTarget(w) || refillTarget(w, G) || cleanTarget(w, G) || harvestTarget(w, G);
   // M3 T6 pass 2 real bug fix: build BEFORE cash, not the other way around. cashTarget only needs
   // a pile >= 20 to fire — trivially true almost every time the register has processed even one or
   // two seated customers, especially with pass 2's higher menu prices — so `cash || build` let a

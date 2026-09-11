@@ -4,11 +4,21 @@
 // serviceRecoveryCost returned 0 for every reason including 'table'. These tests pin the two
 // halves of the fix: the guest now visibly gives up and reports it, and the mature service policy
 // (day >= 8) has one bounded refund for exactly this failure and no other.
+//
+// Batch 7 (owner playtest, 2026-09-11): "you did nothing about the tables ... the used tables
+// majority of times do not show that they were used or need cleaning, only sometimes randomly".
+// The owner's ruling: a paying guest who finds only dirty tables WAITS for a wipe rather than
+// turning away after the old 1.2 s 'noSeat' hold — that short hold was literally what produced
+// "10 found no clean table" on day 2. waitSeat is now the ONLY path a guest blocked by dirty tables
+// can take, for every day-driven guest, not just once the mature policy (day >= 8) is live — see
+// src/sim/customers.js's proceedToSeatOrLeave. These tests are updated in place to pin that: the
+// same guest behaviour, the same events, just the waitSeat path (with its longer, rescuable
+// WAIT_SEAT_GRACE) instead of the old noSeat/NO_SEAT_HOLD one.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AREA1 } from '../data/area1.js';
 import { createWorld } from '../src/sim/world.js';
-import { createCustomer, stepCustomers, NO_SEAT_HOLD } from '../src/sim/customers.js';
+import { createCustomer, stepCustomers, WAIT_SEAT_GRACE } from '../src/sim/customers.js';
 import { serviceRecoveryCost, applySeatMiss, TABLE_RECOVERY_CAP } from '../src/sim/serviceQuality.js';
 
 function cafe() {
@@ -36,32 +46,33 @@ function paidGuest(w) {
 
 const seatMisses = w => w.events.filter(e => e.type === 'seatMissed');
 
-test('a paid guest with no clean seat holds under the bubble, then reports the miss', () => {
+test('a paid guest with no clean seat waits for a wipe, then reports the miss if none comes', () => {
   const { w, seats } = cafe();
   for (const s of seats) { s.dirty = true; s.occupied = false; }
   const c = paidGuest(w);
 
   stepCustomers([c], w, () => 8, 0.1);
-  assert.equal(c.state, 'noSeat');
+  assert.equal(c.state, 'waitSeat', 'day-driven guests wait for a wipe from day one, not just once the mature policy is live');
   assert.equal(c.mover.hasTarget, false, 'parked, so no stall detector sees an unreachable target');
-  assert.equal(seatMisses(w).length, 0, 'the miss is reported on the way out, not on arrival');
+  assert.equal(seatMisses(w).length, 0, 'the miss is reported on giving up, not on arrival');
 
-  stepCustomers([c], w, () => 8, NO_SEAT_HOLD - 0.3);
-  assert.equal(c.state, 'noSeat');
+  stepCustomers([c], w, () => 8, WAIT_SEAT_GRACE - 0.3);
+  assert.equal(c.state, 'waitSeat');
   assert.equal(seatMisses(w).length, 0);
 
   stepCustomers([c], w, () => 8, 0.4);
   assert.equal(c.state, 'leave');
+  assert.equal(w.events.filter(e => e.type === 'tableRefund').length, 1, 'a guest who leaves unfed is refunded');
   assert.equal(seatMisses(w).length, 1);
   assert.equal(seatMisses(w)[0].id, c.id);
 });
 
-test('wiping a table inside the hold still seats the guest', () => {
+test('wiping a table inside the wait still seats the guest', () => {
   const { w, seats } = cafe();
   for (const s of seats) { s.dirty = true; s.occupied = false; }
   const c = paidGuest(w);
   stepCustomers([c], w, () => 8, 0.1);
-  assert.equal(c.state, 'noSeat');
+  assert.equal(c.state, 'waitSeat');
 
   seats[0].dirty = false;
   stepCustomers([c], w, () => 8, 0.1);
@@ -80,7 +91,7 @@ test('an honestly full cafe is not a seat miss', () => {
   assert.equal(seatMisses(w).length, 0);
 });
 
-test('a bare sim harness with no day clock keeps the pre-6.2 path', () => {
+test('a bare sim harness with no day clock keeps the pre-Program-6.2 path', () => {
   const { w, seats } = cafe();
   delete w.dayState;
   for (const s of seats) { s.dirty = true; s.occupied = false; }
@@ -88,21 +99,6 @@ test('a bare sim harness with no day clock keeps the pre-6.2 path', () => {
   stepCustomers([c], w, () => 8, 0.1);
   assert.equal(c.state, 'leave', 'no dayState: exactly what test/nav-fullhouse.test.js replays');
   assert.equal(seatMisses(w).length, 0);
-});
-
-test('the mature grace period reports the miss when it finally runs out', () => {
-  const { w, seats } = cafe();
-  w.servicePolicyActive = true;
-  for (const s of seats) { s.dirty = true; s.occupied = false; }
-  const c = paidGuest(w);
-
-  stepCustomers([c], w, () => 8, 0.1);
-  assert.equal(c.state, 'waitSeat', 'day >= 8 keeps its longer, refundable grace period');
-
-  stepCustomers([c], w, () => 8, 8);
-  assert.equal(c.state, 'leave');
-  assert.equal(w.events.filter(e => e.type === 'tableRefund').length, 1);
-  assert.equal(seatMisses(w).length, 1, 'the refund alone was invisible; the miss is now counted too');
 });
 
 test('a seat miss costs one missed-seat stat and one point of reputation', () => {
@@ -126,10 +122,11 @@ test('the emitted event is what moves the stat and the rank', () => {
   const { w, seats } = cafe();
   for (const s of seats) { s.dirty = true; s.occupied = false; }
   const c = paidGuest(w);
-  // Exactly what src/systems/visuals.js does with the event each frame.
+  // Exactly what src/systems/visuals.js does with the event each frame. One second past
+  // WAIT_SEAT_GRACE at dt=1, so the guest has definitely given up by the end whatever the grace is.
   const G = { dayStats: { served: 0 }, meta: { reputation: 3 }, customers: [c] };
-  for (let i = 0; i < 30; i++) {
-    stepCustomers([c], w, () => 8, 0.1);
+  for (let i = 0; i < WAIT_SEAT_GRACE + 1; i++) {
+    stepCustomers([c], w, () => 8, 1);
     for (const e of w.events) if (e.type === 'seatMissed') applySeatMiss(G);
     w.events.length = 0;
   }

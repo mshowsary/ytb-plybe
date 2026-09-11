@@ -368,6 +368,12 @@ export function createGame(S, area, els, platform = null) {
     checkpoint.flush();
   };
 
+  // Dev-only hook (src/dev/devPanel.js, ?dev=1 outside Playables): the day-advance buttons drive the
+  // exact same terminal -> next-morning transition CONTINUE uses, rather than a shortcut of their
+  // own. Both closures already exist in this scope by the time any caller can reach G.dev; the
+  // function-declared `openDaySummary` below is hoisted, so declaration order here does not matter.
+  G.dev = { finishDayTransition, openDaySummary };
+
   function openDaySummary() {
     recordOrdinaryServiceShift(G);
     for (const st of world.stations.values()) if (st.type === 'seat' && st.dirty) cleanSeat(world, st.id);
