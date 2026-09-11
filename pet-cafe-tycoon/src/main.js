@@ -1,21 +1,434 @@
-// src/main.js — boot: loading paint → firstFrameReady → world → gameReady
+import { createFrameMetrics } from './core/frameMetrics.js';
+import { createCafeJournal } from './ui/cafeJournal.js';
+// Host-aware boot: paint recovery shell → resolve cloud save → create playable runtime → game ready.
 import { createScene } from './render/scene.js';
+import { createDaylight } from './render/daylight.js';
 import { createGame } from './game.js';
+import { createYouTubePlatform, LOAD_STATUS } from './platform/youtube.js';
+import { validateAndMigrateSave } from './sim/save.js';
+import { createMachineJuice } from './systems/machineJuice.js';
+import { installPetFriendship } from './systems/petFriendship.js';
+import { installServiceFriction } from './systems/serviceFriction.js';
+import { createPetMess } from './systems/petMess.js';
+import { createBaristaWorker } from './systems/baristaWorker.js';
+import { createResponsivePolish } from './ui/responsive.js';
+import { createLabelLayout } from './ui/labelLayout.js';
+import { createResidentPets } from './systems/residentPets.js';
+import { createGoldenPawCeremony } from './systems/goldenPaw.js';
+import { createFranchiseBridge } from './systems/franchise.js';
+import { install as installDecor } from './systems/decor.js';
+import { installHudLayout, arrangeHud } from './ui/hudLayout.js';
+import { createPlayablesShell } from './ui/playablesShell.js';
+import { installCleanHud } from './ui/cleanHud.js';
+import { installCertificationPolish } from './ui/certificationPolish.js';
+import { createInteractionCoach } from './ui/interactionCoach.js';
+import { installReliefAttention } from './ui/reliefAttention.js';
+import { installServiceSummary } from './ui/serviceSummary.js';
+import { createPauseMenu } from './ui/pauseMenu.js';
+import { createCashTrays } from './render/cashTrays.js';
+import { createCoffeePolish } from './render/coffeePolish.js';
+import { createButterflies } from './render/butterflies.js';
+import { createRewardsSystem } from './systems/rewardsSystem.js';
 import { AREA1 } from '../data/area1.js';
-const yt = (typeof ytgame !== 'undefined' && ytgame && ytgame.IN_PLAYABLES_ENV) ? ytgame : null;
+
 const $ = id => document.getElementById(id);
-requestAnimationFrame(() => requestAnimationFrame(boot));
-function boot() {
-  try { if (yt) yt.game.firstFrameReady(); } catch (e) {}
-  const S = createScene($('c'));
-  const G = createGame(S, AREA1, { fx: $('fx'), wallet: $('wallet'), joy: $('joy'), joyKnob: $('joyKnob') });
-  window.__game = G; window.__scene = S; window.__audio = G.audio;
-  let last = performance.now(), first = true;
-  function frame(now) {
-    const dt = Math.min(0.05, (now - last) / 1000); last = now;
-    G.update(dt); S.render();
-    if (first) { first = false; $('loading').classList.add('hidden'); try { if (yt) yt.game.gameReady(); } catch (e) {} }
-    requestAnimationFrame(frame);
+const platform = createYouTubePlatform(window, {
+  // Parsing valid JSON is not enough to authorize cloud writes. Only a supported, canonicalized
+  // Pet Café save may become LOAD_STATUS.LOADED; invalid/future schemas stay write-protected.
+  validateLoadedData: data => validateAndMigrateSave(data, AREA1),
+});
+window.__platform = platform;
+
+function makeBootRecovery() {
+  const root = $('loading');
+  const spin = root.querySelector('.spin');
+  const label = root.querySelector('.lbl');
+  let detail = root.querySelector('.boot-detail');
+  let action = root.querySelector('.boot-retry');
+
+  if (!detail) {
+    detail = document.createElement('div');
+    detail.className = 'boot-detail hidden';
+    root.appendChild(detail);
   }
-  requestAnimationFrame(frame);
+  if (!action) {
+    action = document.createElement('button');
+    action.type = 'button';
+    action.className = 'boot-retry hidden';
+    root.appendChild(action);
+  }
+  if (!document.getElementById('boot-recovery-style')) {
+    const style = document.createElement('style');
+    style.id = 'boot-recovery-style';
+    style.textContent = `
+      #loading .boot-detail{max-width:min(360px,calc(100vw - 36px));box-sizing:border-box;text-align:center;letter-spacing:0;font-size:14px;line-height:1.45;font-weight:650;opacity:.72}
+      #loading .boot-retry{min-height:48px;max-width:calc(100vw - 32px);box-sizing:border-box;padding:0 24px;border:0;border-radius:999px;background:var(--coral);color:#fff;font:850 14px/1 system-ui,sans-serif;letter-spacing:.06em;box-shadow:0 5px 0 #0001,0 9px 22px #0002;cursor:pointer;touch-action:manipulation}
+      #loading .boot-retry:disabled{opacity:.55;cursor:default}
+      #loading[data-state="renderer-unavailable"] .spin,#loading[data-state="load-error"] .spin,#loading[data-state="invalid-save"] .spin,#loading[data-state="startup-error"] .spin{display:none}
+      @media(max-width:240px),(max-height:240px){#loading{gap:9px}#loading .boot-detail{font-size:11px;line-height:1.3;max-width:calc(100vw - 20px)}#loading .boot-retry{min-height:44px;padding:0 16px;font-size:12px}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function show(state, title, message = '', actionLabel = '', onAction = null) {
+    root.dataset.state = state;
+    root.classList.remove('hidden');
+    label.textContent = title;
+    detail.textContent = message;
+    detail.classList.toggle('hidden', !message);
+    action.classList.toggle('hidden', !onAction);
+    action.disabled = false;
+    action.textContent = actionLabel;
+    action.onclick = onAction ? () => {
+      action.disabled = true;
+      try {
+        const result = onAction();
+        if (result && typeof result.catch === 'function') result.catch(() => {});
+      } catch (_) {}
+    } : null;
+  }
+
+  return {
+    busy(title = 'LOADING', message = '') {
+      show('loading', title, message);
+    },
+    loadFailure(status, retry) {
+      if (status === LOAD_STATUS.PENDING) {
+        show(
+          'load-pending',
+          'STILL CONNECTING',
+          "Your saved café is taking longer than expected. We won't start or save over it until it arrives.",
+          'TRY AGAIN',
+          retry,
+        );
+      } else if (status === LOAD_STATUS.INVALID) {
+        show(
+          'invalid-save',
+          'SAVE NEEDS RETRY',
+          "The cloud save couldn't be read safely. We won't replace it with a new game.",
+          'RETRY',
+          retry,
+        );
+      } else {
+        show(
+          'load-error',
+          "CAN'T LOAD SAVE",
+          "We couldn't reach your saved café. Your progress has not been reset or overwritten.",
+          'RETRY',
+          retry,
+        );
+      }
+    },
+    rendererFailure(reload) {
+      show(
+        'renderer-unavailable',
+        'GRAPHICS UNAVAILABLE',
+        "Pet Café couldn't start the 3D renderer on this device. Reloading may recover the graphics context.",
+        'RELOAD',
+        reload,
+      );
+    },
+    startupFailure(reload) {
+      show(
+        'startup-error',
+        'STARTUP INTERRUPTED',
+        "The café couldn't finish starting. Reload to try again without changing your saved progress.",
+        'RELOAD',
+        reload,
+      );
+    },
+    hide() {
+      root.dataset.state = 'ready';
+      root.classList.add('hidden');
+    },
+  };
+}
+
+function makePauseOverlay() {
+  const el = document.createElement('div');
+  el.className = 'host-pause hidden';
+  el.setAttribute('role', 'status');
+  el.setAttribute('aria-live', 'polite');
+  el.innerHTML = '<div class="host-pause-card"><div class="host-pause-paw">🐾</div><strong>PAUSED</strong><span>Your café is waiting for you</span></div>';
+  const style = document.createElement('style');
+  style.textContent = `
+    .host-pause{position:absolute;inset:0;z-index:80;display:grid;place-items:center;pointer-events:auto;touch-action:none;background:#2b201f42;backdrop-filter:blur(2px)}
+    .host-pause.hidden{display:none}.host-pause-card{display:flex;flex-direction:column;align-items:center;gap:5px;min-width:180px;padding:18px 22px;border-radius:22px;background:#fff8efed;color:#3f332e;border:1px solid #fff;box-shadow:0 10px 35px #0003;font:800 13px/1.2 system-ui,sans-serif;text-align:center}
+    .host-pause-card strong{font-size:22px;letter-spacing:.08em}.host-pause-card span{opacity:.68}.host-pause-paw{font-size:25px}
+    @media(max-width:380px){.host-pause-card{min-width:150px;padding:14px 18px}.host-pause-card strong{font-size:19px}}
+    @media(max-width:240px),(max-height:240px){.host-pause-card{min-width:0;max-width:calc(100vw - 18px);padding:10px 12px;border-radius:16px}.host-pause-card strong{font-size:16px}.host-pause-card span{display:none}.host-pause-paw{font-size:20px}}
+  `;
+  document.head.appendChild(style); document.body.appendChild(el);
+  return el;
+}
+
+requestAnimationFrame(() => requestAnimationFrame(boot));
+
+async function boot() {
+  const bootUi = makeBootRecovery();
+  bootUi.busy('LOADING', 'Checking your saved café…');
+
+  // The static loading shell has already survived a full paint before this nested RAF runs.
+  // Report that first visible frame promptly; gameReady remains reserved for actual playable state.
+  platform.firstFrameReady();
+
+  try { installCleanHud(); }
+  catch (error) {
+    console.error('[Pet Café] HUD boot failed', error);
+    bootUi.startupFailure(() => location.reload());
+    return;
+  }
+
+  let S;
+  try {
+    S = createScene($('c'));
+    // Force one real renderer submission now so context/setup failures are surfaced here instead
+    // of becoming an unexplained spinner later in the frame loop.
+    S.render();
+  } catch (error) {
+    console.error('[Pet Café] renderer unavailable', error);
+    bootUi.rendererFailure(() => location.reload());
+    return;
+  }
+
+  let gameStarted = false;
+  let loadAttemptBusy = false;
+
+  const startPlayable = load => {
+    if (gameStarted) return;
+    gameStarted = true;
+    bootUi.busy(
+      'OPENING CAFÉ',
+      load.status === LOAD_STATUS.LOADED ? 'Restoring your progress…' : 'Preparing a new café…',
+    );
+    try {
+      startGame(S, load, bootUi);
+    } catch (error) {
+      console.error('[Pet Café] runtime startup failed', error);
+      bootUi.startupFailure(() => location.reload());
+    }
+  };
+
+  const handleLoadOutcome = load => {
+    if (load && (load.status === LOAD_STATUS.LOADED || load.status === LOAD_STATUS.EMPTY)) {
+      startPlayable(load);
+      return;
+    }
+    const status = load && load.status ? load.status : LOAD_STATUS.ERROR;
+    bootUi.loadFailure(status, () => attemptLoad(true));
+  };
+
+  const attemptLoad = async retry => {
+    if (loadAttemptBusy || gameStarted) return;
+    loadAttemptBusy = true;
+    bootUi.busy(retry ? 'RETRYING' : 'LOADING', retry ? 'Checking your cloud save again…' : 'Checking your saved café…');
+    let load;
+    try {
+      load = retry ? await platform.retryLoad() : await platform.load();
+    } catch (error) {
+      console.error('[Pet Café] save load failed', error);
+      load = { status: LOAD_STATUS.ERROR };
+    }
+    loadAttemptBusy = false;
+    handleLoadOutcome(load);
+  };
+
+  await attemptLoad(false);
+}
+
+function startGame(S, load, bootUi) {
+  const els = { fx: $('fx'), wallet: $('wallet'), joy: $('joy'), joyKnob: $('joyKnob') };
+  const G = createGame(S, AREA1, els, platform);
+  const machineJuice = createMachineJuice(G.world, S.scene);
+  const coffeePolish = createCoffeePolish(G.world, S.scene, G.owner);
+  const petFriendship = installPetFriendship(G, platform);
+  const serviceFriction = installServiceFriction(G);
+  const petMess = createPetMess(G, S.scene);
+  const baristaWorker = createBaristaWorker(G, S.scene);
+  const decor = installDecor(G, S.scene, G.world);
+  const reliefAttention = installReliefAttention(G);
+  const serviceSummary = installServiceSummary(G);
+  const responsive = createResponsivePolish(G);
+  const labelLayout = createLabelLayout(els, { worldPerPixel: () => S.worldPerPixel() });
+  // The photo studio's ring is built inside createGame, which already ran, so it reaches the label
+  // arbiter through G rather than through its constructor (see systems/photo.js's avoid hook).
+  G.labelLayout = labelLayout;
+  const shell = createPlayablesShell();
+  installCertificationPolish();
+  const interactionCoach = createInteractionCoach(G, S, labelLayout);
+  const cashTrays = createCashTrays(G.world, S.scene);
+  const butterflies = createButterflies(S.scene, {
+    // The environment GROUP, not a snapshot of its bed list: buildScenery reseeds the beds on every
+    // season change, and the insects resolve their bed by index each frame so they follow it.
+    beds: G.environment,
+    // The SAME dusk signal game.js already sends to ambience.setNight and environment.setNight:
+    // one authority for when the café is dark, so the day insects and the fireflies hand over
+    // together instead of each keeping its own clock.
+    night: () => (S.daylight ? S.daylight.lights : 0),
+  });
+  G.butterflies = butterflies;
+  const residentPets = createResidentPets(S, G, els);
+  // ambience and fx belong to game.js and reach here through G (see the two exposures there).
+  const goldenPaw = createGoldenPawCeremony(S, G, { ambience: G.ambience, fx: G.fx, residents: residentPets });
+  // The Franchise offer (plan §3.11). Surfaced from the day summary only; never auto-opens.
+  const franchise = createFranchiseBridge(G);
+  const rewardsSystem = createRewardsSystem(G, S, platform);
+  G.uiRoutes.calendar = { open: () => G.openCalendar?.(), root: '.cal-modal-root' };
+  const bonusSelectors = ['.mystery-float-chip', '.speed-build-chip', '.rare-visitor-chip', '.golden-shot-chip'];
+  const availableBonus = () => bonusSelectors
+    .map(selector => document.querySelector(selector))
+    .find(el => el && !el.classList.contains('hidden'));
+  G.uiRoutes.bonus = {
+    available: () => !!availableBonus(),
+    open: () => availableBonus()?.click(),
+  };
+  const pauseOverlay = makePauseOverlay();
+  // Time of day owns sun/hemi/sky/fog/grade and the after-dark interior glow. Created here (not in
+  // createScene) because it needs the area for the window and pendant positions.
+  const daylight = createDaylight(S, AREA1);
+  S.daylight = daylight;
+
+  if (load.status === LOAD_STATUS.LOADED && G.restore(load.data) === false) {
+    // This should be unreachable because the platform validator ran before write authorization,
+    // but do not bind host pause/save callbacks until the restore boundary agrees.
+    throw new Error('Validated cloud save was rejected by the restore boundary');
+  }
+  platform.bindGame(G);
+  petFriendship.refresh();
+  // Same rule as the keepsake above: an award already in the save is a plaque that has always been
+  // on the wall. This mounts it with no animation and retires the ceremony for the session.
+  goldenPaw.refresh();
+  franchise.refresh();
+  coffeePolish.update();
+  rewardsSystem.refresh();
+  installHudLayout(); // last stylesheet wins: this module owns HUD placement
+  const pauseMenu = createPauseMenu(G, platform, G.uiRoutes);
+  const cafeJournal = createCafeJournal(G, platform);
+  window.__cafeJournal = cafeJournal;
+  // Batch 6: the wallet, followers, Pet Book and ★ chips become one resource bar. Every one of them
+  // exists by now (hud.js, meta.js and career.js all ran inside createGame), so this single call
+  // adopts them all; arrangeHud is idempotent and also runs inside installHudLayout for the pieces
+  // that already existed then.
+  arrangeHud();
+  platform.sendScore(G.meta && G.meta.reputation);
+  daylight.update(G.dayState.t, S.goldenHour);
+  responsive.update(); shell.refresh();
+
+  const frameMetrics = createFrameMetrics();
+  window.__performanceCapture = frameMetrics;
+  window.__game = G;
+  // Hidden owner tool, never shipped to players: only loads when the page is opened with ?dev=1
+  // AND outside the YouTube Playables host, so the code-split chunk is never even requested during
+  // normal play or inside the host. See src/dev/devPanel.js.
+  if (new URLSearchParams(location.search).get('dev') === '1' && !platform.inPlayables) import('./dev/devPanel.js').then(m => m.installDevPanel(G, S, platform)).catch(err => console.warn('dev panel failed', err));
+  window.__franchise = franchise;
+  window.__scene = S;
+  window.__audio = G.audio;
+  window.__pauseMenu = pauseMenu;
+  window.__playablesShell = shell;
+  window.__interactionCoach = interactionCoach;
+  window.__petFriendship = petFriendship;
+  window.__serviceFriction = serviceFriction;
+  window.__petMess = petMess;
+  window.__baristaWorker = baristaWorker;
+  window.__reliefAttention = reliefAttention;
+  window.__serviceSummary = serviceSummary;
+  window.__coffeePolish = coffeePolish;
+
+  S.render();
+
+  let last = performance.now(), first = true, lastRep = (G.meta && G.meta.reputation) | 0;
+  let frameId = 0, wasPaused = false;
+
+  function applyPauseState() {
+    const paused = platform.paused || G.userPaused;
+    if (paused === wasPaused) return paused;
+    wasPaused = paused;
+    document.body.classList.toggle('game-paused', paused);
+    if (G.audio && G.audio.setPaused) G.audio.setPaused(paused);
+    return paused;
+  }
+
+  const blockHostInteraction = e => {
+    if (!platform.paused) return;
+    e.stopImmediatePropagation();
+  };
+  for (const type of ['pointerdown','pointerup','click','touchstart','touchend','keydown','keyup']) {
+    document.addEventListener(type, blockHostInteraction, true);
+  }
+
+  function scheduleFrame() {
+    if (!frameId && !platform.paused) frameId = requestAnimationFrame(frame);
+  }
+
+  platform.onPauseChange(hostPaused => {
+    pauseOverlay.classList.toggle('hidden', !hostPaused);
+    document.body.classList.toggle('host-paused', hostPaused);
+    applyPauseState();
+    if (hostPaused) {
+      if (frameId) cancelAnimationFrame(frameId);
+      frameId = 0;
+    } else {
+      last = performance.now();
+      scheduleFrame();
+    }
+  });
+
+  function frame(now) {
+    frameId = 0;
+    if (platform.paused) return;
+    const frameMs = Math.max(0, now - last);
+    const dt = Math.min(0.05, frameMs / 1000); last = now;
+    const paused = applyPauseState();
+    cafeJournal.update();
+
+    if (!paused) {
+      G.update(dt);
+      baristaWorker.update(dt);
+      decor.update(dt);
+      G.finishActorStep();
+      petMess.update(dt);
+      machineJuice.update(dt);
+      coffeePolish.update();
+      cashTrays.update(dt);
+      butterflies.update(dt);
+      residentPets.update(dt);
+      goldenPaw.update(dt);
+      franchise.update();
+      rewardsSystem.update(dt);
+      // After rewardsSystem: it is what moves S.goldenHour, and Golden Hour is a boost layered on
+      // top of the current time-of-day keyframe rather than a palette of its own.
+      daylight.update(G.dayState.t, S.goldenHour);
+      const uiStart = frameMetrics.running ? performance.now() : 0;
+      responsive.update();
+      shell.update();
+      interactionCoach.update(dt);
+      // Must run last: it reads what every label system just wrote and resolves overlap/overflow.
+      labelLayout.update();
+      const uiMs = frameMetrics.running ? performance.now() - uiStart : 0;
+      G.audio.setMusicPhase(G.dayState.phase);
+      G.audio.musicUpdate(dt);
+      const rep = (G.meta && G.meta.reputation) | 0;
+      if (rep !== lastRep) { lastRep = rep; platform.sendScore(rep); }
+      if (S.noteFrame) S.noteFrame(dt);
+      const renderStart = frameMetrics.running ? performance.now() : 0;
+      S.render();
+      if (frameMetrics.running) frameMetrics.record({frameMs,uiMs,renderMs:performance.now()-renderStart,
+        drawCalls:S.renderer.info.render.calls,triangles:S.renderer.info.render.triangles,
+        heapBytes:performance.memory?.usedJSHeapSize});
+    } else interactionCoach.hide();
+
+    if (first) {
+      first = false;
+      bootUi.hide();
+      platform.gameReady();
+      // YouTube owns pre-roll. Interstitial requests remain at the natural shift transition.
+    }
+    scheduleFrame();
+  }
+
+  pauseOverlay.classList.toggle('hidden', !platform.paused);
+  document.body.classList.toggle('host-paused', platform.paused);
+  applyPauseState();
+  scheduleFrame();
 }

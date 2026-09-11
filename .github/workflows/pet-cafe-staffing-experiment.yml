@@ -1,0 +1,38 @@
+name: Pet Cafe Staffing Progression Experiment
+
+on:
+  push:
+    branches: [chatgpt/pet-cafe-production]
+    paths:
+      - 'pet-cafe-tycoon/src/sim/staffingExperiment.js'
+      - 'pet-cafe-tycoon/tools/staffing-progression-experiment-v4.js'
+      - 'pet-cafe-tycoon/test/staffing-experiment.test.js'
+      - '.github/workflows/pet-cafe-staffing-experiment.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pet-cafe-staffing-experiment
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    defaults:
+      run:
+        working-directory: pet-cafe-tycoon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: pet-cafe-tycoon/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Task 24 focused unit tests
+        run: node --test test/staffing-experiment.test.js
+      - name: Task 24 multi-policy measurement
+        run: node tools/staffing-progression-experiment-v4.js

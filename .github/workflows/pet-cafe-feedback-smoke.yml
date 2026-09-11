@@ -1,0 +1,50 @@
+name: Pet Cafe Fee-Free Feedback Smoke
+
+on:
+  push:
+    branches: [chatgpt/pet-cafe-production]
+    paths:
+      - 'pet-cafe-tycoon/src/systems/serviceFriction.js'
+      - 'pet-cafe-tycoon/src/sim/serviceQuality.js'
+      - 'pet-cafe-tycoon/src/ui/serviceSummary.js'
+      - 'pet-cafe-tycoon/test/fee-free-feedback.test.js'
+      - 'pet-cafe-tycoon/tools/fee-free-feedback-smoke.js'
+      - '.github/workflows/pet-cafe-feedback-smoke.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pet-cafe-feedback-smoke
+  cancel-in-progress: true
+
+jobs:
+  mobile-feedback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    defaults:
+      run:
+        working-directory: pet-cafe-tycoon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: pet-cafe-tycoon/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build production playable
+        run: npm run build
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Task 23 mobile browser smoke
+        run: node tools/fee-free-feedback-smoke.js
+      - name: Upload current mobile evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: task23-fee-free-${{ github.sha }}
+          path: pet-cafe-tycoon/shots-production/task23-fee-free-320.png
+          if-no-files-found: warn
+          retention-days: 14

@@ -1,0 +1,350 @@
+[
+  {
+    "policy": "balanced",
+    "rushIntervalScale": 1,
+    "served": 374.3333333333333,
+    "lost": 1,
+    "wallet": 1550.3333333333333,
+    "firstHireMinutes": 9.47203703703846,
+    "purchaseIntervalMedian": 93.10000000007409,
+    "idleIntervalMedian": 3.3333333333303017,
+    "meanLongestIdle": 21.30000000000111,
+    "usefulActions": {
+      "fetchedItems": 198.66666666666666,
+      "deliveredItems": 194.33333333333334,
+      "buildCoins": 6850,
+      "cleanedSeats": 110,
+      "refillUnits": 163.33333333333334
+    },
+    "stockoutGuestSeconds": 602.3222222223318,
+    "idleSeconds": 691.4222222222506,
+    "phases": {
+      "morning": {
+        "ownerTravel": 334.7777777778285,
+        "ownerAtTask": 62.21111111111014,
+        "ownerIdle": 323.41111111115276,
+        "deliveryWait": 68.18888888888758,
+        "productionWait": 0,
+        "refillWait": 0,
+        "unknownStockWait": 0
+      },
+      "rush": {
+        "ownerTravel": 812.4333333332519,
+        "ownerAtTask": 166.12222222221536,
+        "ownerIdle": 101.44444444444126,
+        "deliveryWait": 410.22222222233296,
+        "productionWait": 0.09999999999999999,
+        "refillWait": 0,
+        "unknownStockWait": 0
+      },
+      "afternoon": {
+        "ownerTravel": 502.40000000018057,
+        "ownerAtTask": 91.17777777777518,
+        "ownerIdle": 126.42222222221761,
+        "deliveryWait": 110.8333333333296,
+        "productionWait": 0,
+        "refillWait": 0,
+        "unknownStockWait": 0
+      },
+      "closing": {
+        "ownerTravel": 187.03333333332532,
+        "ownerAtTask": 32.8222222222228,
+        "ownerIdle": 140.14444444443907,
+        "deliveryWait": 12.977777777777996,
+        "productionWait": 0,
+        "refillWait": 0,
+        "unknownStockWait": 0
+      }
+    }
+  },
+  {
+    "policy": "balanced",
+    "rushIntervalScale": 1.1,
+    "served": 354,
+    "lost": 0.3333333333333333,
+    "wallet": 1317,
+    "firstHireMinutes": 10.623148148149442,
+    "purchaseIntervalMedian": 95.73333333324626,
+    "idleIntervalMedian": 3.2999999999969987,
+    "meanLongestIdle": 28.93333333330702,
+    "usefulActions": {
+      "fetchedItems": 194.66666666666666,
+      "deliveredItems": 191.33333333333334,
+      "buildCoins": 6850,
+      "cleanedSeats": 108.33333333333333,
+      "refillUnits": 170
+    },
+    "stockoutGuestSeconds": 560.3555555557033,
+    "idleSeconds": 729.7555555555491,
+    "phases": {
+      "morning": {
+        "ownerTravel": 319.90000000003886,
+        "ownerAtTask": 48.49999999999981,
+        "ownerIdle": 352.0000000000644,
+        "deliveryWait": 36.18888888888905,
+        "productionWait": 0,
+        "refillWait": 0,
+        "unknownStockWait": 0
+      },
+      "rush": {
+        "ownerTravel": 804.7222222221477,
+        "ownerAtTask": 170.01111111110404,
+        "ownerIdle": 105.26666666666326,
+        "deliveryWait": 389.78888888898337,
+        "productionWait": 0.14444444444444443,
+        "refillWait": 0,
+        "unknownStockWait": 0
+      },
+      "afternoon": {
+        "ownerTravel": 502.4000000001832,
+        "ownerAtTask": 93.55555555555281,
+        "ownerIdle": 124.04444444443997,
+        "deliveryWait": 124.81111111110658,
+        "productionWait": 0,
+        "refillWait": 0.26666666666666666,
+        "unknownStockWait": 0
+      },
+      "closing": {
+        "ownerTravel": 180.22222222221458,
+        "ownerAtTask": 31.333333333333893,
+        "ownerIdle": 148.44444444443857,
+        "deliveryWait": 9.155555555555628,
+        "productionWait": 0,
+        "refillWait": 0,
+        "unknownStockWait": 0
+      }
+    }
+  },
+  {
+    "policy": "slow",
+    "rushIntervalScale": 1,
+    "served": 370.6666666666667,
+    "lost": 3,
+    "wallet": 1650.6666666666667,
+    "firstHireMinutes": 10.468333333334767,
+    "purchaseIntervalMedian": 87.70000000006979,
+    "idleIntervalMedian": 2.8333333333307564,
+    "meanLongestIdle": 28.72222222224114,
+    "usefulActions": {
+      "fetchedItems": 176.66666666666666,
+      "deliveredItems": 175,
+      "buildCoins": 6850,
+      "cleanedSeats": 102.66666666666667,
+      "refillUnits": 180
+    },
+    "stockoutGuestSeconds": 666.1333333333848,
+    "idleSeconds": 529.0222222223985,
+    "phases": {
+      "morning": {
+        "ownerTravel": 400.8888888889922,
+        "ownerAtTask": 53.84444444444395,
+        "ownerIdle": 265.6666666666652,
+        "deliveryWait": 64.31111111111004,
+        "productionWait": 0,
+        "refillWait": 0,
+        "unknownStockWait": 0
+      },
+      "rush": {
+        "ownerTravel": 854.488888888769,
+        "ownerAtTask": 158.48888888888246,
+        "ownerIdle": 67.02222222222099,
+        "deliveryWait": 457.15555555570364,
+        "productionWait": 0.28888888888888886,
+        "refillWait": 0.388888888888889,
+        "unknownStockWait": 0
+      },
+      "afternoon": {
+        "ownerTravel": 558.455555555705,
+        "ownerAtTask": 88.64444444444199,
+        "ownerIdle": 72.89999999999843,
+        "deliveryWait": 136.13333333332818,
+        "productionWait": 0,
+        "refillWait": 0,
+        "unknownStockWait": 0
+      },
+      "closing": {
+        "ownerTravel": 207.0999999999908,
+        "ownerAtTask": 29.466666666667294,
+        "ownerIdle": 123.4333333333289,
+        "deliveryWait": 7.855555555555537,
+        "productionWait": 0,
+        "refillWait": 0,
+        "unknownStockWait": 0
+      }
+    }
+  },
+  {
+    "policy": "slow",
+    "rushIntervalScale": 1.1,
+    "served": 349.3333333333333,
+    "lost": 1.6666666666666667,
+    "wallet": 2119,
+    "firstHireMinutes": 10.715925925927136,
+    "purchaseIntervalMedian": 102.23333333324035,
+    "idleIntervalMedian": 3.1999999999970896,
+    "meanLongestIdle": 32.299999999991165,
+    "usefulActions": {
+      "fetchedItems": 190,
+      "deliveredItems": 189.66666666666666,
+      "buildCoins": 6850,
+      "cleanedSeats": 120.33333333333333,
+      "refillUnits": 166.66666666666666
+    },
+    "stockoutGuestSeconds": 693.0777777778048,
+    "idleSeconds": 553.1888888890431,
+    "phases": {
+      "morning": {
+        "ownerTravel": 382.07777777786606,
+        "ownerAtTask": 52.6222222222218,
+        "ownerIdle": 285.70000000001164,
+        "deliveryWait": 47.011111111110814,
+        "productionWait": 0,
+        "refillWait": 0,
+        "unknownStockWait": 0
+      },
+      "rush": {
+        "ownerTravel": 851.7666666665494,
+        "ownerAtTask": 162.99999999999332,
+        "ownerIdle": 65.2333333333322,
+        "deliveryWait": 456.48888888903645,
+        "productionWait": 0.8666666666666671,
+        "refillWait": 0.466666666666667,
+        "unknownStockWait": 0
+      },
+      "afternoon": {
+        "ownerTravel": 539.100000000167,
+        "ownerAtTask": 106.63333333332984,
+        "ownerIdle": 74.26666666666502,
+        "deliveryWait": 170.66666666665955,
+        "productionWait": 0,
+        "refillWait": 1.811111111111108,
+        "unknownStockWait": 0
+      },
+      "closing": {
+        "ownerTravel": 201.1444444444356,
+        "ownerAtTask": 30.8666666666673,
+        "ownerIdle": 127.9888888888842,
+        "deliveryWait": 15.766666666666652,
+        "productionWait": 0,
+        "refillWait": 0,
+        "unknownStockWait": 0
+      }
+    }
+  },
+  {
+    "policy": "staff-first",
+    "rushIntervalScale": 1,
+    "served": 377,
+    "lost": 1.3333333333333333,
+    "wallet": 2116.3333333333335,
+    "firstHireMinutes": 7.062777777779803,
+    "purchaseIntervalMedian": 85.1333333332559,
+    "idleIntervalMedian": 3.599999999996726,
+    "meanLongestIdle": 20.999999999997687,
+    "usefulActions": {
+      "fetchedItems": 188.33333333333334,
+      "deliveredItems": 184.66666666666666,
+      "buildCoins": 6850,
+      "cleanedSeats": 105.66666666666667,
+      "refillUnits": 183.33333333333334
+    },
+    "stockoutGuestSeconds": 528.2111111112607,
+    "idleSeconds": 686.7777777778105,
+    "phases": {
+      "morning": {
+        "ownerTravel": 342.6000000000569,
+        "ownerAtTask": 59.58888888888807,
+        "ownerIdle": 318.2111111111486,
+        "deliveryWait": 56.08888888888827,
+        "productionWait": 0,
+        "refillWait": 0,
+        "unknownStockWait": 0
+      },
+      "rush": {
+        "ownerTravel": 832.6333333332335,
+        "ownerAtTask": 163.58888888888217,
+        "ownerIdle": 83.7777777777756,
+        "deliveryWait": 372.84444444452544,
+        "productionWait": 0,
+        "refillWait": 0,
+        "unknownStockWait": 0
+      },
+      "afternoon": {
+        "ownerTravel": 498.088888889066,
+        "ownerAtTask": 90.61111111110853,
+        "ownerIdle": 131.29999999999512,
+        "deliveryWait": 91.5333333333307,
+        "productionWait": 0,
+        "refillWait": 0,
+        "unknownStockWait": 0
+      },
+      "closing": {
+        "ownerTravel": 177.2888888888814,
+        "ownerAtTask": 29.222222222222825,
+        "ownerIdle": 153.48888888888277,
+        "deliveryWait": 7.744444444444486,
+        "productionWait": 0,
+        "refillWait": 0,
+        "unknownStockWait": 0
+      }
+    }
+  },
+  {
+    "policy": "staff-first",
+    "rushIntervalScale": 1.1,
+    "served": 353.3333333333333,
+    "lost": 0.3333333333333333,
+    "wallet": 1549.6666666666667,
+    "firstHireMinutes": 7.803333333335867,
+    "purchaseIntervalMedian": 83.66666666659057,
+    "idleIntervalMedian": 3.2666666666636957,
+    "meanLongestIdle": 28.444444444453286,
+    "usefulActions": {
+      "fetchedItems": 201,
+      "deliveredItems": 200.66666666666666,
+      "buildCoins": 6850,
+      "cleanedSeats": 114.33333333333333,
+      "refillUnits": 176.66666666666666
+    },
+    "stockoutGuestSeconds": 497.0666666668414,
+    "idleSeconds": 706.9333333333476,
+    "phases": {
+      "morning": {
+        "ownerTravel": 342.92222222227946,
+        "ownerAtTask": 61.7444444444435,
+        "ownerIdle": 315.7333333333689,
+        "deliveryWait": 68.77777777777644,
+        "productionWait": 0,
+        "refillWait": 0,
+        "unknownStockWait": 0
+      },
+      "rush": {
+        "ownerTravel": 811.1222222221419,
+        "ownerAtTask": 173.4777777777705,
+        "ownerIdle": 95.39999999999715,
+        "deliveryWait": 324.06666666670884,
+        "productionWait": 0,
+        "refillWait": 0,
+        "unknownStockWait": 0
+      },
+      "afternoon": {
+        "ownerTravel": 491.64444444461805,
+        "ownerAtTask": 97.2444444444415,
+        "ownerIdle": 131.11111111110623,
+        "deliveryWait": 96.26666666666377,
+        "productionWait": 0,
+        "refillWait": 0,
+        "unknownStockWait": 0
+      },
+      "closing": {
+        "ownerTravel": 168.45555555554856,
+        "ownerAtTask": 26.855555555556048,
+        "ownerIdle": 164.6888888888821,
+        "deliveryWait": 7.955555555555534,
+        "productionWait": 0,
+        "refillWait": 0,
+        "unknownStockWait": 0
+      }
+    }
+  }
+]

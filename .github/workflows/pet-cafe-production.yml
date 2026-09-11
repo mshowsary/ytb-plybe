@@ -1,0 +1,77 @@
+name: Pet Cafe Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Full batch certification or one diagnostic suite
+        type: choice
+        default: all
+        options: [all, lifecycle, gameplay, visual, publisher, economy]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pet-cafe-production-${{ github.ref }}-${{ inputs.suite }}
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    name: ${{ matrix.suite }} checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: ${{ fromJSON(inputs.suite == 'all' && '["lifecycle","gameplay","visual","publisher","economy"]' || format('["{0}"]', inputs.suite)) }}
+    defaults:
+      run:
+        working-directory: pet-cafe-tycoon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: pet-cafe-tycoon/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Unit and simulation tests
+        if: matrix.suite == 'economy'
+        run: npm test
+      - name: Production build
+        run: npm run build
+      - name: Install Chromium
+        if: matrix.suite != 'economy'
+        run: npx playwright install --with-deps chromium
+      - name: Run every check in selected suite
+        run: node tools/certify-batch.js ${{ matrix.suite }}
+      - name: Upload evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pet-cafe-${{ matrix.suite }}-${{ github.sha }}
+          path: |
+            pet-cafe-tycoon/shots-production
+            pet-cafe-tycoon/reports-production
+          if-no-files-found: warn
+          retention-days: 14
+
+  result:
+    name: Selected certification result
+    if: always()
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all selected checks to pass
+        env:
+          RESULT: ${{ needs.checks.result }}
+          SUITE: ${{ inputs.suite }}
+          SHA: ${{ github.sha }}
+        run: |
+          echo "Suite: $SUITE; commit: $SHA; result: $RESULT" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$SUITE" != all ]; then
+            echo "Diagnostic suite only: this is not full production certification." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          test "$RESULT" = success

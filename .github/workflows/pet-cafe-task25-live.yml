@@ -1,0 +1,86 @@
+name: Pet Cafe Task 25 Live Certification
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - chatgpt/pet-cafe-production
+    paths:
+      - '.github/workflows/pet-cafe-task25-live.yml'
+      - 'pet-cafe-tycoon/data/area1.js'
+      - 'pet-cafe-tycoon/src/game.js'
+      - 'pet-cafe-tycoon/src/main.js'
+      - 'pet-cafe-tycoon/src/platform/youtube.js'
+      - 'pet-cafe-tycoon/src/sim/botDecide.js'
+      - 'pet-cafe-tycoon/src/sim/economy.js'
+      - 'pet-cafe-tycoon/src/sim/save.js'
+      - 'pet-cafe-tycoon/src/systems/customers.js'
+      - 'pet-cafe-tycoon/src/systems/stations.js'
+      - 'pet-cafe-tycoon/src/systems/zones.js'
+      - 'pet-cafe-tycoon/src/ui/models.js'
+      - 'pet-cafe-tycoon/src/ui/sheets.js'
+      - 'pet-cafe-tycoon/tools/task25-live-cert.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pet-cafe-task25-live-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  live-cert:
+    name: Mobile Desk-to-Runner certificate
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: pet-cafe-tycoon
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: pet-cafe-tycoon/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Start production preview
+        run: |
+          nohup npx vite preview --host 127.0.0.1 --port 4173 > /tmp/pet-cafe-preview.log 2>&1 &
+          echo $! > /tmp/pet-cafe-preview.pid
+          for i in {1..40}; do
+            if curl --fail --silent http://127.0.0.1:4173/ >/dev/null; then
+              exit 0
+            fi
+            sleep 0.25
+          done
+          cat /tmp/pet-cafe-preview.log
+          exit 1
+
+      - name: Run Task 25 live certificate
+        run: node tools/task25-live-cert.mjs
+
+      - name: Show preview log on failure
+        if: failure()
+        run: cat /tmp/pet-cafe-preview.log || true
+
+      - name: Upload Task 25 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: task25-live-cert-${{ github.sha }}
+          path: pet-cafe-tycoon/artifacts/task25-live
+          if-no-files-found: warn
+          retention-days: 14

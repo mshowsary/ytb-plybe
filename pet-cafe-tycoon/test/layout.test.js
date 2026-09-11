@@ -1,16 +1,18 @@
-// test/layout.test.js — M3 T3: geometry checks for the new area1 layout (data/area1.js) once the
-// whole zone chain is built (every station active, the grid at its final, most-crowded shape).
-import { test } from 'node:test'; import assert from 'node:assert/strict';
+import test from 'node:test';
+import assert from 'node:assert/strict';
 import { AREA1 } from '../data/area1.js';
 import { createWorld, payZone, refreshActive } from '../src/sim/world.js';
 import { buildGrid, idx, isFree } from '../src/sim/nav.js';
 
 function buildAll(w) {
-  for (const z of AREA1.zones) { let g = 0; while (!w.built.has(z.id) && g++ < 1000) payZone(w, z.id, 1e9, 1); }
+  for (const z of AREA1.zones) {
+    let guard = 0;
+    while (!w.built.has(z.id) && guard++ < 1000) payZone(w, z.id, 1e9, 1);
+  }
   refreshActive(w);
 }
 
-test('every counter/checkout queue slot lies on a free grid cell', () => {
+test('every display/register queue slot lies on a free grid cell', () => {
   const w = createWorld(AREA1); buildAll(w);
   const grid = buildGrid(AREA1, w);
   for (const id of [...w.displays, ...w.checkouts]) {
@@ -22,7 +24,7 @@ test('every counter/checkout queue slot lies on a free grid cell', () => {
   }
 });
 
-test('every seat pair spot (human and pet) lies on a free grid cell', () => {
+test('every seat pair spot lies on a free grid cell', () => {
   const w = createWorld(AREA1); buildAll(w);
   const grid = buildGrid(AREA1, w);
   for (const st of w.stations.values()) {
@@ -32,43 +34,31 @@ test('every seat pair spot (human and pet) lies on a free grid cell', () => {
   }
 });
 
-test('the bowl front and every bush front lie on a free grid cell', () => {
-  const w = createWorld(AREA1); buildAll(w);
-  const grid = buildGrid(AREA1, w);
-  const bowl = w.stations.get('bowl1');
-  assert.ok(isFree(grid, idx(grid, bowl.front.x, bowl.front.z), 0), `bowl1 front at (${bowl.front.x},${bowl.front.z}) is blocked`);
-  for (const id of ['bush1', 'bush2', 'bush3']) {
-    const st = w.stations.get(id);
-    assert.ok(isFree(grid, idx(grid, st.front.x, st.front.z), 0), `${id} front at (${st.front.x},${st.front.z}) is blocked`);
-  }
-});
-
-test('every station front (the generic proximity/interaction spot) lies on a free grid cell', () => {
+test('every ACTIVE station front lies on a free grid cell', () => {
+  // Batch 1 (plan 3.1): z_splash retires fountain1 in favour of splash1 on the same tile (see
+  // world.js payZone) — buildAll no longer implies "every station in the data is active", so this
+  // now has to check the invariant it always meant ("a station the player can actually use has a
+  // reachable front"), not "every row that ever existed in data/area1.js".
   const w = createWorld(AREA1); buildAll(w);
   const grid = buildGrid(AREA1, w);
   for (const st of w.stations.values()) {
+    if (!st.active) continue;
     assert.ok(isFree(grid, idx(grid, st.front.x, st.front.z), 0), `${st.id} front at (${st.front.x},${st.front.z}) is blocked`);
   }
 });
 
-test('no zone disc centre lies inside any active-or-eventually-active station footprint', () => {
-  const w = createWorld(AREA1); buildAll(w); // active flags no longer matter here — check every station's footprint regardless
+test('no zone disc centre lies inside a station footprint', () => {
   for (const z of AREA1.zones) {
     for (const s of AREA1.stations) {
-      let fw = s.fw != null ? s.fw : 1, fd = s.fd != null ? s.fd : 1;
-      if (Math.abs(Math.sin(s.rot || 0)) > 0.5) { const t = fw; fw = fd; fd = t; }
+      let fw = s.fw ?? 1, fd = s.fd ?? 1;
+      if (Math.abs(Math.sin(s.rot || 0)) > 0.5) [fw, fd] = [fd, fw];
       const inside = Math.abs(z.x - s.x) < fw / 2 && Math.abs(z.z - s.z) < fd / 2;
-      assert.ok(!inside, `zone ${z.id} at (${z.x},${z.z}) lies inside ${s.id}'s footprint`);
+      assert.ok(!inside, `zone ${z.id} lies inside ${s.id}`);
     }
   }
 });
 
-// M3 T3 fix round 2 (controller ruling): the exit corridor every 'leave' customer walks through
-// (door at z 4.2) must stay clear on a wide swath of open floor between the counter row (z <=
-// -1.25 once its nav-grid margin is included) and the single seat row (z >= 5.05 once its own
-// margin is included) — the prior two-seat-row layout pinched this down to ~0.6m, under the
-// two-movers-never-overlap floor (2 * 0.30m radius) by construction.
-test('the exit corridor (z 3.0-4.6, x -9..6) is entirely free of blocked cells', () => {
+test('exit corridor remains entirely free', () => {
   const w = createWorld(AREA1); buildAll(w);
   const grid = buildGrid(AREA1, w);
   for (let z = 3.0; z <= 4.6 + 1e-9; z += 0.1) {
@@ -78,24 +68,71 @@ test('the exit corridor (z 3.0-4.6, x -9..6) is entirely free of blocked cells',
   }
 });
 
-test('every counter/checkout queue slot lies at z <= 2.85 (clear of the exit corridor)', () => {
+test('interior display/register queues stay north of the exit corridor', () => {
+  // The 2.85 ceiling encodes "north of the door-side exit corridor" (the previous test, z 3.0-4.6)
+  // for the ORIGINAL interior stations, which sit in a single row a few metres from that door.
+  // Batch 1's terrace stations (plan 7.1) are a different physical space entirely, 5+ metres south
+  // of the fence with no exit corridor of their own to spill into — scope this check to the
+  // interior set it was written for instead of asserting an interior-specific bound on every
+  // present and future station in the game.
+  const INTERIOR_QUEUED = new Set(['dispCookie', 'dispCupcake', 'barCoffee', 'barSmoothie', 'register1', 'register2']);
   const w = createWorld(AREA1); buildAll(w);
   for (const id of [...w.displays, ...w.checkouts]) {
+    if (!INTERIOR_QUEUED.has(id)) continue;
     const st = w.stations.get(id);
-    for (let i = 0; i < st.queue.length; i++) {
-      assert.ok(st.queue[i].z <= 2.85, `${id} queue slot ${i} at z=${st.queue[i].z} exceeds 2.85`);
-    }
+    for (const p of st.queue) assert.ok(p.z <= 2.85, `${id} queue at z=${p.z} exceeds 2.85`);
   }
 });
 
-test('the 9-zone chain is a single sequential requires-chain in the given order, and every adds id exists', () => {
-  // Loop v2 Task 1: the nine-zone chain from the design doc's unlock table — see data/area1.js's
-  // zones comment (z_counter2/z_counter3/z_kiosk/z_gate are gone; the kiosk is free and area 2's
-  // gate doesn't exist yet).
-  const order = ['z_seats1', 'z_oven2', 'z_register2', 'z_hire', 'z_coffee', 'z_garden', 'z_seats2', 'z_bowl', 'z_blender'];
+test('smoothie display leaves a genuine player-width passage beside cupcakes', () => {
+  const cupcake = AREA1.stations.find(s => s.id === 'dispCupcake');
+  const smoothie = AREA1.stations.find(s => s.id === 'barSmoothie');
+  const gap = (smoothie.x - smoothie.fw / 2) - (cupcake.x + cupcake.fw / 2);
+  assert.ok(gap >= 1.0, `cupcake/smoothie passage is only ${gap.toFixed(2)}m`);
+});
+
+test('pantry, return and blender are physically separated', () => {
+  const ids = ['pantry1', 'return1', 'blender1'];
+  const stations = ids.map(id => AREA1.stations.find(s => s.id === id));
+  for (let i = 0; i < stations.length; i++) for (let j = i + 1; j < stations.length; j++) {
+    const a = stations[i], b = stations[j];
+    const centreGap = Math.abs(a.x - b.x);
+    const edgeGap = centreGap - (a.fw + b.fw) / 2;
+    assert.ok(edgeGap >= 0.2, `${a.id}/${b.id} edge gap is ${edgeGap.toFixed(2)}m`);
+  }
+});
+
+test('Task 25 progression makes Staff Desk and second register parallel after Cupcakes while preserving the smoothie chain', () => {
+  // Batch 1 (plan 7.1) appends the terrace chain after z_seats2; the days 1-12 prefix asserted
+  // below (z_seats1..z_seats2) is unchanged.
+  const order = [
+    'z_seats1', 'z_oven2', 'z_register2', 'z_hire', 'z_coffee', 'z_bowl', 'z_blender', 'z_garden', 'z_seats2',
+    'z_terrace', 'z_icecream', 'z_register3', 'z_photo', 'z_terraceSeats', 'z_restroom', 'z_splash',
+    'z_spa', 'z_groom', 'z_bath', 'z_boutique', 'z_photographer',
+  ];
   assert.deepEqual(AREA1.zones.map(z => z.id), order);
+  const zones = new Map(AREA1.zones.map(z => [z.id, z]));
   const stationIds = new Set(AREA1.stations.map(s => s.id));
-  assert.equal(AREA1.zones[0].requires, undefined);
-  for (let i = 1; i < order.length; i++) assert.equal(AREA1.zones[i].requires, order[i - 1], `${order[i]} should require ${order[i - 1]}`);
+
+  assert.equal(zones.get('z_seats1').requires, undefined);
+  assert.equal(zones.get('z_oven2').requires, 'z_seats1');
+  assert.equal(zones.get('z_register2').requires, 'z_oven2');
+  assert.equal(zones.get('z_hire').requires, 'z_oven2');
+  assert.equal(zones.get('z_hire').price, 300);
+  assert.equal(zones.get('z_coffee').requires, 'z_hire');
+
+  const tail = ['z_coffee', 'z_bowl', 'z_blender', 'z_garden', 'z_seats2'];
+  for (let i = 1; i < tail.length; i++) assert.equal(zones.get(tail[i]).requires, tail[i - 1], `${tail[i]} should require ${tail[i - 1]}`);
+  assert.notEqual(zones.get('z_hire').requires, 'z_register2');
+  assert.notEqual(zones.get('z_coffee').requires, 'z_register2');
+
   for (const z of AREA1.zones) for (const id of z.adds) assert.ok(stationIds.has(id), `zone ${z.id} adds unknown station ${id}`);
+  const smoothie = zones.get('z_blender');
+  assert.ok(smoothie.adds.includes('blender1'), 'smoothie unlock must include blender');
+  assert.ok(smoothie.adds.includes('barSmoothie'), 'smoothie unlock must include display');
+  assert.ok(smoothie.adds.some(id => id.startsWith('bush')), 'smoothie unlock must include starter fruit source');
+
+  const garden = zones.get('z_garden');
+  assert.ok(garden.adds.every(id => id.startsWith('bush')), 'garden expansion should add fruit capacity only');
+  assert.ok(garden.adds.length >= 2, 'garden expansion should materially increase fruit throughput');
 });

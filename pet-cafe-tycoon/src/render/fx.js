@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { heartGeo } from './pets.js';
 import { emissiveMaterial } from './palette.js';
+import { presentationScheduler } from '../core/presentationScheduler.js';
 const _v = new THREE.Vector3(), _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3(), _c = new THREE.Color();
 export function createFx(scene, camera, layer, walletEl) {
   const MAXP = 300; const parts = [];
@@ -9,7 +10,13 @@ export function createFx(scene, camera, layer, walletEl) {
   pm.count = 0; pm.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAXP * 3), 3); scene.add(pm);
   const hearts = []; const hg = heartGeo(); const hm = emissiveMaterial('#FF8A80');
   const F = { camera };
-  F.project = (x, y, z, out) => { _v.set(x, y, z).project(camera); out.sx = (_v.x * 0.5 + 0.5) * innerWidth; out.sy = (-_v.y * 0.5 + 0.5) * innerHeight; out.visible = _v.z < 1; return out; };
+  // `visible` used to mean only "in front of the camera", which is why a plot two screens away
+  // still reported visible=true and labelLayout.js dutifully clamped its pill onto the screen
+  // edge -- the "icon soup" the owner hit on a phone. It now means "in front of the camera AND
+  // inside the viewport, with a 12% margin so a pill does not pop in exactly at the frame edge".
+  // nx/ny (the raw NDC) are exposed for callers that want to reason about WHERE off-screen a point
+  // is, not just whether it's on-screen.
+  F.project = (x, y, z, out) => { _v.set(x, y, z).project(camera); out.sx = (_v.x * 0.5 + 0.5) * innerWidth; out.sy = (-_v.y * 0.5 + 0.5) * innerHeight; out.nx = _v.x; out.ny = _v.y; out.visible = _v.z < 1 && Math.abs(_v.x) <= 1.12 && Math.abs(_v.y) <= 1.12; return out; };
   F.burst = (x, y, z, hex, n = 12) => { const c = new THREE.Color(hex);
     for (let i = 0; i < n && parts.length < MAXP; i++) { const a = Math.random() * Math.PI * 2, sp = 1.5 + Math.random() * 2.5;
       parts.push({ x, y, z, vx: Math.cos(a) * sp, vy: 2.5 + Math.random() * 2.5, vz: Math.sin(a) * sp, life: 0.6, r: c.r, g: c.g, b: c.b, sz: 0.6 + Math.random() * 0.8 }); } };
@@ -18,8 +25,8 @@ export function createFx(scene, camera, layer, walletEl) {
   F.coinArc = (x, y, z, n = 6, onArrive) => { F.project(x, y, z, tmp); const r = walletEl.getBoundingClientRect(); const tx = r.left + 24, ty = r.top + r.height / 2; let first = true;
     for (let i = 0; i < Math.min(n, 12); i++) { const d = document.createElement('div'); d.className = 'fcoin';
       const sx = tmp.sx + (Math.random() - 0.5) * 40, sy = tmp.sy + (Math.random() - 0.5) * 40; d.style.left = sx + 'px'; d.style.top = sy + 'px'; layer.appendChild(d);
-      setTimeout(() => { d.style.transition = 'left .55s cubic-bezier(.3,-.3,.6,1), top .55s cubic-bezier(.4,.2,.2,1), transform .55s'; d.style.left = tx + 'px'; d.style.top = ty + 'px'; d.style.transform = 'translate(-50%,-50%) scale(.6)'; }, 20 + i * 40);
-      setTimeout(() => { d.remove(); if (first && onArrive) { first = false; onArrive(); } }, 600 + i * 40); } };
+      presentationScheduler.schedule(() => { d.style.transition = 'left .55s cubic-bezier(.3,-.3,.6,1), top .55s cubic-bezier(.4,.2,.2,1), transform .55s'; d.style.left = tx + 'px'; d.style.top = ty + 'px'; d.style.transform = 'translate(-50%,-50%) scale(.6)'; }, 20 + i * 40);
+      presentationScheduler.schedule(() => { d.remove(); if (first && onArrive) { first = false; onArrive(); } }, 600 + i * 40); } };
   // M3 T5: a green cash bill flying FROM the wallet TO a build outline while it's being paid off
   // (opposite direction of coinArc, which flies coins TO the wallet on a sale) — zones.js calls
   // this at most once per BILL_INTERVAL while genuinely spending on an active zone.
@@ -29,14 +36,28 @@ export function createFx(scene, camera, layer, walletEl) {
     const r = walletEl.getBoundingClientRect(); const sx = r.left + 24, sy = r.top + r.height / 2;
     const d = document.createElement('div'); d.className = 'fbill';
     d.style.left = sx + 'px'; d.style.top = sy + 'px'; d.style.opacity = '1'; layer.appendChild(d);
-    requestAnimationFrame(() => {
+    presentationScheduler.afterFrames(() => {
       d.style.transition = 'left .5s cubic-bezier(.3,-.2,.5,1), top .5s cubic-bezier(.4,.1,.3,1), transform .5s, opacity .5s';
       d.style.left = tmp.sx + 'px'; d.style.top = tmp.sy + 'px';
       d.style.transform = 'translate(-50%,-50%) scale(.7) rotate(18deg)'; d.style.opacity = '0.3';
-    });
-    setTimeout(() => d.remove(), 550);
+    }, 1);
+    presentationScheduler.schedule(() => d.remove(), 550);
   };
-  F.number = (x, y, z, text, cls) => { F.project(x, y, z, tmp); if (!tmp.visible) return; const d = document.createElement('div'); d.className = cls ? 'fnum ' + cls : 'fnum'; d.textContent = text; d.style.left = tmp.sx + 'px'; d.style.top = tmp.sy + 'px'; layer.appendChild(d); setTimeout(() => d.remove(), 950); };
+  // A small, short-lived, low puff at the feet. Deliberately faint: this fires on every stride of
+  // every character on the floor, so it has to read as contact rather than as an effect.
+  F.dust = (x, z, strength = 1) => {
+    const n = strength > 1 ? 3 : 2;
+    for (let i = 0; i < n && parts.length < MAXP; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 0.25 + Math.random() * 0.45;
+      parts.push({
+        x: x + (Math.random() - 0.5) * 0.16, y: 0.06, z: z + (Math.random() - 0.5) * 0.16,
+        vx: Math.cos(a) * sp, vy: 0.5 + Math.random() * 0.5, vz: Math.sin(a) * sp,
+        life: 0.26 + Math.random() * 0.12,
+        r: 0.86, g: 0.80, b: 0.70, sz: 0.45 + Math.random() * 0.35,
+      });
+    }
+  };
+  F.number = (x, y, z, text, cls) => { F.project(x, y, z, tmp); if (!tmp.visible) return; const d = document.createElement('div'); d.className = cls ? 'fnum ' + cls : 'fnum'; d.textContent = text; d.style.left = tmp.sx + 'px'; d.style.top = tmp.sy + 'px'; layer.appendChild(d); presentationScheduler.schedule(() => d.remove(), 950); };
   F.update = dt => {
     let k = 0;
     for (let i = parts.length - 1; i >= 0; i--) { const p = parts[i]; p.life -= dt; if (p.life <= 0) { parts.splice(i, 1); continue; }

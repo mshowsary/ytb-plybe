@@ -58,3 +58,16 @@ test('takeSack refuses while fruit is held', () => {
   addFruit(c, 2, 9);
   assert.equal(takeSack(c, 'beans'), false);
 });
+
+// Batch 1 terrace (plan 3.1/7.2): cream is icecream1's bean-equivalent -- a reusable 20-unit bag,
+// not a single-portion consumable like kibble, so several top-ups can be drawn from one carry.
+test('takeSack cream mirrors beans exactly: full 20, not consumed on first use', () => {
+  const c = createCarry();
+  assert.equal(takeSack(c, 'cream'), true);
+  assert.equal(c.sack, 'cream'); assert.equal(c.sackLeft, 20);
+  assert.equal(useSack(c, 6), 6);
+  assert.equal(c.sackLeft, 14);
+  assert.equal(c.sack, 'cream', 'a partial draw does not clear a reusable sack, unlike kibble');
+  assert.equal(useSack(c, 20), 14, 'capped at what remained');
+  assert.equal(c.sack, null); assert.equal(c.sackLeft, 0);
+});

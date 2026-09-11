@@ -1,0 +1,80 @@
+name: Pet Cafe Task 38 Rewarded Offer
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - chatgpt/pet-cafe-production
+    paths:
+      - '.github/workflows/pet-cafe-task38-rewarded.yml'
+      - 'pet-cafe-tycoon/src/core/input.js'
+      - 'pet-cafe-tycoon/src/platform/youtube.js'
+      - 'pet-cafe-tycoon/src/sim/relief.js'
+      - 'pet-cafe-tycoon/src/systems/economyExperience.js'
+      - 'pet-cafe-tycoon/src/ui/icons.js'
+      - 'pet-cafe-tycoon/tools/task38-rewarded-offer-cert.mjs'
+      - 'pet-cafe-tycoon/test/rewarded-offer-ui.test.js'
+      - 'pet-cafe-tycoon/test/input-pause.test.js'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pet-cafe-task38-rewarded-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rewarded-cert:
+    name: Compact rewarded-offer mobile certificate
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: pet-cafe-tycoon
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: pet-cafe-tycoon/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Start production preview
+        run: |
+          nohup npx vite preview --host 127.0.0.1 --port 4173 > /tmp/pet-cafe-task38-preview.log 2>&1 &
+          for i in {1..40}; do
+            if curl --fail --silent http://127.0.0.1:4173/ >/dev/null; then
+              exit 0
+            fi
+            sleep 0.25
+          done
+          cat /tmp/pet-cafe-task38-preview.log
+          exit 1
+
+      - name: Run Task 38 browser certificate
+        run: node tools/task38-rewarded-offer-cert.mjs
+
+      - name: Show preview log on failure
+        if: failure()
+        run: cat /tmp/pet-cafe-task38-preview.log || true
+
+      - name: Upload Task 38 visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: task38-rewarded-offer-${{ github.sha }}
+          path: pet-cafe-tycoon/artifacts/task38-rewarded
+          if-no-files-found: warn
+          retention-days: 14
