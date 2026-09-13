@@ -1,15 +1,7 @@
 name: Pet Cafe Fee-Free Feedback Smoke
 
 on:
-  push:
-    branches: [chatgpt/pet-cafe-production]
-    paths:
-      - 'pet-cafe-tycoon/src/systems/serviceFriction.js'
-      - 'pet-cafe-tycoon/src/sim/serviceQuality.js'
-      - 'pet-cafe-tycoon/src/ui/serviceSummary.js'
-      - 'pet-cafe-tycoon/test/fee-free-feedback.test.js'
-      - 'pet-cafe-tycoon/tools/fee-free-feedback-smoke.js'
-      - '.github/workflows/pet-cafe-feedback-smoke.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -44,7 +36,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: task23-fee-free-${{ github.sha }}
+          name: task23-feedback-${{ github.sha }}
           path: pet-cafe-tycoon/shots-production/task23-fee-free-320.png
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3
