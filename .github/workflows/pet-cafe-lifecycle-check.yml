@@ -1,17 +1,8 @@
 name: Pet Cafe Lifecycle Diagnostic
 
+# Diagnostic only. Per AGENTS.md, Fast Checks are the normal push gate and lifecycle browser
+# diagnostics are run on demand when investigating lifecycle changes.
 on:
-  push:
-    branches: [chatgpt/pet-cafe-production]
-    paths:
-      - '.github/workflows/pet-cafe-lifecycle-check.yml'
-      - 'pet-cafe-tycoon/src/core/presentationScheduler.js'
-      - 'pet-cafe-tycoon/src/core/input.js'
-      - 'pet-cafe-tycoon/src/platform/youtube.js'
-      - 'pet-cafe-tycoon/src/main.js'
-      - 'pet-cafe-tycoon/src/sim/actorRoster.js'
-      - 'pet-cafe-tycoon/tools/barista-smoke.js'
-      - 'pet-cafe-tycoon/tools/gate-a-lifecycle-smoke.js'
   workflow_dispatch:
 
 permissions:
@@ -49,4 +40,4 @@ jobs:
           name: lifecycle-diagnostic-${{ github.sha }}
           path: pet-cafe-tycoon/shots-production
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
