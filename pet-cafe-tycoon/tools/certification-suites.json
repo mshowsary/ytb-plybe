@@ -147,6 +147,18 @@
         "tools/interaction-coach-smoke.js"
       ],
       "timeoutMs": 300000
+    },
+    {
+      "name": "Scene cost budget on a fully built busy cafe",
+      "command": [
+        "node",
+        "tools/scene-cost.mjs",
+        "--calls",
+        "170",
+        "--tris",
+        "180000"
+      ],
+      "timeoutMs": 300000
     }
   ],
   "publisher": [
