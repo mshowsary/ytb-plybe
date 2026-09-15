@@ -105,6 +105,14 @@
         "tools/barista-smoke.js"
       ],
       "timeoutMs": 300000
+    },
+    {
+      "name": "Every supply lane is completable by the player",
+      "command": [
+        "node",
+        "tools/supply-lanes-smoke.js"
+      ],
+      "timeoutMs": 400000
     }
   ],
   "visual": [

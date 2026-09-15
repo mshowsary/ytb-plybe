@@ -7,7 +7,7 @@ import {
 } from '../sim/economy.js';
 import {
   stepOvens, stepMachines, takeFromOven, takeFromMachine, putOnDisplay, collectCash,
-  refillBeans, refillBowl, harvestBush, addFruit as stationAddFruit, ownerCleanSeat,
+  refillBeans, refillBowl, refillCream, refillWater, harvestBush, addFruit as stationAddFruit, ownerCleanSeat,
 } from '../sim/world.js';
 import { canTakeItems, takeSack, useSack, addFruit as carryAddFruit, returnAll } from '../sim/carry.js';
 import { clampToArea } from '../sim/ownerState.js';
@@ -85,6 +85,8 @@ const FIRST_HINT = {
   bush: 'Pick fruit',
   blender: 'Add fruit',
   bowl: 'Add treats',
+  icecream: 'Take ice cream',
+  bath: 'Add water',
   kiosk: 'Upgrades',
   hire: 'Staff',
 };
@@ -443,11 +445,11 @@ export function createStations(G, S, ctx) {
         // Nearest standing spot in the room, for pickAction's "am I actually at this machine" test.
         if (st.front) { const d = dist2(P, st.front); if (d < nearestFront) nearestFront = d; }
 
-        if (st.type === 'oven' || st.type === 'coffee' || st.type === 'blender') {
+        if (st.type === 'oven' || st.type === 'coffee' || st.type === 'blender' || st.type === 'icecream') {
           const prev = prevStock.has(st.id) ? prevStock.get(st.id) : st.stock;
           if (prev < 6 && st.stock >= 6) audio.play('ding');
           prevStock.set(st.id, st.stock);
-          const productKey = st.type === 'oven' ? st.product : st.type === 'coffee' ? st.product : 'smoothie';
+          const productKey = st.type === 'blender' ? 'smoothie' : st.product;
           const dwellOk = dwelling(st, 1.3, speed);
           noteFirstHint(st.type, dwellOk);
 
@@ -473,6 +475,17 @@ export function createStations(G, S, ctx) {
             const used = refillBeans(world, st.id, carry.sackLeft);
             if (used > 0) {
               useSack(carry, used); hints.refillCoffee = 1; audio.play('pour'); fx.burst(st.x, 0.9, st.z, C.coral, 6);
+              maybeGuideLeftovers(st);
+            }
+          }
+          // The ice cream machine mirrors the espresso machine exactly, cream for beans. Until now
+          // nothing in the running game ever called refillCream: the cold pantry sold cream, the
+          // owner visibly carried it, and standing at the machine did nothing at all. Same story for
+          // the bath's water further down — see the branch after 'bowl'.
+          if (st.type === 'icecream' && dwellOk && carry.sack === 'cream') {
+            const used = refillCream(world, st.id, carry.sackLeft);
+            if (used > 0) {
+              useSack(carry, used); hints.refillCream = 1; audio.play('pour'); fx.burst(st.x, 0.9, st.z, C.cream || C.coral, 6);
               maybeGuideLeftovers(st);
             }
           }
@@ -533,6 +546,18 @@ export function createStations(G, S, ctx) {
             const used = refillBowl(world, st.id, carry.sackLeft);
             if (used > 0) {
               useSack(carry, used); hints.refillBowl = 1; audio.play('pour'); fx.burst(st.x, 0.5, st.z, C.pink, 6);
+              maybeGuideLeftovers(st);
+            }
+          }
+        }
+
+        if (st.type === 'bath') {
+          const dwellOk = dwelling(st, 1.3, speed);
+          noteFirstHint('bath', dwellOk);
+          if (dwellOk && carry.sack === 'water') {
+            const used = refillWater(world, st.id, carry.sackLeft);
+            if (used > 0) {
+              useSack(carry, used); hints.refillWater = 1; audio.play('pour'); fx.burst(st.x, 0.7, st.z, C.metal, 6);
               maybeGuideLeftovers(st);
             }
           }

@@ -29,6 +29,7 @@ import {
   buyAccessory, cheapestAccessory,
 } from './economy.js';
 import { CONTENT_ZONE_PRICE, AFFORD_MULTIPLIER, CONTENT_SAVE_AFFORD_MULTIPLIER } from './economyConfig.js';
+import { pantryFor } from './supplies.js';
 
 function registerNeedingService(w) {
   for (const id of w.checkouts) {
@@ -207,21 +208,8 @@ function refillTarget(w, G) {
 // touch world.js (owned by another task this batch), this reads the one place the real data still
 // lives. Mirrors the same rule src/ui/interactionCoach.js's pantryStation() uses (that file is
 // owned by the same task as this one but is a separate, independent copy, not a shared import).
-function pantrySupports(w, st, supply) {
-  if (!st) return false;
-  const data = w.area && w.area.stations && w.area.stations.find(s => s.id === st.id);
-  if (data && Array.isArray(data.supplies)) return data.supplies.includes(supply);
-  return supply === 'beans' || supply === 'kibble';
-}
-function pantryFor(w, supply) {
-  let fallback = null;
-  for (const st of w.stations.values()) {
-    if (!st.active || st.type !== 'pantry') continue;
-    if (!fallback) fallback = st;
-    if (pantrySupports(w, st, supply)) return st;
-  }
-  return fallback;
-}
+// Was a private copy of this rule; it now lives in src/sim/supplies.js beside the supply table, so
+// the bot, the coach and the objective arrow cannot drift apart about where cream is kept.
 // Loop v2 Task 1: the return crate — a genuinely wedged owner (holding a product whose one
 // display has been full this whole time, or a sack/fruit with nowhere left to put it) hands it
 // back for zero coins instead of carrying it around forever, unable to pick up anything else of

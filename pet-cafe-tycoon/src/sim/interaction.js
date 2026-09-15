@@ -1,4 +1,5 @@
 import { familyOf } from './economy.js';
+import { acceptsSupply, SUPPLY_OF } from './supplies.js';
 
 export function heldState(items, carry) {
   if (items && items.length) {
@@ -14,9 +15,11 @@ export function canDeliverTo(st, held) {
   if (held.type === 'product') {
     return st.type === 'display' && familyOf(st.product) === familyOf(held.key) && st.stock < st.capacity;
   }
-  if (held.type === 'sack' && held.key === 'beans') return st.type === 'coffee' && st.beans < 20;
-  if (held.type === 'sack' && held.key === 'kibble') return st.type === 'bowl' && st.stock < st.capacity;
-  if (held.type === 'fruit') return st.type === 'blender' && st.fruit < 9;
+  // Every supply the pantries hand out, not just the two the game shipped with: an owner holding
+  // cream used to match nothing here, so destinationFor fell through to findReturnStation and the
+  // game cheerfully directed them to bin it. See src/sim/supplies.js.
+  if (held.type === 'sack') return acceptsSupply(st, held.key);
+  if (held.type === 'fruit') return acceptsSupply(st, 'fruit');
   return false;
 }
 
@@ -52,7 +55,7 @@ export function destinationFor(world, held, from = null) {
 
 export function heldLabel(held) {
   if (!held) return '';
-  if (held.type === 'sack') return held.key === 'beans' ? 'beans' : 'kibble';
+  if (held.type === 'sack') return held.key || 'supplies';   // cream and water used to read "kibble"
   if (held.type === 'fruit') return 'fruit';
   const labels = { cookie: 'cookies', brownie: 'brownies', cupcake: 'cupcakes', coffee: 'coffee', latte: 'lattes', smoothie: 'smoothies' };
   return labels[held.key] || held.key || 'items';
@@ -64,6 +67,8 @@ export function destinationLabel(st) {
   if (st.type === 'coffee') return 'COFFEE';
   if (st.type === 'blender') return 'BLENDER';
   if (st.type === 'bowl') return 'TREATS';
+  if (st.type === 'icecream') return 'ICE CREAM';
+  if (st.type === 'bath') return 'BATH';
   if (st.type === 'display') {
     const labels = { cookie: 'COOKIES', brownie: 'COOKIES', cupcake: 'CUPCAKES', coffee: 'COFFEE BAR', latte: 'COFFEE BAR', smoothie: 'SMOOTHIES' };
     return labels[st.product] || 'DISPLAY';

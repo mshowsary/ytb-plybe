@@ -24,6 +24,7 @@
 //      target inside CLOSING_GRACE_METERS never hides the hand.
 import * as THREE from 'three';
 import { carryCap, familyOf } from '../sim/economy.js';
+import { pantryFor } from '../sim/supplies.js';
 import { beanIcon, kibbleIcon, sackIcon, coffeeIcon, treatIcon } from './icons.js';
 // Batch 1 (task E1): the ice cream lane's coach lesson needs a cream glyph. Agent D owns icons.js
 // and is landing `creamIcon` in this same batch — a namespace import (unlike a named one) never
@@ -406,22 +407,13 @@ export function createCoachModeGate({ hold = MODE_HOLD_SECONDS, fade = MODE_FADE
 // `st.supplies` is always undefined at runtime no matter what data/area1.js says (verified against
 // the real AREA1 data — see test/bot-decide-icecream.test.js's botDecide.js-side coverage of the
 // identical gap). Rather than touch world.js, this reads the one place the real data still lives.
-function pantrySupports(G, st, supply) {
-  if (!st) return false;
-  const stations = G && G.world && G.world.area && G.world.area.stations;
-  const data = stations && stations.find(s => s.id === st.id);
-  if (data && Array.isArray(data.supplies)) return data.supplies.includes(supply);
-  return supply === 'beans' || supply === 'kibble';
-}
+// The rule for which pantry hands out which supply lives in src/sim/supplies.js, beside the supply
+// table itself, so the coach, the bot and the objective arrow cannot drift apart about it. `strict`
+// keeps this function's original contract: asked for a specific supply, it answers null rather than
+// pointing the hand at a pantry that does not stock it.
 function pantryStation(G, supply = null) {
   if (!G?.world) return null;
-  let fallback = null;
-  for (const st of G.world.stations.values()) {
-    if (!st.active || st.type !== 'pantry') continue;
-    if (!fallback) fallback = st;
-    if (supply && pantrySupports(G, st, supply)) return st;
-  }
-  return supply ? null : fallback;
+  return supply ? pantryFor(G.world, supply, true) : pantryFor(G.world, null);
 }
 
 // Structural lookup only: each pantry choice button carries its own supply id in `data-supply`

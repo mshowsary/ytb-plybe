@@ -250,7 +250,7 @@ export function createGame(S, area, els, platform = null) {
     const gMult = goldenHourMult(G.golden);
     return Math.round(base * (1 + themeBonus) * gMult);
   };
-  const ctx = { area, world, scene, hud, fx, sheets, audio, input, owner, P, price, els, vis: new Map(), hints: { oven: 0, counter: 0, cash: 0, zone: 0, refillCoffee: 0, refillBowl: 0, harvest: 0, blend: 0, clean: 0 }, firstHint: { msg: null, t: 0 } };
+  const ctx = { area, world, scene, hud, fx, sheets, audio, input, owner, P, price, els, vis: new Map(), hints: { oven: 0, counter: 0, cash: 0, zone: 0, refillCoffee: 0, refillBowl: 0, refillCream: 0, refillWater: 0, harvest: 0, blend: 0, clean: 0 }, firstHint: { msg: null, t: 0 } };
   ctx.syncPetBook = syncPetBookPresentation;
   // The portrait renderer needs the game's single WebGLRenderer, which only main.js's createScene
   // owns — passed as a callback so systems/photo.js never imports the render layer directly.
