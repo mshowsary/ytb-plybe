@@ -291,8 +291,12 @@ export function createResidentPets(S, G, els = null) {
     slot.perch.add(pet.group);
     pet.setLifePhase(slotPhase(i));
     equipAccessory(pet, G.meta && G.meta.equipped && G.meta.equipped[key]);
+    // Batch 8 item 4: `follow: false` since a settled resident never walks again -- one static
+    // registration for the life of the scene. No explicit groundY: the pet's own current height
+    // (the furniture's perch, however high above the floor that is) IS the ground it settled on.
+    const shadow = S.contactShadows && S.contactShadows.add(pet.group, { radius: 0.34, strength: 0.72, follow: false });
     occupants[i] = {
-      key, profile: parsed.profile, species: parsed.species, variant: parsed.variant, pet,
+      key, profile: parsed.profile, species: parsed.species, variant: parsed.variant, pet, shadow,
     };
   }
 
@@ -328,9 +332,10 @@ export function createResidentPets(S, G, els = null) {
     arr.pet.sit();
     slots[i].perch.add(arr.pet.group);
     arr.pet.setLifePhase(slotPhase(i));
+    const shadow = S.contactShadows && S.contactShadows.add(arr.pet.group, { radius: 0.34, strength: 0.72, follow: false });
     occupants[i] = {
       key: arr.key, profile: arr.parsed.profile, species: arr.parsed.species,
-      variant: arr.parsed.variant, pet: arr.pet,
+      variant: arr.parsed.variant, pet: arr.pet, shadow,
     };
     if (arr.nameplate) arr.nameplate.remove();
     arrivals.delete(i);

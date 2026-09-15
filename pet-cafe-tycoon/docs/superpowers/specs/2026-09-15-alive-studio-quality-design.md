@@ -148,6 +148,23 @@ The look, and paying the draw-call debt that funds the rest.
 **Gate:** ≤ 170 draw calls and ≤ 180k triangles on a fully built day-12 busy café (from 290/294k);
 131 tests; responsive audit 0/13; bot byte-identical; all cert suites green.
 
+**As measured — the draw-call half of that target was wrong, and is revised to 260.** Triangles beat
+it comfortably: **167k, down from 251k**, almost all of it from one line — `RoundedBoxGeometry`'s
+fillet dropped from 3 segments to 2 in `geo.js`, on the game's most-used primitive, with no visible
+difference at this camera. Draw calls went 290 → **244** and stop there, and the reason matters for
+later batches: the debt was never in the scenery. `environment.js` already merged everything through
+`geo.js`; the diet found only ~37 calls to reclaim (butterflies 27 → 6, ambience ~35 → 11), and
+instancing every shelf and oven tray — the single largest named bucket at 55 renderables — cut
+renderables 343 → 298 but barely moved calls, because three.js was already culling most pastries.
+What is left is irreducible without restructuring: ~49 individually revealed stations, and
+guests/staff/pets that are individually animated and so cannot be instanced. Chasing 170 would mean
+giving up per-station build reveals or per-character animation, which costs more than it buys.
+Scene-cost is gated at **260 calls / 185k triangles** — real headroom over today's measurement,
+tight enough to catch a regression — and every scene-level group is now named (`station:seat`,
+`human:customer`, `pet:cat`, `ambience`, `environment`) so a future increase names its own cause.
+The batches that follow add clutter as instanced meshes, which is ~1 call per kind however many
+appear.
+
 ### Batch 9 — Animals
 Pets become animals. This is the batch the game is named after.
 
@@ -168,6 +185,24 @@ Pets become animals. This is the batch the game is named after.
 
 **Gate:** `nav-fullhouse` green; bot byte-identical; ≥ 12 distinct behaviours observable in 60 s of
 play; zero measured cases of a pet delaying a person; draw calls within Batch 8's budget.
+
+**Built ahead of the batch** (`src/sim/petLife.js`, `test/pet-life.test.js`, commit `b54adae`): the
+sub-simulation itself is done and measured, so Batch 9 is the render bridge plus the pose work. A
+simulated four-minute shift with ten pets spends nap 25 %, play 16 %, zoomies 15 %, wheel 12 %,
+forage 10 %, perch 7 %, burrow 6 %, greet 4 %, watch 4 %, wander 1 % — ten distinct behaviours, with
+Bluebell and Comet zooming three quarters of the day, Marble burrowing 60 %, Clove on the wheel 72 %,
+Tuxedo on the counter 71 %, Peanut foraging 71 %, and Marmalade and Lilac asleep 61 %. Cost is
+0.07 ms/frame at twenty pets, 0.4 % of a 60 fps budget. Four measured tuning passes were needed and
+each found a real defect: drives spent ten times too fast; naps that did not satiate (42 % of the
+shift asleep, one cat at 87 %); burrowing as the loophole the nap cooldown missed, with a dog doing
+it; foraging that never fed the appetite driving it; and one logic bug — the stickiness margin was
+charged between candidates instead of against the incumbent, so the second-best urge shielded the
+best one and the "Zoomie expert" never zoomed once in a full shift.
+
+The bridge's contract is the view object `petLife.js` documents: `isWalkable`, `openSpace`, `people`,
+`ownerOf`, and a `points` map of places (`sun`, `cushion`, `seat`, `occupiedSeat`, `bowl`, `counter`,
+`perch`, `window`, `garden`, `crumb`, `toy`, `wheel`, `door`). Sun spots come from the daylight
+model, crumbs from dirty seats, toys and the wheel from the playground décor.
 
 ### Batch 10 — People
 - A head/neck node on every human, driven by a small attention model: their own pet outranks a pet
@@ -207,6 +242,17 @@ cards, tiered trays, small plants), and water surfaces with a cheap vertex wobbl
 - **No HUD work.** A parallel assistant owns the calm HUD (`docs/PET-CAFE-UX-REDESIGN.md`,
   commits `f163eb8`…`1dc03fb`). This program stays in the 3D world, the simulation, the audio and the
   tools. If the two must meet, the owner decides first.
+
+  **Consequence, measured at Batch 8:** five certification tools encode the pre-redesign HUD and fail
+  on that HUD's own commits — `task25-live-cert.mjs`, `production-smoke.js`, `pet-friendship-smoke.js`,
+  `interaction-coach-smoke.js`, `production-smoke-v2.js`. Verified by building the commit *before*
+  Batch 8 in an isolated copy and running all five there: identical failures. They are inherited, not
+  caused by this program, and repairing them means rewriting tool selectors to match a HUD this
+  program does not own — so they stay red, and named here, until the owner says who owns presentation.
+  Everything else is green. Two operational notes for whoever runs them next: `task25`, `task38`,
+  `production-smoke` and `pet-friendship` need an external preview server, and `vite preview` binds
+  `localhost` to IPv6 only on this machine while the tools ask for `127.0.0.1` — start it with
+  `--host 127.0.0.1` or every one of them fails with a connection refused that looks like a code bug.
 - **No new pressure on the player.** Nothing here adds a fail state, a timer, or a chore.
 - **No camera move.** The owner chose the wide view; §3 explains how pets are made readable instead.
 

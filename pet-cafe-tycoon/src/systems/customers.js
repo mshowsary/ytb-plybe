@@ -134,6 +134,11 @@ export function createCustomers(G, S, ctx) {
     const human = createHuman(variant, 'customer'); human.group.position.set(c.x, 0, c.z); scene.add(human.group);
     const pet = createPet(species, petVariant); pet.group.position.set(c.x + 0.45, 0, c.z - 0.9); scene.add(pet.group);
     const leash = createLeash(scene); leash.attach(human.hand, pet.neck);
+    // Batch 8 item 4: a soft contact shadow anchors both the guest and its pet to the floor. Both
+    // move all shift (following the sim's own walk targets), so `follow: true` re-reads their
+    // world position every frame rather than caching the spawn spot.
+    const humanShadow = S.contactShadows && S.contactShadows.add(human.group, { radius: 0.44, strength: 1.05, follow: true });
+    const petShadow = S.contactShadows && S.contactShadows.add(pet.group, { radius: 0.32, strength: 0.95, follow: true });
     const bub = makeBubble(els);
     const identity = identityPick.named ? createPetMoment(els, profile, c.id, species) : anonymousIdentity();
     // src/ui/petMoments.js's detail slot is textContent-only, so these are glyph SEQUENCES rather
@@ -148,7 +153,7 @@ export function createCustomers(G, S, ctx) {
       identity.announce(profile.rarity === 'epic' ? '★★★' : '★★', 2.8);
     }
     rec.set(c.id, {
-      human, pet, leash, identity, profile,
+      human, pet, leash, identity, profile, humanShadow, petShadow,
       px: c.x, pz: c.z, eating: false, spaSeated: false, bub,
       lastState: c.state, petHappyT: 0, petBreakActive: false, treatCelebrated: false, tablePenalty: false,
       regularCandidate: c.regularCandidate, regularGreeted: false, regularGreetingT: 0, regularDay: day,
@@ -159,6 +164,7 @@ export function createCustomers(G, S, ctx) {
   function teardown() {
     for (const r of rec.values()) {
       scene.remove(r.human.group); scene.remove(r.pet.group); r.leash.detach(); removeBubble(r.bub); r.identity.remove();
+      if (S.contactShadows) { S.contactShadows.remove(r.humanShadow); S.contactShadows.remove(r.petShadow); }
     }
     rec.clear();
     regularPlanDay = 0; regularPlan = null; regularGreetedDay = 0;
@@ -272,6 +278,7 @@ export function createCustomers(G, S, ctx) {
         if (!r) continue;
         if (c.done) {
           scene.remove(r.human.group); scene.remove(r.pet.group); r.leash.detach(); removeBubble(r.bub); r.identity.remove();
+          if (S.contactShadows) { S.contactShadows.remove(r.humanShadow); S.contactShadows.remove(r.petShadow); }
           rec.delete(c.id); G.customers.splice(i, 1); continue;
         }
 

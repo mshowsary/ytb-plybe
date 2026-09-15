@@ -90,6 +90,11 @@ export function renderPetPortrait(renderer, { petKey: petKeyStr, poseId, accesso
   ensureScene();
 
   const pet = createPet(parsed.species, parsed.variant);
+  // Batch 8 raised every pet by PET_BASE_SCALE so animals read at the café's wide camera. A portrait
+  // is already a close-up against a fixed 256x256 camera, so it needs none of that compensation —
+  // and inherited it clips the ears off the top of the frame. Cancel it here rather than special-case
+  // the scale in pets.js, so the world keeps one rule and the portrait keeps its authored framing.
+  pet.group.scale.setScalar(1);
   // Every render of the same (petKey, poseId) must produce the same pose -- setLifePhase(0) pins
   // every one of the rig's own clocks (gait/blink/stretch) to a fixed offset instead of the
   // Math.random() seed createPet() otherwise assigns, which is what makes this deterministic.

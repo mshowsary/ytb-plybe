@@ -32,20 +32,24 @@ function geosFor(role, shirtHex, hairHex, skinHex) {
   if (g) return g;
 
   const bodyParts = [
-    part('rbox', [0.64, 0.7, 0.43, 0.1], shirtHex, { y: 0.95 }),
+    // The torso is the largest cloth surface in the game and the one the eye lands on: with the
+    // Batch 8 grain atlas it reads as a woven shirt rather than a painted block. Legs and shoes stay
+    // untagged — at the game's wide camera the weave would only be noise there.
+    part('rbox', [0.64, 0.7, 0.43, 0.1], shirtHex, { y: 0.95, tex: 'fabric' }),
     part('rbox', [0.5, 0.11, 0.045, 0.025], C.cream, { y: 1.23, z: 0.235 }),
   ];
 
   if (role === 'runner' || role === 'owner') {
     bodyParts.push(
-      part('rbox', [0.51, 0.54, 0.075, 0.035], C.cream, { y: 0.86, z: 0.235 }),
+      // The apron, likewise cloth — and it is the panel that tells a player who works here.
+      part('rbox', [0.51, 0.54, 0.075, 0.035], C.cream, { y: 0.86, z: 0.235, tex: 'fabric' }),
       part('rbox', [0.31, 0.19, 0.035, 0.02], '#F5E5CF', { y: 0.8, z: 0.283 }),
       part('box', [0.54, 0.055, 0.05], '#E9D4BA', { y: 1.04, z: 0.27 }),
     );
   }
   if (role === 'cashier') {
     bodyParts.push(
-      part('rbox', [0.56, 0.42, 0.055, 0.03], C.accent, { y: 1.02, z: 0.225 }),
+      part('rbox', [0.56, 0.42, 0.055, 0.03], C.accent, { y: 1.02, z: 0.225, tex: 'fabric' }),
       part('sph', [0.035, 7], '#FFF4E6', { x: -0.13, y: 1.08, z: 0.26 }),
       part('sph', [0.035, 7], '#FFF4E6', { x: 0.13, y: 1.08, z: 0.26 }),
     );
@@ -114,6 +118,7 @@ export function createHuman(variant = {}, role = 'customer') {
   const G = geosFor(role, shirtHex, hairHex, skinHex);
   const mat = toonMaterial();
   const group = new THREE.Group();
+  group.name = 'human:' + role;   // so tools/scene-cost.mjs can attribute cost to a system, not a "Group(5 children)"
   const legL = new THREE.Mesh(G.legGeo, mat); legL.position.set(-0.15, HIP_Y, 0); legL.castShadow = false; legL.receiveShadow = true;
   const legR = new THREE.Mesh(G.legGeo, mat); legR.position.set(0.15, HIP_Y, 0); legR.castShadow = false; legR.receiveShadow = true;
   const bodyHead = new THREE.Mesh(G.bodyHeadGeo, mat); bodyHead.castShadow = true; bodyHead.receiveShadow = true;

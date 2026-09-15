@@ -190,7 +190,7 @@ export function createPostFX(renderer, scene, camera) {
       texel: { value: new THREE.Vector2(1 / 1280, 1 / 720) },
       cameraNear: { value: camera.near },
       cameraFar: { value: camera.far },
-      outlineStrength: { value: 0.95 },
+      outlineStrength: { value: 1.05 },
       outlineWidth: { value: 1.35 },
       outlineColor: { value: new THREE.Color('#43302B') }, // warm ink, never pure black
       bloomAmount: { value: 0.5 },
@@ -200,7 +200,18 @@ export function createPostFX(renderer, scene, camera) {
       gradeWarmth: { value: 0 },
       shadowTint: { value: new THREE.Color('#FFFFFF') },
       highlightTint: { value: new THREE.Color('#FFFFFF') },
-      edgeLo: { value: 0.013 },
+      // Alive spec §3: pets have no per-object outline channel to key on (no stencil buffer today,
+      // and adding one -- or a second masked pass -- means either sampling a stencil aspect three.js
+      // doesn't expose to a ShaderMaterial, or a genuinely new draw call; both ruled out by "draw
+      // calls must not increase"). This nudges edgeLo down instead: the Laplacian is strongest at
+      // small, tightly-curved silhouette breaks (ear tips, muzzles, paws, tails), which is more of a
+      // pet's geometry than flat merged scenery's. A/B'd on a frozen frame of a built day-12 café
+      // (window.__scene.post.uniforms, edgeLo 0.013 vs 0.010, outlineStrength 0.95 vs 1.05): deck
+      // boards, chairs and table edges are pixel-for-pixel indistinguishable, so this is NOT the
+      // colouring-book risk the task warned about -- but the gain on pets is modest, not dramatic,
+      // at this magnitude. Left conservative on purpose; a bigger swing risks the scenery to chase a
+      // pet win this approach can only partially deliver without a real per-object mask.
+      edgeLo: { value: 0.010 },
       edgeHi: { value: 0.048 },
       debugMode: { value: 0 },
     },

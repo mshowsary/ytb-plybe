@@ -1,14 +1,58 @@
 // src/systems/visuals.js — builds a mesh per station, keeps physical stock props in sync, owns the
 // Task-31 glanceable stock truth, and runs Task-32's one-shot construction reveal.
 import * as THREE from 'three';
-import { ovenMesh, counterMesh, checkoutMesh, tableMesh, hireDeskMesh, kioskMesh, bowlMesh, bushMesh, coffeeMesh, pantryMesh, crateMesh, blenderMesh, chalkboardMesh, itemFor, cashPile, dirtyMesh, zoneRing, icecreamMesh, coldPantryMesh, groomTableMesh, bathTubMesh, waterTankMesh, boutiqueRackMesh, planterClusterMesh, spaLoungeMesh, photoBoothMesh, restroomMesh, fountainMesh, splashPoolMesh } from '../render/props.js';
-import { C } from '../render/palette.js';
+import { ovenMesh, counterMesh, checkoutMesh, tableMesh, hireDeskMesh, kioskMesh, bowlMesh, bushMesh, coffeeMesh, pantryMesh, crateMesh, blenderMesh, chalkboardMesh, itemGeoFor, cashPile, dirtyMesh, zoneRing, icecreamMesh, coldPantryMesh, groomTableMesh, bathTubMesh, waterTankMesh, boutiqueRackMesh, planterClusterMesh, spaLoungeMesh, photoBoothMesh, restroomMesh, fountainMesh, splashPoolMesh } from '../render/props.js';
+import { C, toonMaterial } from '../render/palette.js';
 import { buildRevealPhase, buildRevealScale } from '../render/buildReveal.js';
 import { iconFor, treatIcon, coinIcon, sackIcon, returnIcon, leafIcon, gearIcon, personIcon, beanIcon, creamIcon, broomIcon } from '../ui/icons.js';
 import { STAR_IDS } from '../sim/economy.js';
 
-const DISPLAY_POOL = 16;
+// 24, the full slot grid props.js's counterMesh authors (6 columns x 4 rows, sized from
+// DISPLAY_CAP_LEVELS' maximum). It was 16 because each pastry used to be its own Mesh and every one
+// of them cost a draw call; instanced, the last eight are free, so a starred shelf at capacity now
+// actually looks full instead of quietly stopping two rows in.
+const DISPLAY_POOL = 24;
 const DEMAND_DETAIL_RADIUS = 1.7;
+
+// ---- instanced shelf/tray contents ---------------------------------------------------------------
+// Batch 8 (spec §5, the draw-call diet). A shelf's pastries were one Mesh each: measured on a fully
+// built day-12 café, `station:display` was 55 of the frame's 246 draw calls — the single largest
+// bucket in the game, spent on identical cookies sitting in fixed slots. That is precisely what
+// InstancedMesh is for. One call per shelf now, with the pop-in animation intact.
+function makeItemStack(group, product, slots) {
+  const im = new THREE.InstancedMesh(itemGeoFor(product), toonMaterial(), slots.length);
+  im.castShadow = false; im.receiveShadow = true; im.count = 0;
+  // An InstancedMesh derives its bounds from the geometry alone, which for a pastry is a few
+  // centimetres at the origin — it would be culled the moment the shelf itself is off-centre. The
+  // parent station group is culled as a whole, so nothing is lost by opting this out.
+  im.frustumCulled = false;
+  group.add(im);
+  return { im, slots, product, scale: new Float32Array(slots.length), shown: -1 };
+}
+
+const _stackM4 = new THREE.Matrix4(), _stackQ = new THREE.Quaternion(), _stackV = new THREE.Vector3(), _stackS = new THREE.Vector3();
+function updateItemStack(stack, product, stock, dt, pop) {
+  if (!stack) return;
+  // A star tier can swap a station's recipe (cookie <-> brownie). Geometries are cached by product
+  // key in props.js, so this is a pointer swap, not an allocation.
+  if (product !== stack.product) { stack.product = product; stack.im.geometry = itemGeoFor(product); stack.shown = -1; }
+  const n = Math.max(0, Math.min(stock | 0, stack.slots.length));
+  let dirty = n !== stack.shown;
+  for (let i = 0; i < n; i++) {
+    if (stack.scale[i] < 1) { stack.scale[i] = pop ? Math.min(1, (stack.scale[i] || 0.01) + dt * 8) : 1; dirty = true; }
+  }
+  for (let i = n; i < stack.slots.length; i++) if (stack.scale[i] !== 0) { stack.scale[i] = 0; dirty = true; }
+  if (!dirty) return;
+  for (let i = 0; i < n; i++) {
+    _stackV.copy(stack.slots[i]);
+    _stackS.setScalar(stack.scale[i] || 0.01);
+    _stackM4.compose(_stackV, _stackQ, _stackS);
+    stack.im.setMatrixAt(i, _stackM4);
+  }
+  stack.im.count = n;
+  stack.im.instanceMatrix.needsUpdate = true;
+  stack.shown = n;
+}
 
 // Batch 1 terrace (plan 3.1/7.2): icecream/photo/restroom mirror the type-keyed lookup every other
 // station uses. `decor` covers fountain1 (the only decor station this batch) and `splash` covers
@@ -251,6 +295,20 @@ function reducedMotion() {
   catch (_) { return false; }
 }
 
+// Batch 8 item 4: one static contact shadow per station, sized off its own footprint (st.fw/fd --
+// the same fields chalkboard placement already reads) where a type doesn't earn its own tuned
+// radius. 'gate' renders an empty group (MESH_FOR.gate above) -- nothing to anchor, so it gets none.
+const STATION_SHADOW_RADIUS = {
+  seat: 0.82, decor: 0.78, splash: 0.78, oven: 0.55, display: 0.55, icecream: 0.55, photo: 0.55,
+  restroom: 0.55, groom: 0.55, bath: 0.55, checkout: 0.48, coffee: 0.48, pantry: 0.48, blender: 0.48,
+  boutique: 0.48, hire: 0.48, kiosk: 0.42, bush: 0.38, bowl: 0.3, return: 0.38,
+};
+function stationShadowRadius(st) {
+  const base = STATION_SHADOW_RADIUS[st.type];
+  if (base != null) return base;
+  return Math.max(0.3, Math.min(0.9, Math.max(st.fw || 1, st.fd || 1) * 0.32));
+}
+
 export function createVisuals(G, S, ctx) {
   const { area, world, scene, vis, fx, els } = ctx;
   const audio = ctx.audio;
@@ -262,11 +320,25 @@ export function createVisuals(G, S, ctx) {
   for (const st of world.stations.values()) {
     const build = MESH_ID_OVERRIDE[st.id] || MESH_FOR[st.type] || tableMesh;
     const g = build();
+    // Named so tools/scene-cost.mjs can attribute a draw-call regression to the system that caused
+    // it. Before this, every station, guest and pet landed in the report as an anonymous
+    // "Group(6 children)" bucket and a cost increase could not be traced to anything.
+    g.name = 'station:' + st.type;
     g.position.set(st.x, 0, st.z); g.rotation.y = st.rot; g.visible = st.active;
     scene.add(g);
-    const v = { g, items: [], reveal: null };
-    if (st.type === 'display') { for (let i = 0; i < DISPLAY_POOL; i++) { const m = itemFor(st.product); m.position.copy(g.slots[i]); m.visible = false; g.add(m); v.items.push(m); } g.setProduct(st.product); }
-    if (st.type === 'oven') for (let i = 0; i < 6; i++) { const m = itemFor(st.product); m.position.copy(g.outSlot); m.position.y += i * 0.17; m.visible = false; g.add(m); v.items.push(m); }
+    // Placed once (`follow: false`): a station's footprint never moves, only its active/visible
+    // flag does, which the sync in update() below mirrors onto the shadow handle every frame.
+    const shadow = st.type === 'gate' ? null : S.contactShadows && S.contactShadows.add(g, {
+      radius: stationShadowRadius(st), strength: 0.85, follow: false,
+    });
+    if (shadow) shadow.visible = !!st.active;
+    const v = { g, items: [], reveal: null, shadow };
+    if (st.type === 'display') { v.stack = makeItemStack(g, st.product, g.slots.slice(0, DISPLAY_POOL)); g.setProduct(st.product); }
+    if (st.type === 'oven') {
+      const slots = [];
+      for (let i = 0; i < 6; i++) slots.push(new THREE.Vector3(g.outSlot.x, g.outSlot.y + i * 0.17, g.outSlot.z));
+      v.stack = makeItemStack(g, st.product, slots);
+    }
     if (st.type === 'checkout') { v.pile = cashPile(); v.pile.position.set(st.cash.x, 0, st.cash.z); scene.add(v.pile); }
     if (st.type === 'seat') { const d = dirtyMesh(); d.position.set(0.15, DIRTY_PROP_Y, -0.1); d.visible = false; g.add(d); v.dirtyProp = d; }
     if (DEMAND_Y[st.type] != null) { v.demand = makeDemandEl(st.type); els.fx.appendChild(v.demand.el); }
@@ -401,6 +473,8 @@ export function createVisuals(G, S, ctx) {
         // is what actually swaps the fountain mesh out for the splash pool on screen. Skipped while
         // a reveal is in flight, since that already owns visibility/scale for its own duration.
         if (!v.reveal && v.g.visible !== !!st.active) v.g.visible = !!st.active;
+        // Mirrors whatever the reveal/active logic above just decided, whichever branch set it.
+        if (v.shadow) v.shadow.visible = v.g.visible;
 
         // Program §6.3: the table acknowledges the wipe with a short squash-and-stretch pop (the
         // group-level twin of render/human.js's H.pop), started by the 'cleaned' event above. The
@@ -415,14 +489,9 @@ export function createVisuals(G, S, ctx) {
           }
         }
 
-        if (st.type === 'display') {
-          for (let i = 0; i < v.items.length; i++) {
-            const m = v.items[i]; const on = i < st.stock;
-            if (on && !m.visible) m.scale.setScalar(0.01); m.visible = on;
-            if (on && m.scale.x < 1) m.scale.setScalar(Math.min(1, m.scale.x + dt * 8));
-          }
-        }
-        if (st.type === 'oven') { for (let i = 0; i < v.items.length; i++) v.items[i].visible = i < Math.min(st.stock, 6); }
+        // A shelf pops each new pastry in from nothing; an oven's output tray just fills.
+        if (st.type === 'display') updateItemStack(v.stack, st.product, st.stock, dt, true);
+        if (st.type === 'oven') updateItemStack(v.stack, st.product, Math.min(st.stock, 6), dt, false);
         if (st.type === 'checkout') v.pile.setCount(Math.ceil(st.pile / 5));
         if (st.type === 'bush') v.g.setStage(st.stage);
         if (st.type === 'seat' && v.dirtyProp) {

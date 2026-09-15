@@ -1,5 +1,17 @@
 // Render-only identity metadata. Array order follows sim/petBook.js and therefore does not create
 // new save keys or consume simulation randomness.
+
+// Alive spec §3 (owner decision: the camera stays wide): a captured screenshot of a built day-12
+// café (852x393, wide static camera) showed pets reading as thumbnail-sized brown blobs -- roughly
+// 60-90px tall in a 786px-high frame at 2x DSF, well below the size a phone player can read a
+// species from. Raised once here so every pet (guest, resident, golden-paw, decor) grows together
+// without touching the per-variant multipliers in LOOKS below or any of the ~20 authored looks.
+// Applied as a GROUP-level transform in pets.js's createPet(), not folded into specFor()'s w/h/l --
+// several part dimensions in geosFor() (leg boxes, paws, ear cones) are absolute, not derived from
+// s.w/s.h/s.l, so scaling the group uniformly is the only way to grow a pet without warping its
+// proportions.
+export const PET_BASE_SCALE = 1.18;
+
 const LOOKS = Object.freeze({
   cat: Object.freeze([
     { size: .96, width: 1.02, height: .98, length: 1.02, head: 1.04, pattern: 'tabby', patch: '#B97636' },

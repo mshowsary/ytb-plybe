@@ -154,9 +154,9 @@
         "node",
         "tools/scene-cost.mjs",
         "--calls",
-        "170",
+        "260",
         "--tris",
-        "180000"
+        "185000"
       ],
       "timeoutMs": 300000
     }

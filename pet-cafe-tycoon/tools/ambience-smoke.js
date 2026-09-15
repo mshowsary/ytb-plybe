@@ -122,9 +122,14 @@ for (const [tag, want] of [['day', 'brightest'], ['night', 'darkest']]) {
     // `group.visible === false` is how dusk is expressed, so a child's own flag says nothing about
     // whether anything is on screen — enumerate nothing at all when the group is down, or the night
     // assertion reads seven drawn insects the renderer never touches.
-    for (const child of (b.group.visible ? b.group.children : [])) {
-      if (!child.visible) continue;
-      const p = child.position;
+    // Batch 8 instanced the insects, so the scene graph no longer holds one child per creature —
+    // an InstancedMesh sits at the origin however far its instances roam, and reading child.position
+    // measured the origin and reported an 8.2 m miss that never happened. butterflies.js publishes
+    // where its insects actually are; the scene-graph walk stays as a fallback for anything older.
+    const drawn = typeof b.positions === 'function'
+      ? b.positions()
+      : (b.group.visible ? b.group.children.filter(c => c.visible).map(c => c.position) : []);
+    for (const p of drawn) {
       let nearest = Infinity;
       for (const bed of beds) nearest = Math.min(nearest, Math.hypot(p.x - bed.x, p.z - bed.z));
       insects.push({ x: +p.x.toFixed(3), z: +p.z.toFixed(3), y: +p.y.toFixed(3), nearestBed: +nearest.toFixed(3) });

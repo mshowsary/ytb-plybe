@@ -1,83 +1,136 @@
 // Lightweight premium ambience: high visual density without shipping a large texture payload.
+//
+// DRAW-CALL DIET (2026-09-15, Batch 8 "Ground and grain"): almost everything in this file used to be
+// one THREE.Mesh per part, even though the vast majority of it never moves and never changes colour
+// after setPrestige() first runs. geo.js bakes every part's colour into a vertex-colour attribute and
+// hands out one shared MeshToonMaterial for all of it (see its own header), so any of that static
+// content merges into a single draw call with zero visual change. Only the handful of pieces that
+// genuinely need their OWN material at runtime — the rug's reputation tint, the pendant shades'
+// reputation tint, the pulsing paw-sign glows — keep a dedicated mesh. Measured via
+// tools/scene-cost.mjs's topGroups bucket on this file's 'ambience' root: 60-odd draw calls before,
+// low teens after, same pixels either way.
 import * as THREE from 'three';
-import { part, mesh } from './geo.js';
+import { part, mesh, colorize } from './geo.js';
 
 const toon = color => new THREE.MeshToonMaterial({ color });
 const basic = (color, opacity = 1) => new THREE.MeshBasicMaterial({
   color, transparent: opacity < 1, opacity, depthWrite: opacity >= 1, toneMapped: false,
 });
 
-function addPlant(group, x, z, scale = 1) {
-  const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.22, 0.42, 10), toon('#C9795C'));
-  pot.position.set(x, 0.21, z); pot.scale.setScalar(scale); pot.castShadow = true; group.add(pot);
-  const leafMat = toon('#5FA66A');
-  const crown = new THREE.Mesh(new THREE.SphereGeometry(0.42, 10, 7), leafMat);
-  crown.scale.set(1, 1.25, 0.78); crown.position.set(x, 0.72 * scale, z); crown.scale.multiplyScalar(scale); crown.castShadow = true; group.add(crown);
-  const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.28, 9, 6), toon('#78BD7F'));
-  leaf.scale.set(0.8, 1.45, 0.62); leaf.position.set(x + 0.22 * scale, 0.92 * scale, z - 0.05); leaf.scale.multiplyScalar(scale); leaf.castShadow = true; group.add(leaf);
+// Matches geo.js part()'s own finish (delete the uv attribute, bake a vertex-colour attribute) for
+// the sphere height-segment combinations part() cannot express (it forces heightSegments = width >>
+// 1 — see environment.js's identical note above its own petalLobe/dome helpers). Only used so a
+// hand-built geometry can sit in the same merge() call as part()-built ones without surprising anyone
+// who goes looking for why an attribute set matches.
+function finish(g, hex) { g.deleteAttribute('uv'); return colorize(g, hex); }
+
+// One reputation-level-1 pot: geometry only, appended to `parts` rather than meshed on the spot.
+// Four placements used to be 4 x 3 = 12 draw calls (pot/crown/leaf never move or re-colour once
+// placed); collecting their geometry and meshing it once at the call site below is 1.
+// The pot is a plain cylinder (part() handles that fine); the crown and leaf are spheres whose
+// authored (width, height) segment pairs — (10, 7) and (9, 6) — are not part()'s forced width>>1, so
+// they stay hand-built, finished the same way part() finishes everything else.
+function plantParts(parts, x, z, scale = 1) {
+  parts.push(part('cyl', [0.28, 0.22, 0.42, 10], '#C9795C', { x, y: 0.21, z, sx: scale, sy: scale, sz: scale }));
+  const crown = new THREE.SphereGeometry(0.42, 10, 7);
+  crown.scale(scale, 1.25 * scale, 0.78 * scale);
+  crown.translate(x, 0.72 * scale, z);
+  parts.push(finish(crown, '#5FA66A'));
+  const leaf = new THREE.SphereGeometry(0.28, 9, 6);
+  leaf.scale(0.8 * scale, 1.45 * scale, 0.62 * scale);
+  leaf.translate(x + 0.22 * scale, 0.92 * scale, z - 0.05);
+  parts.push(finish(leaf, '#78BD7F'));
 }
 
 // `color`/`opacity` are parameters rather than constants because the Golden Paw plaque below is
 // the same silhouette in gold: one recognisable mark, two finishes, no second geometry to author.
+// Used to be a Group of 5 meshes (a pad plus four toes) sharing one material; since none of them ever
+// move relative to each other, they merge into the one mesh that material was always going to draw
+// anyway — every one of the 4 call sites below drops from 5 draws to 1. The pad's (12, 8) and each
+// toe's (10, 7) segment pairs are not part()'s forced width>>1 height either, so — like plantParts
+// above — this stays hand-built and finished the same way part() finishes everything else.
 function makePawSign(color = '#FF89A6', opacity = 0.94) {
-  const g = new THREE.Group();
   const mat = basic(color, opacity);
-  const pad = new THREE.Mesh(new THREE.SphereGeometry(0.25, 12, 8), mat);
-  pad.scale.set(1.15, 0.85, 0.35); g.add(pad);
+  const pad = new THREE.SphereGeometry(0.25, 12, 8);
+  pad.scale(1.15, 0.85, 0.35);
+  const P = [finish(pad, color)];
   for (const [x, y] of [[-0.29, 0.29], [-0.09, 0.42], [0.15, 0.42], [0.34, 0.25]]) {
-    const toe = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 7), mat);
-    toe.scale.set(0.92, 1.15, 0.35); toe.position.set(x, y, 0); g.add(toe);
+    const toe = new THREE.SphereGeometry(0.11, 10, 7);
+    toe.scale(0.92, 1.15, 0.35);
+    toe.translate(x, y, 0);
+    P.push(finish(toe, color));
   }
-  g.userData.glowMaterial = mat;
-  return g;
+  const m = mesh(P, { cast: false, receive: false, material: mat });
+  m.userData.glowMaterial = mat;
+  return m;
 }
 
 export function createAmbience(area) {
   const W = area.size.w, D = area.size.d;
   const group = new THREE.Group();
+  group.name = 'ambience';
   const prestige = [new THREE.Group(), new THREE.Group(), new THREE.Group(), new THREE.Group(), new THREE.Group()];
   for (const g of prestige) { g.visible = false; group.add(g); }
 
-  // Layered woven rug turns the open centre into a designed focal zone.
+  // geo.js's mesh() defaults to palette.js's shared toonMaterial(), which carries a hard 3-step
+  // gradient map (this file's own README elsewhere leans on that fact to make merges free). But every
+  // `toon(hex)` material below was authored WITHOUT a gradient map, which puts it on three.js's
+  // built-in smoothstep toon ramp instead — a visibly softer band edge. So every merge below that
+  // mixes more than one hue into one mesh (and so needs geo.js's vertex-colour baking rather than a
+  // single uniform colour) gets ITS OWN vertex-coloured material on the SAME (gradient-less) ramp,
+  // instead of silently picking up palette.js's harder one.
+  const vcToon = new THREE.MeshToonMaterial({ color: 0xffffff, vertexColors: true });
+
+  // Layered woven rug turns the open centre into a designed focal zone. Only the base tints with
+  // reputation (setPrestige mutates rugMat.color below), so it alone keeps a private mesh and
+  // material; the inner rug, its five stripes and the woven paw medallion below all share the same
+  // (cast:false, receive:true) flags and never move or re-colour again, so they merge into ONE mesh —
+  // what was 1 (inner) + 7 (stripes) + 1 (medallion, already its own merge) = 9 draws becomes 1.
   const rugMat = toon('#C96868');
   const rugBase = new THREE.Mesh(new THREE.BoxGeometry(5.8, 0.025, 3.6), rugMat);
   rugBase.position.set(0.3, 0.018, 2.45); rugBase.receiveShadow = true; group.add(rugBase);
-  const rugInner = new THREE.Mesh(new THREE.BoxGeometry(5.15, 0.03, 2.95), toon('#F2C9A8'));
-  rugInner.position.set(0.3, 0.035, 2.45); rugInner.receiveShadow = true; group.add(rugInner);
-  const stripeGeo = new THREE.BoxGeometry(4.7, 0.016, 0.055), stripeMat = toon('#FFF1DE');
-  for (let z = 1.28; z <= 3.62; z += 0.38) {
-    const m = new THREE.Mesh(stripeGeo, stripeMat); m.position.set(0.3, 0.055, z); group.add(m);
-  }
+
+  const rugAndEmblem = [part('box', [5.15, 0.03, 2.95], '#F2C9A8', { x: 0.3, y: 0.035, z: 2.45 })];
+  for (let z = 1.28; z <= 3.62; z += 0.38) rugAndEmblem.push(part('box', [4.7, 0.016, 0.055], '#FFF1DE', { x: 0.3, y: 0.055, z }));
 
   // Large woven paw medallion: readable from the normal play camera, not hidden on a wall.
-  const emblem = [part('cyl',[1.02,1.02,.014,40],'#FFF1DE',{x:.3,y:.074,z:2.45}),
-    part('sph',[.4,20],'#B96673',{x:.3,y:.091,z:2.68,sx:1.25,sy:.025,sz:.8})];
-  for (const [x,z,r] of [[-.2,2.3,.17],[.12,2.08,.19],[.5,2.08,.19],[.8,2.3,.17]])
-    emblem.push(part('sph',[r,12],'#B96673',{x,y:.091,z,sy:.06,sz:1.2}));
-  group.add(mesh(emblem,{cast:false}));
-
-  // Pendant fixtures. Emissive-looking bulbs use BasicMaterial instead of costly point lights.
-  const cordGeo = new THREE.CylinderGeometry(0.018, 0.018, 1.05, 6);
-  const shadeGeo = new THREE.CylinderGeometry(0.07, 0.36, 0.34, 12, 1, true);
-  const bulbGeo = new THREE.SphereGeometry(0.115, 10, 7);
-  const cordMat = toon('#463833'), shadeMat = toon('#7E6AE8'), bulbMat = basic('#FFD9A1');
-  for (const x of [-5.2, 0.2, 5.6]) {
-    const cord = new THREE.Mesh(cordGeo, cordMat); cord.position.set(x, 3.45, -3.5); group.add(cord);
-    const shade = new THREE.Mesh(shadeGeo, shadeMat); shade.position.set(x, 2.91, -3.5); shade.castShadow = true; group.add(shade);
-    const bulb = new THREE.Mesh(bulbGeo, bulbMat); bulb.position.set(x, 2.82, -3.5); group.add(bulb);
+  rugAndEmblem.push(part('cyl', [1.02, 1.02, .014, 40], '#FFF1DE', { x: .3, y: .074, z: 2.45 }));
+  rugAndEmblem.push(part('sph', [.4, 20], '#B96673', { x: .3, y: .091, z: 2.68, sx: 1.25, sy: .025, sz: .8 }));
+  for (const [x, z, r] of [[-.2, 2.3, .17], [.12, 2.08, .19], [.5, 2.08, .19], [.8, 2.3, .17]]) {
+    rugAndEmblem.push(part('sph', [r, 12], '#B96673', { x, y: .091, z, sy: .06, sz: 1.2 }));
   }
+  group.add(mesh(rugAndEmblem, { cast: false, receive: true, material: vcToon }));
 
-  // Framed café art on the two clear north-wall panels.
-  const frameMat = toon('#6C4B38'), paperMat = toon('#FFF4E6'), art = ['#FF8A80', '#8B7CF6'];
+  // Pendant fixtures. Emissive-looking bulbs use BasicMaterial instead of costly point lights. Three
+  // identical fixtures, none of which ever move: each part type (cord/shade/bulb) merges to its own
+  // one mesh instead of three, since each keeps a DIFFERENT (material, cast) combination — the cord
+  // never casts a shadow, the shade does and also keeps its own material (setPrestige retints it),
+  // and the bulb's unlit material is its own draw call regardless. 9 draws become 3.
+  const shadeMat = toon('#7E6AE8'), bulbMat = basic('#FFD9A1');
+  const cordParts = [], shadeParts = [], bulbParts = [];
+  for (const x of [-5.2, 0.2, 5.6]) {
+    cordParts.push(part('cyl', [0.018, 0.018, 1.05, 6], '#463833', { x, y: 3.45, z: -3.5 }));
+    shadeParts.push(part('cyl', [0.07, 0.36, 0.34, 12], '#7E6AE8', { x, y: 2.91, z: -3.5 }));
+    bulbParts.push(part('sph', [0.115, 10], '#FFD9A1', { x, y: 2.82, z: -3.5 }));
+  }
+  group.add(mesh(cordParts, { cast: false, receive: false, material: vcToon }));
+  group.add(mesh(shadeParts, { cast: true, receive: false, material: shadeMat }));
+  group.add(mesh(bulbParts, { cast: false, receive: false, material: bulbMat }));
+
+  // Framed café art on the two clear north-wall panels. Two frames share one material and two papers
+  // share another (colour never varies by panel), so each merges to one draw call instead of two;
+  // the paw-print marks stay their own mesh each (makePawSign already merges its own 5 parts into 1).
+  const frameMat = toon('#6C4B38'), paperMat = toon('#FFF4E6');
+  const frameParts = [], paperParts = [];
   for (let i = 0; i < 2; i++) {
     const x = i ? 7.55 : -7.55;
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(1.35, 1.15, 0.08), frameMat);
-    frame.position.set(x, 1.92, -D / 2 + 0.23); frame.castShadow = true; group.add(frame);
-    const paper = new THREE.Mesh(new THREE.BoxGeometry(1.08, 0.88, 0.025), paperMat);
-    paper.position.set(x, 1.92, -D / 2 + 0.285); group.add(paper);
+    frameParts.push(part('box', [1.35, 1.15, 0.08], '#6C4B38', { x, y: 1.92, z: -D / 2 + 0.23 }));
+    paperParts.push(part('box', [1.08, 0.88, 0.025], '#FFF4E6', { x, y: 1.92, z: -D / 2 + 0.285 }));
     const mark = makePawSign();
     mark.scale.setScalar(.8); mark.position.set(x, 1.82, -D / 2 + 0.34); group.add(mark);
   }
+  group.add(mesh(frameParts, { cast: true, receive: false, material: frameMat }));
+  group.add(mesh(paperParts, { cast: false, receive: false, material: paperMat }));
 
   // Warm string lights along the open fence, instanced into one draw call.
   const bulbs = [];
@@ -89,37 +142,38 @@ export function createAmbience(area) {
   bulbs.forEach((p, i) => { mx.makeTranslation(p[0], p[1], p[2]); lights.setMatrixAt(i, mx); });
   lights.instanceMatrix.needsUpdate = true; group.add(lights);
 
-  // Reputation level 1 — greenery makes the room feel owned instead of freshly spawned.
-  addPlant(prestige[0], -8.5, -5.4, 0.9);
-  addPlant(prestige[0], 8.55, -5.4, 0.9);
-  addPlant(prestige[0], -8.55, 5.25, 0.82);
-  addPlant(prestige[0], 5.95, 5.65, 0.72);
+  // Reputation level 1 — greenery makes the room feel owned instead of freshly spawned. Four
+  // placements, never touched again: one merged mesh instead of 4 x 3 = 12 draws (see plantParts
+  // above).
+  const plants = [];
+  plantParts(plants, -8.5, -5.4, 0.9);
+  plantParts(plants, 8.55, -5.4, 0.9);
+  plantParts(plants, -8.55, 5.25, 0.82);
+  plantParts(plants, 5.95, 5.65, 0.72);
+  prestige[0].add(mesh(plants, { cast: true, receive: false, material: vcToon }));
 
-  // Reputation level 2 — festive bunting around the service wall, batched by color.
+  // Reputation level 2 — festive bunting around the service wall. Used to be three InstancedMeshes,
+  // one per hue, purely because InstancedMesh has no colour-per-instance without extra machinery;
+  // geo.js's vertex-colour bake does that for free, so the three hues fold into the one mesh the
+  // shared toon material was always going to draw. 3 draws become 1.
   const buntingPoints = [];
   for (let x = -7.2; x <= 7.2; x += 0.9) buntingPoints.push([x, 2.55 + Math.sin(x * 1.35) * 0.08, -D / 2 + 0.32]);
-  const buntingGeo = new THREE.ConeGeometry(0.16, 0.32, 3);
-  const buntingMats = [toon('#FF8A80'), toon('#8B7CF6'), toon('#FFD166')];
-  for (let c = 0; c < 3; c++) {
-    const points = buntingPoints.filter((_, i) => i % 3 === c);
-    const inst = new THREE.InstancedMesh(buntingGeo, buntingMats[c], points.length);
-    points.forEach((p, i) => {
-      mx.compose(new THREE.Vector3(...p), new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI, 0, 0)), new THREE.Vector3(1, 1, 1));
-      inst.setMatrixAt(i, mx);
-    });
-    inst.instanceMatrix.needsUpdate = true; prestige[1].add(inst);
-  }
+  const buntingHues = ['#FF8A80', '#8B7CF6', '#FFD166'];
+  const bunting = buntingPoints.map(([x, y, z], i) =>
+    part('cone', [0.16, 0.32, 3], buntingHues[i % 3], { x, y, z, rx: Math.PI }));
+  prestige[1].add(mesh(bunting, { cast: false, receive: false, material: vcToon }));
 
-  // Reputation level 3 — trophy shelf makes successful sessions leave a permanent mark.
-  const shelf = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.13, 0.42), toon('#8B5E3C'));
-  shelf.position.set(-6.4, 1.25, -D / 2 + 0.45); shelf.castShadow = true; prestige[2].add(shelf);
-  const trophyMat = toon('#E9B94A');
+  // Reputation level 3 — trophy shelf makes successful sessions leave a permanent mark. The shelf and
+  // its three cups share (cast:true, receive:false); the three balls share an unlit material — two
+  // merged meshes instead of seven separate ones.
+  const trophyLit = [part('box', [2.7, 0.13, 0.42], '#8B5E3C', { x: -6.4, y: 1.25, z: -D / 2 + 0.45 })];
+  const trophyBalls = [];
   for (let i = 0; i < 3; i++) {
-    const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.09, 0.28, 10), trophyMat);
-    cup.position.set(-7.0 + i * 0.6, 1.48, -D / 2 + 0.45); cup.castShadow = true; prestige[2].add(cup);
-    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 7), basic('#FFE58A'));
-    ball.position.set(-7.0 + i * 0.6, 1.68, -D / 2 + 0.45); prestige[2].add(ball);
+    trophyLit.push(part('cyl', [0.15, 0.09, 0.28, 10], '#E9B94A', { x: -7.0 + i * 0.6, y: 1.48, z: -D / 2 + 0.45 }));
+    trophyBalls.push(part('sph', [0.12, 10], '#FFE58A', { x: -7.0 + i * 0.6, y: 1.68, z: -D / 2 + 0.45 }));
   }
+  prestige[2].add(mesh(trophyLit, { cast: true, receive: false, material: vcToon }));
+  prestige[2].add(mesh(trophyBalls, { cast: false, receive: false, material: basic('#FFE58A') }));
 
   // Reputation level 4 — signature paw sign: a recognizable visual identity, not another generic prop.
   const pawSign = makePawSign();
@@ -128,16 +182,20 @@ export function createAmbience(area) {
   signPlate.position.set(6.8, 1.82, -D / 2 + 0.36); prestige[3].add(signPlate);
   pawSign.position.z = -D / 2 + 0.42;
 
-  // Reputation level 5 — premium gold trim and lanterns, still only a handful of draw calls.
-  const gold = toon('#D9A62E');
+  // Reputation level 5 — premium gold trim and lanterns. The three stems and the gold runner share
+  // one never-mutated colour and never move, so they merge into one mesh; the octahedron lanterns
+  // (a shape part() cannot express) merge into a second, hand-built the same way makePawSign is.
+  // 7 draws become 2.
+  const goldLit = [part('box', [4.7, 0.014, 0.08], '#D9A62E', { x: 0.3, y: 0.065, z: 2.45 })];
+  const lanternGeos = [];
   for (const x of [-4.4, 0.3, 5.0]) {
-    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.65, 6), gold);
-    stem.position.set(x, 2.7, 5.85); prestige[4].add(stem);
-    const lantern = new THREE.Mesh(new THREE.OctahedronGeometry(0.18, 0), basic('#FFE8A3', 0.92));
-    lantern.position.set(x, 2.38, 5.85); prestige[4].add(lantern);
+    goldLit.push(part('cyl', [0.025, 0.025, 0.65, 6], '#D9A62E', { x, y: 2.7, z: 5.85 }));
+    const lantern = new THREE.OctahedronGeometry(0.18, 0);
+    lantern.translate(x, 2.38, 5.85);
+    lanternGeos.push(finish(lantern, '#FFE8A3'));
   }
-  const goldRunner = new THREE.Mesh(new THREE.BoxGeometry(4.7, 0.014, 0.08), gold);
-  goldRunner.position.set(0.3, 0.065, 2.45); prestige[4].add(goldRunner);
+  prestige[4].add(mesh(goldLit, { cast: false, receive: false, material: vcToon }));
+  prestige[4].add(mesh(lanternGeos, { cast: false, receive: false, material: basic('#FFE8A3', 0.92) }));
 
   // --- the Golden Paw (plan §3.4) ---------------------------------------------------------------
   // The one-time ★5 award. NOT part of the prestige[] ladder: prestige is reputation, which rises

@@ -4,7 +4,7 @@ import { part, merge } from './geo.js';
 import { C, toonMaterial, emissiveMaterial } from './palette.js';
 import { damp } from '../core/tween.js';
 import { petProfile, isLegendaryProfile } from '../sim/petBook.js';
-import { petAppearance } from './petAppearance.js';
+import { petAppearance, PET_BASE_SCALE } from './petAppearance.js';
 import { petSocialPose } from './petSocialPose.js';
 import {
   createPetTraitMotionState,
@@ -32,6 +32,31 @@ const _geoCache = new Map();
 // short enough that a resident is never mid-yawn in most frames.
 const STRETCH_DUR = 1.5;
 
+// Alive spec §3: coat colours were authored in sim/petBook.js against a neutral debug backdrop,
+// not the café's cream floor (palette.js C.floorA #F7F0E6 / C.floorB #EFE5D6, both ~0.90-0.94 HSL
+// lightness). A wide-camera screenshot of a built day-12 café showed the common bunny 'Snowdrop'
+// (#EFE8E3) and the legendary bunny 'Aurora' (body #EDEAFB, belly #FFFFFF) reading as a body-shaped
+// gap in the tile grout rather than an animal, plus the cat 'tuxedo'/dog+hamster 'cloud' patch
+// colours (LOOKS below, both near-white cream) doing the same on their patches. sim/petBook.js and
+// palette.js both belong to other builders this batch, so this deepens any colour that lands within
+// ~16 points of floor lightness -- in place, for every coat/patch this rig draws -- rather than
+// hand-editing the ~20 authored hexes. Anything already separated from the floor passes through
+// unchanged. Near-achromatic input (pure white/grey, s < 0.03) is only darkened, never given a
+// fabricated hue, so 'Aurora's pure-white belly doesn't turn pink.
+const FLOOR_L = 0.77; // colours at/above this HSL lightness are within the risk band
+const FLOOR_BAND = 0.16;
+const _readableColor = new THREE.Color();
+const _hsl = { h: 0, s: 0, l: 0 };
+function readableAgainstFloor(hex) {
+  _readableColor.set(hex);
+  _readableColor.getHSL(_hsl);
+  if (_hsl.l < FLOOR_L) return hex;
+  const t = Math.min(1, (_hsl.l - FLOOR_L) / FLOOR_BAND);
+  const s = _hsl.s > 0.03 ? Math.min(0.55, _hsl.s + 0.16 * t) : _hsl.s;
+  _readableColor.setHSL(_hsl.h, s, _hsl.l - 0.22 * t);
+  return '#' + _readableColor.getHexString();
+}
+
 function specFor(species, variant = 0) {
   const base = SPEC[species] || SPEC.cat;
   const coat = petProfile(species, variant);
@@ -41,7 +66,10 @@ function specFor(species, variant = 0) {
     w: base.w * look.size * look.width,
     h: base.h * look.size * look.height,
     l: base.l * look.size * look.length,
-    body: coat.body, belly: coat.belly, accent: coat.accent,
+    body: readableAgainstFloor(coat.body),
+    belly: readableAgainstFloor(coat.belly),
+    accent: readableAgainstFloor(coat.accent),
+    patch: readableAgainstFloor(look.patch),
   };
 }
 
@@ -62,8 +90,11 @@ function geosFor(species, variant = 0) {
   ]);
 
   const bodyParts = [
-    part('rbox', [s.w, s.h, s.l, 0.13], s.body, { y: 0.3 + s.h / 2 }),
-    part('rbox', [s.w * 0.72, s.h * 0.54, s.l * 0.72, 0.09], s.belly, { y: 0.3 + s.h * 0.34, z: 0.035 }),
+    // The torso and belly are the two biggest coat surfaces in the game, and pets are the theme:
+    // the Batch 8 grain atlas's `fur` tile is the one tag with the most character in it. Only these
+    // two are tagged — at the wide camera a weave on the collar or the paws would be noise.
+    part('rbox', [s.w, s.h, s.l, 0.13], s.body, { y: 0.3 + s.h / 2, tex: 'fur' }),
+    part('rbox', [s.w * 0.72, s.h * 0.54, s.l * 0.72, 0.09], s.belly, { y: 0.3 + s.h * 0.34, z: 0.035, tex: 'fur' }),
     part('rbox', [s.w * 0.9, 0.09, s.l * 0.78, 0.035], s.accent, { y: 0.3 + s.h * 0.76, z: 0.02 }),
     part('sph', [0.055, 7], '#E7B64E', { x: 0, y: 0.3 + s.h * 0.69, z: s.l * 0.43 }),
   ];
@@ -83,12 +114,18 @@ function geosFor(species, variant = 0) {
   const bodyGeo = merge(bodyParts);
 
   const hw = s.w * (s.head || 1);
+  // Alive spec §3 (silhouette): "a dog's snout" is one of the four named species tells. At the
+  // shared muzzle length every species used before, a dog's head silhouette read as flat-faced as
+  // a cat's -- the only species difference was ear shape. `snout` stretches the whole muzzle
+  // assembly (box, nose, mouth corners) forward together so the proportions it was authored at
+  // stay intact; every other species keeps snout=1 (unchanged).
+  const snout = species === 'dog' ? 1.3 : 1;
   const headParts = [
-    part('rbox', [hw * 1.1, hw * 0.95, hw * 0.95, Math.min(.14, hw * .28)], s.body, { y: 0 }),
-    part('sph', [0.05, 8], species === 'dog' ? '#5A3D30' : C.pink, { y: -0.07, z: s.w * 0.515 }),
-    part('rbox', [s.w * 0.52, s.w * 0.29, s.w * 0.3, 0.065], s.belly, { y: -0.13, z: s.w * 0.405 }),
-    part('box', [0.09, 0.018, 0.02], '#6F4B43', { x: -0.055, y: -0.19, z: s.w * 0.54, rz: -0.25 }),
-    part('box', [0.09, 0.018, 0.02], '#6F4B43', { x: 0.055, y: -0.19, z: s.w * 0.54, rz: 0.25 }),
+    part('rbox', [hw * 1.1, hw * 0.95, hw * 0.95, Math.min(.14, hw * .28)], s.body, { y: 0, tex: 'fur' }),
+    part('sph', [0.05, 8], species === 'dog' ? '#5A3D30' : C.pink, { y: -0.07, z: s.w * 0.515 * snout }),
+    part('rbox', [s.w * 0.52, s.w * 0.29, s.w * 0.3 * snout, 0.065], s.belly, { y: -0.13, z: s.w * 0.405 * snout }),
+    part('box', [0.09, 0.018, 0.02], '#6F4B43', { x: -0.055, y: -0.19, z: s.w * 0.54 * snout, rz: -0.25 }),
+    part('box', [0.09, 0.018, 0.02], '#6F4B43', { x: 0.055, y: -0.19, z: s.w * 0.54 * snout, rz: 0.25 }),
   ];
   if (s.pattern === 'tuxedo' || s.pattern === 'blaze' || s.pattern === 'mask') {
     const wide = s.pattern === 'mask';
@@ -105,51 +142,62 @@ function geosFor(species, variant = 0) {
   }
 
   if (species === 'cat') {
+    // Alive spec §3: "a cat's pointed ears" is the named tell -- the previous cone (r.13/h.29) read
+    // as a rounded nub at wide-camera distance, close enough to the dog's round-ear variant to
+    // cost the silhouette read. Widened and raised ~20% so the point clears the head silhouette.
     headParts.push(
-      part('cone', [0.13, 0.29, 4], s.body, { x: -s.w * 0.32, y: s.w * 0.55, ry: Math.PI / 4 }),
-      part('cone', [0.13, 0.29, 4], s.body, { x: s.w * 0.32, y: s.w * 0.55, ry: Math.PI / 4 }),
-      part('cone', [0.075, 0.19, 4], s.earCol, { x: -s.w * 0.32, y: s.w * 0.56, z: 0.025, ry: Math.PI / 4 }),
-      part('cone', [0.075, 0.19, 4], s.earCol, { x: s.w * 0.32, y: s.w * 0.56, z: 0.025, ry: Math.PI / 4 }),
+      part('cone', [0.15, 0.35, 4], s.body, { x: -s.w * 0.32, y: s.w * 0.62, ry: Math.PI / 4 }),
+      part('cone', [0.15, 0.35, 4], s.body, { x: s.w * 0.32, y: s.w * 0.62, ry: Math.PI / 4 }),
+      part('cone', [0.088, 0.23, 4], s.earCol, { x: -s.w * 0.32, y: s.w * 0.63, z: 0.025, ry: Math.PI / 4 }),
+      part('cone', [0.088, 0.23, 4], s.earCol, { x: s.w * 0.32, y: s.w * 0.63, z: 0.025, ry: Math.PI / 4 }),
       part('box', [0.25, 0.014, 0.014], '#6F4B43', { x: -0.18, y: -0.12, z: s.w * 0.55, rz: 0.12 }),
       part('box', [0.25, 0.014, 0.014], '#6F4B43', { x: 0.18, y: -0.12, z: s.w * 0.55, rz: -0.12 }),
     );
   }
   if (species === 'bunny') {
+    // Alive spec §3: "a bunny's long ears" already carried the silhouette better than any other
+    // species tell, but at the wide camera the .15-wide paddle read thin against the sky/wall
+    // behind it. +10% length, +20% width -- still clearly an ear, not a paddle.
     const lop = s.ears === 'lop';
     const split = s.ears === 'split';
     const leftRot = lop ? 1.0 : .15, rightRot = lop || split ? -1.0 : -.15;
     const earY = lop ? s.w * .42 : s.w * .72;
     headParts.push(
-      part('rbox', [.15, .58, .09, .05], s.body, { x: -s.w * (lop ? .48 : .25), y: earY, rz: leftRot }),
-      part('rbox', [.15, .58, .09, .05], s.body, { x: s.w * ((lop || split) ? .48 : .25), y: split ? s.w * .48 : earY, rz: rightRot }),
-      part('rbox', [.07, .42, .035, .02], s.earCol, { x: -s.w * (lop ? .48 : .25), y: earY, z: .05, rz: leftRot }),
-      part('rbox', [.07, .42, .035, .02], s.earCol, { x: s.w * ((lop || split) ? .48 : .25), y: split ? s.w * .48 : earY, z: .05, rz: rightRot }),
+      part('rbox', [.18, .64, .09, .05], s.body, { x: -s.w * (lop ? .48 : .25), y: earY, rz: leftRot }),
+      part('rbox', [.18, .64, .09, .05], s.body, { x: s.w * ((lop || split) ? .48 : .25), y: split ? s.w * .48 : earY, rz: rightRot }),
+      part('rbox', [.09, .48, .035, .02], s.earCol, { x: -s.w * (lop ? .48 : .25), y: earY, z: .05, rz: leftRot }),
+      part('rbox', [.09, .48, .035, .02], s.earCol, { x: s.w * ((lop || split) ? .48 : .25), y: split ? s.w * .48 : earY, z: .05, rz: rightRot }),
     );
   }
   if (species === 'dog') {
+    // Alive spec §3: all three dog ear shapes bumped ~15% -- at the pre-scale size the 'round'
+    // variant in particular read as a smudge on the side of the head rather than an ear.
     if (s.ears === 'upright') {
       headParts.push(
-        part('cone', [.13, .34, 5], s.earCol, { x: -s.w * .38, y: s.w * .58, ry: Math.PI / 4 }),
-        part('cone', [.13, .34, 5], s.earCol, { x: s.w * .38, y: s.w * .58, ry: Math.PI / 4 }),
+        part('cone', [.15, .39, 5], s.earCol, { x: -s.w * .38, y: s.w * .58, ry: Math.PI / 4 }),
+        part('cone', [.15, .39, 5], s.earCol, { x: s.w * .38, y: s.w * .58, ry: Math.PI / 4 }),
       );
     } else if (s.ears === 'round') {
       headParts.push(
-        part('sph', [s.w * .24, 8], s.earCol, { x: -s.w * .50, y: s.w * .31, sy: 1.2 }),
-        part('sph', [s.w * .24, 8], s.earCol, { x: s.w * .50, y: s.w * .31, sy: 1.2 }),
+        part('sph', [s.w * .28, 8], s.earCol, { x: -s.w * .50, y: s.w * .31, sy: 1.2 }),
+        part('sph', [s.w * .28, 8], s.earCol, { x: s.w * .50, y: s.w * .31, sy: 1.2 }),
       );
     } else {
       headParts.push(
-        part('rbox', [.13, .4, .23, .05], s.earCol, { x: -s.w * .59, y: s.w * .34, rz: -.12 }),
-        part('rbox', [.13, .4, .23, .05], s.earCol, { x: s.w * .59, y: s.w * .34, rz: .12 }),
+        part('rbox', [.15, .46, .23, .05], s.earCol, { x: -s.w * .59, y: s.w * .34, rz: -.12 }),
+        part('rbox', [.15, .46, .23, .05], s.earCol, { x: s.w * .59, y: s.w * .34, rz: .12 }),
       );
     }
-    headParts.push(part('rbox', [s.w * .34, s.w * .11, .025, .02], s.accent, { x: -s.w * .17, y: .24, z: s.w * .46, rz: -.2 }));
+    headParts.push(part('rbox', [s.w * .34, s.w * .11, .025, .02], s.accent, { x: -s.w * .17, y: .24, z: s.w * .46 * snout, rz: -.2 }));
   }
   if (species === 'hamster') {
+    // Alive spec §3: "a hamster's round body" is the tell, and it has no ears/tail/snout to lean
+    // on -- roundness IS the whole silhouette. Cheeks pushed +12% so the head reads as wider than
+    // it is tall (round) rather than square; ears left small on purpose (species-appropriate).
     headParts.push(
       // chubby cheek pouches, bulging low on either side of the muzzle
-      part('sph', [s.w * 0.34, 10], s.body, { x: -s.w * 0.52, y: -0.05, z: s.w * 0.16 }),
-      part('sph', [s.w * 0.34, 10], s.body, { x: s.w * 0.52, y: -0.05, z: s.w * 0.16 }),
+      part('sph', [s.w * 0.38, 10], s.body, { x: -s.w * 0.52, y: -0.05, z: s.w * 0.16 }),
+      part('sph', [s.w * 0.38, 10], s.body, { x: s.w * 0.52, y: -0.05, z: s.w * 0.16 }),
       // tiny round ears, low-poly hemispheres so they read as small rather than as flags
       part('sph', [s.w * 0.2, 8], s.earCol, { x: -s.w * 0.32, y: s.w * 0.6, z: -s.w * 0.05 }),
       part('sph', [s.w * 0.2, 8], s.earCol, { x: s.w * 0.32, y: s.w * 0.6, z: -s.w * 0.05 }),
@@ -157,20 +205,24 @@ function geosFor(species, variant = 0) {
   }
   const headGeo = merge(headParts);
 
+  // Alive spec §3: "a tail that disappears against the body" -- the cat/dog tails were thin enough
+  // (r.055-.075) that at the wide camera they lost their own depth-outline against the body they
+  // hang off of. Thickened ~20% on every radius; length untouched so the cat's tail still needs its
+  // existing sit-pose curl.
   let tailGeo;
   if (s.tail === 'long') tailGeo = merge([
-    part('cyl', [0.055, 0.075, 0.62, 8], s.body, { y: 0.3, rx: 0.5 }),
-    part('sph', [0.075, 8], s.belly, { y: 0.56, z: -0.13 }),
+    part('cyl', [0.066, 0.09, 0.62, 8], s.body, { y: 0.3, rx: 0.5 }),
+    part('sph', [0.09, 8], s.belly, { y: 0.56, z: -0.13 }),
   ]);
   else if (s.tail === 'short') tailGeo = merge([
-    part('cyl', [0.06, 0.075, 0.32, 8], s.body, { y: 0.15, rx: 0.9 }),
-    part('sph', [0.07, 8], s.belly, { y: 0.26, z: -0.08 }),
+    part('cyl', [0.072, 0.09, 0.32, 8], s.body, { y: 0.15, rx: 0.9 }),
+    part('sph', [0.085, 8], s.belly, { y: 0.26, z: -0.08 }),
   ]);
   // Hamsters (plan §3.7: "no visible tail") still get a real mesh here -- every P.update() branch
   // below reads/writes `tail.rotation.*` unconditionally -- but it is sized to effectively nothing
   // (a handful of triangles at a hair's width) so it never reads on screen.
   else if (s.tail === 'none') tailGeo = part('sph', [0.001, 4], s.body);
-  else tailGeo = merge([part('sph', [0.13, 10], C.white), part('sph', [0.07, 8], '#F4E8E1', { y: 0.05, z: 0.08 })]);
+  else tailGeo = merge([part('sph', [0.15, 10], C.white), part('sph', [0.08, 8], '#F4E8E1', { y: 0.05, z: 0.08 })]);
 
   const bWaitGeo = merge([part('sph', [0.06, 8], C.white, { x: -0.15 }), part('sph', [0.06, 8], C.white), part('sph', [0.06, 8], C.white, { x: 0.15 })]);
   const bAngryGeo = merge([part('rbox', [0.08, 0.3, 0.08, 0.03], '#FF3B3B', { y: 0.05 }), part('sph', [0.06, 8], '#FF3B3B', { y: -0.2 })]);
@@ -197,6 +249,15 @@ function geosFor(species, variant = 0) {
 
 export function createPet(species, variant = 0) {
   const s = specFor(species, variant); const group = new THREE.Group();
+  group.name = 'pet:' + species;   // see human.js: scene-cost attribution
+  // Alive spec §3 / PET_BASE_SCALE (petAppearance.js): a whole-group transform, not a change to
+  // any part's own dimensions -- geosFor() below builds several parts (leg boxes, paws, ear cones)
+  // at absolute sizes rather than s.w/s.h/s.l fractions, so scaling those numbers directly would
+  // grow the torso/head/tail without growing the legs and ears to match. Scaling the finished group
+  // keeps every child's proportions exactly as authored. setBaseScale() below multiplies by this
+  // same constant rather than overwriting it, so every existing caller (residents/golden-paw pin
+  // this to 1, decor.js's background toy pets pin it to .66/.48) keeps its relative sizing intact.
+  group.scale.setScalar(PET_BASE_SCALE);
   // Only the cat's 'long' tail needs the sit-pose curl below; 'short' and 'puff' already sit clear.
   const CURLS_TAIL = s.tail === 'long';
   const G = geosFor(species, variant); const mat = toonMaterial();
@@ -250,7 +311,7 @@ export function createPet(species, variant = 0) {
   };
   // Pets already squash and stretch through the hop path below, and P.update never touches
   // group.scale, so a caller may scale the group freely. pop() just borrows the hop.
-  P.setBaseScale = s => { group.scale.setScalar(Number(s) > 0 ? Number(s) : 1); };
+  P.setBaseScale = s => { group.scale.setScalar((Number(s) > 0 ? Number(s) : 1) * PET_BASE_SCALE); };
   P.pop = () => { P._hop = Math.max(P._hop, 0.34); };
   // Residents (systems/residentPets.js) never walk, so everything that reads as alive has to come
   // out of this rig. setLifePhase pins every one of its clocks to a caller-chosen offset, so a row

@@ -28,6 +28,7 @@ import { createPauseMenu } from './ui/pauseMenu.js';
 import { createCashTrays } from './render/cashTrays.js';
 import { createCoffeePolish } from './render/coffeePolish.js';
 import { createButterflies } from './render/butterflies.js';
+import { createContactShadows } from './render/contactShadows.js';
 import { createRewardsSystem } from './systems/rewardsSystem.js';
 import { AREA1 } from '../data/area1.js';
 
@@ -238,6 +239,9 @@ async function boot() {
 
 function startGame(S, load, bootUi) {
   const els = { fx: $('fx'), wallet: $('wallet'), joy: $('joy'), joyKnob: $('joyKnob') };
+  // Batch 8 item 4: one instanced pool of contact shadows, built before createGame so every
+  // creation site inside it (owner, customers, staff, stations) can register into it as it spawns.
+  S.contactShadows = createContactShadows(S);
   const G = createGame(S, AREA1, els, platform);
   const machineJuice = createMachineJuice(G.world, S.scene);
   const coffeePolish = createCoffeePolish(G.world, S.scene, G.owner);
@@ -399,6 +403,9 @@ function startGame(S, load, bootUi) {
       // After rewardsSystem: it is what moves S.goldenHour, and Golden Hour is a boost layered on
       // top of the current time-of-day keyframe rather than a palette of its own.
       daylight.update(G.dayState.t, S.goldenHour);
+      // After daylight (reads its sun/interior state) and after everything above that moves a
+      // character, pet or station (reads their up-to-date world positions).
+      S.contactShadows.update(dt);
       const uiStart = frameMetrics.running ? performance.now() : 0;
       responsive.update();
       shell.update();

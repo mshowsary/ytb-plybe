@@ -94,6 +94,10 @@ export function createStaff(G, S, ctx) {
     return (G.staffList || []).filter(s => s.kind === 'runner').map(s => s.assign || '').join('|');
   }
 
+  // Batch 8 item 4: every worker gets the same following contact shadow a guest's human does.
+  function shadowFor(group) {
+    return S.contactShadows && S.contactShadows.add(group, { radius: 0.44, strength: 1.0, follow: true });
+  }
   function spawnRunner() {
     let index = 0;
     for (const s of G.staffList) if (s.kind === 'runner') index++;
@@ -102,19 +106,19 @@ export function createStaff(G, S, ctx) {
       : null;
     const s = createStaffSim('runner', RUNNER_SPAWN, savedAssign); G.staffList.push(s);
     const human = createHuman(RUNNER_VARIANT, 'runner'); scene.add(human.group);
-    rec.set(s, { human, itemMeshes: [], px: s.x, pz: s.z });
+    rec.set(s, { human, itemMeshes: [], px: s.x, pz: s.z, shadow: shadowFor(human.group) });
   }
   function spawnCashier() {
     const co = world.stations.get('register1');
     const spawn = co ? co.cash : CASHIER_FALLBACK;
     const s = createStaffSim('cashier', spawn); G.staffList.push(s);
     const human = createHuman(CASHIER_VARIANT, 'cashier'); scene.add(human.group);
-    rec.set(s, { human, itemMeshes: [], px: s.x, pz: s.z });
+    rec.set(s, { human, itemMeshes: [], px: s.x, pz: s.z, shadow: shadowFor(human.group) });
   }
   function spawnCleaner() {
     const s = createStaffSim('cleaner', CLEANER_SPAWN); G.staffList.push(s);
     const human = createHuman(CLEANER_VARIANT, 'cleaner'); scene.add(human.group);
-    rec.set(s, { human, itemMeshes: [], px: s.x, pz: s.z });
+    rec.set(s, { human, itemMeshes: [], px: s.x, pz: s.z, shadow: shadowFor(human.group) });
   }
   // Batch 4b (plan 3.9) — hired from photoDesk1, mirrors spawnCashier's own "station spot if it
   // exists, else the fallback literal" shape. Spawns at the desk's own FRONT (free floor), not its
@@ -124,7 +128,7 @@ export function createStaff(G, S, ctx) {
     const spawn = desk ? desk.front : PHOTOGRAPHER_FALLBACK;
     const s = createStaffSim('photographer', spawn); G.staffList.push(s);
     const human = createHuman(PHOTOGRAPHER_VARIANT, 'photographer'); scene.add(human.group);
-    rec.set(s, { human, itemMeshes: [], px: s.x, pz: s.z });
+    rec.set(s, { human, itemMeshes: [], px: s.x, pz: s.z, shadow: shadowFor(human.group) });
   }
   function onCollect(amount, x, z) {
     G.coins += amount; G.stats.lifetimeEarned = (G.stats.lifetimeEarned | 0) + amount; hud.setCoins(G.coins);
@@ -167,7 +171,7 @@ export function createStaff(G, S, ctx) {
   }
 
   function teardown() {
-    for (const r of rec.values()) scene.remove(r.human.group);
+    for (const r of rec.values()) { scene.remove(r.human.group); if (S.contactShadows) S.contactShadows.remove(r.shadow); }
     rec.clear();
     assignmentSignature = null;
     activeDemo = null; demoVisual.hide();

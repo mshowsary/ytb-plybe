@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { part, mesh, merge } from './geo.js';
 import { C, toonMaterial, emissiveMaterial, gradientMap } from './palette.js';
+import { grainAtlas } from './grain.js';
 import { PRODUCTS } from '../sim/economy.js';
 import { Spring } from '../core/tween.js';
 import { regionEdge } from '../sim/nav.js';
@@ -34,16 +35,16 @@ export function buildStatic(area) {
   P.push(part('box', [90, 0.2, 90], '#CDE9B8', { y: -0.6 }));                                             // ground slab (sky never in frame at this pitch)
   // floor tiles (1 m checker) — merged
   for (let x = 0; x < W; x++) for (let z = 0; z < D; z++)
-    P.push(part('box', [0.98, 0.3, 0.98], (x + z) & 1 ? C.floorA : C.floorB, { x: x - W / 2 + 0.5, y: -0.15, z: z - D / 2 + 0.5 }));
-  P.push(part('rbox', [W + 0.6, 0.5, D + 0.6, 0.12], C.wood, { y: -0.45 }));                         // wooden plinth
+    P.push(part('box', [0.98, 0.3, 0.98], (x + z) & 1 ? C.floorA : C.floorB, { x: x - W / 2 + 0.5, y: -0.15, z: z - D / 2 + 0.5, tex: 'tile' }));
+  P.push(part('rbox', [W + 0.6, 0.5, D + 0.6, 0.12], C.wood, { y: -0.45, tex: 'wood' }));                         // wooden plinth
   P.push(part('box', [W + 8, 0.2, 6], C.street, { y: -0.35, z: -D / 2 - 3 }));                        // street north
   P.push(part('box', [6, 0.2, D + 8], C.street, { x: -W / 2 - 3, y: -0.35 }));                          // street west
   // north wall with three windows, west wall with a door gap
-  P.push(part('box', [W, 3, 0.4], C.wall, { y: 1.5, z: -D / 2 }));
+  P.push(part('box', [W, 3, 0.4], C.wall, { y: 1.5, z: -D / 2, tex: 'plaster' }));
   for (const x of [-5, 0, 5]) { P.push(part('box', [1.8, 1.3, 0.5], '#DDF6FF', { x, y: 1.7, z: -D / 2 })); P.push(part('box', [2.0, 0.12, 0.6], C.cream, { x, y: 1.0, z: -D / 2 })); }
   const dz = area.door.z;
-  P.push(part('box', [0.4, 3, (dz - 1.2) + D / 2], C.wall, { x: -W / 2, y: 1.5, z: ((dz - 1.2) + (-D / 2)) / 2 }));   // west wall north part
-  P.push(part('box', [0.4, 3, D / 2 - (dz + 1.2)], C.wall, { x: -W / 2, y: 1.5, z: ((dz + 1.2) + D / 2) / 2 }));      // west wall south part (door gap around z=door)
+  P.push(part('box', [0.4, 3, (dz - 1.2) + D / 2], C.wall, { x: -W / 2, y: 1.5, z: ((dz - 1.2) + (-D / 2)) / 2, tex: 'plaster' }));   // west wall north part
+  P.push(part('box', [0.4, 3, D / 2 - (dz + 1.2)], C.wall, { x: -W / 2, y: 1.5, z: ((dz + 1.2) + D / 2) / 2, tex: 'plaster' }));      // west wall south part (door gap around z=door)
   P.push(part('box', [0.4, 0.6, 2.4], C.wall, { x: -W / 2, y: 2.7, z: area.door.z }));                   // lintel
   P.push(part('box', [0.3, 3.2, 0.3], C.woodDark, { x: -W / 2, y: 1.6, z: area.door.z - 1.3 }));
   P.push(part('box', [0.3, 3.2, 0.3], C.woodDark, { x: -W / 2, y: 1.6, z: area.door.z + 1.3 }));
@@ -120,10 +121,10 @@ export function buildStatic(area) {
   const awX0 = -6, awX1 = 8, awW = awX1 - awX0, awMid = (awX0 + awX1) / 2;
   const stripes = Math.round(awW);
   const partsA = [], partsB = []; // A = "primary" parity (+ the trim bar), B = "secondary" parity
-  for (let i = 0; i < stripes; i++) (i & 1 ? partsB : partsA).push(part('box', [1.0, 0.06, 2.2], '#ffffff', { x: awX0 + i * 1.0 + 0.5, y: 0, z: 0 }));
-  partsA.push(part('box', [awW, 0.1, 0.25], '#ffffff', { y: -0.05, z: 1.1 }));
-  const matA = new THREE.MeshToonMaterial({ color: new THREE.Color(AWNING_SETS[0][0]), gradientMap: gradientMap() });
-  const matB = new THREE.MeshToonMaterial({ color: new THREE.Color(AWNING_SETS[0][1]), gradientMap: gradientMap() });
+  for (let i = 0; i < stripes; i++) (i & 1 ? partsB : partsA).push(part('box', [1.0, 0.06, 2.2], '#ffffff', { x: awX0 + i * 1.0 + 0.5, y: 0, z: 0, tex: 'fabric' }));
+  partsA.push(part('box', [awW, 0.1, 0.25], '#ffffff', { y: -0.05, z: 1.1, tex: 'fabric' }));
+  const matA = new THREE.MeshToonMaterial({ color: new THREE.Color(AWNING_SETS[0][0]), gradientMap: gradientMap(), map: grainAtlas() });
+  const matB = new THREE.MeshToonMaterial({ color: new THREE.Color(AWNING_SETS[0][1]), gradientMap: gradientMap(), map: grainAtlas() });
   const awA = new THREE.Mesh(merge(partsA), matA); awA.receiveShadow = true;
   const awB = new THREE.Mesh(merge(partsB), matB); awB.receiveShadow = true;
   const aw = new THREE.Group(); aw.add(awA, awB);
@@ -137,10 +138,10 @@ export function counterMesh() {
   const g = new THREE.Group();
   g.add(mesh([
     part('rbox', [2.4, 1.0, 1.0, 0.08], C.cream, { y: 0.5 }),
-    part('box', [2.5, 0.12, 1.1], C.wood, { y: 1.02 }),
+    part('box', [2.5, 0.12, 1.1], C.wood, { y: 1.02, tex: 'wood' }),
     part('box', [2.2, 0.5, 0.06], C.coral, { y: 0.5, z: 0.52 }),
     part('box', [2.2, 0.55, 0.42], '#DDF6FF', { y: 1.4, z: -0.27 }),       // glass display (back half)
-    part('box', [2.3, 0.06, 0.5], C.wood, { y: 1.7, z: -0.27 }),           // wood lid over glass
+    part('box', [2.3, 0.06, 0.5], C.wood, { y: 1.7, z: -0.27, tex: 'wood' }),           // wood lid over glass
     // Owner feedback: "cookies on the counter share the counter's colour — hard to see even in
     // daylight." The wood top above is C.wood ('#D9A066'), the exact hex economyConfig.js's cookie
     // used to be — a cookie sitting flush on it visually merged into the surface. A pale paper tray
@@ -149,7 +150,7 @@ export function counterMesh() {
     // stayed close to wood in hue. Sits flush on the wood top (top at y=1.02+0.06=1.08; this box is
     // 0.03 thick centred at 1.095, so its own top is 1.11) — the item slots below are raised by that
     // same 0.03 so every display item still sits ON the tray instead of clipping into it.
-    part('box', [2.2, 0.03, 0.9], '#FFFDF7', { y: 1.095, z: 0.26 }),
+    part('box', [2.2, 0.03, 0.9], '#FFFDF7', { y: 1.095, z: 0.26, tex: 'paper' }),
   ]));
   // Final review fix: sized from DISPLAY_CAP_LEVELS' max (economy.js: [12,16,20,24]) — 24
   // positions as 6 columns x 4 rows, spacing tightened (0.6->0.36 across x, 0.16->0.14 across z)
@@ -173,12 +174,12 @@ export function counterMesh() {
 export function ovenMesh() {
   const g = new THREE.Group();
   g.add(mesh([
-    part('rbox', [1.6, 1.3, 1.2, 0.08], C.metal, { y: 0.65 }),
+    part('rbox', [1.6, 1.3, 1.2, 0.08], C.metal, { y: 0.65, tex: 'metal' }),
     part('box', [1.1, 0.6, 0.05], C.ink, { y: 0.65, z: 0.6 }),
     part('box', [1.0, 0.5, 0.02], '#FFB06B', { y: 0.65, z: 0.63 }),        // warm window
-    part('box', [1.7, 0.1, 1.3], C.woodDark, { y: 1.35 }),
+    part('box', [1.7, 0.1, 1.3], C.woodDark, { y: 1.35, tex: 'wood' }),
     part('cyl', [0.12, 0.12, 0.9, 8], C.ink, { x: 0.4, y: 1.85, z: -0.3 }),
-    part('box', [0.9, 0.1, 0.5], C.wood, { y: 0.35, z: 0.95 }),            // output tray
+    part('box', [0.9, 0.1, 0.5], C.wood, { y: 0.35, z: 0.95, tex: 'wood' }),            // output tray
   ]));
   g.outSlot = new THREE.Vector3(0, 0.45, 0.95);
   return g;
@@ -187,8 +188,8 @@ export function checkoutMesh() {
   const g = new THREE.Group();
   g.add(mesh([
     part('rbox', [1.6, 1.0, 0.9, 0.08], C.accent, { y: 0.5 }),
-    part('box', [1.7, 0.12, 1.0], C.wood, { y: 1.02 }),
-    part('rbox', [0.6, 0.5, 0.4, 0.05], C.ink, { x: 0.3, y: 1.3, z: -0.1 }),
+    part('box', [1.7, 0.12, 1.0], C.wood, { y: 1.02, tex: 'wood' }),
+    part('rbox', [0.6, 0.5, 0.4, 0.05], C.ink, { x: 0.3, y: 1.3, z: -0.1, tex: 'metal' }),
     part('box', [0.5, 0.35, 0.05], '#9BF6FF', { x: 0.3, y: 1.32, z: 0.11 }),
   ]));
   return g;
@@ -198,8 +199,8 @@ function chairParts(angle, dist = 0.75) {
   const rot = (x, z) => ({ x: x * cos + z * sin, z: -x * sin + z * cos });
   const seat = rot(0, dist), back = rot(0, dist + 0.23), legA = rot(0.18, dist - 0.15), legB = rot(-0.18, dist - 0.15);
   return [
-    part('rbox', [0.5, 0.1, 0.5, 0.04], C.coral, { x: seat.x, y: 0.42, z: seat.z, ry: angle }),
-    part('box', [0.45, 0.6, 0.08], C.coral, { x: back.x, y: 0.7, z: back.z, ry: angle }),
+    part('rbox', [0.5, 0.1, 0.5, 0.04], C.coral, { x: seat.x, y: 0.42, z: seat.z, ry: angle, tex: 'fabric' }),
+    part('box', [0.45, 0.6, 0.08], C.coral, { x: back.x, y: 0.7, z: back.z, ry: angle, tex: 'fabric' }),
     part('cyl', [0.04, 0.04, 0.4, 6], C.woodDark, { x: legA.x, y: 0.2, z: legA.z }),
     part('cyl', [0.04, 0.04, 0.4, 6], C.woodDark, { x: legB.x, y: 0.2, z: legB.z }),
   ];
@@ -207,8 +208,8 @@ function chairParts(angle, dist = 0.75) {
 export function tableMesh() {
   const g = new THREE.Group();
   g.add(mesh([
-    part('cyl', [0.7, 0.7, 0.08, 16], C.wood, { y: 0.72 }), part('cyl', [0.08, 0.12, 0.7, 8], C.woodDark, { y: 0.36 }),
-    part('cyl', [0.45, 0.45, 0.06, 12], C.woodDark, { y: 0.03 }),
+    part('cyl', [0.7, 0.7, 0.08, 16], C.wood, { y: 0.72, tex: 'wood' }), part('cyl', [0.08, 0.12, 0.7, 8], C.woodDark, { y: 0.36 }),
+    part('cyl', [0.45, 0.45, 0.06, 12], C.woodDark, { y: 0.03, tex: 'wood' }),
     ...chairParts(0, 1.05),           // south chair (human side, matches seat.pair.human's 1.05m offset — C1)
     part('cyl', [0.1, 0.13, 0.06, 12], C.pink, { x: 0.6, y: 0.03, z: 1.05 }),   // pet bowl (matches seat.pair.pet's offset — C1); no chair on the pet's side
   ]));
@@ -217,12 +218,12 @@ export function tableMesh() {
 export function hireDeskMesh() {
   const g = new THREE.Group();
   g.add(mesh([
-    part('rbox', [1.0, 0.9, 1.6, 0.08], C.wood, { y: 0.45 }),
-    part('box', [1.05, 0.08, 1.65], C.woodDark, { y: 0.94 }),
+    part('rbox', [1.0, 0.9, 1.6, 0.08], C.wood, { y: 0.45, tex: 'wood' }),
+    part('box', [1.05, 0.08, 1.65], C.woodDark, { y: 0.94, tex: 'wood' }),
     part('box', [0.32, 0.02, 0.24], C.cream, { x: -0.1, y: 1.0, z: 0.5 }),          // clipboard
     part('box', [0.32, 0.16, 0.02], C.ink, { x: -0.1, y: 1.03, z: 0.38 }),          // clip
     part('cyl', [0.05, 0.05, 1.5, 8], C.woodDark, { x: 0.3, y: 1.65, z: -0.55 }),   // sign post
-    part('box', [0.7, 0.5, 0.05], C.cream, { x: 0.3, y: 2.2, z: -0.55 }),           // sign board
+    part('box', [0.7, 0.5, 0.05], C.cream, { x: 0.3, y: 2.2, z: -0.55, tex: 'paper' }),           // sign board
     part('box', [0.7, 0.12, 0.06], C.coral, { x: 0.3, y: 2.4, z: -0.545 }),         // coral header stripe
   ]));
   return g;
@@ -258,7 +259,7 @@ export function chalkboardMesh() {
 export function bowlMesh() {
   const g = new THREE.Group();
   g.add(mesh([
-    part('cyl', [0.35, 0.3, 0.18, 14], C.pink, { y: 0.09 }),
+    part('cyl', [0.35, 0.3, 0.18, 14], C.pink, { y: 0.09, tex: 'ceramic' }),
     part('cyl', [0.28, 0.28, 0.05, 14], C.cream, { y: 0.16 }),
   ]));
   return g;
@@ -266,7 +267,7 @@ export function bowlMesh() {
 export function bushMesh() {
   const g = new THREE.Group();
   g.add(mesh([
-    part('sph', [0.45, 10], C.plant, { y: 0.4 }),
+    part('sph', [0.45, 10], C.plant, { y: 0.4, tex: 'leaf' }),
     part('cyl', [0.3, 0.34, 0.18, 10], C.wood, { y: 0.05 }),
   ]));
   const berryGeo = new THREE.SphereGeometry(0.09, 8, 6);
@@ -287,10 +288,10 @@ export function bushMesh() {
 export function coffeeMesh() {
   const g = new THREE.Group();
   const p = [
-    part('rbox',[.82,.66,.46,.06],'#458C87',{y:.55,z:-.08}),
+    part('rbox',[.82,.66,.46,.06],'#458C87',{y:.55,z:-.08,tex:'metal'}),
     part('box',[.74,.18,.06],C.metal,{y:.57,z:.18}),
     part('rbox',[.85,.08,.65,.025],C.ink,{y:.08,z:.08}),
-    part('box',[.8,.05,.5],C.metal,{y:.91,z:-.04}),
+    part('box',[.8,.05,.5],C.metal,{y:.91,z:-.04,tex:'metal'}),
     part('cyl',[.075,.075,.025,16],C.cream,{x:0,y:.76,z:.165,rx:Math.PI/2}),
     part('box',[.009,.055,.012],C.ink,{y:.78,z:.185,rz:-.5}),
   ];
@@ -306,8 +307,8 @@ export function pantryMesh() {
   const g = new THREE.Group();
   g.add(mesh([
     part('cyl', [0.32, 0.4, 0.06, 10], C.wallDark, { y: 0.03 }),
-    part('sph', [0.3, 8], C.wood, { x: -0.2, y: 0.28, sy: 1.1 }),
-    part('sph', [0.3, 8], C.woodDark, { x: 0.22, y: 0.28, sy: 1.1 }),
+    part('sph', [0.3, 8], C.wood, { x: -0.2, y: 0.28, sy: 1.1, tex: 'paper' }),
+    part('sph', [0.3, 8], C.woodDark, { x: 0.22, y: 0.28, sy: 1.1, tex: 'paper' }),
     part('box', [0.16, 0.06, 0.02], C.cream, { x: -0.2, y: 0.46, rz: 0.3 }),
     part('box', [0.16, 0.06, 0.02], C.cream, { x: 0.22, y: 0.46, rz: -0.3 }),
   ]));
@@ -318,11 +319,11 @@ export function pantryMesh() {
 export function crateMesh() {
   const g = new THREE.Group();
   g.add(mesh([
-    part('box', [0.7, 0.5, 0.7], C.wood, { y: 0.25 }),
-    part('box', [0.74, 0.06, 0.74], C.woodDark, { y: 0.51 }),
+    part('box', [0.7, 0.5, 0.7], C.wood, { y: 0.25, tex: 'wood' }),
+    part('box', [0.74, 0.06, 0.74], C.woodDark, { y: 0.51, tex: 'wood' }),
     part('box', [0.06, 0.5, 0.72], C.woodDark, { x: -0.32, y: 0.25 }),
     part('box', [0.06, 0.5, 0.72], C.woodDark, { x: 0.32, y: 0.25 }),
-    part('box', [0.36, 0.36, 0.03], C.cream, { y: 0.75, z: 0.36 }),          // sign plate
+    part('box', [0.36, 0.36, 0.03], C.cream, { y: 0.75, z: 0.36, tex: 'paper' }),          // sign plate
   ]));
   // down-arrow on the sign plate, its own small mesh so the plate stays a simple merged box.
   const arrowMat = new THREE.MeshToonMaterial({ color: new THREE.Color(C.coral) });
@@ -371,7 +372,7 @@ export function catBedMesh() {
   const g = new THREE.Group();
   g.add(mesh([
     part('cyl', [0.56, 0.52, 0.1, 14], C.coral, { y: 0.05 }),
-    part('cyl', [0.46, 0.46, 0.1, 12], C.cream, { y: 0.13 }),
+    part('cyl', [0.46, 0.46, 0.1, 12], C.cream, { y: 0.13, tex: 'fabric' }),
     ...rimRing(9, 0.45, 0.45, 0.17, 0.16, C.coral),
   ]));
   g.perch = new THREE.Vector3(0, 0.16, 0);
@@ -384,10 +385,10 @@ export function catBedMesh() {
 export function windowCushionMesh() {
   const g = new THREE.Group();
   g.add(mesh([
-    part('box', [1.7, 0.1, 0.8], C.wood, { y: 1.01, z: 0.1 }),                      // ledge, top 1.06
+    part('box', [1.7, 0.1, 0.8], C.wood, { y: 1.01, z: 0.1, tex: 'wood' }),                      // ledge, top 1.06
     part('box', [0.08, 0.3, 0.5], C.woodDark, { x: -0.7, y: 0.86 }),                // brackets, under the plank
     part('box', [0.08, 0.3, 0.5], C.woodDark, { x: 0.7, y: 0.86 }),
-    part('sph', [0.44, 10], '#F2C4CE', { y: 1.14, z: 0.1, sy: 0.3, sz: 0.8 }),      // pillow, top 1.27
+    part('sph', [0.44, 10], '#F2C4CE', { y: 1.14, z: 0.1, sy: 0.3, sz: 0.8, tex: 'fabric' }),      // pillow, top 1.27
     part('sph', [0.2, 8], C.wall, { x: -0.62, y: 1.16, z: 0.06, sy: 0.42, sz: 0.9 }), // spare cushion
   ]));
   g.perch = new THREE.Vector3(0, 1.23, 0.12);
@@ -404,8 +405,8 @@ export function catTreeMesh() {
     part('cyl', [0.1, 0.1, 0.86, 8], '#C9B79F', { y: 0.53, z: 0.2 }),                // tall post 0.10..0.96
     part('box', [0.66, 0.08, 0.7], C.wood, { y: 0.76, z: -0.32 }),                   // mid shelf, top 0.80
     part('sph', [0.26, 8], C.cream, { y: 0.82, z: -0.32, sy: 0.22 }),                // mid cushion
-    part('box', [0.66, 0.09, 0.94], C.wood, { y: 1.005, z: 0.2 }),                   // top shelf, top 1.05
-    part('cyl', [0.34, 0.34, 0.09, 12], '#F4C9D3', { y: 1.095, z: 0.2, sz: 1.35 }),  // top cushion, top 1.14
+    part('box', [0.66, 0.09, 0.94], C.wood, { y: 1.005, z: 0.2, tex: 'wood' }),                   // top shelf, top 1.05
+    part('cyl', [0.34, 0.34, 0.09, 12], '#F4C9D3', { y: 1.095, z: 0.2, sz: 1.35, tex: 'fabric' }),  // top cushion, top 1.14
     part('cyl', [0.014, 0.014, 0.26, 4], C.cream, { x: 0.28, y: 0.83, z: 0.5 }),     // toy string
     part('sph', [0.075, 6], C.coin, { x: 0.28, y: 0.67, z: 0.5 }),                   // dangling ball
   ]));
@@ -420,8 +421,8 @@ export function catTreeMesh() {
 export function dogBasketMesh() {
   const g = new THREE.Group();
   g.add(mesh([
-    part('cyl', [0.72, 0.66, 0.16, 14], C.wood, { y: 0.08, sx: 0.6 }),
-    part('cyl', [0.62, 0.62, 0.1, 12], C.wall, { y: 0.16, sx: 0.62 }),               // blanket, top 0.21
+    part('cyl', [0.72, 0.66, 0.16, 14], C.wood, { y: 0.08, sx: 0.6, tex: 'fabric' }),
+    part('cyl', [0.62, 0.62, 0.1, 12], C.wall, { y: 0.16, sx: 0.62, tex: 'fabric' }),               // blanket, top 0.21
     ...rimRing(11, 0.42, 0.62, 0.2, 0.16, C.wood),                                   // rim, top 0.36
   ]));
   g.perch = new THREE.Vector3(0, 0.19, 0);
@@ -434,8 +435,8 @@ export function dogBasketMesh() {
 export function bunnyHutchMesh() {
   const g = new THREE.Group();
   const p = [
-    part('box', [1.34, 0.09, 1.5], C.wood, { y: 0.305 }),                            // floor, top 0.35
-    part('box', [1.34, 0.44, 0.07], C.wood, { y: 0.57, z: -0.745 }),                 // back wall
+    part('box', [1.34, 0.09, 1.5], C.wood, { y: 0.305, tex: 'wood' }),                            // floor, top 0.35
+    part('box', [1.34, 0.44, 0.07], C.wood, { y: 0.57, z: -0.745, tex: 'wood' }),                 // back wall
     part('box', [1.46, 0.07, 0.6], C.coral, { y: 0.83, z: -0.48, rx: -0.14 }),       // roof, back third only
     part('box', [1.34, 0.12, 0.07], C.wood, { y: 0.41, z: 0.715 }),                  // front rail
     part('sph', [0.5, 8], '#E8CE93', { y: 0.36, z: 0.22, sy: 0.14, sx: 1.15, sz: 0.9 }), // straw, top 0.43
@@ -485,11 +486,11 @@ export function dirtyMesh() {
     // Sized for the game's camera, not for a close-up: at play distance a 0.2 m plate read as "a
     // plate" (Batch 7's first screenshot), and the owner's whole point is that a used table must
     // be unmistakable. Plates 0.26 / 0.2, a cup you can see the top of, a fork the length of a hand.
-    part('cyl', [0.26, 0.26, 0.035, 16], C.cream, { y: 0.02 }),
+    part('cyl', [0.26, 0.26, 0.035, 16], C.cream, { y: 0.02, tex: 'ceramic' }),
     part('cyl', [0.25, 0.25, 0.006, 16], '#F0D9C4', { y: 0.041 }),                       // plate rim shadow
     // A second, smaller plate stacked slightly askew on the first -- how a bussed table actually
     // looks, not a second identical plate set neatly beside it.
-    part('cyl', [0.2, 0.2, 0.03, 14], C.cream, { x: 0.04, y: 0.058, z: -0.03 }),
+    part('cyl', [0.2, 0.2, 0.03, 14], C.cream, { x: 0.04, y: 0.058, z: -0.03, tex: 'ceramic' }),
     // The cup, and its dark coffee disc, parked to one side rather than centred.
     part('cyl', [0.08, 0.075, 0.13, 12], C.cream, { x: -0.3, y: 0.065, z: 0.14 }),
     part('cyl', [0.068, 0.068, 0.01, 12], '#422A20', { x: -0.3, y: 0.132, z: 0.14 }),
@@ -515,7 +516,7 @@ export function itemGeoFor(key) {
     for (let i=0;i<10;i++) { const t=i*Math.PI/5; parts.push(part('box',[.018,.1,.018], '#F3D7A0',{x:Math.cos(t)*.105,y:-.015,z:Math.sin(t)*.105})); }
     parts.push(part('sph',[.13,12],color,{y:.065,sy:.55}),part('sph',[.083,10],'#FFB4B0',{y:.12,sy:.7}),part('sph',[.031,8],'#C83955',{y:.183}));
   } else if (key === 'coffee' || key === 'latte') {
-    parts.push(part('cyl',[.115,.09,.2,16],C.cream),part('cyl',[.099,.099,.008,16],key==='latte'?'#C99B69':'#422A20',{y:.103}));
+    parts.push(part('cyl',[.115,.09,.2,16],C.cream,{tex:'ceramic'}),part('cyl',[.099,.099,.008,16],key==='latte'?'#C99B69':'#422A20',{y:.103}));
     parts.push(part('box',[.09,.025,.035],C.cream,{x:.14,y:.065}),part('box',[.025,.12,.035],C.cream,{x:.177}),part('box',[.09,.025,.035],C.cream,{x:.14,y:-.055}));
     // A little milk paw distinguishes the latte from black coffee.
     if(key==='latte') for(const [x,z,r] of [[0,.02,.032],[-.044,-.025,.015],[0,-.04,.015],[.044,-.025,.015]]) parts.push(part('cyl',[r,r,.006,10],C.cream,{x,z,y:.11}));
@@ -633,7 +634,7 @@ export function buildRegion(area, region, palette = null) {
     for (let i = 0; i < cols; i++) {
       for (let j = 0; j < rowsT; j++) {
         parts.push(part('box', [tw - 0.05, 0.09, td - 0.05], (i + j) & 1 ? plank : border,
-          { x: x0 + (i + 0.5) * tw, y: 0.0, z: z0 + (j + 0.5) * td }));
+          { x: x0 + (i + 0.5) * tw, y: 0.0, z: z0 + (j + 0.5) * td, tex: 'tile' }));
       }
     }
   } else {
@@ -642,7 +643,7 @@ export function buildRegion(area, region, palette = null) {
     const usedD = rows * step - gap;
     const startZ = cz - usedD / 2 + plankD / 2;
     for (let i = 0; i < rows; i++) {
-      parts.push(part('box', [w - 0.06, 0.09, plankD], plank, { x: cx, y: 0.0, z: startZ + i * step }));
+      parts.push(part('box', [w - 0.06, 0.09, plankD], plank, { x: cx, y: 0.0, z: startZ + i * step, tex: 'wood' }));
     }
   }
   // Corner planters, echoing buildStatic's own corner planters above. The three blooms on top are
@@ -702,8 +703,8 @@ export function buildRegion(area, region, palette = null) {
 export function icecreamMesh() {
   const g = new THREE.Group();
   g.add(mesh([
-    part('rbox', [0.9, 0.62, 0.55, 0.06], '#EAF6FF', { y: 0.5 }),
-    part('box', [0.82, 0.06, 0.5], C.metal, { y: 0.82 }),
+    part('rbox', [0.9, 0.62, 0.55, 0.06], '#EAF6FF', { y: 0.5, tex: 'metal' }),
+    part('box', [0.82, 0.06, 0.5], C.metal, { y: 0.82, tex: 'metal' }),
     part('cyl', [0.16, 0.16, 0.05, 12], '#FFD6E7', { x: -0.22, y: 0.86 }),
     part('cyl', [0.15, 0.15, 0.05, 12], '#FFF0F5', { x: 0.1, y: 0.86 }),
     part('cone', [0.1, 0.24, 10], '#FFF0F5', { x: -0.22, y: 1.06 }),
@@ -731,8 +732,8 @@ export function photoBoothMesh() {
   const g = new THREE.Group();
   g.add(mesh([
     part('box', [1.2, 1.9, 1.6], '#F2C4CE', { y: 0.95 }),
-    part('box', [1.3, 0.12, 1.7], C.woodDark, { y: 1.9 }),
-    part('rbox', [0.9, 1.0, 0.05, 0.05], C.wall, { y: 1.1, z: 0.83 }),
+    part('box', [1.3, 0.12, 1.7], C.woodDark, { y: 1.9, tex: 'wood' }),
+    part('rbox', [0.9, 1.0, 0.05, 0.05], C.wall, { y: 1.1, z: 0.83, tex: 'fabric' }),
     part('cyl', [0.16, 0.16, 0.1, 14], C.ink, { y: 1.2, z: 0.86, rx: Math.PI / 2 }),
     part('cyl', [0.1, 0.1, 0.03, 14], '#9BF6FF', { y: 1.2, z: 0.92, rx: Math.PI / 2 }),
   ]));
@@ -742,9 +743,9 @@ export function photoBoothMesh() {
 export function restroomMesh() {
   const g = new THREE.Group();
   g.add(mesh([
-    part('box', [1.4, 1.7, 1.2], '#EFE0CE', { y: 0.85 }),
-    part('box', [1.55, 0.12, 1.35], C.woodDark, { y: 1.72 }),
-    part('box', [0.5, 1.1, 0.05], C.wood, { y: 0.6, z: 0.61 }),
+    part('box', [1.4, 1.7, 1.2], '#EFE0CE', { y: 0.85, tex: 'plaster' }),
+    part('box', [1.55, 0.12, 1.35], C.woodDark, { y: 1.72, tex: 'wood' }),
+    part('box', [0.5, 1.1, 0.05], C.wood, { y: 0.6, z: 0.61, tex: 'wood' }),
     part('cyl', [0.04, 0.04, 0.2, 8], C.metal, { x: 0.18, y: 0.6, z: 0.64 }),
   ]));
   return g;
@@ -787,8 +788,8 @@ export function splashPoolMesh() {
 export function groomTableMesh() {
   const g = new THREE.Group();
   g.add(mesh([
-    part('rbox', [1.3, 0.12, 0.9, 0.04], '#EAF6FF', { y: 0.86 }),                 // padded top
-    part('box', [1.24, 0.06, 0.84], '#CFE7F5', { y: 0.93 }),                      // wipe-clean mat
+    part('rbox', [1.3, 0.12, 0.9, 0.04], '#EAF6FF', { y: 0.86, tex: 'fabric' }),                 // padded top
+    part('box', [1.24, 0.06, 0.84], '#CFE7F5', { y: 0.93, tex: 'fabric' }),                      // wipe-clean mat
     part('cyl', [0.09, 0.11, 0.8, 8], C.metal, { y: 0.4 }),                       // column
     part('cyl', [0.42, 0.42, 0.07, 12], C.metal, { y: 0.04 }),                    // base plate
     part('rbox', [0.3, 0.09, 0.13, 0.03], C.wood, { x: 0.42, y: 1.0, z: 0.2, ry: 0.35 }),  // brush back
@@ -802,10 +803,10 @@ export function groomTableMesh() {
 export function bathTubMesh() {
   const g = new THREE.Group();
   const p = [
-    part('cyl', [0.56, 0.5, 0.5, 14], '#EAF6FF', { y: 0.55 }),                    // tub body
+    part('cyl', [0.56, 0.5, 0.5, 14], '#EAF6FF', { y: 0.55, tex: 'ceramic' }),                    // tub body
     part('cyl', [0.5, 0.5, 0.06, 14], '#8FD3EE', { y: 0.72 }),                    // water
     part('cyl', [0.46, 0.46, 0.05, 14], '#FFFFFF', { y: 0.76 }),                  // foam
-    part('cyl', [0.6, 0.6, 0.06, 14], C.metal, { y: 0.8 }),                       // rim
+    part('cyl', [0.6, 0.6, 0.06, 14], C.metal, { y: 0.8, tex: 'metal' }),                       // rim
     part('cyl', [0.05, 0.05, 0.42, 8], C.metal, { y: 1.0, z: -0.52 }),            // tap riser
     part('box', [0.06, 0.06, 0.26], C.metal, { y: 1.19, z: -0.4 }),               // spout
     part('sph', [0.09, 8], '#FFFFFF', { x: 0.22, y: 0.92, z: 0.12, sy: 0.85 }),   // a stray suds blob
@@ -823,7 +824,7 @@ export function waterTankMesh() {
   const g = new THREE.Group();
   g.add(mesh([
     part('cyl', [0.34, 0.42, 0.07, 10], C.metal, { y: 0.035 }),                   // plinth
-    part('cyl', [0.3, 0.3, 0.78, 12], '#BFEFFA', { y: 0.46 }),                    // tank
+    part('cyl', [0.3, 0.3, 0.78, 12], '#BFEFFA', { y: 0.46, tex: 'metal' }),                    // tank
     part('cyl', [0.32, 0.32, 0.07, 12], C.metal, { y: 0.86 }),                    // lid
     part('cyl', [0.26, 0.26, 0.05, 12], '#8FD3EE', { y: 0.83 }),                  // water line
     part('cyl', [0.05, 0.05, 0.2, 8], C.metal, { y: 0.28, z: 0.3, rx: Math.PI / 2 }),  // spigot
@@ -837,8 +838,8 @@ export function waterTankMesh() {
 export function boutiqueRackMesh() {
   const g = new THREE.Group();
   const p = [
-    part('box', [1.9, 0.09, 0.7], C.wood, { y: 0.06 }),                           // base
-    part('box', [1.9, 0.08, 0.7], C.wood, { y: 0.92 }),                           // shelf
+    part('box', [1.9, 0.09, 0.7], C.wood, { y: 0.06, tex: 'wood' }),                           // base
+    part('box', [1.9, 0.08, 0.7], C.wood, { y: 0.92, tex: 'wood' }),                           // shelf
     part('cyl', [0.05, 0.05, 1.9, 8], C.woodDark, { x: -0.9, y: 0.95 }),
     part('cyl', [0.05, 0.05, 1.9, 8], C.woodDark, { x: 0.9, y: 0.95 }),
     part('cyl', [0.03, 0.03, 1.8, 8], C.metal, { y: 1.5, rz: Math.PI / 2 }),      // hanging rail
@@ -846,7 +847,7 @@ export function boutiqueRackMesh() {
   const swatch = ['#F08AA8', '#B48CF2', '#6EC6FF', '#FFD166', '#8FD3EE'];
   swatch.forEach((hex, i) => {
     const x = -0.72 + i * 0.36;
-    p.push(part('box', [0.26, 0.42, 0.04], hex, { x, y: 1.24 }));                 // hanging item
+    p.push(part('box', [0.26, 0.42, 0.04], hex, { x, y: 1.24, tex: 'fabric' }));                 // hanging item
     p.push(part('cyl', [0.05, 0.05, 0.02, 8], C.metal, { x, y: 1.48, rx: Math.PI / 2 }));  // hook
   });
   for (let i = 0; i < 3; i++) p.push(part('rbox', [0.4, 0.24, 0.4, 0.04], i & 1 ? C.cream : C.coral, { x: -0.6 + i * 0.6, y: 1.08 }));
@@ -862,7 +863,7 @@ export function planterClusterMesh() {
   for (const [x, z, s] of [[-0.26, -0.1, 1.0], [0.26, 0.12, 0.78], [0.02, 0.34, 0.6]]) {
     p.push(part('cyl', [0.24 * s, 0.19 * s, 0.42 * s, 10], '#A9764E', { x, y: 0.21 * s, z }));
     p.push(part('cyl', [0.26 * s, 0.26 * s, 0.06 * s, 10], '#C08A56', { x, y: 0.44 * s, z }));
-    p.push(part('sph', [0.34 * s, 8], C.plant, { x, y: 0.72 * s, z }));
+    p.push(part('sph', [0.34 * s, 8], C.plant, { x, y: 0.72 * s, z, tex: 'leaf' }));
     p.push(part('sph', [0.22 * s, 8], C.plantDark, { x: x + 0.16 * s, y: 0.92 * s, z: z - 0.07 * s }));
   }
   g.add(mesh(p));
@@ -875,9 +876,9 @@ export function planterClusterMesh() {
 export function spaLoungeMesh() {
   const g = new THREE.Group();
   const p = [
-    part('rbox', [1.3, 0.16, 0.66, 0.05], C.wood, { y: 0.42 }),                   // bench slab
-    part('rbox', [1.24, 0.12, 0.6, 0.05], '#EAF6FF', { y: 0.55 }),                // cushion
-    part('rbox', [1.3, 0.5, 0.12, 0.04], C.wood, { y: 0.75, z: -0.3 }),           // low back
+    part('rbox', [1.3, 0.16, 0.66, 0.05], C.wood, { y: 0.42, tex: 'wood' }),                   // bench slab
+    part('rbox', [1.24, 0.12, 0.6, 0.05], '#EAF6FF', { y: 0.55, tex: 'fabric' }),                // cushion
+    part('rbox', [1.3, 0.5, 0.12, 0.04], C.wood, { y: 0.75, z: -0.3, tex: 'wood' }),           // low back
     part('cyl', [0.26, 0.24, 0.5, 10], C.woodDark, { x: 0.82, y: 0.25, z: 0.2 }), // side table
     part('cyl', [0.3, 0.3, 0.06, 12], C.cream, { x: 0.82, y: 0.53, z: 0.2 }),     // its top
     part('cyl', [0.09, 0.09, 0.12, 10], '#8FD3EE', { x: 0.82, y: 0.6, z: 0.2 }),  // a glass of water

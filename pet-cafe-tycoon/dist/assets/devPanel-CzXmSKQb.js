@@ -1,4 +1,4 @@
-import{a as e,c as t,i as n,l as r,n as i,o as a,r as o,s,t as c}from"./index-C-V-YQQt.js";var l=[[1,400],[3,650],[5,950],[8,1400],[10,1600],[12,1900],[14,2200],[16,3e3],[20,3800],[24,4400],[28,5e3],[32,6200],[36,7e3],[40,7500]];function u(e){let t=Math.max(1,e|0),n=l[l.length-1];if(t<=l[0][0])return l[0][1];if(t>=n[0])return n[1];for(let e=0;e<l.length-1;e++){let[n,r]=l[e],[i,a]=l[e+1];if(t>=n&&t<=i)return Math.round(r+(a-r)*(t-n)/(i-n))}return n[1]}var d=30,f=`
+import{a as e,c as t,i as n,l as r,n as i,o as a,r as o,s,t as c}from"./index-DEKYLoAX.js";var l=[[1,400],[3,650],[5,950],[8,1400],[10,1600],[12,1900],[14,2200],[16,3e3],[20,3800],[24,4400],[28,5e3],[32,6200],[36,7e3],[40,7500]];function u(e){let t=Math.max(1,e|0),n=l[l.length-1];if(t<=l[0][0])return l[0][1];if(t>=n[0])return n[1];for(let e=0;e<l.length-1;e++){let[n,r]=l[e],[i,a]=l[e+1];if(t>=n&&t<=i)return Math.round(r+(a-r)*(t-n)/(i-n))}return n[1]}var d=30,f=`
 .dev-panel{position:fixed;left:8px;bottom:8px;z-index:999;pointer-events:auto;
   font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#f3ede4;
   background:#20161066;background:#201610e6;border:1px solid #ffffff2b;border-radius:9px;
