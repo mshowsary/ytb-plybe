@@ -2,9 +2,11 @@
 // (see the guarded dynamic import in main.js). The owner tests every change by playing from day 1
 // to day 10+ by hand, which takes about an hour; this exists so they can jump ahead instead.
 // Never shown to players, so plain English here is fine.
+import * as THREE from 'three';
 import { DAY_LENGTH } from '../sim/day.js';
 import { STAFF, hireCost, hire } from '../sim/economy.js';
 import { payZone } from '../sim/world.js';
+import { itemFor } from '../render/props.js';
 import { pickSavingTarget } from '../ui/hud.js';
 import { discoverPet, petKey, PET_SPECIES, PET_PROFILES } from '../sim/petBook.js';
 
@@ -125,6 +127,54 @@ async function advanceOneDay(G) {
 }
 
 export function installDevPanel(G, S, platform) {
+  // A handful of render-layer factories, reachable from a capture script so a visual defect can be
+  // staged deliberately instead of waited for. Dev-only by construction: this whole module is a
+  // dynamic import gated on ?dev=1 outside the Playables host, so no player ever downloads it.
+  globalThis.__dev = {
+    itemFor,
+    // Fill the player's hands with n of a product — the carried-tray layout (render/carryTray.js)
+    // is only honest at a real carry tier, and 16 is the top one.
+    carry(n = 6, key = 'cupcake') {
+      const O = G.owner;
+      if (!O) return 0;
+      O.clearItems(); O.setCarryProps(null, 0);
+      for (let i = 0; i < n; i++) O.addItem(itemFor(key));
+      for (let i = 0; i < 40; i++) G.update(0.05);
+      return O.items.length;
+    },
+    supply(kind) { G.owner?.clearItems(); G.owner?.setCarryProps(kind, 0); for (let i = 0; i < 20; i++) G.update(0.05); },
+    // Every pet currently on stage, with its real world-space size. The owner photographed animals
+    // the size of furniture; this says which ones and how big, instead of guessing from a still.
+    // VISIBLE geometry only. THREE.Box3.setFromObject walks hidden children too, and a pet carries
+    // invisible mood-bubble and sparkle meshes above its head — measured naively, every dog came out
+    // 2.1 m tall, which is taller than a person and simply not what is on screen.
+    sizes(prefix = 'pet:') {
+      const out = [];
+      const box = new THREE.Box3(), childBox = new THREE.Box3(), size = new THREE.Vector3();
+      const drawn = root => {
+        box.makeEmpty();
+        root.updateWorldMatrix(true, true);
+        root.traverseVisible(o => {
+          if (!o.isMesh && !o.isInstancedMesh) return;
+          if (!o.geometry) return;
+          childBox.setFromBufferAttribute(o.geometry.attributes.position);
+          childBox.applyMatrix4(o.matrixWorld);
+          box.union(childBox);
+        });
+        return box;
+      };
+      S.scene.traverse(o => {
+        if (!o.name || !o.name.startsWith(prefix)) return;
+        drawn(o).getSize(size);
+        out.push({
+          name: o.name, scale: +o.scale.x.toFixed(3),
+          w: +size.x.toFixed(2), h: +size.y.toFixed(2), l: +size.z.toFixed(2),
+          at: `${o.position.x.toFixed(1)},${o.position.z.toFixed(1)}`,
+        });
+      });
+      return out;
+    },
+  };
   ensureStyle();
   const root = document.createElement('div');
   root.className = 'dev-panel';

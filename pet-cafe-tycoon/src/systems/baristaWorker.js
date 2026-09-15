@@ -3,6 +3,7 @@
 // drift into bakery/smoothie work. Hiring lives in the normal Workers sheet via STAFF.barista.
 import * as THREE from 'three';
 import { createMover } from '../sim/mover.js';
+import { makeTray, layoutTray } from '../render/carryTray.js';
 import { BARISTA } from '../sim/barista.js';
 import { stepBaristaState } from '../sim/baristaState.js';
 import { createHuman } from '../render/human.js';
@@ -28,6 +29,7 @@ export function createBaristaWorker(G, scene) {
   if (G.staff.barista == null) G.staff.barista = 0;
   const world = G.world;
   let s = null, human = null, uniform = null, itemMeshes = [], px = 0, pz = 0;
+  let tray = null;
 
   function laneSpawn() {
     const coffee = [...world.stations.values()].find(st => st.active && st.type === 'coffee');
@@ -49,15 +51,22 @@ export function createBaristaWorker(G, scene) {
     if (human) scene.remove(human.group);
     if (human) for (const m of itemMeshes) human.stack.remove(m);
     if (human && uniform) human.group.remove(uniform);
-    s = null; human = null; uniform = null; itemMeshes = [];
+    if (human && tray) human.stack.remove(tray);
+    s = null; human = null; uniform = null; itemMeshes = []; tray = null;
   }
   function syncCarryRender() {
     if (!s || !human) return;
     while (itemMeshes.length < s.items.length) {
       const key = s.items[itemMeshes.length]; const m = carriedDrinkMesh(key);
-      m.position.set(0, itemMeshes.length * 0.17, 0); human.stack.add(m); itemMeshes.push(m);
+      human.stack.add(m); itemMeshes.push(m);
     }
     while (itemMeshes.length > s.items.length) { const m = itemMeshes.pop(); human.stack.remove(m); }
+    // The shared carry tray, not a column: four drinks stacked at 0.17 m apiece used to stand up
+    // past the barista's own head. render/carryTray.js is the one layout rule for the player, the
+    // runners and this.
+    if (!tray) { tray = makeTray(); human.stack.add(tray); }
+    tray.visible = itemMeshes.length > 0;
+    layoutTray(itemMeshes);
     human.setCarry(itemMeshes.length);
   }
   const simulationHooks = {

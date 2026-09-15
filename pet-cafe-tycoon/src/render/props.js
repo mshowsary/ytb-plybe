@@ -453,13 +453,46 @@ export function bunnyHutchMesh() {
 }
 // Task 4 carry props — small enough to sit on the owner/runner stack alongside (never mixed with,
 // per the carry-slot rules in src/sim/carry.js) product items.
+// What the player is carrying has to be legible from the wide camera, and until now two of the four
+// real supply kinds rendered as NOTHING: data/area1.js's coldPantry1 hands out 'cream' and
+// waterTank1 hands out 'water', and render/owner.js only knew 'beans' and 'kibble' — so a player
+// fetching milk for the ice-cream machine or water for the bath walked back empty-handed on screen.
+// Each kind now has its own silhouette, because "I do not know what it is carrying" is a fair
+// complaint about a sack that looks like every other sack.
 export function sackMesh(kind = 'beans') {
   const g = new THREE.Group();
+  if (kind === 'cream') {
+    // A milk churn: a metal can with a shoulder, a lid and a cream band. Reads as dairy at a glance.
+    g.add(mesh([
+      part('cyl', [0.15, 0.15, 0.3, 12], C.metal, { y: 0.15, tex: 'metal' }),
+      part('cyl', [0.15, 0.1, 0.09, 12], C.metal, { y: 0.34 }),           // shoulder
+      part('cyl', [0.1, 0.1, 0.05, 12], '#E9EEF2', { y: 0.41 }),          // lid
+      part('cyl', [0.152, 0.152, 0.07, 12], '#FFF8EC', { y: 0.17 }),      // cream band
+      part('box', [0.05, 0.02, 0.02], C.metal, { x: 0.16, y: 0.3 }),      // handle nub
+    ]));
+    return g;
+  }
+  if (kind === 'water') {
+    // A jug: rounded body, a spout neck and a handle, in the splash-pool blue so it pairs with the
+    // bath it feeds.
+    g.add(mesh([
+      part('rbox', [0.24, 0.28, 0.2, 0.08], '#8FD3E8', { y: 0.16 }),
+      part('cyl', [0.055, 0.07, 0.1, 10], '#8FD3E8', { y: 0.34 }),        // neck
+      part('cyl', [0.07, 0.07, 0.03, 10], '#5FA9C4', { y: 0.4 }),         // cap
+      part('box', [0.03, 0.14, 0.03], '#5FA9C4', { x: 0.14, y: 0.2 }),    // handle
+      part('box', [0.2, 0.06, 0.005], '#EAF7FC', { y: 0.12, z: 0.101 }),  // level window
+    ]));
+    return g;
+  }
   const color = kind === 'kibble' ? C.wood : C.woodDark;
-  g.add(mesh([
-    part('sph', [0.16, 8], color, { y: 0.16, sy: 1.25 }),
+  const parts = [
+    part('sph', [0.16, 8], color, { y: 0.16, sy: 1.25, tex: 'paper' }),
     part('cyl', [0.05, 0.08, 0.08, 8], C.cream, { y: 0.34 }),          // tied neck
-  ]));
+  ];
+  // A label so the two sacks are not the same brown lump: three beans, or a paw for the kibble.
+  if (kind === 'kibble') parts.push(part('sph', [0.05, 7], '#8C6239', { y: 0.17, z: 0.15, sz: 0.4 }));
+  else for (const x of [-0.05, 0, 0.05]) parts.push(part('sph', [0.022, 6], '#3E2A1F', { x, y: 0.19, z: 0.15, sz: 0.5 }));
+  g.add(mesh(parts));
   return g;
 }
 export function fruitMesh() {

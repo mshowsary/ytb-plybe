@@ -154,7 +154,11 @@ const SEASON_PALETTE_OVERRIDES = {
     deckBorder: '#F4F1E8', deckBase: '#D4B389', deckPlank: '#EAD4AE',
     // Aqua-dominant with one coral and one gold: reads as pool spray, and the two cyans against
     // Blossom's all-pink set are what tell the two pale-deck seasons apart at a glance.
-    litter: ['#5FE0E8', '#2EC4E0', '#FFD166', '#FF7A85', '#38B6D6'],
+    // Petals, not party streamers. The first set mixed saturated cyan, gold and coral, which on a
+    // pale deck is indistinguishable from thrown confetti — the owner read the whole terrace as
+    // littered with rubbish. Splash keeps its cool identity through pale water-blues and a single
+    // warm blossom, so the season still reads and the floor still looks swept.
+    litter: ['#BFEAF2', '#A7DDEA', '#D8F0F6', '#FFC7DD', '#CFE8F0'],
   },
 
   // Harvest -- autumn: golden dry lawn, orange/red tree crowns, mum/pumpkin blooms, lantern garland.
@@ -751,7 +755,12 @@ function buildScenery(area, seasonId) {
     for (let i = 0; i < 3; i++) { const a = 2.1 + i * 1.9; drift(Math.cos(a) * 1.75, 10.6 + Math.sin(a) * 1.75, 5); }
     // A thin sprinkle everywhere else: enough to say the whole deck is under the same sky, sparse
     // enough that the walking lanes never read as unswept.
-    for (let i = 0; i < 26; i++) fleck(-8.6 + r() * 17.2, cz0 + 1.5 + r() * (cz1 - cz0 - 2.0), 0.85);
+    //
+    // 8, down from 26 (owner playtest 2026-09-16): even drifted, the loose scatter across the open
+    // deck read as dropped rubbish rather than as weather — "confetti" — and it is the open middle,
+    // where nothing anchors it, that does the damage. The drifts above carry the season; this is
+    // only the whisper between them.
+    for (let i = 0; i < 8; i++) fleck(-8.6 + r() * 17.2, cz0 + 1.5 + r() * (cz1 - cz0 - 2.0), 0.85);
 
     // Four planted pots on the fountain's diagonals. WHY HERE: the fountain sits dead centre of the
     // default frame and is the one prop the player looks straight at, and fountain1's own station

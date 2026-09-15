@@ -154,9 +154,12 @@ const lastPos = new Map();
 // prepare() (spawn positions and the register1-cash fallback for a cashier's first spawn point are
 // copied verbatim from there). Mirrored here 1:1 so a hire this bot records actually walks, cleans,
 // carries and cashiers instead of only ever existing as a number fed to the spawn-pacing formulas.
-const RUNNER_SPAWN = { x: 4, z: -3 };
-const CASHIER_FALLBACK = { x: -4, z: -0.2 };
-const CLEANER_SPAWN = { x: -6, z: 4 };
+// Mirrors src/systems/staff.js: every hire arrives at the café door and walks to its post, so the
+// headless economy measures the same walk the player watches.
+const HIRE_SPAWN = { x: -9.0, z: 4.2 };
+const RUNNER_SPAWN = HIRE_SPAWN;
+const CASHIER_FALLBACK = HIRE_SPAWN;
+const CLEANER_SPAWN = HIRE_SPAWN;
 // Batch 4b: literal copy of src/systems/staff.js's own PHOTOGRAPHER_FALLBACK (photoDesk1's
 // precomputed front spot) — see that file's comment for why the desk's raw x/z (its own collision
 // footprint) is the wrong spawn point. Used only if photoDesk1 is somehow missing from the world.
@@ -174,7 +177,7 @@ function syncStaffActors() {
   if (runners < (G.staff.runner | 0)) { staffList.push(createStaff('runner', RUNNER_SPAWN, null)); anyRunnerHired = true; }
   if (cashiers < (G.staff.cashier | 0)) {
     const co = world.stations.get('register1');
-    staffList.push(createStaff('cashier', co ? co.cash : CASHIER_FALLBACK));
+    staffList.push(createStaff('cashier', CASHIER_FALLBACK));
   }
   if (cleaners < (G.staff.cleaner | 0)) staffList.push(createStaff('cleaner', CLEANER_SPAWN));
   // Batch 4b: mirrors src/systems/staff.js's own spawnPhotographer 1:1 — gated on

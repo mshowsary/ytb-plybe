@@ -136,7 +136,12 @@ test('every layer is wired to the cleaning/cleaned pair', () => {
   const visuals = source('../src/systems/visuals.js');
   assert.match(visuals, /e\.type === 'cleaning'/, 'visuals shows the ring for either actor');
   assert.match(visuals, /#BFEFFF/, 'and the sparkle burst on the finish');
-  assert.match(visuals, /cleanRing\.setProgress/, 'through the same progress ring as before');
+  // A POOL of rings since the owner's playtest: one shared ring meant that sweeping past three
+  // dirty tables cleaned all three and animated only the last, which read as "some tables have a
+  // cleaning animation and some do not". Same ring, several of them.
+  assert.match(visuals, /cleanRings\b/, 'through a pool of progress rings');
+  assert.match(visuals, /ring\.setProgress/, 'each one driven by the same progress call as before');
+  assert.match(visuals, /activeWipes/, 'and a wipe per table rather than a single active slot');
 
   const staffSystem = source('../src/systems/staff.js');
   assert.match(staffSystem, /s\.state === 'cleaning' && r\.human\.wipe/, 'the cleaner wipes while the sim says it is cleaning');

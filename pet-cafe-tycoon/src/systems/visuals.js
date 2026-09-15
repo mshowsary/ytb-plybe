@@ -316,7 +316,12 @@ export function createVisuals(G, S, ctx) {
   // The wipe currently on screen: { seatId, by, t, tail, dur }. One at a time, exactly like the
   // ring it drives (there is a single cleanRing mesh) — with at most two cleaners on the floor the
   // odds of two simultaneous wipes are small, and the loser still gets its sparkle, pop and fade.
-  let activeWipe = null;
+  // A POOL, not a slot. With one slot, a second 'cleaning' event overwrote the first, so an owner
+  // walking through the seating area cleaned three tables and only the last one showed its wipe —
+  // exactly the owner's report that some tables animate and some do not. Four is comfortably more
+  // than can genuinely overlap (the player plus at most two cleaners).
+  const activeWipes = [];
+  const MAX_WIPES = 4;
   for (const st of world.stations.values()) {
     const build = MESH_ID_OVERRIDE[st.id] || MESH_FOR[st.type] || tableMesh;
     const g = build();
@@ -335,8 +340,17 @@ export function createVisuals(G, S, ctx) {
     const v = { g, items: [], reveal: null, shadow };
     if (st.type === 'display') { v.stack = makeItemStack(g, st.product, g.slots.slice(0, DISPLAY_POOL)); g.setProduct(st.product); }
     if (st.type === 'oven') {
+      // A 3 x 2 tray, not a column. `g.outSlot.y + i * 0.17` built a free-standing totem pole of six
+      // cupcakes rising off the oven's output tray — clearly visible in the owner's playtest
+      // screenshots, and the same mistake the carried stack made. Baked goods come out onto a tray.
       const slots = [];
-      for (let i = 0; i < 6; i++) slots.push(new THREE.Vector3(g.outSlot.x, g.outSlot.y + i * 0.17, g.outSlot.z));
+      for (let i = 0; i < 6; i++) {
+        slots.push(new THREE.Vector3(
+          g.outSlot.x + ((i % 3) - 1) * 0.26,
+          g.outSlot.y,
+          g.outSlot.z + (Math.floor(i / 3) - 0.5) * 0.24,
+        ));
+      }
       v.stack = makeItemStack(g, st.product, slots);
     }
     if (st.type === 'checkout') { v.pile = cashPile(); v.pile.position.set(st.cash.x, 0, st.cash.z); scene.add(v.pile); }
@@ -364,7 +378,10 @@ export function createVisuals(G, S, ctx) {
     }
     vis.set(st.id, v);
   }
-  const cleanRing = zoneRing(); cleanRing.scale.setScalar(0.6); cleanRing.visible = false; scene.add(cleanRing);
+  const cleanRings = [];
+  for (let i = 0; i < 4; i++) {
+    const r = zoneRing(); r.scale.setScalar(0.6); r.visible = false; scene.add(r); cleanRings.push(r);
+  }
 
   // Program §6.2. A small fixed pool of broom bubbles, kept at its historical size (Batch 7 didn't
   // grow it even though guests in 'waitSeat' now hold for up to WAIT_SEAT_GRACE (12 s) rather than
@@ -390,7 +407,7 @@ export function createVisuals(G, S, ctx) {
       v.popT = null; v.dirtyFade = null;
       if (v.dirtyProp) { v.dirtyProp.scale.setScalar(1); v.dirtyProp.position.y = DIRTY_PROP_Y; v.dirtyProp.visible = !!st.dirty; }
     }
-    activeWipe = null;
+    activeWipes.length = 0;
   }
 
   return {
@@ -415,10 +432,14 @@ export function createVisuals(G, S, ctx) {
         } else if (e.type === 'cleaning') {
           // Program §6.3: whoever is wiping — owner or cleaner — gets the same ring, filled over
           // the duration the simulation actually committed to.
-          activeWipe = {
+          const wipe = {
             seatId: e.seatId, by: e.by || null, t: 0, tail: 0,
             dur: Math.max(WIPE_MIN_SECONDS, Number(e.seconds) > 0 ? Number(e.seconds) : 0),
           };
+          // Re-wiping a table already being wiped restarts that one rather than adding a second.
+          const existing = activeWipes.findIndex(x => x.seatId === e.seatId);
+          if (existing >= 0) activeWipes[existing] = wipe;
+          else { activeWipes.push(wipe); if (activeWipes.length > MAX_WIPES) activeWipes.shift(); }
         } else if (e.type === 'cleaned') {
           const st = world.stations.get(e.seatId);
           if (st) {
@@ -635,25 +656,35 @@ export function createVisuals(G, S, ctx) {
       // so in practice every ring below is the event-driven one — which is the whole point: the
       // cleaner's 1.6 s finally has a visible clock, drawn by the same code as the owner's.
       const cleanProg = ctx.cleanProg;
-      let ringSeat = null, ringT = 0;
+      let used = 0;
+      // The owner-hold map wins when it has entries: it is live, frame-by-frame progress.
       if (cleanProg && cleanProg.size) {
-        for (const [seatId, t] of cleanProg) { ringSeat = seatId; ringT = Math.min(1, t / 1.0); break; }
-      } else if (activeWipe) {
-        activeWipe.t += Math.max(0, dt);
-        const seat = world.stations.get(activeWipe.seatId);
+        for (const [seatId, t] of cleanProg) {
+          if (used >= cleanRings.length) break;
+          const st = world.stations.get(seatId);
+          if (!st) continue;
+          const ring = cleanRings[used++];
+          ring.position.set(st.x, 0, st.z);
+          ring.visible = true; ring.setProgress(Math.min(1, t / 1.0));
+        }
+      }
+      for (let i = activeWipes.length - 1; i >= 0; i--) {
+        const wipe = activeWipes[i];
+        wipe.t += Math.max(0, dt);
+        const seat = world.stations.get(wipe.seatId);
         const finished = !seat || !seat.dirty;   // 'cleaned' already landed (same frame, for the owner)
-        if (finished) activeWipe.tail += Math.max(0, dt);
+        if (finished) wipe.tail += Math.max(0, dt);
         // Three ways out, so a ring can never be stranded: the tail elapsed, the seat vanished, or
         // the wipe was abandoned (a cleaner pulled off a seat someone else wiped) and simply ran
         // long. The last is the safety net, never the normal path.
-        if (!seat || activeWipe.tail >= WIPE_TAIL_SECONDS || activeWipe.t > activeWipe.dur + 2) activeWipe = null;
-        else { ringSeat = activeWipe.seatId; ringT = finished ? 1 : Math.min(1, activeWipe.t / activeWipe.dur); }
+        if (!seat || wipe.tail >= WIPE_TAIL_SECONDS || wipe.t > wipe.dur + 2) { activeWipes.splice(i, 1); continue; }
+        if (used >= cleanRings.length) continue;
+        const ring = cleanRings[used++];
+        ring.position.set(seat.x, 0, seat.z);
+        ring.visible = true;
+        ring.setProgress(finished ? 1 : Math.min(1, wipe.t / wipe.dur));
       }
-      const ringStation = ringSeat ? world.stations.get(ringSeat) : null;
-      if (ringStation) {
-        cleanRing.position.set(ringStation.x, 0, ringStation.z);
-        cleanRing.visible = true; cleanRing.setProgress(ringT);
-      } else cleanRing.visible = false;
+      for (let i = used; i < cleanRings.length; i++) cleanRings[i].visible = false;
     },
   };
 }

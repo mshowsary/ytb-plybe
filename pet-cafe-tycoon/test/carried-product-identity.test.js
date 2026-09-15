@@ -11,8 +11,17 @@ test('runner replaces a stale product at equal count and retains unchanged meshe
   syncCarriedItems(stack, meshes, simulationItems);
   assert.notEqual(meshes[0], first); assert.equal(first.parent, null);
   assert.equal(meshes[0].userData.product, 'cupcake'); assert.equal(meshes[1], second);
-  assert.equal(stack.children.length, 2); assert.deepEqual(simulationItems, ['cupcake','cookie']);
-  syncCarriedItems(stack, meshes, []); assert.equal(stack.children.length, 0);
+  // Carried stock is laid out on a tray now (render/carryTray.js) rather than stacked in a column,
+  // so the hands hold one extra child that is furniture, not cargo. What this test has always been
+  // about is the RECONCILIATION — right count, stale meshes detached, unchanged ones kept — so it
+  // counts items and asserts the tray's own behaviour separately.
+  const carried = () => stack.children.filter(c => c.name !== 'carry-tray');
+  const trayOf = () => stack.children.find(c => c.name === 'carry-tray');
+  assert.equal(carried().length, 2); assert.deepEqual(simulationItems, ['cupcake', 'cookie']);
+  assert.equal(trayOf().visible, true, 'a loaded tray is visible');
+  syncCarriedItems(stack, meshes, []);
+  assert.equal(carried().length, 0);
+  assert.equal(trayOf().visible, false, 'empty hands show no tray');
 });
 test('all menu models have finite cached geometry and distinct silhouettes', () => {
   const signatures = new Set();

@@ -511,11 +511,32 @@ export function createPet(species, variant = 0) {
     if (pose.tailY == null) tail.rotation.y *= pose.tailScale;
     else tail.rotation.y = pose.tailY;
   };
-  P.followTarget = (hx, hz, hrot, dt) => {
+  // `walkable(x, z)` is optional and, when given, is the same free-cell test the movers use. Without
+  // it a pet damped straight toward a fixed offset behind its owner and simply passed THROUGH
+  // whatever stood in the way: the owner's playtest caught cats and bunnies standing inside the
+  // display counter while their guest queued at it. A pet has no path-finder and does not need one
+  // — it only has to refuse to end a frame inside furniture, and slide along it instead.
+  P.followTarget = (hx, hz, hrot, dt, walkable = null) => {
     const fx = Math.sin(hrot), fz = Math.cos(hrot), rx = Math.cos(hrot), rz = -Math.sin(hrot);
-    const goalX = hx - fx * 0.9 + rx * 0.45, goalZ = hz - fz * 0.9 + rz * 0.45;
+    let goalX = hx - fx * 0.9 + rx * 0.45, goalZ = hz - fz * 0.9 + rz * 0.45;
+    // If the spot behind-right is blocked, try behind-left, then straight behind, then the owner's
+    // own feet — one of those is always standable, because the owner is standing there.
+    if (walkable && !walkable(goalX, goalZ)) {
+      const alts = [
+        [hx - fx * 0.9 - rx * 0.45, hz - fz * 0.9 - rz * 0.45],
+        [hx - fx * 0.95, hz - fz * 0.95],
+        [hx - fx * 0.5, hz - fz * 0.5],
+      ];
+      for (const [ax, az] of alts) { if (walkable(ax, az)) { goalX = ax; goalZ = az; break; } }
+    }
     const px = group.position.x, pz = group.position.z;
-    const nx = damp(px, goalX, 8, dt), nz = damp(pz, goalZ, 8, dt);
+    let nx = damp(px, goalX, 8, dt), nz = damp(pz, goalZ, 8, dt);
+    // And never LAND inside furniture on the way there: slide per axis, exactly as a mover does.
+    if (walkable && !walkable(nx, nz)) {
+      if (walkable(nx, pz)) nz = pz;
+      else if (walkable(px, nz)) nx = px;
+      else { nx = px; nz = pz; }
+    }
     const dt2 = Math.max(dt, 1e-4); const vx = (nx - px) / dt2, vz = (nz - pz) / dt2;
     group.position.x = nx; group.position.z = nz;
     const speed = Math.hypot(vx, vz);

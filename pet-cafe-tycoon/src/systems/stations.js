@@ -69,7 +69,12 @@ const AUTO_CASH_RADIUS = 1.2;
 // Batch 7 (the owner's rule: "remove the chore, not the state") -- wiping is a walk-past, not an
 // errand. Widened from 1.35m so a seat gets wiped simply by the owner passing near it on the way to
 // somewhere else, the same way AUTO_CASH_RADIUS already makes collecting cash a walk-past too.
-const AUTO_CLEAN_RADIUS = 2.2;
+// 1.25 m — back down from the 2.2 m Batch 7 set. 2.2 m was chosen to "remove the chore, not the
+// state", but it removed the ACT as well: the owner's playtest report was "without getting close to
+// a table it gets cleaned before reaching it", and sweeping past a row of tables at 2.2 m wiped
+// three of them in the same second. 1.25 m still means walking past a table rather than stopping at
+// it, which is the generosity that mattered, but you have to actually arrive.
+const AUTO_CLEAN_RADIUS = 1.25;
 
 const FIRST_HINT = {
   oven: 'Take food',

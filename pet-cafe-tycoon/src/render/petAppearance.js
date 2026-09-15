@@ -10,7 +10,15 @@
 // several part dimensions in geosFor() (leg boxes, paws, ear cones) are absolute, not derived from
 // s.w/s.h/s.l, so scaling the group uniformly is the only way to grow a pet without warping its
 // proportions.
-export const PET_BASE_SCALE = 1.18;
+// CORRECTED 2026-09-15 after the owner's playtest: 1.18 was the wrong lever and made a pre-existing
+// problem worse. Measured against the 2.04 m human, a dog's head reached ~1.25 m — 62% of a person,
+// a Great Dane rather than a café pet — and a bunny lay as long as a person is tall. In a busy room
+// that does not read as "big pet", it reads as the animals merging with the guests, which is exactly
+// what the owner photographed. What made pets hard to pick out was never their size: it was
+// silhouette and contrast against a cream floor, and Batch 8's ear/snout/tail exaggeration and coat
+// deepening already fixed that. At 0.85 a dog's head sits near 0.9 m (44% of a person), a cat near
+// 0.7 m and a hamster near 0.3 m — proportions you would actually find in a café.
+export const PET_BASE_SCALE = 0.85;
 
 const LOOKS = Object.freeze({
   cat: Object.freeze([

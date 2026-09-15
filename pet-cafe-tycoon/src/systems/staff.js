@@ -13,9 +13,16 @@ const RUNNER_VARIANT = { shirt: 1, hair: 1, skin: 1 };
 const CASHIER_VARIANT = { shirt: 4, hair: 2, skin: 0 };
 const CLEANER_VARIANT = { shirt: 3, hair: 3, skin: 2 };
 const PHOTOGRAPHER_VARIANT = { shirt: 2, hair: 0, skin: 1 };
-const RUNNER_SPAWN = { x: 4, z: -3 };
-const CASHIER_FALLBACK = { x: -4, z: -0.2 };
-const CLEANER_SPAWN = { x: -6, z: 4 };
+// A new hire ARRIVES. Every role used to appear on the spot it works at — and the cashier's spot is
+// the till itself, so hiring one made a full-size person materialise against the register and step
+// out of it, which is the owner's playtest report ("the register gets the cashier from the inside to
+// outside"). Spawning at the café door and letting them walk to their post costs nothing, reads as
+// somebody starting a shift, and removes the pop-in for all three roles at once. Mirrored verbatim
+// in tools/bot.js so the headless economy measures the same walk.
+const HIRE_SPAWN = { x: -9.0, z: 4.2 };
+const RUNNER_SPAWN = HIRE_SPAWN;
+const CASHIER_FALLBACK = HIRE_SPAWN;
+const CLEANER_SPAWN = HIRE_SPAWN;
 // Batch 4b: mirrors CASHIER_FALLBACK's own role — photoDesk1's own precomputed front spot (world.js
 // createWorld's st.front, the spa foundation's own verified-free derived geometry: "photoDesk1
 // front(16.00, 3.70)"), NOT the desk's raw x/z — that sits ON the desk's own collision footprint,
@@ -109,8 +116,8 @@ export function createStaff(G, S, ctx) {
     rec.set(s, { human, itemMeshes: [], px: s.x, pz: s.z, shadow: shadowFor(human.group) });
   }
   function spawnCashier() {
-    const co = world.stations.get('register1');
-    const spawn = co ? co.cash : CASHIER_FALLBACK;
+    // Walks in from the door like the others, then stepCashier sends it to its till.
+    const spawn = CASHIER_FALLBACK;
     const s = createStaffSim('cashier', spawn); G.staffList.push(s);
     const human = createHuman(CASHIER_VARIANT, 'cashier'); scene.add(human.group);
     rec.set(s, { human, itemMeshes: [], px: s.x, pz: s.z, shadow: shadowFor(human.group) });

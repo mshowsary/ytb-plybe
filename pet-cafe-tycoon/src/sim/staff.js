@@ -182,7 +182,19 @@ function loadCap(w, s, product, carryCap, crew) {
 // The display the batch currently in hand belongs to: an assigned runner's own display, otherwise
 // the family-matching one.
 function holdDisplay(w, s) {
-  if (s.assign) return w.stations.get(s.assign) || null;
+  if (s.assign) {
+    const own = w.stations.get(s.assign);
+    if (own && own.active && own.stock < own.capacity) return own;
+    // An assignment is a PRIORITY, not a cage. Returning only the assigned shelf meant a runner
+    // whose shelf was full and whose oven was also full had nowhere to put its batch: 'waiting'
+    // failed to unload, fell through to "keep waiting beside the display", and the runner stood
+    // there holding food for the rest of the shift. That is the owner's playtest report — "it
+    // carries the cupcakes but stands between the cupcake and the cookies, filling neither". A
+    // full shelf now lets the batch go to any other shelf of the same family that has room.
+    const alt = s.items.length ? displayFor(w, s.items[0]) : null;
+    if (alt && alt.active && alt.stock < alt.capacity) return alt;
+    return own || null;
+  }
   return s.items.length ? displayFor(w, s.items[0]) : null;
 }
 // Same (right, forward) convention as sim/world.js's own rotateOffset (rot = atan2(dx, dz), so
@@ -343,7 +355,14 @@ function stepRunner(s, w, dt, carryCap, customers, crew) {
       if (s.timer >= WAIT_SECONDS) {
         const back = unloadSource(w, s);
         if (back) { s.mover.hasTarget = false; s.target = back.id; s.state = 'unload'; s.timer = 0; return; }
-        s.timer = 0; // nothing will take the batch back: keep waiting beside the display
+        // Nothing will take the batch back. Before settling in to wait, check whether any OTHER
+        // shelf of the same family has room — see holdDisplay. Without this the runner waits here
+        // holding food indefinitely, which is what the owner watched it do.
+        const alt = holdDisplay(w, s);
+        if (alt && alt.id !== ct.id && alt.active && alt.stock < alt.capacity) {
+          s.mover.hasTarget = false; s.target = alt.id; s.state = 'toCounter'; s.timer = 0; return;
+        }
+        s.timer = 0; // genuinely nowhere to put it: keep waiting beside the display
       }
       return;
     }

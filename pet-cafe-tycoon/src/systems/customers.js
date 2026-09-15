@@ -7,6 +7,7 @@ import { spawnInterval, maxCustomers, cafeLevel } from '../sim/economy.js';
 import { spawnIntervalMultiplier } from '../sim/followers.js';
 import { spawnMult, capBonus } from '../sim/day.js';
 import { stepCustomers, createCustomer, PATIENCE } from '../sim/customers.js';
+import { idx, isFree } from '../sim/nav.js';
 import { createCustomerSpawnSequence } from '../sim/customerSpawn.js';
 import { SERVICE_LABEL, dirtyTablesBlockingSeats } from '../sim/serviceQuality.js';
 import { petProfile } from '../sim/petBook.js';
@@ -62,6 +63,10 @@ const RECOVERY_ICON = {
 
 export function createCustomers(G, S, ctx) {
   const { area, world, scene, hud, fx, els } = ctx;
+  // The same free-cell test the movers use, handed to a pet so its leash-follow spot can never end
+  // up inside a counter or a table. Both lane bits are allowed: a pet on a leash is walking exactly
+  // where its owner walks, including the door lanes.
+  const petWalkable = (x, z) => { const g = world.grid; return !g || isFree(g, idx(g, x, z), 3); };
   const price = ctx.price;
   const spawns = createCustomerSpawnSequence();
   const rec = new Map();
@@ -337,7 +342,7 @@ export function createCustomers(G, S, ctx) {
           const vx = (step.x - r.px) / safeDt, vz = (step.z - r.pz) / safeDt;
           r.px = step.x; r.pz = step.z;
           r.human.group.position.set(r.px, 0, r.pz); r.human.update(dt, vx, vz);
-          r.pet.followTarget(r.px, r.pz, c.rot, dt);
+          r.pet.followTarget(r.px, r.pz, c.rot, dt, petWalkable);
           // A pet fresh from the bath sparkles for BATH_SPARKLE_SECONDS: c.sparkleUntil is stamped
           // by the sim against its own clock (world.t, advanced by stepBath). An interval burst
           // rather than a per-frame particle, so twenty seconds costs a few dozen sprites.
