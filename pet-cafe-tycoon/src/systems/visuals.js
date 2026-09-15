@@ -322,6 +322,7 @@ export function createVisuals(G, S, ctx) {
   // than can genuinely overlap (the player plus at most two cleaners).
   const activeWipes = [];
   const MAX_WIPES = 4;
+  const bodyCorner = new THREE.Vector3();
   for (const st of world.stations.values()) {
     const build = MESH_ID_OVERRIDE[st.id] || MESH_FOR[st.type] || tableMesh;
     const g = build();
@@ -331,6 +332,28 @@ export function createVisuals(G, S, ctx) {
     g.name = 'station:' + st.type;
     g.position.set(st.x, 0, st.z); g.rotation.y = st.rot; g.visible = st.active;
     scene.add(g);
+    // What the player's body can bump into, in world space, taken from the geometry that is
+    // actually drawn rather than from the station's hand-written fw/fd. Seats are deliberately
+    // excluded — their chairs must stay walk-through so guests can path onto them — and so are
+    // gates, which are doorways. See merge() in src/render/geo.js for where bodyBox comes from.
+    if (st.type !== 'seat' && st.type !== 'gate') {
+      g.updateWorldMatrix(true, true);
+      let minx = Infinity, minz = Infinity, maxx = -Infinity, maxz = -Infinity;
+      g.traverse(o => {
+        const bb = o.geometry && o.geometry.userData && o.geometry.userData.bodyBox;
+        if (!bb) return;
+        for (const cx of [bb.minx, bb.maxx]) {
+          for (const cz of [bb.minz, bb.maxz]) {
+            bodyCorner.set(cx, 0, cz).applyMatrix4(o.matrixWorld);
+            if (bodyCorner.x < minx) minx = bodyCorner.x;
+            if (bodyCorner.x > maxx) maxx = bodyCorner.x;
+            if (bodyCorner.z < minz) minz = bodyCorner.z;
+            if (bodyCorner.z > maxz) maxz = bodyCorner.z;
+          }
+        }
+      });
+      if (minx !== Infinity) st.body = { minx, maxx, minz, maxz };
+    }
     // Placed once (`follow: false`): a station's footprint never moves, only its active/visible
     // flag does, which the sync in update() below mirrors onto the shadow handle every frame.
     const shadow = st.type === 'gate' ? null : S.contactShadows && S.contactShadows.add(g, {

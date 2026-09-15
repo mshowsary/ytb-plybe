@@ -133,6 +133,22 @@
       "timeoutMs": 300000
     },
     {
+      "name": "Floating action button belongs to the machine underfoot",
+      "command": [
+        "node",
+        "tools/action-button-smoke.js"
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "name": "Owner body clearance against the drawn furniture",
+      "command": [
+        "node",
+        "tools/body-clearance-smoke.js"
+      ],
+      "timeoutMs": 600000
+    },
+    {
       "name": "Daylight insect and flowerbed ambience smoke",
       "command": [
         "node",

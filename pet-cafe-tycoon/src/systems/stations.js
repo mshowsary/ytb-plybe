@@ -277,11 +277,73 @@ export function createStations(G, S, ctx) {
   const fbtn = document.createElement('button');
   fbtn.type = 'button'; fbtn.className = 'fbtn hidden'; ctx.els.fx.appendChild(fbtn);
   const fbtnTmp = { sx: 0, sy: 0, visible: true };
+  // The player's body collides with what is DRAWN, not with each station's hand-written fw/fd
+  // footprint. Measured 2026-09-16: the drawn oven reaches 0.60 m past its footprint and the drawn
+  // counter 0.21 m, so standing on their front spots put the owner's torso inside them — the merge
+  // in the playtest screenshots. Staff, guests and pathfinding keep using world.boxes, so the nav
+  // grid and every sim baseline are untouched. st.body comes from src/systems/visuals.js.
+  let bodyBoxes = null, bodyBoxesFor = -1;
+  function playerBoxes() {
+    let live = 0;
+    for (const st of world.stations.values()) if (st.active) live++;
+    if (bodyBoxes && bodyBoxesFor === live) return bodyBoxes;
+    bodyBoxesFor = live;
+    bodyBoxes = [];
+    for (const st of world.stations.values()) {
+      if (!st.active) continue;
+      let fw = st.fw != null ? st.fw : 1, fd = st.fd != null ? st.fd : 1;
+      if (Math.abs(Math.sin(st.rot)) > 0.5) { const t = fw; fw = fd; fd = t; }
+      // Union, never replace: a prop drawn smaller than its footprint must not open a gap that the
+      // sim's own collision still treats as solid.
+      let minx = st.x - fw / 2, maxx = st.x + fw / 2, minz = st.z - fd / 2, maxz = st.z + fd / 2;
+      if (st.body) {
+        minx = Math.min(minx, st.body.minx); maxx = Math.max(maxx, st.body.maxx);
+        minz = Math.min(minz, st.body.minz); maxz = Math.max(maxz, st.body.maxz);
+      }
+      bodyBoxes.push({ x: (minx + maxx) / 2, z: (minz + maxz) / 2, hw: (maxx - minx) / 2, hd: (maxz - minz) / 2 });
+    }
+    return bodyBoxes;
+  }
+
+  // How far into a station would a body of BODY_R standing here be? 0 when clear. Mirrors pushOut's
+  // own circle-vs-box test in src/sim/collide.js, and is the player-only counterpart to it.
+  const BODY_R = 0.46;
+  function overlapDepth(x, z) {
+    let worst = 0;
+    for (const b of playerBoxes()) {
+      const dx = Math.abs(x - b.x) - b.hw, dz = Math.abs(z - b.z) - b.hd;
+      if (dx >= BODY_R || dz >= BODY_R) continue;
+      // Distance from the circle's centre to the box: 0 inside, else the corner/face distance.
+      const ox = Math.max(dx, 0), oz = Math.max(dz, 0);
+      const d = Math.hypot(ox, oz);
+      if (d < BODY_R && BODY_R - d > worst) worst = BODY_R - d;
+    }
+    return worst;
+  }
+
   let floatAction = null;
-  function offerAction(best, st, kind, label, priority = 0, point = null) {
+  // The button belongs to the machine the owner is STANDING AT. Distance decides it; priority only
+  // breaks a tie between two things equally at hand. (2026-09-16: priority used to dominate distance
+  // outright, so standing at the oven drew the kiosk's UPGRADE button two metres away over the kiosk.)
+  const NEAR_BAND = 0.5;
+  function offerAction(list, st, kind, label, priority = 0, point = null) {
     const p = point || st.front;
-    const d = dist2(P, p);
-    if (!best || priority > best.priority || (priority === best.priority && d < best.d)) return { st, kind, label, priority, d, point: p };
+    list.push({ st, kind, label, priority, d: Math.sqrt(dist2(P, p)), point });
+    return list;
+  }
+  function pickAction(list, nearestFront) {
+    let nearest = Infinity;
+    for (const c of list) if (c.d < nearest) nearest = c.d;
+    // A machine only earns the button when the owner is standing at IT. If some other station's
+    // standing spot is more than NEAR_BAND nearer, the owner is at that one instead, and this
+    // button would float away over a machine they are not using. Measured 2026-09-16: without
+    // this, standing at the oven, at seat12, or even on the planters drew a neighbour's button.
+    if (nearestFront + NEAR_BAND < nearest) return null;
+    let best = null;
+    for (const c of list) {
+      if (c.d > nearest + NEAR_BAND) continue;
+      if (!best || c.priority > best.priority || (c.priority === best.priority && c.d < best.d)) best = c;
+    }
     return best;
   }
 
@@ -327,14 +389,37 @@ export function createStations(G, S, ctx) {
 
       const mv = G._force || input; const sp = playerSpeed(G.up);
       P.vx = damp(P.vx, mv.x * sp, 18, dt); P.vz = damp(P.vz, mv.z * sp, 18, dt);
+      const wasX = P.x, wasZ = P.z, wasDepth = overlapDepth(P.x, P.z);
       P.x += P.vx * dt; P.z += P.vz * dt;
-      pushOut(P, 0.35, world.boxes);
+      // 0.46, not 0.35. The player is pushed out of a station's RAW footprint, and 0.35 is narrower
+      // than the body it is standing in for: the arms sit at x +/-0.44 with their own width on top
+      // of that, reaching about 0.50 from centre, and a counter's wood top overhangs its footprint
+      // by another 0.05. So the player could plant an arm up to 0.2 m inside a counter — which is
+      // the owner's photograph of standing at a shelf with the furniture through their shoulder.
+      // 0.46 clears the arm; it is deliberately not 0.50, because every interaction radius in this
+      // file is measured from a station's FRONT spot (1.3 m out from centre) and the player must
+      // still be able to close on that comfortably, and because the café's own corridors have to
+      // stay passable for a circle of this size.
+      // Three passes, not one. pushOut resolves each box independently, so the shove out of one
+      // box can plant the body inside its neighbour and the frame ends with the owner half
+      // inside a wall corner. Re-running settles those; anything still overlapping after three
+      // passes is a gap genuinely narrower than the body, which the nav grid already forbids.
+      for (let i = 0; i < 3; i++) pushOut(P, BODY_R, playerBoxes());
       // Batch 1 — regions engine (plan 7.1): clamp to the interior UNION every built region (the
       // terrace), or the owner can never walk onto the deck they just bought.
       // The interior UNION built regions is an L once the spa exists, not a rectangle — a box
       // clamp let the owner stroll into the empty south-east corner. clampToArea also confines the
       // crossing to the gate itself; see its comment in sim/ownerState.js.
       { const p = clampToArea(area, world.built, P.x, P.z); P.x = p.x; P.z = p.z; }
+      // The clamp runs AFTER pushOut and wins, so a station whose box straddles the edge of the
+      // walkable area — the restroom and the photo booth stand against the back wall — could have
+      // the clamp plant the body right back inside it. Measured 2026-09-16: walking at the restroom
+      // from the wall side put the owner at its dead centre, standing in the cubicle. Rather than
+      // argue with the clamp, refuse the step: a move that ends up DEEPER inside a station than it
+      // started simply does not happen. Comparing depths rather than testing "is it clear" matters,
+      // because a single bad frame would otherwise leave the owner permanently inside with the
+      // guard switched off — this way every move that digs out is still allowed.
+      if (overlapDepth(P.x, P.z) > wasDepth + 1e-4) { P.x = wasX; P.z = wasZ; P.vx = 0; P.vz = 0; }
       owner.group.position.set(P.x, 0, P.z); owner.update(dt, P.vx, P.vz); S.follow(P.x, P.z, dt);
 
       if (sheetAnchorId && sheets.isOpen) {
@@ -349,11 +434,14 @@ export function createStations(G, S, ctx) {
       stepOvens(world, dt, machineSpeedMult(G.machineLevels, 'oven'));
       stepMachines(world, dt, machineSpeedMult(G.machineLevels, 'coffee'));
       takeT -= dt; dropT -= dt;
-      let actionCandidate = null;
+      const actionCandidates = [];
+      let nearestFront = Infinity;
       cleanProg.clear();
 
       for (const st of world.stations.values()) {
         if (!st.active) continue;
+        // Nearest standing spot in the room, for pickAction's "am I actually at this machine" test.
+        if (st.front) { const d = dist2(P, st.front); if (d < nearestFront) nearestFront = d; }
 
         if (st.type === 'oven' || st.type === 'coffee' || st.type === 'blender') {
           const prev = prevStock.has(st.id) ? prevStock.get(st.id) : st.stock;
@@ -429,13 +517,13 @@ export function createStations(G, S, ctx) {
         if (st.type === 'pantry') {
           const atFront = near(P, st.front, 1.35);
           noteFirstHint('pantry', atFront);
-          if (atFront && !sheets.isOpen) actionCandidate = offerAction(actionCandidate, st, 'pantry', 'SUPPLIES', 3);
+          if (atFront && !sheets.isOpen) offerAction(actionCandidates, st, 'pantry', 'SUPPLIES', 3);
         }
 
         if (st.type === 'return') {
           const atFront = near(P, st.front, 1.05);
           noteFirstHint('return', atFront);
-          if (atFront && heldState(owner.items, carry) && !sheets.isOpen) actionCandidate = offerAction(actionCandidate, st, 'return', 'RETURN', 6);
+          if (atFront && heldState(owner.items, carry) && !sheets.isOpen) offerAction(actionCandidates, st, 'return', 'RETURN', 6);
         }
 
         if (st.type === 'bowl') {
@@ -487,15 +575,20 @@ export function createStations(G, S, ctx) {
           noteFirstHint(st.type, atFront);
           if (atFront && !sheets.isOpen) {
             const label = st.type === 'kiosk' ? 'UPGRADES' : st.type === 'hire' ? 'STAFF' : 'BOUTIQUE';
-            actionCandidate = offerAction(actionCandidate, st, st.type, label, 2);
+            offerAction(actionCandidates, st, st.type, label, 2);
           }
         }
       }
 
-      floatAction = actionCandidate;
+      floatAction = pickAction(actionCandidates, Math.sqrt(nearestFront));
       if (floatAction && !sheets.isOpen) {
-        const p = floatAction.point || floatAction.st;
-        fx.project(p.x, 1.65, p.z, fbtnTmp);
+        // Anchor on the machine's FRONT FACE, halfway out to the spot the owner stands on, rather
+        // than on its centre: a deep counter or a wide kiosk would otherwise throw the button a
+        // metre past the owner's shoulder and make it read as belonging to something else.
+        const a = floatAction, fr = a.st.front;
+        const ax = a.point ? a.point.x : (fr ? (a.st.x + fr.x) / 2 : a.st.x);
+        const az = a.point ? a.point.z : (fr ? (a.st.z + fr.z) / 2 : a.st.z);
+        fx.project(ax, 1.65, az, fbtnTmp);
         fbtn.style.left = fbtnTmp.sx + 'px'; fbtn.style.top = fbtnTmp.sy + 'px';
         if (fbtn.dataset.label !== floatAction.label) {
           fbtn.dataset.label = floatAction.label;

@@ -88,10 +88,30 @@ export function part(kind, d, hex, xf = {}) {
   g.translate(xf.x ?? 0, xf.y ?? 0, xf.z ?? 0);
   return colorize(g, hex);
 }
+// The height band a standing body actually fills. Only parts reaching into it can be walked into.
+const BODY_LO = 0.25, BODY_HI = 1.6;
+
 export function merge(parts) {
   const gs = parts.map(p => p.index ? p.toNonIndexed() : p);
   for (const g of gs) if (!g.getAttribute('uv')) blankUV(g);   // last line of defence for the uv contract
-  const g = mergeGeometries(gs, false); g.computeBoundingSphere(); return g;
+  const g = mergeGeometries(gs, false); g.computeBoundingSphere();
+  // Once the parts are merged, a single AABB cannot tell a floor plinth from an extractor hood two
+  // metres up, so the horizontal reach of the SOLID, body-height part of a prop is recorded here
+  // while the parts still exist. The player's collision uses it: a station's hand-written fw/fd
+  // footprint understated the drawn oven by 0.60 m and the drawn counter by 0.21 m, so the owner's
+  // body sank into both (owner playtest, 2026-09-16). See src/systems/visuals.js.
+  let minx = Infinity, minz = Infinity, maxx = -Infinity, maxz = -Infinity;
+  for (const p of gs) {
+    p.computeBoundingBox();
+    const b = p.boundingBox;
+    if (!b || b.max.y < BODY_LO || b.min.y > BODY_HI) continue;
+    if (b.min.x < minx) minx = b.min.x;
+    if (b.max.x > maxx) maxx = b.max.x;
+    if (b.min.z < minz) minz = b.min.z;
+    if (b.max.z > maxz) maxz = b.max.z;
+  }
+  if (minx !== Infinity) g.userData.bodyBox = { minx, maxx, minz, maxz };
+  return g;
 }
 // Below this bounding-sphere radius a prop does not cast a sun shadow. Every shadow caster is a
 // second draw call — the scene is rendered again into the shadow map — and at the café's wide camera

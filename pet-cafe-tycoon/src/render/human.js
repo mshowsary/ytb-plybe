@@ -126,7 +126,7 @@ export function createHuman(variant = {}, role = 'customer') {
   const armR = new THREE.Mesh(G.armGeo, mat); armR.position.set(0.44, SHOULDER_Y, 0); armR.castShadow = false; armR.receiveShadow = true;
   group.add(legL, legR, bodyHead, armL, armR);
   const hand = new THREE.Object3D(); hand.position.set(0, -0.59, 0); armR.add(hand);
-  const stack = new THREE.Group(); stack.position.set(0, 1.05, 0.42); group.add(stack);
+  const stack = new THREE.Group(); stack.name = 'carry-stack'; stack.position.set(0, 1.05, 0.42); group.add(stack);
 
   const bubble = new THREE.Group(); bubble.position.set(0, 2.25, 0); bubble.visible = false; group.add(bubble);
   const bWait = new THREE.Mesh(bWaitGeo(), mat); bWait.castShadow = false; bWait.receiveShadow = true;
