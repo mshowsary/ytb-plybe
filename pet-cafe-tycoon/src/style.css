@@ -7,18 +7,29 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE8D8;font-family:"S
 #loading .spin{width:44px;height:44px;border-radius:50%;border:5px solid #fff4;border-top-color:var(--coral);animation:sp 1s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
 #hud{position:fixed;inset:0;pointer-events:none;z-index:10}
-.pill{position:absolute;background:#fff;color:var(--ink);border-radius:999px;padding:8px 14px;font-weight:800;font-size:18px;box-shadow:0 4px 0 #0001,0 8px 20px #0002;display:flex;align-items:center;gap:8px;min-height:48px;box-sizing:border-box}
-#wallet{left:calc(12px + var(--sal));top:calc(12px + var(--sat))}
-#wallet .coin{width:22px;height:22px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#fff6b0,var(--coin) 60%,#e0a800);box-shadow:inset 0 -2px 0 #0002}
+/* font-size scales with --hud (src/ui/hudLayout.js's installHudLayout(), Math.max(.72,Math.min(1,
+   Math.min(innerWidth,innerHeight)/560))) so pill TEXT shrinks on a small phone instead of the HUD
+   just staying 18px regardless of viewport; min-height stays a literal 48 -- readouts may shrink,
+   tap targets never do. */
+.pill{position:absolute;background:#fff;color:var(--ink);border-radius:999px;padding:8px 14px;font-weight:800;font-size:calc(18px * var(--hud,1));box-shadow:0 4px 0 #0001,0 8px 20px #0002;display:flex;align-items:center;gap:8px;min-height:48px;box-sizing:border-box}
+/* #wallet's own left/top is gone: src/ui/hudLayout.js's arrangeHud() re-parents #wallet into
+   #resourceBar, which owns the one position the whole bar sits at. */
+/* em, not px, so the coin shrinks in step with the pill's own scaled font-size instead of staying
+   a fixed 22px while the numeral beside it gets smaller. */
+#wallet .coin{width:1.2em;height:1.2em;border-radius:50%;background:radial-gradient(circle at 35% 35%,#fff6b0,var(--coin) 60%,#e0a800);box-shadow:inset 0 -2px 0 #0002}
 #crowd{left:calc(12px + var(--sal));top:calc(72px + var(--sat));font-size:16px;transition:background .15s,color .15s}
 #crowd .picon{width:22px;height:22px;flex:none;color:var(--ink)}
 /* M3 T5: coral + '!' while any customer's patience is under 4s */
 #crowd.urgent{background:var(--coral);color:#fff}
 #crowd.urgent .picon{color:#fff}
 .bang{font-weight:900;font-size:16px;color:#fff;background:var(--ink);width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none}
-/* Loop v2 Task 1: "hands full · <product>" tag, pinned just under the crowd pill. */
-#handsFull{left:calc(12px + var(--sal));top:calc(130px + var(--sat));font-size:14px;background:var(--cream)}
-#hint{left:50%;transform:translateX(-50%);bottom:calc(120px + var(--sab));font-size:16px;background:#fffd}
+/* Loop v2 Task 1: "hands full · <product>" tag. Pinned directly under the resource bar now (it
+   used to sit at a flat top:130 in the tall left column) -- var(--bar-h) is the bar's own measured
+   height, kept current by a ResizeObserver in src/ui/hudLayout.js, so this tracks the bar even
+   when it wraps to a second 48px row on a narrow phone. The 48px fallback is only for the one
+   frame before that observer has reported anything. */
+#handsFull{left:calc(12px + var(--sal));top:calc(8px + var(--sat) + var(--bar-h, 48px));font-size:calc(14px * var(--hud,1));background:var(--cream)}
+#hint{left:50%;transform:translateX(-50%);bottom:calc(120px + var(--sab));font-size:calc(16px * var(--hud,1));background:#fffd}
 /* Loop v2 Task 2: the SKIP pill (src/systems/intro.js), sitting just under #hint. #hud is
    pointer-events:none, so this (appended straight to <body>, not #hud) needs its own auto. */
 .skipPill{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(64px + var(--sab));
@@ -28,11 +39,11 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE8D8;font-family:"S
 /* Loop v2 Task 3: the day pill ("Day 3 · Rush", right side, same row as #crowd — design section
    5's day clock) with a thin phase-progress bar underneath, and a small goal-text pill right below
    it (right side, same row #handsFull sits at on the left, so the two never collide). */
-#dayPill{right:calc(12px + var(--sar));top:calc(72px + var(--sat));font-size:15px;flex-direction:column;align-items:stretch;gap:4px;padding:8px 12px;min-width:120px}
+#dayPill{right:calc(12px + var(--sar));top:calc(72px + var(--sat));font-size:calc(15px * var(--hud,1));flex-direction:column;align-items:stretch;gap:4px;padding:8px 12px;min-width:120px}
 #dayPill .dayTop{display:flex;align-items:center;justify-content:space-between;gap:8px;font-weight:800}
 .dayBar{width:100%;height:5px;border-radius:3px;background:#0001;overflow:hidden}
 .dayBarFill{height:100%;background:var(--accent);border-radius:3px;transition:width .2s linear}
-#goalPill{right:calc(12px + var(--sar));top:calc(130px + var(--sat));font-size:13px;background:var(--cream)}
+#goalPill{right:calc(12px + var(--sar));top:calc(130px + var(--sat));font-size:calc(13px * var(--hud,1));background:var(--cream)}
 /* The top-centre rush/weekend/holiday/closing banner — a large pill sliding in from above for a
    few seconds (design section 5 / Task 3 brief's hud.banner(text, ms)). */
 #banner{left:50%;top:calc(16px + var(--sat));transform:translate(-50%,-160%);font-size:22px;font-weight:900;letter-spacing:.04em;padding:12px 28px;background:var(--coral);color:#fff;box-shadow:0 8px 24px #0004;transition:transform .35s cubic-bezier(.2,.9,.3,1.3);z-index:11}
@@ -55,6 +66,11 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE8D8;font-family:"S
 @keyframes wishShake{0%,100%{margin-left:0}25%{margin-left:-3px}75%{margin-left:3px}}
 .wishIcon{width:38px;height:38px;flex:none}
 .wishIcon svg{width:100%;height:100%;display:block}
+/* Program 6.2: the "no clean table" bubble. Same 44px .wish shell (so src/ui/labelLayout.js
+   anchors and declutters it exactly like a guest's order bubble) with the ink-on-white treatment
+   of a problem rather than a wish, and a one-shot pop so it reads as an event, not furniture. */
+.wish.noseat{color:var(--ink);box-shadow:0 3px 10px #0004;animation:noSeatPop .26s cubic-bezier(.2,.9,.3,1.4)}
+@keyframes noSeatPop{0%{transform:translate(-50%,-100%) scale(.55)}100%{transform:translate(-50%,-100%) scale(1)}}
 .patience{position:absolute;transform:translate(-50%,0);width:44px;height:6px;background:#0002;border-radius:3px;overflow:hidden;pointer-events:none}
 .patienceFill{height:100%;width:44px;background:#7FD69A;transition:background .15s}
 .patienceFill.warn{background:#FFC24D}
@@ -75,22 +91,30 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE8D8;font-family:"S
 .dstage{width:6px;height:6px;border-radius:50%;background:#0000002a}
 .dstage.filled{background:#7BC47F}
 
-/* Loop v2 Task 2: chalkboards — a small dark station-name + product-icon label, projected from the
-   3D chalkboard mesh's front-left-corner position (src/render/props.js's chalkboardMesh, positioned
-   in src/systems/visuals.js). Kept well below the demand counters (CHALK_Y 1.05 vs DEMAND_Y
-   1.55-2.3) so the two never overlap. */
+/* Loop v2 Task 2 / program 5.5: chalkboards — projected from the 3D chalkboard mesh's
+   front-left-corner position (src/render/props.js's chalkboardMesh, positioned in
+   src/systems/visuals.js). Kept well below the demand counters (CHALK_Y 1.05 vs DEMAND_Y 1.55-2.3)
+   so the two never overlap. The English caption is gone: no words belong on the play field, and one
+   board per station made them the most repeated thing in the frame. What is left is the product
+   glyph plus a stock dot, which is smaller than the old pill in every direction — strictly fewer
+   chances for the certification audit to find an overlap. */
 .chalk{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;gap:5px;
-  background:#2B2320;color:var(--cream);font-size:11px;font-weight:800;letter-spacing:.02em;
-  border-radius:8px;padding:4px 8px;box-shadow:0 2px 6px #0003;pointer-events:none;white-space:nowrap;z-index:1}
-.chalkIcon{width:15px;height:15px;flex:none}
+  background:#2B2320;color:var(--cream);border-radius:9px;padding:5px 7px;min-height:26px;
+  box-sizing:border-box;box-shadow:0 2px 6px #0003;pointer-events:none;white-space:nowrap;z-index:1}
+.chalkIcon{width:17px;height:17px;flex:none}
 .chalkIcon svg{width:100%;height:100%;display:block}
+/* The dot the caption used to spell out: green stocked, amber low, red empty. "Needs beans" is the
+   bean glyph with this dot red — the same sentence, in no language at all. */
+.chalkDot{width:7px;height:7px;border-radius:50%;flex:none;background:#7FD69A;box-shadow:0 0 0 1.5px #0005}
+.chalkDot[data-stock="low"]{background:#FFC24D}
+.chalkDot[data-stock="empty"]{background:#FF6B5E}
 /* Loop v2 Task 3: a star-eligible station's chalkboard is tappable (opens the kiosk on its own
    Machines row — see systems/visuals.js/stations.js) — needs its own pointer-events, #fx is none. */
-.chalk.tappable{pointer-events:auto;cursor:pointer}
+.chalk.tappable{pointer-events:auto;cursor:pointer;padding:7px 10px}
 
 /* Loop v2 Task 2: the floating kiosk/hire button (design section 3/4) — appears above whichever
    station the owner is standing in front of; #fx is pointer-events:none, so this needs its own auto. */
-.fbtn{position:absolute;transform:translate(-50%,-50%);left:0;top:0;min-height:48px;box-sizing:border-box;
+.fbtn{position:absolute;transform:translate(-50%,-50%);left:0;top:0;min-height:48px;min-width:48px;box-sizing:border-box;
   padding:0 22px;border:none;border-radius:999px;background:var(--coral);color:#fff;font-weight:800;
   font-size:15px;letter-spacing:.02em;box-shadow:0 4px 0 #0001,0 8px 20px #0002;cursor:pointer;
   pointer-events:auto;white-space:nowrap;z-index:2}
@@ -171,3 +195,271 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE8D8;font-family:"S
   background:#0000000f;display:flex;align-items:center;justify-content:center;cursor:pointer}
 .chip svg{width:100%;height:100%;display:block}
 .chip.active{background:var(--accent)}
+
+/* --- Certification: label decluttering (src/ui/labelLayout.js) ---------------------------------
+   When the arbiter cannot find a collision-free slot for a low-priority label it marks it crowded
+   rather than letting it overlap. Fading instead of display:none keeps layout measurement stable
+   across frames, so a label can come back the instant space reappears. */
+.label-crowded{opacity:0!important;pointer-events:none!important}
+/* Labels must never be the reason text clips: give every pill room to size to its own content. */
+.demand,.objCaption,.zlabel,.zprice,.chalk,.fbtn{max-width:none}
+
+/* --- Icon-first HUD pills -----------------------------------------------------------------------
+   "Day 3 · Rush" and "Rival · Serve 24" were the two longest permanently-visible strings in the
+   game and the widest things in the HUD. Both are now a glyph plus a numeral: the phase is a
+   picture of the sky, the contract is a picture of its verb, and numerals read in every language. */
+#dayLabel{display:flex;align-items:center;gap:6px;line-height:1}
+.dayIcon,.goalIcon{width:20px;height:20px;flex:none;display:block}
+.dayIcon svg,.goalIcon svg{width:100%;height:100%;display:block}
+.dayNum{font-weight:900;font-size:17px}
+#goalPill{display:flex;align-items:center;gap:6px}
+.goalNum{font-weight:900;font-size:15px}
+/* A small coral dot marks a rival contract — the one bit of state the glyph itself cannot carry. */
+.goalRival{width:7px;height:7px;border-radius:50%;background:var(--coral);flex:none}
+
+/* Task 2.1 — the Pet Photo Studio (plan 3.2). Both classes are world-projected (src/ui/photoGame.js
+   sets style.left/top in raw px every frame, exactly like .fbtn/.wish already do) so they follow
+   the same "anchor via CSS transform, position via JS left/top" split every other managed label in
+   this file uses — see src/ui/labelLayout.js's own ANCHORS comment. `.photoRing` and `.polaroid`
+   are NOT yet in that file's ANCHORS/PRIORITY tables (labelLayout.js is owned by a different task
+   this batch) — see this task's handoff for the exact entries needed. `.photoRing` in particular
+   must stay pinned exactly over the pet for the mini-game to make sense, so it may need special-
+   casing (e.g. "never nudge") rather than a plain HIDEABLE/PRIORITY entry — a judgment call left to
+   that file's owner.
+   Program rule 5 (no English prose on the play field): both are pure shape/numerals. */
+.photoRing{position:absolute;transform:translate(-50%,-50%);left:0;top:0;width:0;height:0;z-index:2;pointer-events:none}
+.photoRing.hidden{display:none}
+.photoRingHit{position:absolute;left:-40px;top:-40px;width:80px;height:80px;border-radius:50%;pointer-events:auto;touch-action:none}
+.photoRingBand{position:absolute;left:50%;top:50%;border-radius:50%;border:2px solid #ffffff4a;box-sizing:border-box;transform:translate(-50%,-50%)}
+.photoRingBand.good{width:56px;height:56px}
+.photoRingBand.perfect{width:40px;height:40px;border-color:#ffd76699}
+.photoRingShot{position:absolute;left:50%;top:50%;width:64px;height:64px;margin:-32px 0 0 -32px;border-radius:50%;border:4px solid #fff;box-shadow:0 0 0 2px #00000030,0 4px 14px #0004;box-sizing:border-box;will-change:transform}
+/* Bottom-centre anchor (matches .wish) — the card visually "slides out of the booth", so it should
+   read as emerging upward from the booth's own floor point, same as an order bubble emerges above
+   a table. Motion toward the Pet Book button is a plain `left`/`top` transition on THIS element
+   (never `transform`, which the anchor rule above already owns); the inner .polaroidFrame carries
+   its own shrink/rotate/fade so the two never fight over the same CSS property. */
+.polaroid{position:absolute;transform:translate(-50%,-100%);left:0;top:0;width:46px;height:58px;
+  z-index:2;border-radius:4px;background:#fffdf8;box-shadow:0 6px 16px #0004;padding:3px 3px 11px;
+  box-sizing:border-box;pointer-events:none;
+  transition:left 1s cubic-bezier(.2,.7,.2,1),top 1s cubic-bezier(.2,.7,.2,1),opacity .3s ease .8s;opacity:1}
+.polaroid.flying{opacity:0}
+.polaroidFrame{width:100%;height:100%;border-radius:2px;background:#e9dfce;transition:transform 1s cubic-bezier(.2,.7,.2,1)}
+.polaroidFrame.shrink{transform:scale(.4) rotate(12deg)}
+@media(prefers-reduced-motion:reduce){.polaroid{transition:opacity .3s ease}.polaroidFrame{transition:none}}
+
+/* --- Paw Rating sheet (src/ui/pawSheet.js) -----------------------------------------------------
+   Same overlay shape as .career-root / .meta-book-root (fixed inset root + backdrop + one centred
+   card), with one difference that the certification matrix forces: the card is a flex COLUMN whose
+   head and paw row are flex:none and whose .paw-list is the only scroller. At 653x280 the card is
+   ~268px tall, so the list has to take the remainder and scroll on its own — a card-level
+   `overflow:auto` would work too, but it lets the paw row scroll away from the checklist it
+   explains. overflow-x is hidden everywhere so the page can never scroll sideways.
+   The only tap target here is .paw-close at 48x48; rows are not pressable, so nothing else can
+   fail the 44px rule. */
+.paw-root{position:fixed;inset:0;z-index:76;display:grid;place-items:center;padding:12px;box-sizing:border-box;font-family:system-ui,sans-serif}
+.paw-backdrop{position:absolute;inset:0;background:#211a178c;backdrop-filter:blur(5px)}
+.paw-card{position:relative;width:min(430px,100%);max-height:min(660px,92vh);box-sizing:border-box;
+  display:flex;flex-direction:column;gap:10px;overflow:hidden;border-radius:24px;padding:14px;
+  background:linear-gradient(180deg,#fff8eb,#fff1df);color:var(--ink);
+  box-shadow:0 24px 70px #0006;border:1px solid #fff}
+.paw-head{flex:none;display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:48px}
+.paw-title{font:950 18px/1 system-ui,sans-serif;letter-spacing:-.01em;min-width:0;white-space:nowrap}
+.paw-close{width:48px;height:48px;flex:none;padding:0;border:0;border-radius:50%;background:#49372c10;
+  color:var(--ink);font:800 22px/1 system-ui,sans-serif;cursor:pointer}
+/* The rating itself: five paws, filled to the ratchet. The next one keeps its colour but sits at
+   half opacity inside a ring — "this is the one you are earning" said with no words. */
+.paw-stars{flex:none;display:flex;align-items:center;justify-content:center;gap:6px}
+.paw-pip{width:30px;height:30px;flex:none;display:block;opacity:.2;filter:grayscale(1)}
+.paw-pip svg{width:100%;height:100%;display:block}
+.paw-pip.filled{opacity:1;filter:none}
+.paw-pip.next{opacity:.55;filter:none;border-radius:50%;box-shadow:0 0 0 2px #8b7cf6aa}
+.paw-list{flex:1 1 auto;min-height:0;overflow-y:auto;touch-action:pan-y;overflow-x:hidden;-webkit-overflow-scrolling:touch;
+  display:flex;flex-direction:column;gap:8px}
+/* icon | numerals+bar | met mark. minmax(0,1fr) on the middle column is what stops a long numeral
+   pair pushing the mark off a 280px frame. */
+.paw-req{display:grid;grid-template-columns:30px minmax(0,1fr) 26px;align-items:center;gap:10px;
+  box-sizing:border-box;padding:9px 11px;border-radius:15px;background:#ffffffa8;border:1px solid #5f45300e}
+.paw-req.is-met{background:linear-gradient(135deg,#effbec,#fff);border-color:#68b85b32}
+.paw-req-icon{width:30px;height:30px;flex:none;display:block}
+.paw-req-icon svg{width:100%;height:100%;display:block}
+.paw-req-body{min-width:0;display:flex;flex-direction:column;gap:6px}
+/* The numerals WRAP rather than run on. A 280px frame leaves this column ~186px, and a nowrap
+   pair overflows it silently (overflow:visible paints straight off the viewport — the exact
+   defect class the audit's range measurement hunts). Wrapping costs a taller row and nothing
+   else; the pieces are individually short, so a break can only ever land between them. */
+.paw-req-num{display:flex;align-items:baseline;flex-wrap:wrap;gap:0 3px;min-width:0;font:950 15px/1.15 system-ui,sans-serif}
+.paw-cur,.paw-sep,.paw-tgt{white-space:nowrap}
+.paw-sep,.paw-tgt{font-size:13px;opacity:.5}
+.paw-req.is-met .paw-cur{color:#3f8a45}
+.paw-req-bar{height:6px;border-radius:5px;background:#2c211812;overflow:hidden}
+.paw-req-bar>span{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#ff927e,#8979f4);transition:width .35s ease}
+.paw-req.is-met .paw-req-bar>span{background:linear-gradient(90deg,#75c88a,#4fae63)}
+.paw-req-mark{width:26px;height:26px;flex:none;display:block}
+.paw-req-mark svg{width:100%;height:100%;display:block}
+/* ★5: the paw row and the closing mark go gold. A filter rather than a second icon set, so the
+   Golden Paw is visibly the SAME paw the player has been filling in, not a different trophy. */
+.paw-stars.is-golden .paw-pip.filled{filter:sepia(1) saturate(3.4) hue-rotate(-12deg) brightness(1.08)}
+.paw-complete{display:flex;align-items:center;justify-content:center;gap:10px;padding:16px 0;
+  filter:sepia(1) saturate(3.4) hue-rotate(-12deg) brightness(1.08);
+  background:radial-gradient(closest-side,#ffd76659,transparent)}
+.paw-complete>span{width:54px;height:54px;display:block}
+.paw-complete>span svg{width:100%;height:100%;display:block}
+.paw-complete-spark{width:30px!important;height:30px!important;align-self:flex-start}
+.paw-openable{pointer-events:auto;cursor:pointer}
+@media(max-width:320px){
+  .paw-root{padding:6px}
+  .paw-card{padding:10px;gap:8px;border-radius:20px}
+  .paw-title{font-size:15px}
+  .paw-stars{gap:4px}
+  .paw-pip{width:26px;height:26px}
+  .paw-req{padding:8px;gap:7px;grid-template-columns:26px minmax(0,1fr) 22px}
+  .paw-req-icon{width:26px;height:26px}
+  .paw-req-mark{width:22px;height:22px}
+  .paw-req-num{font-size:14px}
+}
+@media(max-height:430px){
+  .paw-card{max-height:96vh;padding:10px;gap:7px}
+  .paw-pip{width:24px;height:24px}
+  .paw-req{padding:7px 9px}
+  .paw-complete{padding:8px 0}
+}
+
+/* --- Play-field cues (src/ui/hud.js cueHtml) ---------------------------------------------------
+   Program rule 5: nothing over the 3D world is allowed to be a sentence. Every banner, toast,
+   floating button and objective caption is now a row of these cells -- a pictogram, a numeral, or
+   a single punctuation glyph -- with the words moved into .cueSr for screen readers only.
+
+   Sizes are in `em` on purpose: the same markup lands in a 22px banner, a 14px toast, a 13px
+   floating button and a 12px caption, and each one needs its glyphs to match the numerals beside
+   them. One rule, four call sites, no magic pixel values to keep in sync. */
+.cueRow{display:inline-flex;align-items:center;justify-content:center;gap:.34em;line-height:1;flex-wrap:nowrap}
+.cueIco{width:1.2em;height:1.2em;flex:none;display:inline-flex}
+.cueIco svg{width:100%;height:100%;display:block}
+/* A pet portrait is 80x88, so its box keeps that ratio instead of being squashed into a square. */
+.cueSwatch{width:1.55em;height:1.7em;flex:none;display:inline-flex}
+.cueSwatch svg{width:100%;height:100%;display:block}
+.cueNum{font-variant-numeric:tabular-nums;font-weight:950;white-space:nowrap}
+/* Punctuation is grammar, not content: it stays a shade quieter than the numerals it joins. */
+.cueOp{font-weight:900;opacity:.66}
+/* The one kind of word allowed on the play field: a proper noun (a pet's name). */
+.cueName{font-weight:900;letter-spacing:.02em;white-space:nowrap}
+/* Every word the play field used to print still exists here, for assistive tech only. */
+.cueSr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
+  clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
+
+/* The banner was sized for two or three short words. A cue row is wider per unit of meaning, so on
+   the narrowest Playables frames (280px) it steps down rather than being clipped by #banner's
+   nowrap pill. The service-policy cue -- the longest in the game at six cells -- measures ~168px
+   here, inside a 280px viewport with the pill's padding. */
+@media(max-width:360px){#banner{font-size:18px;padding:10px 18px;letter-spacing:0}}
+@media(max-width:300px){#banner{font-size:15px;padding:9px 13px}}
+
+/* The objective caption is a single glyph now, so the pill collapses to a circle around it rather
+   than keeping the width a word needed. */
+.objCaption.cueRow{padding:5px;border-radius:999px}
+.objCaption .cueIco{width:22px;height:22px}
+
+/* Batch 4b (plan 3.9) — the Pet Spa's brush-hold overlay (src/ui/groomGame.js), world-projected
+   over the pet at groom1 exactly like .photoRing is over photo1 (same left/top-in-JS,
+   transform-for-anchoring split — see .photoRing's own comment above). This is a TIMING game, not a
+   targeting one: none of the three pieces below (paw, pulse, pips) carries positional information,
+   so unlike .photoRing this element is simply always run through the label arbiter's avoid() with
+   no special-casing (src/ui/groomGame.js's own header explains why at more length).
+   Program rule 4/5 (no English prose on the play field): the paw is icons.js's pawIcon()
+   pictogram, the pulse is pure shape, and the three pips are undecorated dots. */
+.groomRing{position:absolute;transform:translate(-50%,-50%);left:0;top:0;width:0;height:0;z-index:2;pointer-events:none}
+.groomRing.hidden{display:none}
+/* >= 80x80 tap target (program rule for this overlay), matching .photoRingHit's own box exactly. */
+.groomRingHit{position:absolute;left:-40px;top:-40px;width:80px;height:80px;border-radius:50%;pointer-events:auto;touch-action:none}
+.groomPaw{position:absolute;left:50%;top:50%;width:34px;height:34px;margin:-17px 0 0 -17px;pointer-events:none;filter:drop-shadow(0 2px 4px #0004)}
+.groomPaw svg{width:100%;height:100%;display:block}
+/* Scaled/opacity'd from JS every frame (pawPulseScale/pawPulseOpacity, groomGame.js) — never a CSS
+   animation, so it can be paused/resumed by the same presentationScheduler pause gate every other
+   timed effect in this game already respects. */
+.groomPulse{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;background:radial-gradient(circle,#ffffff55 0%,#ffffff00 72%);pointer-events:none;will-change:transform,opacity}
+.groomPips{position:absolute;left:50%;top:100%;transform:translate(-50%,10px);display:flex;gap:6px;pointer-events:none}
+.groomPip{width:9px;height:9px;border-radius:50%;background:#ffffff40;border:1.5px solid #ffffffb0;box-sizing:border-box}
+.groomPip.active{background:#ffffffd0;box-shadow:0 0 0 3px #ffffff30}
+.groomPip.done{background:#ffd766;border-color:#ffd766}
+@media(prefers-reduced-motion:reduce){.groomPulse{transition:none}}
+
+/* Hidden means hidden. The `hidden` attribute is a UA-level display:none, which ANY author display
+   rule overrides — and .cueRow (the pictogram row every banner, toast and floating button now uses)
+   sets display:inline-flex. That combination left the party-order collect button drawn at its last
+   screen position after the order was claimed, sliding along with the camera as if it followed the
+   player. contractBadge.js had already scoped this same rule to itself once; it belongs here, once,
+   for everything. */
+[hidden]{display:none!important}
+
+/* --- Franchise (plan §3.11) --------------------------------------------------------------------
+   Two surfaces: the offer row inside the day-summary card, and the offer sheet itself.
+
+   The sheet copies .paw-card's skeleton on purpose — fixed head, ONE internal scroller, fixed
+   action row — so the certification viewports (280x653 and 653x280) scroll the BODY and never the
+   page, and the two decision buttons are always on screen without hunting for them. That is not a
+   nicety here: this is the one sheet whose buttons cannot be allowed to sit below a fold. */
+.franchise-offer{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;
+  box-sizing:border-box;margin-top:8px;padding:8px 11px;border-radius:15px;text-align:left;
+  background:linear-gradient(135deg,#eef6ff,#fff);border:1px solid #6fa8dc38;box-shadow:inset 0 1px 0 #fff}
+.franchise-offer-copy{display:flex;flex-direction:column;gap:2px;min-width:0}
+.franchise-offer-kicker{font:950 10px/1 system-ui,sans-serif;color:#2f6ea8;letter-spacing:.06em}
+.franchise-offer-sub{font:800 11px/1.25 system-ui,sans-serif;opacity:.72;min-width:0}
+ /* 48px, not 44: .card animates in from transform:scale(.92), and the sibling .meta-reward-btn is
+    48 for the same reason -- a 44px box in a 0.92-scaled card measures 40 under a certification
+    audit. The two buttons in this row must also read as one control set. */
+.franchise-offer-btn{min-height:48px;min-width:88px;flex:none;border:0;border-radius:13px;padding:0 12px;
+  background:linear-gradient(135deg,#6fa8dc,#4b86bd);color:#fff;font:950 13px/1 system-ui,sans-serif;
+  box-shadow:0 4px 0 #3a6c9a,0 8px 18px #3a6c9a29;display:flex;align-items:center;justify-content:center;gap:7px;cursor:pointer}
+.franchise-offer-ico{width:18px;height:18px;display:inline-flex}
+.franchise-offer-ico svg{width:100%;height:100%;display:block}
+@media(max-width:300px){.franchise-offer{padding:7px 8px}.franchise-offer-sub{display:none}.franchise-offer-btn{min-width:0;padding:0 10px}}
+
+.fr-root{position:fixed;inset:0;z-index:78;display:grid;place-items:center;padding:12px;box-sizing:border-box;font-family:system-ui,sans-serif}
+.fr-backdrop{position:absolute;inset:0;background:#211a178c;backdrop-filter:blur(5px)}
+.fr-card{position:relative;width:min(430px,100%);max-height:min(660px,92vh);box-sizing:border-box;
+  display:flex;flex-direction:column;gap:10px;overflow:hidden;border-radius:24px;padding:14px;
+  background:linear-gradient(180deg,#fff8eb,#fff1df);color:var(--ink);
+  box-shadow:0 24px 70px #0006;border:1px solid #fff}
+.fr-head{flex:none;display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:48px}
+.fr-title{font:950 18px/1.05 system-ui,sans-serif;letter-spacing:-.01em;min-width:0}
+.fr-close{width:48px;height:48px;flex:none;padding:0;border:0;border-radius:50%;background:#49372c10;
+  color:var(--ink);font:800 22px/1 system-ui,sans-serif;cursor:pointer}
+.fr-body{flex:1 1 auto;min-height:0;overflow-y:auto;touch-action:pan-y;overflow-x:hidden;-webkit-overflow-scrolling:touch;
+  display:flex;flex-direction:column;gap:10px}
+.fr-lead{margin:0;font:800 13px/1.4 system-ui,sans-serif;opacity:.8}
+.fr-foot{margin:0;font:800 11px/1.4 system-ui,sans-serif;opacity:.55}
+.fr-section{display:flex;flex-direction:column;gap:6px;padding:10px 11px;border-radius:16px;
+  background:#ffffffa8;border:1px solid #5f45300e}
+.fr-section.is-gain{background:linear-gradient(135deg,#fff6dd,#fff);border-color:#e6b74c38}
+.fr-section.is-reset{background:linear-gradient(135deg,#fff0ec,#fff);border-color:#e4694f2e}
+.fr-section-title{font:950 10px/1 system-ui,sans-serif;letter-spacing:.07em;text-transform:uppercase;opacity:.6}
+/* minmax(0,1fr) on the text column is what stops a long line pushing the row past a 280px frame. */
+.fr-line{display:grid;grid-template-columns:22px minmax(0,1fr);align-items:center;gap:9px}
+.fr-line-icon{width:22px;height:22px;display:block}
+.fr-line-icon svg{width:100%;height:100%;display:block}
+.fr-line-text{font:800 12px/1.35 system-ui,sans-serif;min-width:0;overflow-wrap:anywhere}
+.fr-actions{flex:none;display:flex;align-items:stretch;gap:9px}
+/* Both are >= 44px tall. Decline is deliberately the calmer of the two and stays first in the DOM,
+   so a keyboard/screen-reader pass reaches "Not now" before the destructive control. */
+.fr-decline{flex:1 1 0;min-height:48px;border:0;border-radius:14px;padding:0 12px;background:#49372c12;
+  color:var(--ink);font:950 13px/1 system-ui,sans-serif;cursor:pointer}
+.fr-accept{flex:1.3 1 0;min-height:48px;border:0;border-radius:14px;padding:0 12px;
+  background:linear-gradient(135deg,#6fa8dc,#4b86bd);color:#fff;font:950 13px/1.1 system-ui,sans-serif;
+  box-shadow:0 4px 0 #3a6c9a,0 8px 18px #3a6c9a29;cursor:pointer}
+/* Armed = the next tap resets the café. Red, not blue: the colour changes with the consequence. */
+.fr-accept.is-armed{background:linear-gradient(135deg,#f08a72,#d9573c);box-shadow:0 4px 0 #a83f2c,0 8px 18px #a83f2c33}
+.fr-accept:disabled,.fr-decline:disabled{opacity:.6;cursor:default}
+@media(max-width:340px){
+  .fr-root{padding:6px}
+  .fr-card{padding:10px;gap:8px;border-radius:20px}
+  .fr-title{font-size:15px}
+  .fr-section{padding:8px 9px}
+  .fr-line-text{font-size:11px}
+  .fr-actions{flex-direction:column}
+}
+@media(max-height:430px){
+  .fr-card{max-height:96vh;padding:10px;gap:7px}
+  .fr-lead{font-size:12px}
+  .fr-section{padding:8px 9px;gap:5px}
+}

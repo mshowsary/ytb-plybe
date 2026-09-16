@@ -1,0 +1,50 @@
+name: Pet Cafe Responsive Certification
+
+# Full browser evidence belongs at an intentional batch/release checkpoint. Fast Checks remain the
+# ordinary development gate per AGENTS.md; this suite is preserved unchanged and available on demand.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: pet-cafe-responsive-cert-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  responsive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: pet-cafe-tycoon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: pet-cafe-tycoon/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Responsive certification audit (13 viewports)
+        run: node tools/responsive-audit.js --shots
+      - name: Upload compact audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: responsive-audit-${{ github.sha }}
+          path: pet-cafe-tycoon/reports-responsive/audit.json
+          if-no-files-found: warn
+          retention-days: 3
+      - name: Upload screenshot evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: responsive-screens-${{ github.sha }}
+          path: pet-cafe-tycoon/shots/responsive/
+          if-no-files-found: warn
+          retention-days: 3
