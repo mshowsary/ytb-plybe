@@ -5,7 +5,8 @@
 import { jobTarget } from '../sim/jobs.js';
 import { refillGuideTarget } from '../sim/refillGuide.js';
 import { coachEscalationStage } from '../sim/mechanicLearning.js';
-import { chevronMesh } from '../render/props.js';
+import { createGuidePath } from '../render/guidePath.js';
+import { findPath, nearestFree, idx, cx, cz } from '../sim/nav.js';
 import {
   registerIcon, displayIcon, beanIcon, sackIcon, broomIcon, leafIcon, gearIcon, bakeIcon,
   coinIcon, handIcon, returnIcon,
@@ -36,9 +37,30 @@ const CAPTION_LABEL = {
   clean: 'Clean a table', harvest: 'Pick ripe fruit', build: 'Build here', bake: 'Bake',
   collect: 'Collect the cash', deliver: 'Deliver what you are carrying', return: 'Return what you are carrying',
 };
-const HOVER_Y = 2.4, BOB_AMP = 0.15, BOB_HZ = 2;
+const HOVER_Y = 2.6;
 const RECOMPUTE_INTERVAL = 0.25;
 const PROGRESS_RESET_METERS = 0.18;
+// The floor trail is re-routed when the target changes, when the owner has wandered this far from
+// where the last route began, or on this cadence regardless (furniture and guests move).
+const ROUTE_REPLAN_METERS = 0.9, ROUTE_REPLAN_SECONDS = 0.6;
+// The first-touch hint shows until the owner has actually moved this far from where they spawned.
+// A tap alone (the audio unlock) does not count: the point is to teach the drag.
+const FIRST_MOVE_METERS = 0.6;
+const EDGE_MARGIN = 34;
+
+// Where the owner should STAND for a given target: a station's front spot, its cash spot for a
+// collect job, or the point itself for a build plot. The beacon hovers over the object; the ring
+// and the end of the trail mark the spot.
+function standSpotFor(world, target) {
+  if (!target) return null;
+  if (target.kind === 'collect') return { x: target.x, z: target.z };
+  for (const st of world.stations.values()) {
+    if (!st.front) continue;
+    if (Math.abs(st.x - target.x) < 0.05 && Math.abs(st.z - target.z) < 0.05) return { x: st.front.x, z: st.front.z };
+    if (Math.abs(st.front.x - target.x) < 0.05 && Math.abs(st.front.z - target.z) < 0.05) return { x: st.front.x, z: st.front.z };
+  }
+  return { x: target.x, z: target.z };
+}
 
 function cueKey(target, guided) {
   if (!target) return '';
@@ -54,8 +76,24 @@ function reducedMotion() {
 }
 
 export function createObjective(G, S, ctx) {
-  const { world, scene, fx, els } = ctx;
-  const chevron = chevronMesh(); chevron.visible = false; scene.add(chevron);
+  const { world, scene, fx, els, input } = ctx;
+  const guide = createGuidePath(scene);
+  // An arrow pinned to the screen edge whenever the beacon is off screen — the phone-portrait
+  // camera frames barely 10 m, so the thing the owner is being sent to is often outside it.
+  const edge = document.createElement('div'); edge.className = 'edgeArrow hidden'; edge.setAttribute('aria-hidden', 'true');
+  edge.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 3l8 9h-5v9H9v-9H4z" fill="#FFD84D" stroke="#3B2E2A" stroke-width="1.6" stroke-linejoin="round"/></svg>';
+  els.fx.appendChild(edge);
+  // The one thing a brand-new player is never told anywhere else: that they drag to walk. A hand
+  // that drags a short way and springs back, beside the owner, until their first real step.
+  const touch = document.createElement('div'); touch.className = 'touchHint hidden';
+  touch.setAttribute('role', 'img'); touch.setAttribute('aria-label', 'Drag anywhere to walk');
+  touch.innerHTML = '<span class="touchHintHand">' + handIcon() + '</span><span class="touchHintTrack"></span>';
+  els.fx.appendChild(touch);
+  const spawn = { x: G.P ? G.P.x : 0, z: G.P ? G.P.z : 0 };
+  let moved = false;
+  const routeCells = new Int32Array(4096);
+  const routePts = [];
+  let routeKey = '', routeT = 0, routeFromX = 0, routeFromZ = 0;
   const caption = document.createElement('div'); caption.className = 'objCaption hidden';
   // The glyph is drawn; the sentence it replaced rides on aria-label, so the caption stays a status
   // announcement rather than an unlabelled decoration.
@@ -97,20 +135,29 @@ export function createObjective(G, S, ctx) {
       // contextual hints remain suppressed even during the natural/no-overlay phase.
       G.objectiveCueKind = target ? (guided ? 'guided' : target.kind || null) : null;
 
+      // First-touch hint: only in the opening lesson, only until the owner has taken a real step.
+      if (!moved && G.P && Math.hypot(G.P.x - spawn.x, G.P.z - spawn.z) > FIRST_MOVE_METERS) moved = true;
+      const wantTouch = !moved && !!(G.intro && G.intro.active) && !(input && input.active);
+      if (wantTouch) {
+        // Below and beside the owner's feet, never over their body.
+        fx.project(G.P.x, 0, G.P.z, tmp);
+        touch.style.left = (tmp.sx + 26) + 'px'; touch.style.top = (tmp.sy + 46) + 'px';
+      }
+      touch.classList.toggle('hidden', !wantTouch);
+
+      guide.update(dt, fx.camera, reducedMotion());
+
       if (!target) {
         resetHesitation();
         G.objectiveCueStage = 'natural';
-        if (chevron.visible) chevron.visible = false;
+        guide.hide(); edge.classList.add('hidden');
         caption.classList.add('hidden');
         return;
       }
 
-      // A first-use interaction hand may replace the arrow, but never coexist with it.
-      if (G.coachCueVisible) {
-        chevron.visible = false;
-        caption.classList.add('hidden');
-        return;
-      }
+      // A first-use interaction hand may replace the beacon, but never coexist with it. The trail
+      // on the floor stays: it is where the hand is pointing, drawn on a surface the hand is not on.
+      const coachOwnsBeacon = !!G.coachCueVisible;
 
       let stage = 'route';
       if (!guided) {
@@ -134,23 +181,59 @@ export function createObjective(G, S, ctx) {
       // Natural world state is the first teacher. Do not overlay another instruction until the
       // player has actually hesitated.
       if (!guided && stage === 'natural') {
-        chevron.visible = false;
+        guide.hide(); edge.classList.add('hidden');
         caption.classList.add('hidden');
         return;
       }
 
-      chevron.visible = true;
-      const animated = stage !== 'static';
-      const y = HOVER_Y + (animated ? Math.sin(t * Math.PI * 2 * BOB_HZ) * BOB_AMP : 0);
-      chevron.position.set(target.x, y, target.z);
-      const cam = fx.camera;
-      chevron.rotation.y = Math.atan2(cam.position.x - target.x, cam.position.z - target.z);
+      // Route the trail along the same grid the guests walk, so it goes AROUND the counters rather
+      // than through them. Replanned only when something material changed.
+      const stand = standSpotFor(world, target);
+      const key = cueKey(target, guided);
+      routeT -= dt;
+      const strayed = Math.hypot(G.P.x - routeFromX, G.P.z - routeFromZ) > ROUTE_REPLAN_METERS;
+      if (key !== routeKey || routeT <= 0 || strayed) {
+        routeKey = key; routeT = ROUTE_REPLAN_SECONDS; routeFromX = G.P.x; routeFromZ = G.P.z;
+        routePts.length = 0;
+        const g = world.grid;
+        if (g && stand) {
+          const from = nearestFree(g, idx(g, G.P.x, G.P.z), 3), to = nearestFree(g, idx(g, stand.x, stand.z), 3);
+          const n = from >= 0 && to >= 0 ? findPath(g, from, to, 3, routeCells) : 0;
+          routePts.push({ x: G.P.x, z: G.P.z });
+          // Skip the first cell (it is under the owner) and the last (the stand spot replaces it).
+          for (let i = 1; i < n - 1; i++) routePts.push({ x: cx(g, routeCells[i]), z: cz(g, routeCells[i]) });
+          routePts.push({ x: stand.x, z: stand.z });
+        }
+        guide.show({
+          points: routePts,
+          target: { x: target.x, z: target.z, y: HOVER_Y },
+          standSpot: stand,
+          showBeacon: !coachOwnsBeacon,
+        });
+      } else if (guide.beacon.visible === coachOwnsBeacon) {
+        guide.beacon.visible = !coachOwnsBeacon;
+      }
+
+      // Off-screen: pin an arrow to the edge of the screen, pointing at the target.
+      fx.project(target.x, HOVER_Y, target.z, tmp);
+      if (!tmp.visible) {
+        const w = innerWidth, h = innerHeight;
+        const dx = tmp.nx * (w / 2), dy = -tmp.ny * (h / 2);
+        const k = Math.min((w / 2 - EDGE_MARGIN) / Math.max(1e-3, Math.abs(dx)), (h / 2 - EDGE_MARGIN) / Math.max(1e-3, Math.abs(dy)));
+        const ex = w / 2 + dx * k, ey = h / 2 + dy * k;
+        edge.style.left = ex + 'px'; edge.style.top = ey + 'px';
+        edge.style.setProperty('--rot', (Math.atan2(dy, dx) * 180 / Math.PI + 90) + 'deg');
+        edge.classList.remove('hidden');
+      } else edge.classList.add('hidden');
+
+      if (coachOwnsBeacon) { caption.classList.add('hidden'); return; }
 
       // The 3s stage is visual-only. At ~7s the same single cue earns a compact route word. Explicit
       // intro/context guidance remains immediately captioned because it is already an authored lesson.
       const showWord = guided || stage === 'route';
       if (!showWord) { caption.classList.add('hidden'); return; }
-      fx.project(target.x, y - 0.4, target.z, tmp);
+      const y = HOVER_Y;
+      fx.project(target.x, y + 0.75, target.z, tmp);
       // `captionIcon` is the carry system's concrete destination glyph; `kind` is the routine job.
       // The old `target.caption` string is still carried on G.contextGuide (tools/production-smoke.js
       // reads it as diagnostics) but is never drawn any more.

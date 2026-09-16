@@ -90,10 +90,24 @@ export function createScene(canvas) {
     place();
   };
 
+  // A short dolly-in and back — the "moment" a build or an unlock deserves. Not a takeover: the
+  // camera keeps following the owner throughout, it just leans in for `hold` seconds and eases
+  // back out. Any joystick input releases it early, so a player who is already walking on is never
+  // held. Disabled entirely under prefers-reduced-motion.
+  let punchZoom = 1, punchGoal = 1, punchT = 0;
+  S.punch = (zoom = 0.84, hold = 1.1) => {
+    try { if (matchMedia('(prefers-reduced-motion: reduce)').matches) return; } catch (_) { /* no matchMedia */ }
+    punchGoal = zoom; punchT = hold;
+  };
+  S.releasePunch = () => { punchT = 0; punchGoal = 1; };
+
   function place(dt = 0) {
     if (shakeAmt > 0) { shakeAmt *= Math.exp(-9 * dt); if (shakeAmt < 0.0005) shakeAmt = 0; }
+    if (punchT > 0) { punchT -= dt; if (punchT <= 0) punchGoal = 1; }
+    punchZoom = damp(punchZoom, punchGoal, punchGoal < 1 ? 5 : 3, dt);
+    const dist = S.dist * punchZoom;
     const cp = Math.cos(PITCH), sp = Math.sin(PITCH);
-    camera.position.set(target.x + Math.sin(YAW) * cp * S.dist, target.y + sp * S.dist, target.z + Math.cos(YAW) * cp * S.dist);
+    camera.position.set(target.x + Math.sin(YAW) * cp * dist, target.y + sp * dist, target.z + Math.cos(YAW) * cp * dist);
     if (shakeAmt > 0) {
       const ang = Math.random() * Math.PI * 2;
       camera.position.x += Math.cos(ang) * shakeAmt;

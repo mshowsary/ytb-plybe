@@ -117,6 +117,14 @@
   ],
   "visual": [
     {
+      "name": "First minute on a phone: trail, beacon, ring, edge arrow, drag hint",
+      "command": [
+        "node",
+        "tools/first-minute-smoke.js"
+      ],
+      "timeoutMs": 600000
+    },
+    {
       "name": "Browser visual smoke",
       "command": [
         "node",

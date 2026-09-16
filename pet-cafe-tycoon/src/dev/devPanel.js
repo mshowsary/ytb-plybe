@@ -10,6 +10,7 @@ import { itemFor } from '../render/props.js';
 import { pickSavingTarget } from '../ui/hud.js';
 import { discoverPet, petKey, PET_SPECIES, PET_PROFILES } from '../sim/petBook.js';
 import { renderPetPortrait } from '../render/portrait.js';
+import { findPath, nearestFree, idx, cx, cz } from '../sim/nav.js';
 
 // Median gross sales per day, from the program plan's balance table. A day advanced by this panel
 // gets topped up to "a plausible result" for its day number rather than being settled at whatever
@@ -144,6 +145,19 @@ export function installDevPanel(G, S, platform) {
       return O.items.length;
     },
     supply(kind) { G.owner?.clearItems(); G.owner?.setCarryProps(kind, 0); for (let i = 0; i < 20; i++) G.update(0.05); },
+    // Walkable waypoints from the owner to (x, z), via the same A* the guests use. Lets a capture
+    // script play the first minutes the way a new player would — following whatever the game points
+    // at — without wedging on furniture the way a straight-line steer does.
+    route(x, z) {
+      const g = G.world.grid; if (!g) return [];
+      const from = nearestFree(g, idx(g, G.P.x, G.P.z), 3), to = nearestFree(g, idx(g, x, z), 3);
+      if (from < 0 || to < 0) return [];
+      const out = new Int32Array(g.w * g.h);
+      const n = findPath(g, from, to, 3, out);
+      const pts = [];
+      for (let i = 0; i < n; i++) pts.push({ x: cx(g, out[i]), z: cz(g, out[i]) });
+      return pts;
+    },
     // The photo booth's polaroid and the Paw Book both draw a pet through ctx.renderPortrait. This
     // returns the same data URL so a capture script can tell "the preview is blank" from "the
     // preview never ran" without staging a whole guest session.

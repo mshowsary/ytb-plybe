@@ -69,6 +69,10 @@ const SELF_POSITIONED_FX = new Set([
   'fcoin', 'fbill',
   'mystery-float-chip', 'speed-build-chip', 'rare-visitor-chip', 'golden-shot-chip',
   'build-intent-progress',
+  // Guidance (2026-09-17): the screen-edge arrow toward an off-screen target and the first-touch
+  // drag hand. Both compute their own screen positions in systems/objective.js and are pure
+  // pictures with no tap target, so the label solver has nothing to nudge or hide.
+  'edgeArrow', 'touchHint',
 ]);
 
 // Mirrors NUDGE_STEPS in src/ui/labelLayout.js. Pinned here on purpose: these are the discrete

@@ -68,6 +68,13 @@ export function createZones(G, S, ctx) {
     zv.ghost.visible = true; zv.ghost.scale.setScalar(1); zv.revealAnticipation = 0;
     zv.price.remove(); zv.arm.remove();
     audio.play('build');
+    // The moment. A build is the biggest thing the owner does and it used to be a 150 ms blink:
+    // the camera now leans in on the new plot for a second and eases back, while the station pops
+    // in with its own overshoot (visuals.js) under a burst. Any joystick input releases the camera
+    // early, so a player already walking on is never held (see S.releasePunch in update below).
+    S.punch(0.84, 1.1);
+    fx.burst(zv.z.x, 0.9, zv.z.z, '#FFD84D', 16);
+    fx.burst(zv.z.x, 0.6, zv.z.z, '#7FD69A', 10);
   }
 
   function syncAll() {
@@ -95,6 +102,7 @@ export function createZones(G, S, ctx) {
     syncAll,
     update(dt) {
       const speed = Math.hypot(P.vx || 0, P.vz || 0);
+      if (speed > 0.6 && S.releasePunch) S.releasePunch();
       // Recomputed at most once per frame, not per zone: world.activeZoneList tops out around two
       // dozen reachable plots, so re-deriving "which one the wallet ring is already saving toward"
       // here is cheap, and it is the one plot besides wherever the owner is standing that still
