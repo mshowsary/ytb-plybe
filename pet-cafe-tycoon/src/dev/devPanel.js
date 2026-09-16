@@ -9,6 +9,7 @@ import { payZone } from '../sim/world.js';
 import { itemFor } from '../render/props.js';
 import { pickSavingTarget } from '../ui/hud.js';
 import { discoverPet, petKey, PET_SPECIES, PET_PROFILES } from '../sim/petBook.js';
+import { renderPetPortrait } from '../render/portrait.js';
 
 // Median gross sales per day, from the program plan's balance table. A day advanced by this panel
 // gets topped up to "a plausible result" for its day number rather than being settled at whatever
@@ -143,6 +144,13 @@ export function installDevPanel(G, S, platform) {
       return O.items.length;
     },
     supply(kind) { G.owner?.clearItems(); G.owner?.setCarryProps(kind, 0); for (let i = 0; i < 20; i++) G.update(0.05); },
+    // The photo booth's polaroid and the Paw Book both draw a pet through ctx.renderPortrait. This
+    // returns the same data URL so a capture script can tell "the preview is blank" from "the
+    // preview never ran" without staging a whole guest session.
+    portrait(petKeyStr = 'cat:0', poseId = null) {
+      const url = renderPetPortrait(S.renderer, { petKey: petKeyStr, poseId, accessoryId: null });
+      return { ok: !!url, bytes: url ? url.length : 0, head: url ? url.slice(0, 32) : null };
+    },
     // Every pet currently on stage, with its real world-space size. The owner photographed animals
     // the size of furniture; this says which ones and how big, instead of guessing from a still.
     // VISIBLE geometry only. THREE.Box3.setFromObject walks hidden children too, and a pet carries

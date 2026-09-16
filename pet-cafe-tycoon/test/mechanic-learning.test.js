@@ -100,7 +100,7 @@ test('Task 0.8: half credit and the refill tally survive the canonical save boun
   restored.creditRefill('refillBowl');
   // Batch 1 (task E1): mastery generalises to every refill lesson interactionCoach.js knows, not
   // just the original two — two refills of any supply also proves the ice cream lesson.
-  assert.deepEqual(restored.masteredKeys().sort(), ['refillBowl', 'refillCoffee', 'refillIce']);
+  assert.deepEqual(restored.masteredKeys().sort(), ['refillBath', 'refillBowl', 'refillCoffee', 'refillIce']);
 });
 
 test('Task 0.8: an untouched refill lesson adds nothing to the canonical payload', () => {
