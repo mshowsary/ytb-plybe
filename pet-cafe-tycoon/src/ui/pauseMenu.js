@@ -50,7 +50,7 @@ export function createPauseMenu(G, platform, routes = {}) {
         <button type="button" class="cafe-nav" data-page="settings"><strong>Settings</strong><span>Sound and comfort</span></button>
       </div></div>
       <div class="pause-view hidden" data-view="pets"><div class="cafe-page-head"><button class="cafe-back" type="button" aria-label="Back">‹</button><div class="cafe-page-title">Pets</div></div><div class="cafe-links"><button class="cafe-link" type="button" data-route="pets">Pet Visitor Book <span>Collection & album</span></button></div></div>
-      <div class="pause-view hidden" data-view="cafe"><div class="cafe-page-head"><button class="cafe-back" type="button" aria-label="Back">‹</button><div class="cafe-page-title">Café</div></div><div class="cafe-links"><button class="cafe-link" type="button" data-route="party">Party order <span class="party-route-state">No active order</span></button><div class="cafe-note">Walk up to a station or build marker to manage it in the café.</div></div></div>
+      <div class="pause-view hidden" data-view="cafe"><div class="cafe-page-head"><button class="cafe-back" type="button" aria-label="Back">‹</button><div class="cafe-page-title">Café</div></div><div class="cafe-links"><button class="cafe-link" type="button" data-route="party">Party order <span class="party-route-state">No active order</span></button><button class="cafe-link" type="button" data-route="social">Pet Social <span class="social-route-state">Opens on day 8</span></button><div class="cafe-note">Walk up to a station or build marker to manage it in the café.</div></div></div>
       <div class="pause-view hidden" data-view="journey"><div class="cafe-page-head"><button class="cafe-back" type="button" aria-label="Back">‹</button><div class="cafe-page-title">Journey</div></div><div class="cafe-links"><button class="cafe-link" type="button" data-route="journey">Café Journey <span>Days & mastery</span></button><button class="cafe-link" type="button" data-route="paw">Paw Rating <span>Next milestone</span></button><button class="cafe-link" type="button" data-route="calendar">Daily rewards <span>Calendar</span></button><button class="cafe-link" type="button" data-route="bonus">Available bonus <span class="bonus-route-state">None waiting</span></button></div></div>
       <div class="pause-view hidden" data-view="settings"><div class="cafe-page-head"><button class="cafe-back" type="button" aria-label="Back">‹</button><div class="cafe-page-title">Settings</div></div><div class="pause-settings"><div class="pause-row"><div class="pause-label">Music</div><button type="button" class="pause-toggle" data-setting="music"></button></div><div class="pause-row"><div class="pause-label">SFX</div><button type="button" class="pause-toggle" data-setting="sfx"></button></div><div class="pause-row"><div class="pause-label">Reduced motion</div><button type="button" class="pause-toggle" data-setting="reducedMotion"></button></div></div></div>
       <div class="pause-actions"><button type="button" class="pause-action" data-action="resume">RESUME</button></div>
@@ -90,6 +90,10 @@ export function createPauseMenu(G, platform, routes = {}) {
     const partyAvailable = routes.party?.available?.() === true;
     party.disabled = !partyAvailable;
     root.querySelector('.party-route-state').textContent = partyAvailable ? 'View progress' : 'No active order';
+    const social = root.querySelector('[data-route="social"]');
+    const socialAvailable = routes.social?.available?.() === true;
+    social.disabled = !socialAvailable;
+    root.querySelector('.social-route-state').textContent = socialAvailable ? 'Host for a prize' : 'Opens on day 8';
     const bonus = root.querySelector('[data-route="bonus"]');
     const bonusAvailable = routes.bonus?.available?.() === true;
     bonus.disabled = !bonusAvailable;
@@ -118,7 +122,7 @@ export function createPauseMenu(G, platform, routes = {}) {
     childObserver = new MutationObserver(() => {
       if (!child.classList.contains('hidden')) return;
       childObserver.disconnect(); childObserver = null;
-      root.classList.remove('hidden'); root.setAttribute('aria-hidden', 'false'); sync(); showView(name === 'pets' ? 'pets' : name === 'party' ? 'cafe' : 'journey');
+      root.classList.remove('hidden'); root.setAttribute('aria-hidden', 'false'); sync(); showView(name === 'pets' ? 'pets' : name === 'party' || name === 'social' ? 'cafe' : 'journey');
     });
     childObserver.observe(child, { attributes: true, attributeFilter: ['class'] });
   }

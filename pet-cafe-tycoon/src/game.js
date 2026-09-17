@@ -285,6 +285,7 @@ export function createGame(S, area, els, platform = null) {
     journey: { open: () => careerUI.open(), root: '.career-root' },
     paw: { open: () => pawUI.open(), root: '.paw-root' },
     party: { open: () => partyOrders.open(), root: '.party-root', available: () => partyOrders.available },
+    social: { open: () => petSocials.open(), root: '.social-root', available: () => petSocials.available },
   };
 
   let careerRefreshT = 0, dayTransitionPromise = null; hud.show();

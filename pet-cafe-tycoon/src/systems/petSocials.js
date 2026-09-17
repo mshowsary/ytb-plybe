@@ -9,20 +9,23 @@ import { cue, cueHtml } from '../ui/hud.js';
 export function createPetSocials(G,S,ctx) {
   G.meta.socials=normalizeSocials(G.meta.socials);
   const style=document.createElement('style');style.textContent=`
-  .social-launch{position:fixed;left:12px;top:350px;z-index:15;border:2px solid #fff7ee;border-radius:16px;background:#426f63;color:white;padding:10px 12px;min-height:46px;min-width:46px;font:850 13px/1 system-ui;box-shadow:0 4px 0 #25483f;max-width:166px;cursor:pointer}
+  .social-launch{position:fixed;left:calc(12px + env(safe-area-inset-left,0px));top:calc(68px + env(safe-area-inset-top,0px));z-index:15;border:2px solid #fff7ee;border-radius:16px;background:#426f63;color:white;padding:10px 12px;min-height:46px;min-width:46px;font:850 13px/1 system-ui;box-shadow:0 4px 0 #25483f;max-width:166px;cursor:pointer}
   .social-root{position:fixed;inset:0;z-index:76;background:#292037a6;backdrop-filter:blur(5px);display:grid;place-items:center;padding:14px;box-sizing:border-box}.social-root[hidden],.social-launch[hidden]{display:none}
   .social-panel{background:#fff7ea;color:#42332f;border-radius:26px;padding:22px;width:min(620px,100%);max-height:88vh;overflow:auto;box-sizing:border-box;font:14px/1.5 system-ui;box-shadow:0 18px 80px #20162966}.social-top{display:flex;justify-content:space-between;gap:12px;align-items:center}.social-top h2{font-size:27px;line-height:1.1;margin:6px 0}.social-close{width:46px;height:46px;flex:none;border:0;border-radius:50%;background:#eee0d0;font-size:24px;cursor:pointer}.social-kicker{font-size:10px;letter-spacing:.13em;color:#628c7c;font-weight:900}.social-tier{display:flex;gap:7px;flex-wrap:wrap;margin:16px 0}.social-tier button{flex:1;padding:10px;border:2px solid #ddcfc3;border-radius:13px;background:#fff;font-weight:800;min-height:46px;cursor:pointer}.social-tier button[aria-pressed=true]{background:#426f63;color:white;border-color:#426f63}.social-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.social-choice{border-radius:19px;background:linear-gradient(145deg,#fff,#f3e3d0);padding:12px;border:1px solid #e9d6c3;text-align:center;display:flex;align-items:center;flex-direction:column}.social-portrait{width:85px;height:93px}.social-choice h3{font-size:16px;margin:7px 0}.social-choice p{font-size:12px;color:#786256;flex:1}.social-menu svg{width:32px;height:32px}.social-host,.social-collect{min-height:46px;border:0;border-radius:12px;padding:10px;background:#785cc0;color:white;font-weight:900;cursor:pointer;width:100%}.social-host:disabled{background:#ddd1c4;color:#786a5d;cursor:default}.social-note{font-size:12px;color:#786256}.social-score{font-size:24px;font-weight:900;margin:16px 0}.social-track{height:12px;border-radius:9px;overflow:hidden;background:#e9dacb}.social-track div{height:100%;background:linear-gradient(90deg,#8c70ce,#e99aac);transition:width .2s}.social-medal{font-size:11px;color:#8a642d;font-weight:800}
   @media(max-width:520px){.social-panel{padding:17px}.social-grid{grid-template-columns:1fr}.social-choice{display:grid;grid-template-columns:70px 1fr;gap:4px 12px;text-align:left}.social-portrait{grid-row:1/5;width:70px;height:80px}.social-choice h3,.social-choice p{margin:0}.social-menu{display:none}.social-host{grid-column:1/-1}.social-launch{font-size:11px;max-width:135px}}
-  @media(max-height:520px){.social-launch{top:auto;bottom:18px;left:140px}.social-panel{max-height:94vh}.social-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+  @media(max-height:520px){.social-panel{max-height:94vh}.social-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
   body.meta-summary-open .social-launch{display:none}
   @media(prefers-reduced-motion:reduce){.social-track div{transition:none}}
   `;document.head.appendChild(style);
   const launch=document.createElement('button');launch.type='button';launch.className='social-launch';launch.hidden=true;document.body.appendChild(launch);
-  const root=document.createElement('div');root.className='social-root';root.hidden=true;root.innerHTML='<section class="social-panel" role="dialog" aria-modal="true" aria-label="Pet Socials"><div class="social-top"><div><div class="social-kicker">MAKE YOUR CAFÉ THE MEETING PLACE</div><h2>Pet Socials</h2></div><button type="button" class="social-close" aria-label="Close Pet Socials">×</button></div><div class="social-content"></div></section>';document.body.appendChild(root);
+  const root=document.createElement('div');root.className='social-root hidden';root.hidden=true;root.innerHTML='<section class="social-panel" role="dialog" aria-modal="true" aria-label="Pet Socials"><div class="social-top"><div><div class="social-kicker">MAKE YOUR CAFÉ THE MEETING PLACE</div><h2>Pet Socials</h2></div><button type="button" class="social-close" aria-label="Close Pet Socials">×</button></div><div class="social-content"></div></section>';document.body.appendChild(root);
   let tier=1,stamp='',lastLaunch='',lastDecor='';
-  const close=()=>{root.hidden=true;launch.focus();};root.querySelector('.social-close').onclick=close;
+  // The panel toggles the `hidden` CLASS as well as the attribute: the Café menu's route observer
+  // (ui/pauseMenu.js openRoute) watches the class to know when to bring the menu back.
+  const close=()=>{root.hidden=true;root.classList.add('hidden');if(!launch.hidden)launch.focus();};root.querySelector('.social-close').onclick=close;
+  const openPanel=()=>{ctx.input.reset();root.hidden=false;root.classList.remove('hidden');stamp='';render();root.querySelector('.social-close').focus();};
   root.onclick=e=>{if(e.target===root)close();};root.onkeydown=e=>{e.stopPropagation();if(e.key==='Escape')close();if(e.key==='Tab'){const buttons=[...root.querySelectorAll('button:not(:disabled)')],first=buttons[0],last=buttons.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}};
-  launch.onclick=()=>{if(G.userPaused||ctx.sheets.isOpen)return;ctx.input.reset();root.hidden=false;stamp='';render();root.querySelector('.social-close').focus();};
+  launch.onclick=()=>{if(G.userPaused||ctx.sheets.isOpen)return;openPanel();};
   const decor=new THREE.Group();S.scene.add(decor);
   const sets=SOCIALS.map(theme=>{
     const parts=[];
@@ -60,8 +63,12 @@ export function createPetSocials(G,S,ctx) {
       if(tickSocial(state,G.dayState.day,G.dayState.t)){ctx.hud.toast(cue([buntingIcon(),clockIcon(),crossIcon()],'Social ended, try a new plan next shift'));save('pet-social-expired');}
       const a=state.active;
       const decorKey=a?.id||'';if(decorKey!==lastDecor){sets.forEach((m,i)=>m.visible=SOCIALS[i].id===decorKey);lastDecor=decorKey;}
-      launch.hidden=G.dayState.day<8||G.userPaused||ctx.sheets.isOpen;
-      if(G.userPaused||ctx.sheets.isOpen)root.hidden=true;
+      // On the play field ONLY while a social is live (running, or its medal is waiting). An idle
+      // "host a social" card used to sit permanently over the café from day 8 — the one piece of
+      // feature furniture the calm HUD (ui/hudLayout.js) had not folded into the Café menu. Hosting
+      // is now reached from the menu's Café page, like party orders.
+      launch.hidden=G.dayState.day<8||G.userPaused||ctx.sheets.isOpen||!state.active;
+      if(ctx.sheets.isOpen){root.hidden=true;root.classList.add('hidden');}
       // Three states, three pictures rather than three sentences:
       //   idle    bunting + coin      -- press this and the terrace gets bunting and pays a prize
       //   running featured item, count/target, clock + seconds remaining
@@ -83,6 +90,8 @@ export function createPetSocials(G,S,ctx) {
       if(launch.getAttribute('aria-label')!==aria)launch.setAttribute('aria-label',aria);
       render();
     },
+    open(){if(ctx.sheets.isOpen)return;openPanel();},
+    get available(){return G.dayState.day>=8;},
     onSale(order){if(recordSocialSale(G.meta.socials,order,G.dayState.day,G.dayState.t)){ctx.hud.banner(cue([buntingIcon(),medalIcon(3),checkIcon()],'Pet social complete, collect your medal'),2200);ctx.audio.play('chime');save('pet-social-ready');}},
   };
 }

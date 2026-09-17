@@ -160,9 +160,13 @@ export const AREA1 = {
     { id: 'z_bowl',      x: 5.3,   z: 2.5,  price: 900,  adds: ['bowl1'],                                 requires: 'z_coffee', label: 'Pet treat bar' },
     { id: 'z_blender',   x: -3.5,  z: -3.6, price: 1150, adds: ['blender1', 'barSmoothie', 'bush1'],      requires: 'z_bowl',   label: 'Smoothie bar' },
     { id: 'z_garden',    x: 6.0,   z: 4.2,  price: 1400, adds: ['bush2', 'bush3'],                        requires: 'z_blender',label: 'Garden expansion' },
-    // z 3.4, not 4.3: at 4.3 this marker sat 0.7 m from z_terrace's (0.75, 5.0) and their footprints
-    // overlapped, so one standing spot paid into both plots. test/zone-spacing.test.js holds the line.
-    { id: 'z_seats2',    x: 0.8,   z: 3.4,  price: 1750, adds: ['seat3', 'seat4', 'seat5', 'seat6'],      requires: 'z_garden', label: 'Pet lounge' },
+    // Just in front of seat3, where the lounge's first table appears — 0.5 m short of its footprint,
+    // so an owner standing on the plot is not inside the table when it pops in. It used to sit at
+    // (0.8, 4.3), 0.7 m from z_terrace's marker with overlapping footprints, so one standing spot paid
+    // into both plots; then at (0.8, 3.4), on the paw rug in the café's main walkway 8 cm from where
+    // the owner spawns, where a player pausing mid-shift armed it without meaning to.
+    // test/zone-spacing.test.js holds the spacing line.
+    { id: 'z_seats2',    x: -3.0,  z: 4.8,  price: 1750, adds: ['seat3', 'seat4', 'seat5', 'seat6'],      requires: 'z_garden', label: 'Pet lounge' },
 
     // Batch 1 — the terrace chain (plan 3.1/7.1). z_terrace's own circle sits in the INTERIOR (the
     // region doesn't exist yet, so its cells are still blocked) just north of the pet lounge, by the

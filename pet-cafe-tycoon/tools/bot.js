@@ -724,6 +724,9 @@ while (G.dayState.day <= MAX_DAYS) {
         bathSessions: dayBathSessions, bathTips: dayBathTips,
         spaGuests: daySpaGuests, boutiqueBuys: dayBoutiqueBuys,
       });
+      // Machine-readable day rows for balance analysis (reported, never gated). Opt-in by env var so
+      // the default bot output and its certification use are unchanged.
+      if (process.env.BOT_DAYS_JSON) dayReport[dayReport.length - 1].walletEnd = G.coins;
       checkDayInvariants(completedDay, accounting.sale, G.coins);
       dayIceUnits = 0; dayRegister3Sales = 0; dayMissedSeats = 0; dayPhotoShots = 0; dayPhotoTips = 0;
       dayPhotographerShots = 0; dayGroomSessions = 0; dayGroomTips = 0; dayBathSessions = 0; dayBathTips = 0;
@@ -1061,4 +1064,5 @@ if (invariantCViolations > 0) { console.error(`INVARIANT C FAILED: ${invariantCV
 if (checkpointFail || !rushFrictionOk || outsideFriction >= 0.25 || avgLostPct < 4 || avgLostPct > 10 || !(daysToComplete >= 10 && daysToComplete <= 12)) {
   console.log('(WARN lines are balance targets, not hard failures; deterministic movement remains the hard gate.)');
 }
+if (process.env.BOT_DAYS_JSON) (await import('node:fs')).writeFileSync(process.env.BOT_DAYS_JSON, JSON.stringify(dayReport, null, 1));
 if (gateFail) process.exit(1);
