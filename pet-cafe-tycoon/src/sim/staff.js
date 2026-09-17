@@ -83,6 +83,23 @@ function wishedProduct(customers) {
 // buffer/timer/stock shape — see world.js's stepMachines), so it slots into the runner's existing
 // machine-source ranking for free.
 const SOURCE_TYPES = { oven: 1, coffee: 1, blender: 1, icecream: 1 };
+// The Barista owns the coffee lane OUTRIGHT while one is on staff.
+//
+// The owner's day-18 report: "the Runner and the Barista keep alternating on the coffee counter and
+// the coffee machine." They were both right to be there. systems/baristaWorker.js is deliberately
+// outside this Runner system so it can never drift into bakery work -- but nothing was stopping a
+// Runner drifting into ITS work, so the espresso machine had two employees ranking it, each
+// emptying the buffer the other was walking to, and the coffee display had two employees stocking
+// it. Two workers on one station is not a scheduling detail the player can see; it is the café
+// looking broken.
+//
+// `w.baristaOnDuty` is set by src/systems/staff.js from G.staff.barista each frame. Callers that
+// never set it (the headless economy bots, test/nav-fullhouse.test.js) are unaffected: undefined
+// means no barista, which is exactly what those fixtures model.
+const COFFEE_FAMILY = familyOf('coffee');
+function baristaLane(w, product) {
+  return !!(w && w.baristaOnDuty) && familyOf(product) === COFFEE_FAMILY;
+}
 // Task 4: a runner's source is whichever active production station — oven, coffee machine or
 // blender — currently holds the most ready stock, not just ovens.
 // M3 T6: `customers`, when passed, is preferred over raw stock — a runner that only ever chases
@@ -102,11 +119,20 @@ const SOURCE_TYPES = { oven: 1, coffee: 1, blender: 1, icecream: 1 };
 // (capacity - stock; 0 when there is no active display for that family, or it is already full),
 // tie-broken by source stock, and a source whose display need is 0 is skipped outright.
 function pickSource(w, customers, wantProduct, assigned, crew, self) {
-  // An assigned runner skips its source entirely while its OWN display is full — fetching a batch
-  // it provably cannot deliver is exactly what stranded it in front of the shelf. A sibling's batch
-  // already in transit counts as filled for this purpose (see committed below).
-  if (assigned && (!assigned.active || assigned.stock + committed(w, crew, self, assigned) >= assigned.capacity)) return null;
-  const want = wantProduct || (customers ? wishedProduct(customers) : null);
+  // Is this runner's OWN lane already looked after? Fetching a batch it provably cannot deliver is
+  // what stranded it in front of a full shelf; a sibling's batch already in transit counts as
+  // filled for this purpose (see committed below).
+  const ownSatisfied = !!assigned && (
+    !assigned.active
+    || baristaLane(w, assigned.product)
+    || assigned.stock + committed(w, crew, self, assigned) >= assigned.capacity
+  );
+  // An assignment is a PRIORITY, not a cage — the same rule holdDisplay already applies to a batch in
+  // hand. A runner whose own counter is topped up helps whichever lane needs it most instead of
+  // standing idle, and then walks back to its own counter to wait (see the 'idle' case). That is
+  // what keeps one runner on a five-counter café from leaving four counters dry, while the badge it
+  // wears and the counter it waits at still say plainly which lane is ITS lane.
+  const want = ownSatisfied ? null : (wantProduct || (customers ? wishedProduct(customers) : null));
   // M3 T6's wished-product preference, kept intact but now gated on that wish's display having
   // room: when it has not, fall through to the need ranking below (restock something that CAN be
   // delivered) instead of fetching into a full shelf.
@@ -118,15 +144,19 @@ function pickSource(w, customers, wantProduct, assigned, crew, self) {
     let best = null, bestStock = 0;
     for (const st of w.stations.values()) {
       if (!st.active || !SOURCE_TYPES[st.type] || !(st.stock > 0)) continue;
+      if (baristaLane(w, productOf(st))) continue;
       if (familyOf(productOf(st)) !== wantFam) continue;
       if (st.stock > bestStock) { best = st; bestStock = st.stock; }
     }
     if (best) return best;
   }
-  if (wantProduct) return null; // an assigned runner never falls back to a different product
+  // Falls through to the need ranking below for everyone: for an unassigned runner as it always
+  // did, and for an assigned one only once its own lane is satisfied (ownSatisfied above cleared
+  // `want`, so the branch just above could not have matched its own product).
   let best = null, bestNeed = 0, bestStock = 0;
   for (const st of w.stations.values()) {
     if (!st.active || !SOURCE_TYPES[st.type] || !(st.stock > 0)) continue;
+    if (baristaLane(w, productOf(st))) continue;
     const need = displayNeed(w, productOf(st), crew, self);
     if (need <= 0) continue; // its display is full (or gone): fetching from here achieves nothing
     if (need > bestNeed || (need === bestNeed && st.stock > bestStock)) { best = st; bestNeed = need; bestStock = st.stock; }
@@ -150,6 +180,7 @@ function displayFor(w, product) {
 function displayNeed(w, product, crew, self) {
   const ct = displayFor(w, product);
   if (!ct || !ct.active) return 0;
+  if (baristaLane(w, ct.product)) return 0;   // the Barista stocks this one
   return Math.max(0, ct.capacity - ct.stock - committed(w, crew, self, ct));
 }
 // How many items OTHER runners are already carrying toward `ct` right now. Without this, every
@@ -174,8 +205,19 @@ function committed(w, crew, self, ct) {
 // How many items this runner may pick up from a `product` source right now: its carry tier, clamped
 // to the free capacity of the display it will actually walk that batch to (its assigned one, else
 // the family match). See the 'loading' case for the measurement that motivated the clamp.
+// The display a fresh batch of `product` is bound for: this runner's own counter when that is where
+// this product belongs and it has room, otherwise the family match. It used to read the assigned
+// counter unconditionally, which returned 0 the moment an assigned runner helped another lane — so
+// it would walk to the oven and pick up nothing.
+function targetDisplay(w, s, product) {
+  if (s.assign) {
+    const own = w.stations.get(s.assign);
+    if (own && own.active && familyOf(own.product) === familyOf(product) && own.stock < own.capacity) return own;
+  }
+  return displayFor(w, product);
+}
 function loadCap(w, s, product, carryCap, crew) {
-  const ct = s.assign ? w.stations.get(s.assign) : displayFor(w, product);
+  const ct = targetDisplay(w, s, product);
   if (!ct || !ct.active) return 0;
   return Math.min(carryCap, Math.max(0, ct.capacity - ct.stock - committed(w, crew, s, ct)));
 }
@@ -305,7 +347,7 @@ function stepRunner(s, w, dt, carryCap, customers, crew) {
       // fall back to servicing something else (it services ONLY its assigned display).
       if (s.assign && (!assigned || !assigned.active)) { walkTo(s, s.spawn.x, s.spawn.z, w, dt); return; }
       if (s.items.length > 0) {
-        const ct = assigned || displayFor(w, s.items[0]);
+        const ct = targetDisplay(w, s, s.items[0]);
         // M3 T6: clear hasTarget before handing off to a genuinely new station — same fix
         // sim/customers.js applies on every reassignment (rebalance, register payment). Without
         // it, a mover mid-walk toward its PREVIOUS target (still hasTarget=true) gets silently
@@ -330,7 +372,12 @@ function stepRunner(s, w, dt, carryCap, customers, crew) {
       }
       const src = pickSource(w, customers, assigned ? assigned.product : null, assigned, crew, s);
       if (src) { s.mover.hasTarget = false; s.target = src.id; s.state = 'toOven'; return; }
-      walkTo(s, s.spawn.x, s.spawn.z, w, dt); // nothing to do: return to spawn and idle there
+      // Nothing to fetch. An ASSIGNED runner waits at its own counter rather than at the door:
+      // "which worker looks after which counter" is then something the player reads off the floor
+      // instead of out of a menu, and a topped-up lane looks staffed instead of abandoned. An
+      // unassigned one still idles at spawn, out of the walkways.
+      const post = assigned && assigned.front ? assigned.front : s.spawn;
+      walkTo(s, post.x, post.z, w, dt);
       return;
     }
     // Task 0.5 — waiting beside a full display. Walks to the wait spot once, then stands: no

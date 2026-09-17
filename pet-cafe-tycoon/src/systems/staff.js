@@ -6,6 +6,11 @@ import { staffLevelsWithRushCrew } from '../sim/rushCrew.js';
 import { snapshotStaffState, photographerSpawnAllowed } from '../sim/staffState.js';
 import { nextStaffDemoJob, STAFF_DEMO_SECONDS, STAFF_DEMO_MECHANICS } from '../sim/staffTeaching.js';
 import { createHuman } from '../render/human.js';
+import { runnerApronMesh } from '../render/barista.js';
+import { PRODUCTS } from '../sim/economyConfig.js';
+import { familyOf } from '../sim/economy.js';
+
+const COFFEE_FAMILY = familyOf('coffee');
 import { syncCarriedItems } from '../render/carriedItems.js';
 import { C } from '../render/palette.js';
 
@@ -101,6 +106,41 @@ export function createStaff(G, S, ctx) {
     return (G.staffList || []).filter(s => s.kind === 'runner').map(s => s.assign || '').join('|');
   }
 
+  // Every runner has a line.
+  //
+  // A runner hired from the desk used to start with no assignment at all, which in sim/staff.js
+  // means "service every counter by whichever is neediest this instant" — correct behaviour, and
+  // completely illegible from the outside. The owner's day-18 report: "the first Runner I hire,
+  // with no assignment, fills the cookies, cupcakes, smoothies, coffee, maybe ice cream too."
+  // Nothing on screen said why it went where it went, so it read as a worker running in circles.
+  //
+  // Every runner is given a lane now — a different one each, in counter order, so hiring the second
+  // runner visibly opens a second lane rather than doubling up on the first. The assignment stays a
+  // priority, not a cage (sim/staff.js pickSource): a runner whose own counter is topped up still
+  // helps the neediest lane, then walks back to its own counter to wait. What the player gets is a
+  // worker wearing their lane's colour, waiting at their own counter.
+  //
+  // Only ever fills a BLANK or now-impossible assignment. A player who deliberately puts two
+  // runners on cupcakes keeps both of them there.
+  function reconcileRunnerLanes() {
+    const runners = (G.staffList || []).filter(s => s.kind === 'runner');
+    if (!runners.length) return;
+    const lanes = (world.displays || []).map(id => world.stations.get(id))
+      .filter(st => st && st.active && !(world.baristaOnDuty && familyOf(st.product) === COFFEE_FAMILY));
+    if (!lanes.length) return;
+    const held = new Set();
+    for (const s of runners) {
+      const cur = s.assign ? world.stations.get(s.assign) : null;
+      if (cur && lanes.includes(cur)) held.add(cur.id); else s.assign = null;
+    }
+    for (const s of runners) {
+      if (s.assign) continue;
+      const free = lanes.find(d => !held.has(d.id));
+      const lane = free || lanes[0];
+      s.assign = lane.id; held.add(lane.id);
+    }
+  }
+
   // Batch 8 item 4: every worker gets the same following contact shadow a guest's human does.
   function shadowFor(group) {
     return S.contactShadows && S.contactShadows.add(group, { radius: 0.44, strength: 1.0, follow: true });
@@ -113,7 +153,10 @@ export function createStaff(G, S, ctx) {
       : null;
     const s = createStaffSim('runner', RUNNER_SPAWN, savedAssign); G.staffList.push(s);
     const human = createHuman(RUNNER_VARIANT, 'runner'); scene.add(human.group);
-    rec.set(s, { human, itemMeshes: [], px: s.x, pz: s.z, shadow: shadowFor(human.group) });
+    // The line badge: this runner wears the colour of the counter it looks after. See
+    // render/barista.js runnerApronMesh.
+    const apron = runnerApronMesh(); human.group.add(apron);
+    rec.set(s, { human, apron, apronKey: null, itemMeshes: [], px: s.x, pz: s.z, shadow: shadowFor(human.group) });
   }
   function spawnCashier() {
     // Walks in from the door like the others, then stepCashier sends it to its till.
@@ -201,6 +244,12 @@ export function createStaff(G, S, ctx) {
       // (see staffState.js's own comment) never materialises a worker with no home station.
       if (photographers < (G.staff.photographer | 0) && photographerSpawnAllowed(world.built)) spawnPhotographer();
 
+      // The Barista owns the coffee lane while one is on staff (sim/staff.js baristaLane). Read
+      // from the payroll rather than from the render worker, so it is true from the frame the hire
+      // is paid for, and so a headless caller that never sets it simply has no barista.
+      world.baristaOnDuty = (G.staff.barista | 0) > 0;
+      reconcileRunnerLanes();
+
       const sig = assignmentSig();
       if (assignmentSignature !== null && sig !== assignmentSignature && typeof G.requestCheckpoint === 'function') {
         G.requestCheckpoint('runner-assignment');
@@ -221,6 +270,13 @@ export function createStaff(G, S, ctx) {
         if (s.kind === 'runner') {
           syncCarriedItems(r.human.stack, r.itemMeshes, s.items);
           r.human.setCarry(r.itemMeshes.length);
+          // Recoloured only when the assignment actually changes.
+          const assigned = s.assign ? world.stations.get(s.assign) : null;
+          const key = assigned && assigned.active ? assigned.product : '';
+          if (r.apron && r.apronKey !== key) {
+            r.apronKey = key;
+            r.apron.setColor(key && PRODUCTS[key] ? PRODUCTS[key].color : '#FFF3E2');
+          }
         }
         // Program §6.3: the cleaner's arm actually wipes while the simulation says it is cleaning.
         // Presentation only — it reads s.state and never writes to the worker.
