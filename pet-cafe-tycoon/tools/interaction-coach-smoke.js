@@ -43,13 +43,19 @@ await page.evaluate(() => {
 });
 await page.waitForFunction(() => {
   const b = document.querySelector('.fbtn');
-  return b && !b.classList.contains('hidden') && b.textContent.trim() === 'UPGRADES';
+  // textContent concatenates the screen-reader label and the visible word ('UPGRADESUPGRADE'),
+  // so this matches rather than compares. It used to compare against 'UPGRADES' and had been
+  // timing out here — silently — since the button gained its own label span.
+  return b && !b.classList.contains('hidden') && /UPGRADE/.test(b.textContent);
 }, null, { timeout:5000 });
 
 // The coach intentionally does not flash immediately when the player merely crosses the trigger.
 await page.waitForTimeout(120);
 if (await page.locator('.interaction-coach:not(.hidden)').count()) throw new Error('interaction coach flashed before dwell threshold');
-await page.waitForFunction(() => document.querySelector('.interaction-coach') && !document.querySelector('.interaction-coach').classList.contains('hidden'), null, { timeout:2500 });
+// sim/mechanicLearning.js holds the cue back for COACH_PULSE_AFTER (3 s) of dwell, so 2.5 s was
+// never long enough. It went unnoticed because the assertion above this one had been failing
+// first ever since the action button gained its screen-reader label span.
+await page.waitForFunction(() => document.querySelector('.interaction-coach') && !document.querySelector('.interaction-coach').classList.contains('hidden'), null, { timeout:8000 });
 
 const shown = await page.evaluate(() => {
   const c = document.querySelector('.interaction-coach').getBoundingClientRect();

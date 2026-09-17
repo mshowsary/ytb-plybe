@@ -140,31 +140,38 @@ export function counterMesh() {
     part('rbox', [2.4, 1.0, 1.0, 0.08], C.cream, { y: 0.5 }),
     part('box', [2.5, 0.12, 1.1], C.wood, { y: 1.02, tex: 'wood' }),
     part('box', [2.2, 0.5, 0.06], C.coral, { y: 0.5, z: 0.52 }),
-    part('box', [2.2, 0.55, 0.42], '#DDF6FF', { y: 1.4, z: -0.27 }),       // glass display (back half)
-    part('box', [2.3, 0.06, 0.5], C.wood, { y: 1.7, z: -0.27, tex: 'wood' }),           // wood lid over glass
-    // Owner feedback: "cookies on the counter share the counter's colour — hard to see even in
-    // daylight." The wood top above is C.wood ('#D9A066'), the exact hex economyConfig.js's cookie
-    // used to be — a cookie sitting flush on it visually merged into the surface. A pale paper tray
-    // board breaks the two apart by VALUE (near-white vs. mid-tan) rather than relying only on the
-    // hue fix below, so it still reads even for the couple of products (see economyConfig.js) that
-    // stayed close to wood in hue. Sits flush on the wood top (top at y=1.02+0.06=1.08; this box is
-    // 0.03 thick centred at 1.095, so its own top is 1.11) — the item slots below are raised by that
-    // same 0.03 so every display item still sits ON the tray instead of clipping into it.
-    part('box', [2.2, 0.03, 0.9], '#FFFDF7', { y: 1.095, z: 0.26, tex: 'paper' }),
+    // The glass used to be a 0.42 m DEEP box standing on the back half of the counter top, with a
+    // wood lid over it. Together they ate 0.48 m of the 1.1 m top, which is why the item grid was
+    // crammed into the strip that was left and its rows came out 0.14 m apart — less than one cookie
+    // wide, so rows 2, 3 and 4 landed inside row 1 and the owner's report read "the second row is
+    // squeezed into the first, you can barely tell there are two rows". The glass is a thin BACK
+    // PANEL now and the lid is a cornice on top of it, which gives the whole top back to the display.
+    part('box', [2.3, 0.62, 0.06], '#DDF6FF', { y: 1.42, z: -0.5 }),      // glass back panel
+    part('box', [2.4, 0.08, 0.18], C.wood, { y: 1.77, z: -0.5, tex: 'wood' }),          // cornice
+    // Pale paper (near-white) against C.wood's mid-tan is what keeps a '#D9A066'-era cookie visible
+    // on a '#D9A066' counter top — the separation is by VALUE, so it holds for the couple of
+    // products (see economyConfig.js) that stayed close to wood in hue.
+    // Two deep steps, tops at 1.11 and 1.27. The case holds twelve at a glance and doubles UP, not
+    // back, as it is starred (see systems/visuals.js) — which is why two rows 0.42 m apart beat four
+    // rows crammed into the same top. Occlusion was never the problem at this camera (52 degrees
+    // down, a row further back clears the row in front of it easily). SCREEN CROWDING was: a 0.22 m
+    // smoothie stepped back only 0.14 m overlapped the smoothie in front of it outright. 0.42 m of
+    // depth plus a 0.16 m lift clears the tallest product this game sells with room to spare.
+    // The back step warms slightly so the two read as steps rather than one slab.
+    part('box', [2.24, 0.03, 0.32], '#FFFDF7', { y: 1.095, z: 0.39, tex: 'paper' }),
+    part('box', [2.24, 0.19, 0.64], '#FFF7EC', { y: 1.175, z: -0.10, tex: 'paper' }),
   ]));
-  // Final review fix: sized from DISPLAY_CAP_LEVELS' max (economy.js: [12,16,20,24]) — 24
-  // positions as 6 columns x 4 rows, spacing tightened (0.6->0.36 across x, 0.16->0.14 across z)
-  // so all 6 columns still fit the 2.4m top (same ~1.8m span, now 5 gaps instead of 3) and 4 rows
-  // still clear the front coral trim (z 0.52). Rows are ordered FRONT-first (r=0 at z=0.47, the
-  // row nearest the customer-facing edge, stepping back toward z=0.05 as r increases) and the
-  // loop fills a whole row (all 6 columns) before moving to the next one back, so
-  // systems/visuals.js's v.items[i] — which lights up index 0..st.items.length-1 in slot order —
-  // fills the visible front row first, exactly like the display filling up from what a customer
-  // actually sees. y raised 1.16->1.19 (+0.03, the tray board's own thickness added above) so
-  // items sit on the tray's top face (1.11) with the same ~0.08-0.005 clearance they always had
-  // above the bare wood — see the item geometries in itemGeoFor(), whose lowest point (the cupcake's
-  // cup, -0.075 local) is what that clearance was ever sized against.
-  g.slots = []; for (let r = 0; r < 4; r++) for (let c = 0; c < 6; c++) g.slots.push(new THREE.Vector3(-0.9 + c * 0.36, 1.19, 0.47 - r * 0.14));
+  // Twelve positions — DISPLAY_CAP_LEVELS' BASE (economy.js: [12,16,20,24]) — as 6 columns across
+  // two stepped rows. 0.36 m between columns clears the widest product the game sells (a coffee cup
+  // with its handle is 0.31 m). Each row sits 0.08 m above its own step's top face, the clearance
+  // itemGeoFor()'s lowest point (the cupcake's cup, -0.075 local) was always sized against.
+  // The upgrades above twelve do not add a third and fourth row, they stack a second layer on these
+  // same twelve — systems/visuals.js measures each product's own height and lifts layer 2 by it —
+  // so a starred case reads as a case piled high rather than as more rows crushed into the top.
+  // Rows stay FRONT-first (r=0 nearest the guest) and the loop fills a whole row before starting
+  // the next, so the stack, which lights up slots 0..stock-1 in order, fills the front first.
+  const ROW_Y = [1.19, 1.35], ROW_Z = [0.40, -0.02];
+  g.slots = []; for (let r = 0; r < 2; r++) for (let c = 0; c < 6; c++) g.slots.push(new THREE.Vector3(-0.9 + c * 0.36, ROW_Y[r], ROW_Z[r]));
   // small chalkboard bar on the front — its own mesh so setProduct can swap the color without rebuilding the merged counter geometry
   const barMat = new THREE.MeshToonMaterial({ color: new THREE.Color(PRODUCTS.cookie.color) });
   const bar = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.12, 0.04), barMat); bar.position.set(0.9, 0.72, 0.54); bar.receiveShadow = true; g.add(bar);
@@ -558,6 +565,33 @@ export function itemGeoFor(key) {
   } else if(key === 'treat') {
     parts.push(part('rbox',[.2,.07,.08,.025],color));
     for(const x of [-.1,.1]) for(const z of [-.04,.04]) parts.push(part('sph',[.057,8],color,{x,z,sy:.7}));
+  } else if (key === 'icecream') {
+    // Owner report, day 18: "the ice cream counter lacks details — they look like pieces of
+    // brownies." They WERE brownies. icecream, sundae and pupcup all fell through to the `else`
+    // below, which is the BROWNIE geometry, tinted with each product's own colour — so a case of
+    // #FFF0F5 ice cream rendered as a case of pale brownies with chocolate crumb on top.
+    // A waffle cone under a scoop, a drizzle and a cherry. Fabric grain reads as the cone's waffle
+    // at this size, the same trick the awning uses for canvas.
+    parts.push(part('cyl',[.098,.014,.17,12],'#DFA662',{y:.005,tex:'fabric'}));
+    parts.push(part('sph',[.108,10],color,{y:.125}));
+    parts.push(part('sph',[.075,9],'#F6A8C0',{y:.172,sy:.5}));
+    parts.push(part('sph',[.03,8],'#C83955',{y:.228}));
+  } else if (key === 'sundae') {
+    // The alt recipe on the same counter (world.js ALT_PRODUCT), so it has to read as a RICHER
+    // version of the cone at a glance: a footed glass, two scoops, sauce and a cherry.
+    parts.push(part('cyl',[.105,.052,.13,12],'#EAF6FF',{y:-.015,tex:'ceramic'}));
+    parts.push(part('cyl',[.07,.07,.02,12],'#EAF6FF',{y:-.075,tex:'ceramic'}));
+    parts.push(part('sph',[.094,10],color,{y:.075}));
+    parts.push(part('sph',[.076,10],'#FFF6FA',{y:.145}));
+    parts.push(part('sph',[.066,9],'#C4577E',{y:.178,sy:.42}));
+    parts.push(part('sph',[.03,8],'#C83955',{y:.222}));
+  } else if (key === 'pupcup') {
+    // A pet portion: a small paper cup, a dollop, and a biscuit bone standing in it so it is never
+    // mistaken for the guests' ice cream sold from the same terrace.
+    parts.push(part('cyl',[.086,.062,.11,12],'#FFF6E8',{y:-.02,tex:'paper'}));
+    parts.push(part('sph',[.084,10],color,{y:.048,sy:.85}));
+    parts.push(part('rbox',[.03,.075,.022,.01],'#C9853F',{y:.12,rz:.22}));
+    for (const s of [-1,1]) parts.push(part('sph',[.024,8],'#C9853F',{x:-.016*s,y:.12+.038*s}));
   } else {
     parts.push(part('rbox',[.27,.12,.25,.02],color),part('box',[.255,.025,.235],'#46291C',{y:.07}));
     for(const [x,z] of [[-.07,-.06],[.06,-.04],[0,.07]]) parts.push(part('box',[.04,.018,.03],'#E8C58B',{x,z,y:.09,ry:.4}));

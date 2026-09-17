@@ -1,15 +1,19 @@
 // tools/guidance-policy-smoke.js
 //
-// The owner's rule for guidance (2026-09-17): a demo the FIRST time, an indicator when you
-// hesitate, nothing forever. systems/objective.js resolves every target to a mode — walkthrough
-// (trail + beacon + ring), pointer (beacon only) or nothing — and this pins that resolution on a
-// day-4 café whose basics are already proven, with the café held quiet so each scenario is the only
-// errand on the floor:
-//   - nothing pending            -> nothing drawn
-//   - a proven chore, standing still -> nothing for ~3 s, a pointer until ~7 s, then a walkthrough
-//   - a chore never done before  -> a walkthrough at once
-//   - a plot affordable for the first time, nothing urgent -> one walkthrough, then never again
-//   - carrying on day 4, destination known -> a pointer; the same carry on day 1 -> a walkthrough
+// What guidance is allowed to draw, and when. systems/objective.js resolves every target to one of
+// three modes — walkthrough (trail + beacon + ring), pointer (beacon alone) or nothing — and this
+// pins that resolution on a day-4 café whose basics are already proven, with the café held quiet so
+// each scenario is the only errand on the floor.
+//
+// The contract, after the day-18 report ("demos are everywhere every day, including for things I
+// learned long ago; inconsistent big arrows"):
+//   - nothing pending                          -> nothing drawn
+//   - a proven chore, standing still            -> nothing for 6 s, then a POINTER, never a walkthrough
+//   - a chore never done before                 -> one walkthrough, at once
+//   - a plot the player can suddenly afford     -> nothing (it is an invitation, not an errand)
+//   - carrying something, destination known     -> nothing; a pointer only after 4 s of standing still
+//   - two errands of equal standing             -> the arrow commits to one instead of trading four
+//                                                  times a second (the "fast repetitive arc loop")
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -45,7 +49,8 @@ await new Promise(r => setTimeout(r, 800));
 
 const out = await page.evaluate(() => {
   const G = window.__game, S = window.__scene;
-  const vis = n => { let m = null; S.scene.traverse(o => { if (o.name === n) m = o; }); return !!m && m.visible; };
+  const find = n => { let m = null; S.scene.traverse(o => { if (o.name === n) m = o; }); return m; };
+  const vis = n => { const m = find(n); return !!m && m.visible; };
   const snap = () => ({ trail: vis('guide-trail'), beacon: vis('guide-beacon'), ring: vis('guide-ring'), kind: G.objectiveCueKind });
   const run = sec => { for (let i = 0; i < sec * 30; i++) { G._force = null; G.update(1 / 30); } };
   G.intro.step = 5; G.intro.active = false; G.intro.target = null;
@@ -56,8 +61,7 @@ const out = await page.evaluate(() => {
   }
   G.dayState.day = 4;
   G.P.x = 0; G.P.z = 0; G.P.vx = 0; G.P.vz = 0; G.coins = 0;
-  // Standing up the café walked onto plots, which counts as nudges; let that cooldown lapse.
-  for (let i = 0; i < 61 * 30; i++) { G._force = null; G.update(1 / 30); }
+  run(2);
   // Shelves full, machines fed, tables clean, bushes green, no guests: no errand but the one staged.
   const quiet = (leaveRoomOn = null) => {
     for (const st of G.world.stations.values()) {
@@ -72,25 +76,54 @@ const out = await page.evaluate(() => {
   const out = {};
   quiet(); run(1.5); out.idle = snap();
 
+  // A proven chore. Nothing at all while the player could still be on their way; a pointer only
+  // once they have genuinely stalled on it; never a walkthrough again.
   const bush = [...G.world.stations.values()].find(s => s.type === 'bush' && s.active);
   bush.stage = 3;
   run(1); out.routine1s = snap(); run(3); out.routine4s = snap(); run(4); out.routine8s = snap();
   quiet(); run(1);
 
+  // Two ripe bushes: two errands of identical standing. Sample where the beacon actually is, every
+  // frame, for four seconds, and count how often it jumps to a different place.
+  const bushes = [...G.world.stations.values()].filter(s => s.type === 'bush' && s.active).slice(0, 2);
+  for (const b of bushes) b.stage = 3;
+  run(8); // past STUCK_SECONDS so the pointer is up and its position is readable
+  let jumps = 0, last = null;
+  const beacon = find('guide-beacon');
+  for (let i = 0; i < 4 * 30; i++) {
+    G._force = null; G.update(1 / 30);
+    if (!beacon || !beacon.visible) continue;
+    const p = beacon.position;
+    if (last && Math.hypot(p.x - last.x, p.z - last.z) > 1.5) jumps++;
+    last = { x: p.x, z: p.z };
+  }
+  out.targetJumps = jumps;
+  out.competing = snap();
+  quiet(); run(1);
+
+  // A chore this player has never done: the one lesson.
   const seat = [...G.world.stations.values()].find(s => s.type === 'seat' && s.active);
   seat.dirty = true; run(0.6); out.firstClean = snap();
   quiet(); run(1);
 
-  G.coins = 100000; run(0.6); out.firstAffordable = snap();
-  // Let the walkthrough run out, then clear the target so hesitation resets, and offer the plots
-  // again: without the cooldown the NEXT plot would get a fresh walkthrough at once.
-  run(13); G.coins = 0; quiet(); run(1.5); G.coins = 100000; run(0.6); out.afterNudge = snap();
-  G.coins = 0; quiet(); run(1);
+  // Suddenly rich, with nothing urgent. A plot is an invitation; the price pill standing in the
+  // room is the whole of the invitation.
+  G.coins = 100000; run(0.6); out.affordable = snap();
+  run(4); out.affordable5s = snap();
+  G.coins = 0; quiet(); run(1.5);
 
-  quiet('dispCookie'); window.__dev.carry(3, 'cookie'); quiet('dispCookie'); run(0.6); out.carryDay4 = snap();
+  // Carrying. The destination is known but nothing is drawn for it.
+  quiet('dispCookie'); window.__dev.carry(3, 'cookie'); quiet('dispCookie');
+  run(1); out.carry1s = snap();
+  run(4); out.carry5s = snap();
+  out.carryDestination = G.contextGuide ? G.contextGuide.caption : null;
+
+  // ... and if the display fills while the owner is still walking, the guide re-answers rather
+  // than pointing at a counter that can no longer take the tray.
+  for (const st of G.world.stations.values()) if (st.type === 'display') st.stock = st.capacity;
+  run(1);
+  out.carryWhenFull = G.contextGuide ? G.contextGuide.kind : null;
   G.owner.clearItems(); quiet(); run(1);
-  G.dayState.day = 1;
-  quiet('dispCookie'); window.__dev.carry(3, 'cookie'); quiet('dispCookie'); run(0.6); out.carryDay1 = snap();
   return out;
 });
 await browser.close();
@@ -99,17 +132,25 @@ await new Promise(resolve => server.close(resolve));
 const none = s => !s.trail && !s.beacon && !s.ring;
 const pointer = s => !s.trail && s.beacon && !s.ring;
 const walk = s => s.trail && s.beacon && s.ring;
+const mode = s => (walk(s) ? 'walkthrough' : pointer(s) ? 'pointer' : none(s) ? 'nothing' : 'mixed');
 const expect = (name, ok, want) => { if (!ok) failures.push(name + ': expected ' + want + ', got ' + JSON.stringify(out[name])); };
 expect('idle', none(out.idle), 'nothing');
-expect('routine1s', none(out.routine1s), 'nothing (no hesitation yet)');
-expect('routine4s', pointer(out.routine4s), 'a pointer after ~3 s');
-expect('routine8s', walk(out.routine8s), 'a walkthrough after ~7 s');
+expect('routine1s', none(out.routine1s), 'nothing');
+expect('routine4s', none(out.routine4s), 'still nothing at 4 s');
+expect('routine8s', pointer(out.routine8s), 'a pointer once stalled, and only a pointer');
 expect('firstClean', walk(out.firstClean), 'a walkthrough for a chore never done');
-expect('firstAffordable', walk(out.firstAffordable) && out.firstAffordable.kind === 'build', 'a build walkthrough the first time a plot is affordable');
-expect('afterNudge', none(out.afterNudge), 'no build walkthrough for the next plot while the nudge cooldown runs');
-expect('carryDay4', pointer(out.carryDay4), 'a pointer for a known carry on day 4');
-expect('carryDay1', walk(out.carryDay1), 'a walkthrough for the same carry on day 1');
-for (const [k, v] of Object.entries(out)) console.log(k.padEnd(16) + (walk(v) ? 'walkthrough' : pointer(v) ? 'pointer' : none(v) ? 'nothing' : 'mixed').padEnd(12) + ' kind=' + v.kind);
+expect('affordable', none(out.affordable), 'nothing when a plot becomes affordable');
+expect('affordable5s', !walk(out.affordable5s), 'never a walkthrough for an affordable plot');
+expect('carry1s', none(out.carry1s), 'nothing while carrying to a known destination');
+expect('carry5s', pointer(out.carry5s), 'a pointer once the owner has stood still with full hands');
+if (!out.carryDestination) failures.push('carryDestination: the carry guide went blank while holding cookies');
+if (out.carryWhenFull !== 'return') failures.push('carryWhenFull: a full display should re-route the carry to RETURN, got ' + out.carryWhenFull);
+if (out.targetJumps > 3) failures.push('targetJumps: the arrow changed target ' + out.targetJumps + ' times in 4 s with two equal errands (the arc-loop flicker)');
+
+for (const [k, v] of Object.entries(out)) {
+  if (v && typeof v === 'object') console.log(k.padEnd(18) + mode(v).padEnd(12) + ' kind=' + v.kind);
+  else console.log(k.padEnd(18) + String(v));
+}
 if (failures.length) {
   console.error('\nguidance-policy-smoke FAILED:');
   for (const f of failures) console.error('  - ' + f);

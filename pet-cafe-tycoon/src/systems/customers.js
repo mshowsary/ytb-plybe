@@ -29,6 +29,10 @@ import { createPetMoment } from '../ui/petMoments.js';
 // Sim customers normally walk at 2.2 m/s. 2.8 leaves normal movement untouched while absorbing
 // any re-plan/rescue discontinuity into a short catch-up instead of exposing it as a visible warp.
 const GUEST_VISUAL_MAX_SPEED = 2.8;
+// How close the owner has to be to a pet before its name tag appears. 2.8 m is a little over
+// two floor tiles: close enough that only the pets you are actually standing among are named,
+// far enough that you can read a queue of two or three as you walk past it.
+const NAME_TAG_RADIUS = 2.8;
 
 let _bubbleSeq = 0;
 function makeBubble(els) {
@@ -51,7 +55,7 @@ function anonymousIdentity() {
   // All gameplay/render callers can stay branch-free. The anonymous overflow case owns no DOM and
   // therefore can never expose a duplicate name while still preserving the customer itself.
   return {
-    announce() {}, greetRegular() {}, setSeated() {}, setPlayBreak() {}, update() {}, remove() {},
+    announce() {}, greetRegular() {}, setSeated() {}, setNear() {}, setPlayBreak() {}, update() {}, remove() {},
   };
 }
 
@@ -397,6 +401,8 @@ export function createCustomers(G, S, ctx) {
         }
 
         const pp = r.pet.group.position;
+        // An ordinary name tag is a proximity read, not a permanent badge -- see ui/petMoments.js.
+        r.identity.setNear(Math.hypot(pp.x - G.P.x, pp.z - G.P.z) <= NAME_TAG_RADIUS);
         r.identity.update(dt, fx, pp.x, r.pet.height + 0.42, pp.z);
         r.lastState = c.state;
       }

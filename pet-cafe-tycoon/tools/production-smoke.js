@@ -65,9 +65,15 @@ for (const [tag, width, height, dpr] of viewports) {
     const beforePause = await page.evaluate(() => window.__game.dayState.t);
     await page.waitForTimeout(650);
     const afterPause = await page.evaluate(() => window.__game.dayState.t);
+    // The pause menu is paged now (ui/pauseMenu.js): the sound toggles live on the Settings page,
+    // not on the card the menu opens on. Clicking the toggle straight away had been timing out on
+    // an element that exists but is inside a hidden view.
+    await page.click('.cafe-nav[data-page="settings"]');
+    await page.waitForSelector('.pause-view[data-view="settings"]:not(.hidden)');
     await page.click('[data-setting="music"]');
     const musicOff = await page.evaluate(() => window.__game.settings.music === false && window.__audio.musicEnabled === false && window.__audio.sfxEnabled === true);
     await page.click('[data-setting="music"]');
+    await page.click('.pause-view[data-view="settings"] .cafe-back');
     await page.click('[data-action="resume"]');
     await page.waitForFunction(() => window.__game.userPaused === false);
     pauseState = { frozen: Math.abs(afterPause - beforePause) < 0.001, musicOff };
@@ -142,9 +148,13 @@ for (const [tag, width, height, dpr] of viewports) {
     rival: window.__game.goal?.rival,
   }));
 
-  // Batch 3: the ★ chip opens the Paw Rating now (a star for the star goal); Café Journey moved
-  // to the day pill, which is the control that already means 'the days so far'.
-  await page.click('#dayPill');
+  // The calm HUD (ui/hudLayout.js) keeps the day pill off the play field in normal play, so the
+  // Café Journey is reached the way a player reaches it: the pause menu's Journey page. Clicking
+  // #dayPill had been timing out on an element that exists but is never shown.
+  await page.click('.pause-btn');
+  await page.waitForFunction(() => !document.querySelector('.pause-root')?.classList.contains('hidden'));
+  await page.click('.cafe-nav[data-page="journey"]');
+  await page.click('[data-route="journey"]');
   await page.waitForFunction(() => !document.querySelector('.career-root')?.classList.contains('hidden'));
   const journeyBefore = await page.evaluate(() => ({
     days: document.querySelectorAll('.career-day').length,
@@ -171,6 +181,11 @@ for (const [tag, width, height, dpr] of viewports) {
   }
   await page.click('.career-close');
   await page.waitForFunction(() => document.querySelector('.career-root')?.classList.contains('hidden'));
+  // Closing a sheet that was opened FROM the pause menu returns to the pause menu (ui/pauseMenu.js
+  // openRoute), and the game is still paused behind it. Resume, or nothing below this line ticks.
+  await page.waitForFunction(() => !document.querySelector('.pause-root')?.classList.contains('hidden'));
+  await page.click('[data-action="resume"]');
+  await page.waitForFunction(() => window.__game.userPaused === false);
 
   await page.waitForTimeout(8000);
   const busy = await page.evaluate(() => {
@@ -281,7 +296,12 @@ for (const [tag, width, height, dpr] of viewports) {
     await page.evaluate(() => window.__game.setMove(null));
   }
 
-  await page.click('.meta-pawbook');
+  // Same as the Journey above: the calm HUD keeps the Pet Book button off the play field, so this
+  // opens it the way a player does, from the pause menu's Pets page.
+  await page.click('.pause-btn');
+  await page.waitForFunction(() => !document.querySelector('.pause-root')?.classList.contains('hidden'));
+  await page.click('.cafe-nav[data-page="pets"]');
+  await page.click('[data-route="pets"]');
   await page.waitForFunction(() => !document.querySelector('.meta-book-root')?.classList.contains('hidden'), null, { timeout: 3000 });
   const book = await page.evaluate(() => ({
     cards: document.querySelectorAll('.meta-pet-card').length,
@@ -291,6 +311,9 @@ for (const [tag, width, height, dpr] of viewports) {
   }));
   await page.screenshot({ path: path.join(shots, `06-book-${tag}.png`), fullPage: true });
   await page.click('.meta-book-close');
+  await page.waitForFunction(() => !document.querySelector('.pause-root')?.classList.contains('hidden'));
+  await page.click('[data-action="resume"]');
+  await page.waitForFunction(() => window.__game.userPaused === false);
 
   await page.evaluate(() => {
     const g = window.__game;
@@ -299,15 +322,16 @@ for (const [tag, width, height, dpr] of viewports) {
     const d = g.dayState; d.t = 239.99; d.phase = 'closing'; d._ended = false;
   });
   await page.waitForFunction(() => !!document.querySelector('.sheet-root .card'), null, { timeout: 5000 });
-  await page.waitForFunction(() => !!document.querySelector('.meta-rating') && !!document.querySelector('.career-result') && !!document.querySelector('.career-summary'), null, { timeout: 5000 });
-  await page.waitForTimeout(300);
+  // The six-module summary collage (.meta-rating / .career-result / .career-summary) was replaced
+  // by the one day-complete card in ui/daySummary.js; these selectors are its.
+  await page.waitForFunction(() => !!document.querySelector('.ds-card') && !!document.querySelector('.ds-earned-num'), null, { timeout: 5000 });
+  await page.waitForTimeout(1300); // let the hero count-up land
   const meta = await page.evaluate(() => ({
-    stars: document.querySelector('.meta-rating-stars')?.textContent || '', reward: !!document.querySelector('.meta-reward-btn'),
-    repSummary: !!document.querySelector('.meta-rep-summary'), repTitle: document.querySelector('.meta-rep-summary .meta-kicker')?.textContent || '',
-    careerResult: document.querySelector('.career-result-score')?.textContent || '',
-    cupText: document.querySelector('.career-summary-cup')?.textContent || '',
-    nextChase: document.querySelector('.career-next-chase')?.textContent || '',
-    perfectText: [...document.querySelectorAll('.cbody .srow-sub')].map(e => e.textContent).find(t => t.startsWith('Service:')) || '',
+    earned: document.querySelector('.ds-earned-num')?.textContent || '',
+    rows: document.querySelectorAll('.ds-row').length,
+    contract: !!document.querySelector('.ds-contract'),
+    bonus: document.querySelector('.ds-bonus')?.textContent.replace(/\s+/g, '') || '',
+    continueBtn: !!document.querySelector('.ds-card .continue'),
     bodyWidth: document.body.scrollWidth, viewportWidth: window.innerWidth,
   }));
   await page.screenshot({ path: path.join(shots, `07-summary-${tag}.png`), fullPage: true });
@@ -323,12 +347,13 @@ for (const [tag, width, height, dpr] of viewports) {
   const journeyBad = journeyBefore.days !== 7 || journeyBefore.masteries !== 5 || !journeyBefore.renovation || journeyBefore.renoButtonDisabled;
   const renovationBad = tag === 'small' && (!renovation || renovation.level !== 1 || renovation.spent !== 1800 || renovation.nextName !== 'Gallery Café');
   const goalBad = goalState.day !== 13 || goalState.kind !== 'streak' || goalState.target !== 10 || goalState.previous !== 9 || goalState.rival !== true;
-  // nextChase and perfectText are no longer asserted: .career-next-chase and the perfect line are
-  // both display:none in ui/career.js's own stylesheet (the icon-first pass removed that prose from
-  // the card), so requiring them could only ever fail. The remaining two are real and still checked.
-  const summaryBad = meta.careerResult !== 'WON ✓' || !meta.cupText;
+  // The day-complete card: the day's takings as the hero, three rows (one of them the contract),
+  // the rewarded bonus and Continue. sim/adPacing.js sizes the bonus at ~35% of the day.
+  const bonusCoins = Number(String(meta.bonus).replace(/[^\d]/g, ''));
+  const summaryBad = meta.earned !== (1180).toLocaleString('en-US') || meta.rows !== 3 || !meta.contract
+    || !meta.continueBtn || !(bonusCoins >= 1180 * 0.3 && bonusCoins <= 1180 * 0.4);
 
-  if (!info.platform || !info.reliefRoot || info.metaVersion !== CURRENT_SAVE_VERSION || !meta.stars || !meta.reward || !meta.repSummary || !busy.repLabel || !busy.petCount || book.cards !== PET_CARD_COUNT || book.found < 7 || overflow || proseLeak || interactionBad || buildBad || pauseBad || journeyBad || renovationBad || goalBad || summaryBad || errors.length) failed = true;
+  if (!info.platform || !info.reliefRoot || info.metaVersion !== CURRENT_SAVE_VERSION || !busy.repLabel || !busy.petCount || book.cards !== PET_CARD_COUNT || book.found < 7 || overflow || proseLeak || interactionBad || buildBad || pauseBad || journeyBad || renovationBad || goalBad || summaryBad || errors.length) failed = true;
   report.push({ tag, ...info, buildIntent, pauseState, goalState, journeyBefore, renovation, busy, book, interaction, ...meta, proseLeak, overflow, errors });
   await ctx.close();
 }

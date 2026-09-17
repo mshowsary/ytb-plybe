@@ -107,9 +107,26 @@ export function createStations(G, S, ctx) {
   // text.test.js scans every call to the cue helper in this file for stray words in cells).
   let ownerWipeCount = 0, cleanerHintShown = false;
 
-  let guideT = 0, guideText = null;
+  let guideT = 0, guideText = null, guideRefreshT = 0;
   function clearGuide() {
-    guideT = 0; guideText = null; G.contextGuide = null; hud.setHandsFull(null);
+    guideT = 0; guideText = null; guideRefreshT = 0; G.contextGuide = null; hud.setHandsFull(null);
+  }
+  // Where what you are holding belongs, RE-ANSWERED while you carry it rather than frozen at the
+  // moment you picked it up. The owner's report: "carrying cookies to a FULL cookie counter shows a
+  // demo telling me to deliver them there instead of suggesting RETURN." destinationFor() has always
+  // refused a full display (sim/interaction.js canDeliverTo requires stock < capacity) and falls
+  // through to the return crate -- but it was only ever consulted once, on pickup, so a display that
+  // filled up while you walked (a Runner stocking it, a guest buying the last slot) left the guide
+  // pointing at a counter that could no longer take the tray. Re-asking twice a second costs one
+  // pass over the station map and means the destination is always a place that will accept what is
+  // in your hands.
+  function refreshGuideDestination() {
+    const held = heldState(owner.items, carry);
+    if (!held) { clearGuide(); return; }
+    const target = destinationFor(world, held, P);
+    if (!target) { G.contextGuide = null; return; }
+    const label = destinationLabel(target);
+    G.contextGuide = { x: target.front.x, z: target.front.z, kind: target.type === 'return' ? 'return' : 'deliver', caption: label, captionIcon: destinationIcon(target), captionLabel: `Carry to ${label.toLowerCase()}` };
   }
   function guideCarry(text = null, seconds = 4, forceReturn = false) {
     const held = heldState(owner.items, carry);
@@ -392,7 +409,15 @@ export function createStations(G, S, ctx) {
       frameDt = dt;
       guideT = Math.max(0, guideT - dt);
       if (!heldState(owner.items, carry)) clearGuide();
-      else if (guideT <= 0 && G.contextGuide) { G.contextGuide = null; guideText = null; hud.setHandsFull(null); }
+      else {
+        // The destination stays known for as long as the owner is holding something -- systems/
+        // objective.js draws nothing for it unless they stall (CARRY_STUCK_SECONDS), so keeping it
+        // alive costs no pixels and means the pointer, if it is ever needed, is pointing somewhere
+        // that is still true. The four-second timer only ever governed the HUD's hands-full line.
+        guideRefreshT -= dt;
+        if (guideRefreshT <= 0) { guideRefreshT = 0.5; refreshGuideDestination(); }
+        if (guideT <= 0 && guideText) { guideText = null; hud.setHandsFull(null); }
+      }
 
       const mv = G._force || input; const sp = playerSpeed(G.up);
       P.vx = damp(P.vx, mv.x * sp, 18, dt); P.vz = damp(P.vz, mv.z * sp, 18, dt);

@@ -37,7 +37,7 @@ export function createPetMoment(els, profile, customerId = null, species = 'cat'
   const detail = document.createElement('span'); detail.className = 'detail'; detail.textContent = '';
   el.append(paw, name, detail); els.fx.appendChild(el);
 
-  let timer = 0, seated = false, playBreak = false, detailText = '';
+  let timer = 0, seated = false, playBreak = false, near = false, detailText = '';
   const projection = { sx: 0, sy: 0, visible: true };
   const P = { el };
   P.announce = (text = '', seconds = 2.2) => { detailText = text; detail.textContent = text; timer = Math.max(timer, seconds); };
@@ -45,7 +45,23 @@ export function createPetMoment(els, profile, customerId = null, species = 'cat'
     el.classList.add('regular-greeting');
     detailText = text; detail.textContent = text; timer = Math.max(0, seconds);
   };
+  // Sitting down no longer SHOWS the tag, it only changes how the tag looks when it is shown (the
+  // .seated rule drops the detail slot). See the note on `near` below.
   P.setSeated = value => { seated = !!value; el.classList.toggle('seated', seated); };
+  // Proximity is what shows an ordinary name tag now. Every seated guest used to keep one up for
+  // their whole meal, which on a full day-18 café meant nine tags at once; ui/labelLayout.js then
+  // did exactly what it is built to do with nine overlapping labels -- dimmed them to 45% and
+  // nudged them up to 148 px looking for clear space. The owner read the result as "name labels
+  // that stay after the customer has gone, floating far from anyone at reduced opacity". They were
+  // live tags for real pets, displaced off their own pets and faded by the declutter solver. The
+  // solver is right; giving it nine labels to solve was the mistake.
+  //
+  // A name is worth reading when you are standing next to the animal, so walking up to a pet is
+  // what asks for it. Two or three tags on screen at once instead of nine also means the solver
+  // never has to dim or displace one, so a tag is now always legible and always over its own pet.
+  // The earned MOMENTS -- a returning regular's hello, a rare coat's spotlight, the play-break
+  // offer, a treat's heart -- still show from any distance, exactly as before.
+  P.setNear = value => { near = !!value; };
   P.setPlayBreak = value => {
     const next = !!value;
     if (next === playBreak) return;
@@ -58,7 +74,7 @@ export function createPetMoment(els, profile, customerId = null, species = 'cat'
   };
   P.remove = () => el.remove();
   P.update = (dt, fx, x, y, z) => {
-    const wantsVisible = seated || playBreak || timer > 0;
+    const wantsVisible = near || playBreak || timer > 0;
     if (!wantsVisible) { el.classList.remove('show', 'regular-greeting'); return; }
     fx.project(x, y, z, projection);
     el.style.left = projection.sx + 'px'; el.style.top = projection.sy + 'px';

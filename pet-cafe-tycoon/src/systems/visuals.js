@@ -7,11 +7,12 @@ import { buildRevealPhase, buildRevealScale } from '../render/buildReveal.js';
 import { iconFor, treatIcon, coinIcon, sackIcon, returnIcon, leafIcon, gearIcon, personIcon, beanIcon, creamIcon, broomIcon } from '../ui/icons.js';
 import { STAR_IDS } from '../sim/economy.js';
 
-// 24, the full slot grid props.js's counterMesh authors (6 columns x 4 rows, sized from
-// DISPLAY_CAP_LEVELS' maximum). It was 16 because each pastry used to be its own Mesh and every one
-// of them cost a draw call; instanced, the last eight are free, so a starred shelf at capacity now
-// actually looks full instead of quietly stopping two rows in.
+// DISPLAY_CAP_LEVELS' maximum (economy.js: [12,16,20,24]). props.js's counterMesh authors twelve
+// floor positions — 6 columns x 2 rows — and the case grows UPWARD past that: DISPLAY_LAYERS layers
+// of twelve. It was 16 with one Mesh per pastry, because every one of them cost a draw call;
+// instanced, the extra layer is free, so a starred case actually looks piled high.
 const DISPLAY_POOL = 24;
+const DISPLAY_LAYERS = 2;
 const DEMAND_DETAIL_RADIUS = 1.7;
 
 // ---- instanced shelf/tray contents ---------------------------------------------------------------
@@ -19,15 +20,29 @@ const DEMAND_DETAIL_RADIUS = 1.7;
 // built day-12 café, `station:display` was 55 of the frame's 246 draw calls — the single largest
 // bucket in the game, spent on identical cookies sitting in fixed slots. That is precisely what
 // InstancedMesh is for. One call per shelf now, with the pop-in animation intact.
-function makeItemStack(group, product, slots) {
-  const im = new THREE.InstancedMesh(itemGeoFor(product), toonMaterial(), slots.length);
+// How far the second layer sits above the first. Measured from the geometry itself, because every
+// product has its own silhouette and a display's recipe gets swapped at star ranks.
+//
+// A flat product (a cookie, 0.09 m) stacks: a whisker under its full height, so two of them read as
+// two of them. A TALL product does not stack, it NESTS — a cone inside a cone, a cup inside a cup,
+// which is how they are actually kept behind a counter and the only way a second cone above a first
+// one does not read as one cone floating in the air. STACK_LIFT_MAX is where that changes over.
+const STACK_LIFT_MAX = 0.17;
+function stackLift(product) {
+  const g = itemGeoFor(product);
+  if (!g.boundingBox) g.computeBoundingBox();
+  return Math.min((g.boundingBox.max.y - g.boundingBox.min.y) * 0.94, STACK_LIFT_MAX);
+}
+function makeItemStack(group, product, slots, layers = 1) {
+  const capacity = slots.length * layers;
+  const im = new THREE.InstancedMesh(itemGeoFor(product), toonMaterial(), capacity);
   im.castShadow = false; im.receiveShadow = true; im.count = 0;
   // An InstancedMesh derives its bounds from the geometry alone, which for a pastry is a few
   // centimetres at the origin — it would be culled the moment the shelf itself is off-centre. The
   // parent station group is culled as a whole, so nothing is lost by opting this out.
   im.frustumCulled = false;
   group.add(im);
-  return { im, slots, product, scale: new Float32Array(slots.length), shown: -1 };
+  return { im, slots, layers, lift: stackLift(product), product, scale: new Float32Array(capacity), shown: -1 };
 }
 
 const _stackM4 = new THREE.Matrix4(), _stackQ = new THREE.Quaternion(), _stackV = new THREE.Vector3(), _stackS = new THREE.Vector3();
@@ -35,16 +50,21 @@ function updateItemStack(stack, product, stock, dt, pop) {
   if (!stack) return;
   // A star tier can swap a station's recipe (cookie <-> brownie). Geometries are cached by product
   // key in props.js, so this is a pointer swap, not an allocation.
-  if (product !== stack.product) { stack.product = product; stack.im.geometry = itemGeoFor(product); stack.shown = -1; }
-  const n = Math.max(0, Math.min(stock | 0, stack.slots.length));
+  if (product !== stack.product) {
+    stack.product = product; stack.im.geometry = itemGeoFor(product); stack.lift = stackLift(product); stack.shown = -1;
+  }
+  const n = Math.max(0, Math.min(stock | 0, stack.slots.length * (stack.layers || 1)));
   let dirty = n !== stack.shown;
   for (let i = 0; i < n; i++) {
     if (stack.scale[i] < 1) { stack.scale[i] = pop ? Math.min(1, (stack.scale[i] || 0.01) + dt * 8) : 1; dirty = true; }
   }
   for (let i = n; i < stack.slots.length; i++) if (stack.scale[i] !== 0) { stack.scale[i] = 0; dirty = true; }
   if (!dirty) return;
+  const per = stack.slots.length;
   for (let i = 0; i < n; i++) {
-    _stackV.copy(stack.slots[i]);
+    // Fill every floor position first, then start the layer above it.
+    _stackV.copy(stack.slots[i % per]);
+    _stackV.y += Math.floor(i / per) * stack.lift;
     _stackS.setScalar(stack.scale[i] || 0.01);
     _stackM4.compose(_stackV, _stackQ, _stackS);
     stack.im.setMatrixAt(i, _stackM4);
@@ -361,7 +381,7 @@ export function createVisuals(G, S, ctx) {
     });
     if (shadow) shadow.visible = !!st.active;
     const v = { g, items: [], reveal: null, shadow };
-    if (st.type === 'display') { v.stack = makeItemStack(g, st.product, g.slots.slice(0, DISPLAY_POOL)); g.setProduct(st.product); }
+    if (st.type === 'display') { v.stack = makeItemStack(g, st.product, g.slots.slice(0, DISPLAY_POOL / DISPLAY_LAYERS), DISPLAY_LAYERS); g.setProduct(st.product); }
     if (st.type === 'oven') {
       // A 3 x 2 tray, not a column. `g.outSlot.y + i * 0.17` built a free-standing totem pole of six
       // cupcakes rising off the oven's output tray — clearly visible in the owner's playtest
