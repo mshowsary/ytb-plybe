@@ -18,6 +18,7 @@ import { normalizeCalendar } from './sim/rewards.js';
 import { familyOf, salePrice, cafeLevel, STAFF } from './sim/economy.js';
 import { franchiseIncomeMultiplier } from './sim/franchise.js';
 import { beginActorStep, endActorStep } from './sim/actorRoster.js';
+import { createMover } from './sim/mover.js';
 // src/game.js — binds simulation, rendering, UI, audio and YouTube platform services.
 import { createWorld, refreshActive, cleanSeat } from './sim/world.js';
 import { applySave } from './sim/save.js';
@@ -241,6 +242,13 @@ export function createGame(S, area, els, platform = null) {
   // Footfalls: human.js signals each time a foot plants, fx turns that into a small puff.
   owner.H.onStep = pos => fx.dust(pos.x, pos.z, 1.4);
   const P = { x: 0, z: 2.5, vx: 0, vz: 0 }; owner.group.position.set(P.x, 0, P.z); S.snap(P.x, P.z); G.P = P;
+  // The owner as a body the guests and staff steer around. Never stepped — it only mirrors P each
+  // frame — but it sits in the same avoidance roster as everyone else, so a guest no longer walks
+  // straight through the player standing in the doorway (owner playtest recordings, 2026-09-17:
+  // guest-owner overlaps in ~9% of samples). Headless replays and the bot have no such body, and
+  // nothing in the sim depends on it being there.
+  const ownerActor = { mover: createMover(P.x, P.z, 0.34, 0) }; ownerActor.mover.kind = 'owner';
+  G.ownerMover = ownerActor.mover;
   G.setMove = (x, z) => { G._force = (x == null) ? null : { x, z }; }; G.debugNextTarget = () => jobTarget(world, G);
   G.botDecide = () => { G.carryKey = owner.items.length ? owner.items[0].userData.product : null; G.carryCount = owner.items.length; return decide(world, G); };
 
@@ -294,7 +302,8 @@ export function createGame(S, area, els, platform = null) {
     petSocials.update(); input.update(); stations.update(dt); zones.update(dt); photoStudio.update(dt); spaBridge.update(dt);
     customers.prepare(dt); staff.prepare();
     const barista = G.baristaWorker?.prepare();
-    beginActorStep(world, G.customers, G.staffList, barista ? [barista] : []);
+    ownerActor.mover.x = P.x; ownerActor.mover.z = P.z; ownerActor.mover.vx = P.vx; ownerActor.mover.vz = P.vz;
+    beginActorStep(world, G.customers, G.staffList, barista ? [barista] : [], [ownerActor]);
     customers.update(dt); staff.update(dt); intro.update(dt);
     ambience.update(dt); renovationDecor.update(dt);
     { const night = S.daylight ? S.daylight.lights : 0; ambience.setNight(night); environment.setNight(night); environment.updateFireflies(dt); } visuals.update(dt); registerCash.update(dt); objective.update(dt); economyExperience.update(dt); partyOrders.update(dt); fx.update(dt); hud.update();

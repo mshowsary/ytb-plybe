@@ -524,12 +524,15 @@ export function createStations(G, S, ctx) {
         }
 
         if (st.type === 'checkout') {
-          const atFront = near(P, st.front, 1.2);
+          // Behind the till (st.serve), not on the customer's side: the head of the queue stands
+          // 1.4 m out in front, which is where st.front is, and the two bodies used to overlap.
+          const atFront = near(P, st.serve, 1.1);
           noteFirstHint('checkout', atFront);
           if (atFront) st.serving = 'owner';
 
-          // Cash is a flow chore, not a decision. Walking close to the tray collects it immediately.
-          if (st.pile > 0 && near(P, st.cash, AUTO_CASH_RADIUS) && !sheets.isOpen) collectRegisterCash(st);
+          // Cash is a flow chore, not a decision. Walking close to the tray collects it immediately —
+          // from the serving spot too, so serving never means stepping round the counter afterwards.
+          if (st.pile > 0 && (near(P, st.cash, AUTO_CASH_RADIUS) || atFront) && !sheets.isOpen) collectRegisterCash(st);
         }
 
         if (st.type === 'pantry') {

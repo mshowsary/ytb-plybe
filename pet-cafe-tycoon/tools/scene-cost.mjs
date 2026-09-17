@@ -25,6 +25,14 @@ const arg = (flag, dflt = null) => {
 };
 const MAX_CALLS = Number(arg('--calls', 0)) || 0;
 const MAX_TRIS = Number(arg('--tris', 0)) || 0;
+// The crowd on stage at the sample instant is whatever the deterministic sim happens to have there,
+// and ANY change to movement or timing re-deals it (2026-09-17: giving guests a body to steer
+// around moved the whole-frame count from 250 to 262 without a single new prop). So the budgets
+// that matter are the static scene without its actors, and the cost of one actor — those only
+// move when a prop or a character actually gets more expensive.
+const MAX_STATIC_CALLS = Number(arg('--static-calls', 0)) || 0;
+const MAX_STATIC_TRIS = Number(arg('--static-tris', 0)) || 0;
+const MAX_ACTOR_CALLS = Number(arg('--actor-calls', 0)) || 0;   // renderables per human or pet
 const JSON_OUT = arg('--json', null);
 const EXTERNAL = arg('--url', null);
 const PORT = 4207;
@@ -108,6 +116,13 @@ const sample = await page.evaluate(async () => {
   // the system that caused it rather than just a number going up.
   const scene = S.scene, byRoot = new Map();
   let renderables = 0, casters = 0, instanced = 0;
+  let actorRenderables = 0, actorTris = 0;
+  const actorRoots = new Set();
+  const trisOf = o => {
+    const g = o.geometry; if (!g) return 0;
+    const n = g.index ? g.index.count : (g.attributes.position ? g.attributes.position.count : 0);
+    return (n / 3) * (o.isInstancedMesh ? o.count : 1);
+  };
   scene.traverse(o => {
     if (!o.isMesh && !o.isInstancedMesh && !o.isPoints && !o.isLine) return;
     let p = o, vis = o.visible;
@@ -120,6 +135,7 @@ const sample = await page.evaluate(async () => {
     while (n.parent && n.parent !== scene) { n = n.parent; last = n; }
     const key = last.name || `${last.type}(${last.children.length} children)`;
     byRoot.set(key, (byRoot.get(key) || 0) + 1);
+    if (/^(human|pet):/.test(last.name || '')) { actorRenderables++; actorTris += trisOf(o); actorRoots.add(last); }
   });
   const mats = new Set();
   scene.traverse(o => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => mats.add(m.uuid)); });
@@ -132,6 +148,12 @@ const sample = await page.evaluate(async () => {
     renderables, shadowCasters: casters, instancedMeshes: instanced, distinctMaterials: mats.size,
     frameMedianMs: +frames[30].toFixed(2), frameP95Ms: +frames[57].toFixed(2),
     built: G.world.built.size, customers: G.customers.length, staff: G.staffList ? G.staffList.length : 0,
+    actors: actorRoots.size, actorRenderables, actorTris: Math.round(actorTris),
+    // Shadow-pass draws are per caster, so an actor costs about one call per renderable in the
+    // main pass plus one in the shadow pass; the static figure subtracts only the main-pass share,
+    // which is the part a whole-frame count is dominated by at this camera.
+    staticCalls: calls - actorRenderables, staticTris: Math.round(tris - actorTris),
+    actorCallsAvg: actorRoots.size ? +(actorRenderables / actorRoots.size).toFixed(1) : 0,
     topGroups: [...byRoot.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12),
   };
 });
@@ -142,6 +164,7 @@ if (srv) srv.close();
 if (sample.error) { console.error(sample.error); process.exit(2); }
 console.log(`scene cost — fully built (${sample.built} zones), day 12, ${sample.customers} guests, ${sample.staff} staff, 852x393`);
 console.log(`  draw calls ${sample.drawCalls}   triangles ${sample.triangles.toLocaleString('en-US')}`);
+console.log(`  static (no actors): ${sample.staticCalls} calls, ${sample.staticTris.toLocaleString('en-US')} triangles   |   ${sample.actors} actors on stage, ${sample.actorCallsAvg} renderables each`);
 console.log(`  renderables ${sample.renderables} (${sample.instancedMeshes} instanced, ${sample.shadowCasters} casting shadow), materials ${sample.distinctMaterials}, geometries ${sample.geometries}`);
 console.log(`  frame median ${sample.frameMedianMs} ms, p95 ${sample.frameP95Ms} ms  (headless software GL — compare runs, not devices)`);
 for (const [name, n] of sample.topGroups) console.log(`    ${String(n).padStart(4)}  ${name}`);
@@ -152,4 +175,7 @@ if (JSON_OUT) fs.writeFileSync(JSON_OUT, JSON.stringify(sample, null, 2));
 let failed = errors.length > 0;
 if (MAX_CALLS && sample.drawCalls > MAX_CALLS) { console.error(`BUDGET: ${sample.drawCalls} draw calls > ${MAX_CALLS}`); failed = true; }
 if (MAX_TRIS && sample.triangles > MAX_TRIS) { console.error(`BUDGET: ${sample.triangles} triangles > ${MAX_TRIS}`); failed = true; }
+if (MAX_STATIC_CALLS && sample.staticCalls > MAX_STATIC_CALLS) { console.error(`BUDGET: ${sample.staticCalls} static draw calls > ${MAX_STATIC_CALLS}`); failed = true; }
+if (MAX_STATIC_TRIS && sample.staticTris > MAX_STATIC_TRIS) { console.error(`BUDGET: ${sample.staticTris} static triangles > ${MAX_STATIC_TRIS}`); failed = true; }
+if (MAX_ACTOR_CALLS && sample.actorCallsAvg > MAX_ACTOR_CALLS) { console.error(`BUDGET: ${sample.actorCallsAvg} renderables per actor > ${MAX_ACTOR_CALLS}`); failed = true; }
 process.exit(failed ? 1 : 0);

@@ -79,7 +79,9 @@ function standSpotFor(world, target) {
   if (target.kind === 'collect') return { x: target.x, z: target.z };
   for (const st of world.stations.values()) {
     if (!st.front) continue;
-    if (Math.abs(st.x - target.x) < 0.05 && Math.abs(st.z - target.z) < 0.05) return { x: st.front.x, z: st.front.z };
+    // A register is worked from behind; every other station from its front.
+    const spot = st.type === 'checkout' && st.serve ? st.serve : st.front;
+    if (Math.abs(st.x - target.x) < 0.05 && Math.abs(st.z - target.z) < 0.05) return { x: spot.x, z: spot.z };
     if (Math.abs(st.front.x - target.x) < 0.05 && Math.abs(st.front.z - target.z) < 0.05) return { x: st.front.x, z: st.front.z };
   }
   return { x: target.x, z: target.z };

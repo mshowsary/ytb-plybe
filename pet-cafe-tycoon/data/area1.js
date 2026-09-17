@@ -89,7 +89,8 @@ export const AREA1 = {
     // (-6.5, 9.2), and its queue running north into it. The whole west corner behind it
     // (photo1/seat11) leaves no queueRight-only gap the way barIce's east side does, so the
     // register itself moves — east, off seat7's column entirely. Only x moves.
-    { id: 'register3',  type: 'checkout', x: -4.4, z: 8.4,  rot: 0,            fw: 1.6, fd: 0.9, builtBy: 'z_register3' },
+    // Served from its west end: straight behind it (z 7.2) is the fence row, not floor.
+    { id: 'register3',  type: 'checkout', x: -4.4, z: 8.4,  rot: 0,            fw: 1.6, fd: 0.9, builtBy: 'z_register3', serveRight: -1.25, serveForward: -0.15 },
     // Fix round 1: the plan's literal z:11.2 put seat11's front and pair spots inside photo1's own
     // nav-expanded footprint (a graze, not a solid clash, but a real "the owner/cleaner can never
     // reach that table" bug). Only z moves.

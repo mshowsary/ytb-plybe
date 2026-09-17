@@ -85,7 +85,18 @@ export function createWorld(area, save, seed) {
 
     // I8/I11: precompute the checkout's cash spot once so systems/stations.js, systems/visuals.js
     // and sim/staff.js's cashier all read the same st.cash instead of recomputing cashSpot(st) per frame.
-    if (s.type === 'checkout') st.cash = cashSpot(st);
+    if (s.type === 'checkout') {
+      st.cash = cashSpot(st);
+      // Where the OWNER stands to serve: behind the till, facing the guest across it. The owner
+      // used to serve from the customer side, on the very spot the head of the queue stands, so
+      // the two bodies overlapped on every sale (owner playtest recordings, 2026-09-17). The hired
+      // cashier keeps st.cash, beside the till — 0.9 m from the queue, never overlapping, and moving
+      // it re-timed the deterministic sim enough to trip test/nav-fullhouse for unrelated movers.
+      // A register that backs onto a fence declares `serveRight`/`serveForward` in data/area1.js.
+      const sv = rotateOffset(st.rot, s.serveRight != null ? s.serveRight : 0,
+        s.serveForward != null ? s.serveForward : -((st.fd != null ? st.fd : 1) / 2 + 0.7));
+      st.serve = { x: st.x + sv.x, z: st.z + sv.z };
+    }
 
     // M3 T3: registers reuse the counter's queue geometry helper (5 slots, 1.4m then 0.85m
     // steps — fix round 2: cut from 6 to 5 so the deepest slot, z = 2.8, stays clear of the

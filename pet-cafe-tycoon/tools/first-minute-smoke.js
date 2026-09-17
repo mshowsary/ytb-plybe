@@ -95,7 +95,7 @@ for (const vp of [{ w: 390, h: 844, tag: 'phone portrait' }, { w: 852, h: 393, t
         key = k; repath = 1500;
         let gx = t.x, gz = t.z;
         for (const st of G.world.stations.values()) {
-          if (st.front && Math.abs(st.x - t.x) < 0.05 && Math.abs(st.z - t.z) < 0.05) { gx = st.front.x; gz = st.front.z; break; }
+          if (st.front && Math.abs(st.x - t.x) < 0.05 && Math.abs(st.z - t.z) < 0.05) { const sp = st.type === 'checkout' && st.serve ? st.serve : st.front; gx = sp.x; gz = sp.z; break; }
         }
         path = window.__dev.route(gx, gz);
       }
