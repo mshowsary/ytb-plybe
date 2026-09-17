@@ -40,6 +40,8 @@ test('dirty-table waiting gives twelve seconds to recover, with no clean-occupie
  const c=createCustomer(1,'cat',0,AREA1);Object.assign(c,{state:'waitSeat',paid:true,amount:24,dirtyWait:0,wish:{product:'cookie',treat:false}});
  for(let i=0;i<11;i++)stepCustomers([c],w,()=>8,1);assert.equal(c.state,'waitSeat');assert.equal(w.events.some(e=>e.type==='tableRefund'),false);
  seats[0].dirty=false;stepCustomers([c],w,()=>8,.1);assert.equal(c.state,'toSeat');assert.equal(w.events.some(e=>e.type==='tableRefund'),false);
- for(const s of seats){s.dirty=true;s.occupied=false;}Object.assign(c,{state:'waitSeat',dirtyWait:0});stepCustomers([c],w,()=>8,WAIT_SEAT_GRACE+0.1);assert.equal(c.state,'leave');assert.equal(w.events.filter(e=>e.type==='tableRefund').length,1);
- w.events.length=0;for(const s of seats){s.dirty=false;s.occupied=true;}Object.assign(c,{state:'waitSeat',dirtyWait:0});stepCustomers([c],w,()=>8,WAIT_SEAT_GRACE+0.1);assert.equal(w.events.some(e=>e.type==='tableRefund'),false);
+ // 2026-09-18: giving up on a table no longer refunds anything — the guest takes it away and the
+ // sale stands. The miss is still reported when a DIRTY table was the reason; see dirty-tables.test.js.
+ for(const s of seats){s.dirty=true;s.occupied=false;}Object.assign(c,{state:'waitSeat',dirtyWait:0});stepCustomers([c],w,()=>8,WAIT_SEAT_GRACE+0.1);assert.equal(c.state,'leave');assert.equal(w.events.filter(e=>e.type==='tableRefund').length,0);assert.equal(w.events.filter(e=>e.type==='seatMissed').length,1);
+ w.events.length=0;for(const s of seats){s.dirty=false;s.occupied=true;}Object.assign(c,{state:'waitSeat',dirtyWait:0});stepCustomers([c],w,()=>8,WAIT_SEAT_GRACE+0.1);assert.equal(w.events.some(e=>e.type==='tableRefund'),false);assert.equal(w.events.some(e=>e.type==='seatMissed'),false,'a clean but busy room costs nothing');
 });

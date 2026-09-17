@@ -74,16 +74,19 @@ export function createPetMoment(els, profile, customerId = null, species = 'cat'
   };
   P.remove = () => el.remove();
   P.update = (dt, fx, x, y, z) => {
+    // The moment's clock runs on the WORLD's time, not on whether the camera happens to be pointed
+    // at it. It used to be decremented below the early return for an off-screen pet, so a rare-coat
+    // spotlight announced while its pet was out of frame never expired — it was banked, and fired
+    // the next time that animal wandered anywhere near the camera, minutes later.
+    timer = Math.max(0, timer - dt);
+    if (timer <= 0) el.classList.remove('regular-greeting');
+    if (!playBreak && seated && timer <= 0 && detailText) { detailText = ''; detail.textContent = ''; }
+
     const wantsVisible = near || playBreak || timer > 0;
     if (!wantsVisible) { el.classList.remove('show', 'regular-greeting'); return; }
     fx.project(x, y, z, projection);
     el.style.left = projection.sx + 'px'; el.style.top = projection.sy + 'px';
     el.classList.toggle('show', projection.visible);
-    if (!projection.visible) return;
-
-    timer = Math.max(0, timer - dt);
-    if (timer <= 0) el.classList.remove('regular-greeting');
-    if (!playBreak && seated && timer <= 0 && detailText) { detailText = ''; detail.textContent = ''; }
   };
 
   // Task 34 deliberately does NOT announce every pet's trait on every spawn. Named moments are

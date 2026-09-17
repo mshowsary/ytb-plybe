@@ -1,4 +1,4 @@
-import { dirtyTablesBlockingSeats } from './serviceQuality.js';
+import { seatsMightFree } from './serviceQuality.js';
 import { PRODUCTS } from './economy.js';
 import { emitWorld } from './events.js';
 // src/sim/customers.js — pure customer state machine. The sim entity is the HUMAN
@@ -673,11 +673,40 @@ function assignBathSlots(list, w) {
 // hold (below, in the switch) is what produced the owner's "10 found no clean table" on day 2;
 // nothing sets that state any more, but the case stays in the switch so an old save resuming
 // mid-hold still finishes cleanly instead of getting stuck in a state nothing steps.
+// Where a guest waits for a table: BESIDE A TABLE, not wherever they happened to be standing when
+// they paid.
+//
+// waitSeatPoint used to be `c.x + 0.8, c.z + 0.8` — half a step diagonally from the till, because
+// that is where a guest is the moment their payment clears. So every guest waiting for a table
+// loitered around the register, mixed in with the guests still queueing to pay, and the owner's
+// report is the obvious consequence: "it confuses the player — which one needs payment?" Two
+// crowds doing two different things cannot share one spot.
+//
+// They hover by a table that will free up instead. The golden angle spreads several waiters into a
+// ring around it rather than stacking them on one tile, and mover.js's setTarget already snaps a
+// blocked point to the nearest free cell, so this never needs to be walkable itself.
+const WAIT_RING = 1.35;
+function anyDirtySeat(w) {
+  for (const st of w.stations.values()) if (st.type === 'seat' && st.active && st.dirty) return true;
+  return false;
+}
+function waitSpotFor(w, c) {
+  let best = null, bd = Infinity;
+  for (const st of w.stations.values()) {
+    if (st.type !== 'seat' || !st.active) continue;
+    if (!st.dirty && !st.occupied) continue;
+    const d = (st.x - c.x) ** 2 + (st.z - c.z) ** 2;
+    if (d < bd) { bd = d; best = st; }
+  }
+  if (!best) return { x: c.x + 0.8, z: c.z + 0.8 };
+  const a = ((c.id | 0) * 2.399963) % (Math.PI * 2);
+  return { x: best.x + Math.cos(a) * WAIT_RING, z: best.z + Math.sin(a) * WAIT_RING };
+}
 function proceedToSeatOrLeave(w, c) {
   const seat = pickSeat(w, c);
   c.mover.hasTarget = false;
   if (seat) { seat.occupied = true; c.seat = seat; c.seatId = seat.id; c.state = 'toSeat'; return; }
-  if (w.dayState && dirtyTablesBlockingSeats(w)) { c.state = 'waitSeat'; c.dirtyWait = 0; c.waitSeatPoint = { x: c.x + .8, z: c.z + .8 }; return; }
+  if (w.dayState && seatsMightFree(w)) { c.state = 'waitSeat'; c.dirtyWait = 0; c.waitSeatPoint = waitSpotFor(w, c); return; }
   c.state = 'leave';
 }
 // Loop v2 Task 1: rebalance() (moving a customer between two counters holding the same product)
@@ -1199,14 +1228,32 @@ export function stepCustomers(list, w, price, dt) {
       case 'waitSeat': {
         const seat=pickSeat(w, c);
         if(seat){seat.occupied=true;c.seat=seat;c.seatId=seat.id;c.state='toSeat';c.mover.hasTarget=false;break;}
-        if(!dirtyTablesBlockingSeats(w)){c.state='leave';c.mover.hasTarget=false;break;}
+        // Keep waiting while ANY table could still come free — dirty (someone will wipe it) or
+        // occupied (that meal will end). It used to be dirtyTablesBlockingSeats, which needs a free
+        // DIRTY seat, so wiping the last two tables and letting two guests take them threw every
+        // other waiter out of the café. See seatsMightFree in sim/serviceQuality.js.
+        if(!seatsMightFree(w)){c.state='leave';c.mover.hasTarget=false;break;}
         c.dirtyWait=(c.dirtyWait||0)+dt;
         if(c.waitSeatPoint)walkTo(c,c.waitSeatPoint.x,c.waitSeatPoint.z,w,dt);
-        // Program §6.2: the refund was invisible bookkeeping on its own. Giving up now also
-        // reports the seat miss, so this feeds dayStats.missedSeats and the reputation cost exactly
-        // like the retired 'noSeat' path did. The state transition itself is untouched
-        // (test/service-policy.test.js and test/dirty-tables.test.js both pin it).
-        if(c.dirtyWait>=WAIT_SEAT_GRACE){emitWorld(w,{type:'tableRefund',id:c.id});emitWorld(w,{type:'seatMissed',id:c.id});c.state='leave';c.mover.hasTarget=false;}
+        // Out of patience for a table? They take it away. They keep what they bought and the café
+        // keeps the money.
+        //
+        // This used to emit 'tableRefund' as well, which hands the payment BACK (systems/
+        // customers.js applyServicePenalty) — the café was being fined for the tables being busy,
+        // after the sale had already closed. Taking money off the player for a queue they are
+        // already working through is the punishment the owner has asked twice to be rid of, and it
+        // is not what a café does: you get your coffee to go. 'seatMissed' stays, because it is the
+        // honest measurement — the stat the day card reports and the Paw Rating's "keep tables
+        // free" goal reads — and it costs one reputation point, which is the soft, recoverable
+        // version of the same signal.
+        if(c.dirtyWait>=WAIT_SEAT_GRACE){
+          // ...and it is only a SERVICE FAILURE if a dirty table was the reason. A cafe whose every
+          // table is clean and simply busy is a cafe doing well; charging the player a reputation
+          // point because business is good was never right, and now that guests wait out an honestly
+          // full room instead of turning on their heel, that case actually happens.
+          if(anyDirtySeat(w)) emitWorld(w,{type:'seatMissed',id:c.id});
+          c.state='leave';c.mover.hasTarget=false;
+        }
         break;
       }
       // Program §6.2, retired by Batch 7. The guest has paid, no seat is clean and at least one is

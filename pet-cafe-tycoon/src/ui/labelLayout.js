@@ -155,9 +155,13 @@ function installScaleStyle() {
   const s = document.createElement('style');
   s.id = SCALE_STYLE_ID;
   s.textContent = `.${SCALE_ROOT_CLASS} :is(${MANAGED}){scale:var(--label-scale,1)}`
-    // `!important` for the same reason .label-crowded uses it: a label's own `.show` rule (two
-    // classes) outranks a single-class rule, and dimming must win over the entrance state.
-    + `.${MUTED_CLASS}{opacity:.45!important;transition:opacity .2s ease}`;
+    // A FILTER, not an opacity override. `filter: opacity()` multiplies with the element's own
+    // opacity, so this dims a label that its owner is showing and leaves a label its owner has
+    // hidden at zero. The previous `opacity:.45!important` did the opposite: it outranked the base
+    // rule, so a pet tag dimmed during a rush stayed on screen at 45% after petMoments.js had
+    // hidden it -- and, measuring as a live 0.45 label, stayed a solver candidate forever while
+    // nothing updated its position. See the note beside .label-crowded in style.css.
+    + `.${MUTED_CLASS}{filter:opacity(.45);transition:filter .2s ease}`;
   document.head.appendChild(s);
 }
 
@@ -242,9 +246,16 @@ export function createLabelLayout(els, opts = {}) {
       if (cs.display === 'none' || cs.visibility === 'hidden') continue;
       // A label that has not been shown yet is opacity:0 but still laid out — a pet tag before
       // `.show`, chalk before its reveal. It must not reserve space, or an invisible tag shoves
-      // every real bubble off its anchor. `label-crowded` is our OWN opacity:0 and must keep being
-      // solved, otherwise the first time we hid a label it could never come back.
-      if (parseFloat(cs.opacity) < 0.05 && !el.classList.contains('label-crowded')) continue;
+      // every real bubble off its anchor.
+      //
+      // Computed opacity is now a faithful reading of what the OWNING SYSTEM wants, because both of
+      // this file's own states are filters (see installScaleStyle and .label-crowded in style.css)
+      // and filters do not touch it. So a label we hid ourselves still measures at its owner's
+      // opacity and keeps being solved — which is what lets it come back — while a label its owner
+      // has put away drops out of the solver on the same frame, taking its muted/crowded state with
+      // it into irrelevance. Both used to need the `label-crowded` exemption that stood here, and
+      // that exemption could not distinguish the two cases.
+      if (parseFloat(cs.opacity) < 0.05) continue;
 
       let st = state.get(el);
       if (!st) { st = { il: 0, it: 0, al: null, at: null }; state.set(el, st); }

@@ -62,7 +62,12 @@ test('a paid guest with no clean seat waits for a wipe, then reports the miss if
 
   stepCustomers([c], w, () => 8, 0.4);
   assert.equal(c.state, 'leave');
-  assert.equal(w.events.filter(e => e.type === 'tableRefund').length, 1, 'a guest who leaves unfed is refunded');
+  // 2026-09-18: no refund. A guest who runs out of patience for a table takes their order away —
+  // they keep what they bought and the café keeps the money. 'tableRefund' handed the payment back
+  // (systems/customers.js applyServicePenalty), which fined the player for a queue they were
+  // already working through, after the sale had closed. The MISS is still reported: it is the stat
+  // the day card shows and the Paw Rating's table goal reads, and it costs one reputation point.
+  assert.equal(w.events.filter(e => e.type === 'tableRefund').length, 0, 'a guest who cannot sit takes it away; the sale stands');
   assert.equal(seatMisses(w).length, 1);
   assert.equal(seatMisses(w)[0].id, c.id);
 });
@@ -82,13 +87,39 @@ test('wiping a table inside the wait still seats the guest', () => {
   assert.equal(seatMisses(w).length, 0, 'a rescued guest was never a missed seat');
 });
 
-test('an honestly full cafe is not a seat miss', () => {
+// 2026-09-18: an honestly full café is now worth WAITING for — a taken table frees itself when that
+// meal ends, and turning a paying guest away from a busy room was the owner's "six wait for two
+// tables, I clean them, and four leave". It is still not a service failure: no dirty table, no
+// reputation point, whatever the guest decides to do in the end.
+test('an honestly full cafe is worth waiting for, and is never a seat miss', () => {
   const { w, seats } = cafe();
   for (const s of seats) { s.dirty = false; s.occupied = true; }
   const c = paidGuest(w);
   stepCustomers([c], w, () => 8, 0.1);
-  assert.equal(c.state, 'leave', 'every seat clean and taken: not a service failure, never was');
+  assert.equal(c.state, 'waitSeat', 'every seat clean and taken: one of them will free up');
   assert.equal(seatMisses(w).length, 0);
+
+  // Out of patience, with the room still spotless: they take it away, and nothing is charged.
+  stepCustomers([c], w, () => 8, WAIT_SEAT_GRACE + 0.2);
+  assert.equal(c.state, 'leave');
+  assert.equal(seatMisses(w).length, 0, 'a clean, busy café is a café doing well, not a failure');
+  assert.equal(w.events.filter(e => e.type === 'tableRefund').length, 0);
+});
+
+test('a guest waiting for a table hovers by the tables, not at the till', () => {
+  const { w, seats } = cafe();
+  for (const s of seats) { s.dirty = true; s.occupied = false; }
+  const c = paidGuest(w);
+  const till = w.stations.get(w.checkouts[0]);
+  c.x = till.x; c.z = till.z + 1;
+  stepCustomers([c], w, () => 8, 0.1);
+  assert.equal(c.state, 'waitSeat');
+  const p = c.waitSeatPoint;
+  assert.ok(p, 'a waiting guest is given somewhere to wait');
+  const nearestSeat = Math.min(...seats.map(s => Math.hypot(s.x - p.x, s.z - p.z)));
+  assert.ok(nearestSeat < 2, `the wait spot is beside a table (nearest seat ${nearestSeat.toFixed(2)} m)`);
+  assert.ok(Math.hypot(till.x - p.x, till.z - p.z) > 2,
+    'and not beside the register, where the guests who still owe money are queueing');
 });
 
 test('a bare sim harness with no day clock keeps the pre-Program-6.2 path', () => {

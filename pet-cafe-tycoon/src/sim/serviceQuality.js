@@ -104,3 +104,22 @@ export function dirtyTablesBlockingSeats(world) {
   }
   return hasSeat && hasDirtyFreeSeat && !hasCleanFreeSeat;
 }
+
+// Is it worth waiting for a table at all? Yes whenever a table exists that will plausibly come
+// free: one that is dirty (the player or the Cleaner will wipe it) or one that is occupied (that
+// meal will end).
+//
+// The owner's report: "if six customers wait for the first two tables and I clean them, only two
+// sit and the other four LEAVE." dirtyTablesBlockingSeats was the condition holding them, and it
+// requires a free DIRTY seat. The instant the player wiped both tables and two guests took them,
+// there was no free dirty seat any more -- so the other four were told, correctly by that
+// predicate and absurdly by any other measure, that there was nothing left to wait for. Cleaning
+// the tables is what threw them out.
+export function seatsMightFree(world) {
+  if (!world || !world.stations) return false;
+  for (const st of world.stations.values()) {
+    if (st.type !== 'seat' || !st.active) continue;
+    if (st.dirty || st.occupied) return true;
+  }
+  return false;
+}

@@ -13,6 +13,14 @@
 //   - how many pet name tags are showing at once
 //   - whether the declutter solver had to dim or hide ANY label to fit them
 //   - how much of the time the guidance trail / beacon / ring is on screen during normal play
+//   - THE GHOST TEST: stand in the middle of a rush until the solver starts dimming labels, then
+//     walk away, and check that every tag still on screen belongs to a pet that is really there and
+//     really close. This is the one that matters. The first version of the proximity fix passed
+//     every count above and the owner still photographed four faded names floating over an empty
+//     floor, because `.label-muted` was `opacity:.45!important`: it outranked the base `opacity:0`,
+//     so a tag dimmed during a rush stayed visible after petMoments.js had hidden it, and — still
+//     measuring as a live 0.45 label — stayed a solver candidate forever while nothing updated its
+//     position. Counting tags could never have caught that. Asking "is there a pet under this?" can.
 // and saves the frame to shots-production/quiet-field/.
 import http from 'node:http';
 import fs from 'node:fs';
@@ -90,9 +98,76 @@ for (const [tag, w, h] of [['phone-portrait', 390, 844], ['phone-landscape', 852
       crowded = Math.max(crowded, document.querySelectorAll('.label-crowded').length);
       maxCustomers = Math.max(maxCustomers, G.customers.filter(c => !c.done).length);
     }
+    // ---- the ghost test -------------------------------------------------------------------
+    // Effective visibility, not `opacity` alone: ui/labelLayout.js dims and hides with a FILTER so
+    // that it composes with the owning system's opacity instead of overriding it, and a reader that
+    // looked at only one of the two would miss half the cases.
+    const seen = el => {
+      const cs = getComputedStyle(el);
+      if (cs.display === 'none' || cs.visibility === 'hidden') return 0;
+      const f = /opacity\(([\d.]+)\)/.exec(cs.filter || '');
+      return parseFloat(cs.opacity) * (f ? parseFloat(f[1]) : 1);
+    };
+    // Stand in the thick of it until the solver is genuinely dimming things.
+    const queue = G.customers.filter(c => !c.done);
+    if (queue.length) {
+      const q = queue[0];
+      G.P.x = q.x; G.P.z = q.z + 0.8; G.P.vx = 0; G.P.vz = 0;
+    }
+    let dimmedDuringRush = 0;
+    for (let i = 0; i < 20 * 30; i++) {
+      G._force = null; G.update(1 / 30);
+      dimmedDuringRush = Math.max(dimmedDuringRush, document.querySelectorAll('.label-muted').length);
+    }
+    // Now walk away, to the emptiest corner of the room, and let everything settle.
+    const far = [...G.world.stations.values()].find(st => st.active && st.type === 'return')
+      || [...G.world.stations.values()].find(st => st.active && st.front);
+    if (far) { G.P.x = far.front.x; G.P.z = far.front.z; G.P.vx = 0; G.P.vz = 0; }
+    for (let i = 0; i < 8 * 30; i++) { G._force = null; G.update(1 / 30); }
+
+    const ghosts = [];
+    for (const el of document.querySelectorAll('.pet-identity')) {
+      if (seen(el) <= 0.05) continue;
+      const id = el.dataset.customerId != null ? Number(el.dataset.customerId) : null;
+      const c = id != null ? G.customers.find(cc => cc.id === id && !cc.done) : null;
+      const d = c ? Math.hypot(c.x - G.P.x, c.z - G.P.z) : null;
+      // A tag is legitimate only while its pet is alive and within arm's reach of the owner, plus a
+      // metre of slack for the gap between the guest's own position and their pet on its leash.
+      if (!c || d > 3.8) {
+        ghosts.push({
+          name: el.textContent.trim().slice(0, 20),
+          gone: !c,
+          dist: d == null ? null : Math.round(d * 10) / 10,
+          alpha: Math.round(seen(el) * 100) / 100,
+          muted: el.classList.contains('label-muted'),
+        });
+      }
+    }
+    // ---- and the rule underneath it ---------------------------------------------------------
+    // The emergent test above only fires when the café happens to crowd enough for the solver to
+    // start dimming. THIS one always fires: it states the contract directly. The label arbiter's own
+    // presentation states must COMPOSE with the owning system's visibility, never override it — so a
+    // tag the arbiter has dimmed, or hidden, and that its owner then puts away, is gone.
+    const compose = (() => {
+      const el = document.querySelector('.pet-identity');
+      if (!el) return null;
+      const was = el.className, wasStyle = el.style.transition;
+      // Both opacity and filter are transitioned on these classes, and getComputedStyle reports the
+      // value mid-flight. Freeze them so each line below reads the RULE, not an animation frame.
+      el.style.transition = 'none';
+      const read = () => { void el.offsetWidth; return seen(el); };
+      el.className = 'pet-identity show';                       const shown1 = read();
+      el.className = 'pet-identity show label-muted';           const dimmed = read();
+      el.className = 'pet-identity label-muted';                const hiddenDim = read();
+      el.className = 'pet-identity label-crowded';              const hiddenCrowd = read();
+      el.className = 'pet-identity show label-crowded';         const shownCrowd = read();
+      el.className = was; el.style.transition = wasStyle;
+      return { shown1, dimmed, hiddenDim, hiddenCrowd, shownCrowd };
+    })();
     return {
       frames, guidedShare: guided / Math.max(1, frames), maxTags, muted, crowded, maxCustomers,
-      built: G.world.built.size,
+      built: G.world.built.size, dimmedDuringRush, ghosts, compose,
+      liveCustomers: G.customers.filter(c => !c.done).length,
     };
   });
   await page.screenshot({ path: path.join(shots, tag + '.png') });
@@ -106,6 +181,22 @@ for (const [tag, w, h] of [['phone-portrait', 390, 844], ['phone-landscape', 852
   if (m.crowded > 0) failures.push('[' + tag + '] the declutter solver had to hide ' + m.crowded + ' label(s)');
   // Guidance is for teaching and un-sticking. On a fortnight-old café it should be rare.
   if (m.guidedShare > 0.25) failures.push('[' + tag + '] guidance was on screen ' + Math.round(m.guidedShare * 100) + '% of a two-minute shift');
+  // The contract the ghost came from: dimming and hiding compose with the owner's visibility.
+  const c = m.compose;
+  if (!c) failures.push('[' + tag + '] no pet tag existed to check the dim/hide rules against');
+  else {
+    if (!(c.shown1 > 0.9)) failures.push('[' + tag + '] a shown tag is only ' + c.shown1 + ' opaque');
+    if (!(c.dimmed > 0.2 && c.dimmed < 0.8)) failures.push('[' + tag + '] a dimmed-but-shown tag reads ' + c.dimmed + ', expected about .45');
+    if (c.hiddenDim > 0.01) failures.push('[' + tag + '] a tag its owner HID still shows at ' + c.hiddenDim + ' once the solver has dimmed it — this is the ghost');
+    if (c.hiddenCrowd > 0.01) failures.push('[' + tag + '] a tag its owner hid still shows at ' + c.hiddenCrowd + ' once the solver has hidden it');
+    if (c.shownCrowd > 0.01) failures.push('[' + tag + '] a tag the solver hid still shows at ' + c.shownCrowd);
+  }
+  // The ghost test. A tag on screen must have a pet under it.
+  if (m.ghosts.length) {
+    failures.push('[' + tag + '] ' + m.ghosts.length + ' name tag(s) left on screen with no pet under them: '
+      + m.ghosts.map(g => g.name + (g.gone ? ' (customer gone)' : ' (' + g.dist + ' m away)')
+        + ' at ' + g.alpha + ' alpha' + (g.muted ? ', dimmed' : '')).join('; '));
+  }
 }
 
 await browser.close();
@@ -114,6 +205,8 @@ for (const r of results) {
   console.log(r.tag.padEnd(18) + r.built + ' zones built, up to ' + r.maxCustomers + ' guests, '
     + r.maxTags + ' name tag(s) at once, ' + r.muted + ' dimmed, ' + r.crowded + ' hidden, guidance on screen '
     + Math.round(r.guidedShare * 100) + '% of the shift');
+  console.log(' '.repeat(18) + 'ghost test: ' + r.dimmedDuringRush + ' label(s) dimmed standing in the rush, '
+    + r.liveCustomers + ' guests live after walking away, ' + r.ghosts.length + ' tag(s) left behind');
 }
 if (failures.length) {
   console.error('\nquiet-field-smoke FAILED:');

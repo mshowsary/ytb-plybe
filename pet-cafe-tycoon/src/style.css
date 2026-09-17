@@ -200,7 +200,17 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE8D8;font-family:"S
    When the arbiter cannot find a collision-free slot for a low-priority label it marks it crowded
    rather than letting it overlap. Fading instead of display:none keeps layout measurement stable
    across frames, so a label can come back the instant space reappears. */
-.label-crowded{opacity:0!important;pointer-events:none!important}
+/* The label arbiter's two presentation states (see ui/labelLayout.js) are FILTERS, not opacity
+   overrides. A filter multiplies with whatever opacity the owning system has set, so the arbiter can
+   only ever make a label less visible than its owner intends -- never more.
+   It used to be `opacity:0!important` here and `opacity:.45!important` for the muted state, and that
+   second one was the owner's "name labels still shown where no customer is, or has already left, at
+   reduced opacity". A pet tag dimmed during a rush kept `opacity:.45!important` after petMoments.js
+   had hidden it, because !important beat the base `opacity:0`. Worse, it then still measured as a
+   live label (0.45 > the read phase's 0.05 floor), so the solver kept it as a candidate, kept the
+   café looking crowded, and never un-dimmed it -- while nothing was updating its position any more.
+   A stuck 45% ghost, sitting wherever it was last solved, for the rest of the session. */
+.label-crowded{filter:opacity(0);pointer-events:none!important}
 /* Labels must never be the reason text clips: give every pill room to size to its own content. */
 .demand,.objCaption,.zlabel,.zprice,.chalk,.fbtn{max-width:none}
 
