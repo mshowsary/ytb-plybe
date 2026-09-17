@@ -1,11 +1,17 @@
-// A short, one-shot attention beat for newly surfaced contextual Rush Help.
-// It never pauses gameplay and never changes ad eligibility/rewards: it merely slows simulation
-// for ~1.2 real seconds so an overwhelmed player can notice the already-earned help surface.
-export const RELIEF_ATTENTION_SECONDS = 1.2;
-export const RELIEF_ATTENTION_SCALE = 0.55;
+// A short, one-shot attention beat for a newly surfaced rewarded Rush Help offer: the pill scales in
+// once with a soft glow. Presentation only.
+//
+// It used to also slow the whole simulation to 0.55x for 1.2 real seconds whenever an offer appeared,
+// "so an overwhelmed player can notice the help". Bending game time to put a rewarded-ad prompt in
+// front of someone mid-rush reads as a stutter on a phone and, once noticed, as the game working an
+// angle on the player. The beat alone is enough to be seen, and the offer already waits until the
+// player has stood still for five seconds (systems/economyExperience.js). (2026-09-17.)
+//
+// `reliefAttentionScale` stays exported, always 1, so nothing that reads it can slow the café again.
+export const RELIEF_ATTENTION_SECONDS = 0.85;
 
-export function reliefAttentionScale(remainingSeconds, reducedMotion = false) {
-  return !reducedMotion && remainingSeconds > 0 ? RELIEF_ATTENTION_SCALE : 1;
+export function reliefAttentionScale() {
+  return 1;
 }
 
 function installStyle() {
@@ -20,55 +26,44 @@ function installStyle() {
 }
 
 export function installReliefAttention(G) {
-  if (!G || typeof G.update !== 'function' || typeof document === 'undefined') return { destroy() {}, get active() { return false; } };
+  if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return { destroy() {}, get active() { return false; } };
   installStyle();
   const root = document.querySelector('.relief-root');
   if (!root) return { destroy() {}, get active() { return false; } };
-  const reducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-  const baseUpdate = G.update;
+  // Once per offer per day, keyed by what the pill says, exactly as before.
   const seen = new Set();
-  let remaining = 0;
+  let day = (G && G.dayState && G.dayState.day) || 1;
   let visibleBefore = !root.classList.contains('hidden');
-  let day = G.dayState && G.dayState.day || 1;
-  let beatTimer = 0;
+  let beatTimer = 0, beating = false;
 
   function signature() {
-    const title = root.querySelector('.relief-pill-title');
-    return `${day}:${title && title.textContent || root.textContent || 'relief'}`;
+    const label = root.querySelector('.relief-pill-label');
+    return `${day}:${(label && label.textContent) || root.textContent || 'relief'}`;
   }
   function trigger() {
+    const nowDay = (G && G.dayState && G.dayState.day) || day;
+    if (nowDay !== day) { day = nowDay; seen.clear(); }
     const key = signature();
     if (seen.has(key)) return;
     seen.add(key);
-    remaining = reducedMotion ? 0 : RELIEF_ATTENTION_SECONDS;
+    beating = true;
     root.classList.add('attention-beat');
     if (beatTimer) clearTimeout(beatTimer);
-    beatTimer = setTimeout(() => root.classList.remove('attention-beat'), 850);
+    beatTimer = setTimeout(() => { root.classList.remove('attention-beat'); beating = false; }, RELIEF_ATTENTION_SECONDS * 1000);
   }
-
-  const wrappedUpdate = function reliefAttentionUpdate(dt) {
-    const realDt = Math.max(0, Number(dt) || 0);
-    const scale = reliefAttentionScale(remaining, reducedMotion);
-    G.presentationTimeScale = scale;
-    const result = baseUpdate(realDt * scale);
-    remaining = Math.max(0, remaining - realDt);
-
-    const nowDay = G.dayState && G.dayState.day || day;
-    if (nowDay !== day) { day = nowDay; seen.clear(); remaining = 0; }
+  const observer = new MutationObserver(() => {
     const visible = !root.classList.contains('hidden');
     if (visible && !visibleBefore) trigger();
     visibleBefore = visible;
-    return result;
-  };
-  G.update = wrappedUpdate;
+  });
+  observer.observe(root, { attributes: true, attributeFilter: ['class'] });
 
   return {
-    get active() { return remaining > 0; },
+    get active() { return beating; },
     destroy() {
+      observer.disconnect();
       if (beatTimer) clearTimeout(beatTimer);
       root.classList.remove('attention-beat');
-      if (G.update === wrappedUpdate) G.update = baseUpdate;
-      G.presentationTimeScale = 1;
     },
   };
 }

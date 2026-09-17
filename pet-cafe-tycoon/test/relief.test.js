@@ -107,14 +107,13 @@ test('rush help chooses temporary runner help for guests blocked by empty displa
   assert.equal(r.role, 'runner');
 });
 
-test('Roomba is pet-floor specific and never substitutes for dirty-table Cleaner work', () => {
+// 2026-09-17: pawprints are cosmetic (sim/petMess.js), so no amount of them justifies asking the
+// player to watch an ad, and dirty tables stay the Cleaner's job.
+test('pet pawprints and dirty tables alone never produce a rewarded rush-help offer', () => {
   const customers = Array.from({ length: 4 }, (_, i) => ({ id: i, state: 'eating', mood: 'none', patience: 17, done: false }));
   assert.equal(recommendRushHelp(state({ customers, petMess: { count: 1 } }), fakeWorld()), null);
+  assert.equal(recommendRushHelp(state({ customers, petMess: { count: 4 } }), fakeWorld()), null);
   assert.equal(recommendRushHelp(state({ customers }), fakeWorld({ dirty: 3 })), null);
-  const r = recommendRushHelp(state({ customers, petMess: { count: 3 } }), fakeWorld());
-  assert.equal(r.kind, 'roomba');
-  assert.equal(r.label, 'Roomba Sweep');
-  assert.equal(r.suggestedSweepSeconds, 18);
 });
 
 test('rush help uses Pet Play Break for broad low-patience pressure without a specific service bottleneck', () => {

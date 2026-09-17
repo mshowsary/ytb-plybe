@@ -84,11 +84,15 @@ await page.waitForFunction(() => {
   const ids = new Set(window.__petBreakVisualIds || []);
   const active = [...document.querySelectorAll('.pet-identity.play-break.show')].filter(el => ids.has(Number(el.dataset.customerId)));
   if (active.length !== 2) return false;
+  // Wholly inside the frame AND faded in. Accepting a tag whose edge merely touched the screen raced
+  // the render: the second pet's mesh is still walking in from the door (only its simulation
+  // position was moved above), so its tag could be at x = -18 and still fading in when the opacity
+  // assertion below ran. Slower software-GL runs lost that race every time.
   return active.every(el => {
     const r = el.getBoundingClientRect();
-    return r.right >= 0 && r.left <= innerWidth && r.bottom >= 0 && r.top <= innerHeight;
+    return r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight && Number(getComputedStyle(el).opacity) > 0.9;
   });
-}, null, { timeout:60000 });
+}, null, { timeout:90000 });
 
 const visual = await page.evaluate(() => {
   const ids = new Set(window.__petBreakVisualIds || []);

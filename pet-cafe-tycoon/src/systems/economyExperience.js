@@ -392,8 +392,8 @@ export function createEconomyExperience(G, S, ctx, platform) {
 
       let next = null;
       if (d.phase === 'rush') {
+        // Rush crew, then the pet play break. The Roomba is no longer offered: see sim/relief.js.
         next = rushCrewOfferFor(G, world, { now: G.time });
-        if (!next) next = roombaOfferFor(G, world, { now: G.time });
         if (!next) next = petPlayBreakOfferFor(G, world, { now: G.time });
       }
       if (!next) {

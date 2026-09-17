@@ -153,15 +153,14 @@ export function recommendRushHelp(G, world, context = {}) {
     ));
   }
 
-  // Roomba now has its OWN pet-floor job. It never responds to dirty tables: those remain a
-  // permanent Cleaner/owner responsibility. This prevents rewarded help from cannibalizing staff.
-  if (p.petMess >= 2 && activeCustomers >= 4) {
-    options.push(rushCandidate(
-      'roomba', 76 + p.petMess * 9 + Math.min(10, urgent.lowPatience * 2),
-      'Roomba Sweep', 'Pet pawprints are piling up while you are serving the rush.', pressure,
-      { suggestedSweepSeconds: 18 },
-    ));
-  }
+  // No Roomba here. Pet pawprints are cosmetic by contract (sim/petMess.js: no coin loss, no
+  // patience damage, no blocking) and the owner clears one by walking over it, so a rewarded ad to
+  // sweep them bought the player nothing. It was also the highest-scoring candidate whenever two
+  // pawprints existed, so it surfaced in nearly every rush from day 2 and, with one in-shift claim
+  // per shift, crowded out the offers that do help: rush crew and the coin bridge. An offer with no
+  // value does worse than waste the slot — it teaches the player that every offer is worthless.
+  // (2026-09-17.) The Roomba itself remains: already-earned entitlements still apply, see
+  // systems/economyExperience.js tryApplyPending.
 
   // Pet Lounge is the broad-pressure fallback: two guests/pets can take a short play break,
   // pausing rather than deleting their patience.

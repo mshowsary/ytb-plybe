@@ -21,13 +21,10 @@ test('Roomba rewarded id is isolated from crew and pet-break rewards', () => {
   assert.equal(ROOMBA_REWARD_ID, 'pet-cafe-roomba-sweep');
 });
 
-test('Roomba offer is actionable only for two or more pet pawprint patches', () => {
-  assert.equal(roombaOfferFor(state(1), world()), null);
-  const r = roombaOfferFor(state(3), world());
-  assert.equal(r.mode, 'roomba');
-  assert.equal(r.key, 'roomba');
-  assert.equal(r.duration, 18);
-  assert.match(r.detail, /Dirty tables still belong/);
+// The Roomba is no longer offered as a rewarded ad (sim/relief.js explains why). The classifier
+// that fed this offer never nominates it, so however many pawprints pile up there is no offer.
+test('no Roomba ad offer, however many pet pawprints there are', () => {
+  for (const n of [1, 2, 3, 4]) assert.equal(roombaOfferFor(state(n), world()), null);
 });
 
 test('Roomba offer disappears while a sweep is already active', () => {
