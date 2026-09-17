@@ -121,6 +121,8 @@ function iconChip(svg, value, className = '') {
 
 function decorateCard(G, card) {
   if (!card || card.querySelector('.service-summary-strip')) return;
+  // The composed day card (ui/daySummary.js) already carries served, followers and photos in its hero.
+  if (card.classList.contains('ds-card')) return;
   const title = card.querySelector('.ctitle');
   if (!title || !/^Day\s+\d+\s+✓$/.test(title.textContent.trim())) return;
   const body = card.querySelector('.cbody'); if (!body) return;

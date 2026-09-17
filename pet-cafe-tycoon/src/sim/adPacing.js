@@ -32,6 +32,24 @@ export function speedBuildEligible(paid, price) {
   return ratio >= SPEED_BUILD_MIN_PAID_RATIO;
 }
 
+// The end-of-day rewarded bonus is worth about a third of the day's takings.
+//
+// It used to be the contract reward (when the contract was met) or 15% of sales capped at 250 coins.
+// Measured against the economy bot's 60-day run (tools/bot.js, BOT_DAYS_JSON), that came to 11-15%
+// of a day's sales on days 1-5, 6-9% by day 8 and 3-5% from day 13 on: 210 coins offered for a
+// 30-second ad on a 2,300-coin day. A reward nobody takes twice is wasted inventory for us and a
+// cheap-feeling moment for the player. A third of the day is a boost a daily watcher feels (their
+// next unlock arrives roughly a quarter sooner) without hollowing out the build cadence the bot's
+// gates hold for players who never watch. Rounded to a figure that reads as a prize, not a receipt.
+export const SUMMARY_BONUS_SHARE = 0.35;
+export const SUMMARY_BONUS_MIN = 50;
+export function summaryBonusAmount(earned) {
+  const e = Math.max(0, Number(earned) || 0);
+  const raw = e * SUMMARY_BONUS_SHARE;
+  const step = raw >= 1000 ? 50 : 10;
+  return Math.max(SUMMARY_BONUS_MIN, Math.round(raw / step) * step);
+}
+
 // Returning-player boot spot: the pre-roll equivalent. New players (first two completed shifts)
 // always get a clean first session; established players get one optional interstitial at boot.
 export const BOOT_INTERSTITIAL_MIN_COMPLETED_DAYS = 3;

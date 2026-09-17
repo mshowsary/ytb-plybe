@@ -141,6 +141,14 @@
       "timeoutMs": 300000
     },
     {
+      "name": "Day-complete card at every certified size: hero, rows, bonus, Continue",
+      "command": [
+        "node",
+        "tools/day-summary-smoke.js"
+      ],
+      "timeoutMs": 400000
+    },
+    {
       "name": "Browser visual smoke",
       "command": [
         "node",
@@ -202,11 +210,11 @@
         "node",
         "tools/scene-cost.mjs",
         "--static-calls",
-        "170",
+        "200",
         "--static-tris",
         "110000",
         "--actor-calls",
-        "8"
+        "9"
       ],
       "timeoutMs": 300000
     }

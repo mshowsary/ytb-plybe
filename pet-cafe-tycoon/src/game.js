@@ -3,7 +3,7 @@ import { applySeatMiss } from './sim/serviceQuality.js';
 import { normalizeSocials } from './sim/petSocials.js';
 import { createPetSocials } from './systems/petSocials.js';
 import { cafeCompletion } from './sim/completion.js';
-import { summaryClaimedForShift, inShiftClaimedForShift, markRewardedClaim, interstitialDueAfterShift } from './sim/adPacing.js';
+import { summaryClaimedForShift, inShiftClaimedForShift, markRewardedClaim, interstitialDueAfterShift, summaryBonusAmount } from './sim/adPacing.js';
 import { specialForDaySeasoned, saleMatchesTheme, specialProgress, specialReward, goldenHourForDay, createGoldenHourState, stepGoldenHour, goldenHourMult } from './sim/specialDays.js';
 import { seasonForDay, deriveSeasonMeta, seasonRolledOver } from './sim/seasons.js';
 import { ACCESSORIES, accessoryUnlocked } from '../data/accessories.js';
@@ -15,7 +15,7 @@ const specialFor = day => {
   return specialForDaySeasoned(day, s.id, s.dayStart);
 };
 import { normalizeCalendar } from './sim/rewards.js';
-import { familyOf, salePrice, cafeLevel, STAFF } from './sim/economy.js';
+import { familyOf, salePrice, STAFF } from './sim/economy.js';
 import { franchiseIncomeMultiplier } from './sim/franchise.js';
 import { beginActorStep, endActorStep } from './sim/actorRoster.js';
 import { createMover } from './sim/mover.js';
@@ -25,7 +25,7 @@ import { applySave } from './sim/save.js';
 import { snapshotStationState, restoreStationState } from './sim/stationState.js';
 import { snapshotOwnerState, restoreOwnerState } from './sim/ownerState.js';
 import { reliefClaimKey } from './sim/relief.js';
-import { ensurePartyOrders, clonePartyOrders, partyOrderProgress } from './sim/partyOrders.js';
+import { ensurePartyOrders, clonePartyOrders } from './sim/partyOrders.js';
 import { createDay, stepDay, nextDay, phaseFrac, isWeekend, isHoliday, tipMult } from './sim/day.js';
 import { ensureReputation, reputationLevel, reputationProgress, reputationTitle, REPUTATION_TITLES } from './sim/reputation.js';
 import { ensurePetBook, discoverPet, petBookProgress, allPetCards } from './sim/petBook.js';
@@ -78,6 +78,7 @@ import { createObjective } from './systems/objective.js';
 import { createIntro } from './systems/intro.js';
 import { jobTarget } from './sim/jobs.js';
 import { decide } from './sim/botDecide.js';
+import { buildServiceSummaryModel } from './ui/serviceSummary.js';
 
 const freshDayStats = () => ({ served: 0, lost: 0, earned: 0, serviceFees: 0, serviceMisses: 0, wasteFees: 0, bestStreak: 0, specialServed: 0 });
 
@@ -408,56 +409,35 @@ export function createGame(S, area, els, platform = null) {
     recordPawSeatDay(G.meta, completedDay, G.dayStats.missedSeats | 0);
     applyPawRatchet({ meta: G.meta, stats: G.stats, built: world.built, area: world.area });
     const repProgress = reputationProgress(G.meta), repLevel = reputationLevel(G.meta); syncReputationPresentation(); syncCareerPresentation(); syncPawPresentation();
-    const remaining = world.area.zones.filter(z => !world.built.has(z.id)).sort((a, b) => a.price - b.price); const nextUnlock = remaining.length ? { label: remaining[0].label, price: remaining[0].price } : null;
-    const tomorrow = chooseCareerGoal(completedDay + 1, structuredClone(G.meta), G);
+    // The rewarded bonus is a third of today's takings (sim/adPacing.js summaryBonusAmount), whether
+    // or not the contract was met: one rule, one number, worth the thirty seconds it asks for.
+    const rewardAmount = summaryBonusAmount(settlement.stats.earned);
+    const rewardClaimed = summaryClaimedForShift(G.meta, completedDay);
+    const rewardVisible = !rewardClaimed && !!platform && (platform.rewardedAvailable || !platform.inPlayables) && platform.canRequestAd?.('rewarded') !== false;
+    if (rewardVisible) platform.noteAdEligible?.('rewarded', `summary:${completedDay}`);
+    const summaryModel = buildServiceSummaryModel(G.dayStats, G.meta);
+    metaUI.lockSummary(true);
     sheets.open('summary', {
-      day: completedDay, earnings: settlement.stats.earned, served: settlement.stats.served, lost: settlement.stats.lost,
-      serviceFees: settlement.stats.serviceFees, serviceMisses: settlement.stats.serviceMisses, wasteFees: settlement.stats.wasteFees, cafeLevel: cafeLevel(G),
-      goalText: careerGoalLabel(goal), goalMet: met, goalReward: goal.reward, tomorrowText: careerGoalLabel(tomorrow), tomorrowReward: tomorrow.reward, nextUnlock,
+      v: 2, day: completedDay, earned: settlement.stats.earned,
+      served: summaryModel.served, lost: summaryModel.lost, followers: summaryModel.followers, photos: summaryModel.photos,
+      contract: { kind: goal.kind, target: goal.target, progress: goalProgressNow, met, reward: goal.reward, rival: !!goal.rival },
+      rating,
+      reputation: { awarded: repResult.awarded, levelUp: repResult.levelUp, title: reputationTitle(G.meta), nextTitle: REPUTATION_TITLES[repLevel + 1] || null, frac: repProgress.frac },
+      week: { ...weeklyCupState(G.meta, completedDay), award: cupAward && cupAward.awarded ? cupAward : null },
+      bonus: rewardVisible ? {
+        amount: rewardAmount, claimed: rewardClaimed, liveAd: !!platform.rewardedAvailable,
+        onClaim: async () => {
+          if (summaryClaimedForShift(G.meta, completedDay)) return false; const ok = await platform.requestRewardedAd('pet-cafe-day-bonus-coins');
+          if (!ok) { metaUI.toast(cue([giftIcon(), crossIcon()], 'Reward not completed')); return false; }
+          if (!markRewardedClaim(G.meta, completedDay, 'summary')) return false; G.coins += rewardAmount; hud.setCoins(G.coins); hud.bump(); audio.play('chime'); syncCareerPresentation();
+          saveNow('reward-claim'); return true;
+        },
+      } : null,
     }, {
       continue: () => finishDayTransition('continue'),
       dismiss: source => finishDayTransition(source),
     });
 
-    const rewardAmount = met ? goal.reward : Math.max(25, Math.min(250, Math.round(settlement.stats.earned * 0.15)));
-    const rewardClaimed = summaryClaimedForShift(G.meta, completedDay);
-    const rewardVisible = !rewardClaimed && !!platform && (platform.rewardedAvailable || !platform.inPlayables) && platform.canRequestAd?.('rewarded') !== false;
-    if (rewardVisible) platform.noteAdEligible?.('rewarded', `summary:${completedDay}`);
-    metaUI.decorateSummary({
-      rating,
-      // Batch 6: no `servicePolicy` field any more. It fed a paragraph in the shift summary that
-      // explained a fine the game no longer levies (src/sim/servicePolicy.js), and explaining a
-      // consequence that cannot happen is the same nagging in a quieter font. G.meta.servicePolicy
-      // itself is untouched -- it is still normalised, still saved, and still drives the kind
-      // waitSeat behaviour; it simply has nothing left to say to the player.
-      reputation: { awarded: repResult.awarded, levelUp: repResult.levelUp, title: reputationTitle(G.meta), nextTitle: REPUTATION_TITLES[repLevel + 1] || null, current: repProgress.current, needed: repProgress.needed, frac: repProgress.frac },
-      rewardOffer: rewardVisible ? {
-        amount: rewardAmount, claimed: rewardClaimed, liveAd: !!platform.rewardedAvailable, label: met ? 'DOUBLE CONTRACT REWARD' : 'BONUS TIP JAR',
-        onClaim: async () => {
-          if (summaryClaimedForShift(G.meta, completedDay)) return false; const ok = await platform.requestRewardedAd('pet-cafe-day-bonus-coins');
-          if (!ok) { metaUI.toast(cue([giftIcon(), crossIcon()], 'Reward not completed')); return false; }
-          if (!markRewardedClaim(G.meta, completedDay, 'summary')) return false; G.coins += rewardAmount; hud.setCoins(G.coins); hud.bump(); audio.play('chime'); syncCareerPresentation();
-          metaUI.toast(cue([coinIcon(), '+', rewardAmount], `Bonus plus ${rewardAmount.toLocaleString('en-US')} coins`)); saveNow('reward-claim'); return true;
-        },
-      } : null,
-    });
-
-    const career = ensureCareer(G.meta), masteries = allMasteryProgress(G.meta), closestMastery = masteries.filter(m => !m.max).sort((a, b) => b.frac - a.frac)[0] || null;
-    const reno = renovationState(G.meta, G.coins), party = ensurePartyOrders(G.meta).active, pp = party ? partyOrderProgress(party) : null;
-    const completion = cafeCompletion(G);
-    const nextChase = completion.roomComplete ? completion.next : nextUnlock
-      ? `Build ${nextUnlock.label} · ${nextUnlock.price.toLocaleString('en-US')} coins`
-      : party && pp && pp.count < pp.target
-        ? `Party Order · ${pp.count}/${pp.target} · +${party.reward} coins`
-        : reno.next
-          ? `${reno.next.name} renovation · ${reno.repReady ? `${reno.next.cost.toLocaleString('en-US')} coins` : `reach ${reno.next.rep} REP`}`
-          : repProgress.next != null
-            ? `Reach ${REPUTATION_TITLES[repLevel + 1]} · ${repProgress.needed - repProgress.current} REP to go`
-            : closestMastery ? `Master ${closestMastery.label} · ${closestMastery.current}/${closestMastery.needed}` : 'Defend Gold Cups and beat your weekly records';
-    careerUI.decorateSummary({
-      week: weeklyCupState(G.meta, completedDay), cupAward, contractStreak: career.contractStreak | 0, lost: settlement.stats.lost, nextUnlock,
-      contract: { kind: goal.kind, label: careerGoalLabel(goal), target: goal.target, progress: goalProgressNow, previous: goal.previous, rival: !!goal.rival, met, reward: goal.reward }, nextChase,
-    });
     saveNow('shift-settlement');
   }
 

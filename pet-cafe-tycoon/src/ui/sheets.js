@@ -2,6 +2,7 @@
 import { beanIcon, kibbleIcon, creamIcon, waterIcon, iconFor, checkIcon } from './icons.js';
 import { decorCatalogue } from '../../data/decor.js';
 import { presentationScheduler } from '../core/presentationScheduler.js';
+import { renderDaySummary } from './daySummary.js';
 const COIN_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9.5" fill="#FFD84D" stroke="#C98A00" stroke-width="1.5"/></svg>';
 const CHEVRON_DOWN_SVG = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const fmt = n => Math.round(n).toLocaleString('en-US');
@@ -252,6 +253,12 @@ function summaryRow(label, value) {
   const row = document.createElement('div'); row.className = 'srow-sub'; row.textContent = `${label}: ${value}`; return row;
 }
 function renderSummary(model, actions, onClose) {
+  // One composed card (src/ui/daySummary.js) whenever game.js hands over the full day model. The
+  // plain two-row body below is kept only for any caller still passing the old shape.
+  if (model && model.v === 2) {
+    const card = shell('summary', `Day ${model.day}`, onClose);
+    return renderDaySummary(card, model, { onContinue: () => actions.continue() });
+  }
   const el = shell('summary', `Day ${model.day} ✓`, onClose); const body = document.createElement('div'); body.className = 'cbody';
   body.append(summaryRow('Gross sales', fmt(model.earnings)), summaryRow('Served', model.served));
   if(model.serviceFees>0)body.append(summaryRow('Service recovery / refunds', '−'+fmt(model.serviceFees)),summaryRow('Sales less service recovery',fmt(Math.max(0,model.earnings-model.serviceFees))));
