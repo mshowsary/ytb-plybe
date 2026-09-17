@@ -2,7 +2,8 @@
 // Routine jobs use the same Task-30 escalation lane as interactionCoach: natural state first,
 // subtle route pulse after ~3s of hesitation, and explicit route/caption after ~7s. Useful movement
 // toward the current target resets the timer so the game never nags a player who is already acting.
-import { jobTarget } from '../sim/jobs.js';
+import { jobTarget, urgent } from '../sim/jobs.js';
+import { activeZones } from '../sim/world.js';
 import { refillGuideTarget } from '../sim/refillGuide.js';
 import { coachEscalationStage } from '../sim/mechanicLearning.js';
 import { createGuidePath } from '../render/guidePath.js';
@@ -47,6 +48,28 @@ const ROUTE_REPLAN_METERS = 0.9, ROUTE_REPLAN_SECONDS = 0.6;
 // A tap alone (the audio unlock) does not count: the point is to teach the drag.
 const FIRST_MOVE_METERS = 0.6;
 const EDGE_MARGIN = 34;
+
+// ---- How much to show, and when ------------------------------------------------------------
+// The owner's rule (2026-09-17): a demo the FIRST time, an indicator when you hesitate, nothing
+// forever. Concretely, every guidance target resolves to one of three modes:
+//   'full'   trail on the floor + beacon + ring + edge arrow + caption — a walkthrough
+//   'beacon' the arrow over the target (and the edge arrow if it is off screen) — a pointer
+//   'none'   nothing drawn
+// A kind of errand is a walkthrough until the player has done it once (the coach's proven set,
+// persisted with the save); after that it is a pointer after ~3 s of hesitation and a walkthrough
+// only after ~7 s. The opening lesson is always a walkthrough. A plot the player can afford for
+// the first time gets one walkthrough too — the "suggest to build it" beat — and then behaves like
+// any other errand. Days 1-2 are lenient: carry guidance stays a walkthrough while the whole loop
+// is still new, even for a kind already proven by the lesson.
+const MECHANIC_OF_KIND = {
+  register: 'serve', serve: 'serve', restock: 'pickup', stock: 'pickup', bake: 'pickup',
+  refill: 'pantry', supplies: 'pantry', clean: 'clean', harvest: 'harvest', build: 'build',
+  // Carrying something to where it belongs is what the opening lesson's "stock the display" step
+  // already taught, so it shares that proof rather than re-running a walkthrough on day 3.
+  collect: 'cash', deliver: 'pickup', return: 'return',
+};
+const LENIENT_DAYS = 2;
+const ARRIVE_METERS = 1.6;
 
 // Where the owner should STAND for a given target: a station's front spot, its cash spot for a
 // collect job, or the point itself for a build plot. The beacon hovers over the object; the ring
@@ -94,6 +117,25 @@ export function createObjective(G, S, ctx) {
   const routeCells = new Int32Array(4096);
   const routePts = [];
   let routeKey = '', routeT = 0, routeFromX = 0, routeFromZ = 0;
+  // Plots already walked to once this session (keyed by position: a job target carries no id).
+  const nudgedPlots = new Set();
+  let nudgeT = 0, nudgeKey = '', nudgeCooldown = 0;
+  // One plot at a time, and a breath between them: a rich owner is offered the next plot a minute
+  // later, not the moment the last walkthrough ends.
+  const NUDGE_SECONDS = 12, NUDGE_COOLDOWN = 60;
+  const proven = key => !!key && typeof G.mechanicProven === 'function' && G.mechanicProven(key);
+  const markProven = key => { if (key && typeof G.markMechanic === 'function') G.markMechanic(key); };
+  function firstAffordablePlot() {
+    const coins = G.coins || 0;
+    for (const z of world.activeZoneList || activeZones(world)) {
+      const remaining = z.price - (world.partial[z.id] || 0);
+      if (remaining > coins) continue;
+      const k = z.x.toFixed(1) + ',' + z.z.toFixed(1);
+      if (nudgedPlots.has(k)) continue;
+      return { x: z.x, z: z.z, kind: 'build' };
+    }
+    return null;
+  }
   const caption = document.createElement('div'); caption.className = 'objCaption hidden';
   // The glyph is drawn; the sentence it replaced rides on aria-label, so the caption stays a status
   // announcement rather than an unlabelled decoration.
@@ -112,6 +154,9 @@ export function createObjective(G, S, ctx) {
   return {
     update(dt) {
       t += dt;
+      // Ticks whether or not anything is being pointed at: a cooldown that only ran while a target
+      // existed sat at its full length through every quiet spell and blocked the next plot for good.
+      nudgeCooldown = Math.max(0, nudgeCooldown - dt);
       if (G.intro && G.intro.active) {
         target = G.intro.target;
         guided = true;
@@ -128,6 +173,14 @@ export function createObjective(G, S, ctx) {
           // espresso machine teaches nothing, so route the objective through Pantry first. Once
           // beans/kibble are in hand the arrow switches back to the correct empty station.
           if (target && target.kind === 'refill') target = refillGuideTarget(world, G) || target;
+          // "You can afford this now" is a moment, and building is the lowest-priority errand, so
+          // on a busy day it would never surface on its own. When nothing is URGENT (no guest
+          // waiting unserved, no empty display with someone at it), a plot the player can afford
+          // for the first time takes the lane for one walkthrough. Chores wait a few seconds.
+          if (nudgeCooldown <= 0 && !urgent(world, G)) {
+            const plot = firstAffordablePlot();
+            if (plot) target = plot;
+          }
         }
       }
 
@@ -178,25 +231,49 @@ export function createObjective(G, S, ctx) {
       }
       G.objectiveCueStage = stage;
 
-      // Natural world state is the first teacher. Do not overlay another instruction until the
-      // player has actually hesitated.
-      if (!guided && stage === 'natural') {
+      // ---- decide the mode -----------------------------------------------------------------
+      const stand = standSpotFor(world, target);
+      const key = cueKey(target, guided);
+      const mech = MECHANIC_OF_KIND[target.kind] || null;
+      const day = (G.dayState && G.dayState.day) | 0;
+      const intro = !!(G.intro && G.intro.active);
+      const plotKey = target.kind === 'build' ? target.x.toFixed(1) + ',' + target.z.toFixed(1) : '';
+      // A first-affordable plot earns one walkthrough, for a bounded time or until reached.
+      if (plotKey && plotKey !== nudgeKey) { nudgeKey = plotKey; nudgeT = 0; }
+      if (plotKey) nudgeT += dt;
+      const plotNudge = !!plotKey && !nudgedPlots.has(plotKey) && nudgeT < NUDGE_SECONDS && nudgeCooldown <= 0;
+      let mode;
+      if (intro) mode = 'full';
+      else if (!proven(mech)) mode = 'full';
+      else if (plotNudge) mode = 'full';
+      else if (guided) mode = day <= LENIENT_DAYS ? 'full' : 'beacon';
+      else mode = stage === 'natural' ? 'none' : stage === 'route' ? 'full' : 'beacon';
+
+      // Arrival proves the errand: from now on this kind is a pointer, not a walkthrough.
+      const endNudge = () => { if (plotKey && !nudgedPlots.has(plotKey)) { nudgedPlots.add(plotKey); nudgeCooldown = NUDGE_COOLDOWN; } };
+      if (stand && Math.hypot(G.P.x - stand.x, G.P.z - stand.z) < ARRIVE_METERS) {
+        if (!intro && mech) markProven(mech);
+        endNudge();
+      }
+      if (plotKey && nudgeT >= NUDGE_SECONDS) endNudge();
+
+      if (mode === 'none') {
         guide.hide(); edge.classList.add('hidden');
         caption.classList.add('hidden');
         return;
       }
+      const full = mode === 'full';
 
       // Route the trail along the same grid the guests walk, so it goes AROUND the counters rather
       // than through them. Replanned only when something material changed.
-      const stand = standSpotFor(world, target);
-      const key = cueKey(target, guided);
       routeT -= dt;
       const strayed = Math.hypot(G.P.x - routeFromX, G.P.z - routeFromZ) > ROUTE_REPLAN_METERS;
-      if (key !== routeKey || routeT <= 0 || strayed) {
-        routeKey = key; routeT = ROUTE_REPLAN_SECONDS; routeFromX = G.P.x; routeFromZ = G.P.z;
+      const modeKey = key + ':' + mode;
+      if (modeKey !== routeKey || routeT <= 0 || strayed) {
+        routeKey = modeKey; routeT = ROUTE_REPLAN_SECONDS; routeFromX = G.P.x; routeFromZ = G.P.z;
         routePts.length = 0;
         const g = world.grid;
-        if (g && stand) {
+        if (full && g && stand) {
           const from = nearestFree(g, idx(g, G.P.x, G.P.z), 3), to = nearestFree(g, idx(g, stand.x, stand.z), 3);
           const n = from >= 0 && to >= 0 ? findPath(g, from, to, 3, routeCells) : 0;
           routePts.push({ x: G.P.x, z: G.P.z });
@@ -207,7 +284,7 @@ export function createObjective(G, S, ctx) {
         guide.show({
           points: routePts,
           target: { x: target.x, z: target.z, y: HOVER_Y },
-          standSpot: stand,
+          standSpot: full ? stand : null,
           showBeacon: !coachOwnsBeacon,
         });
       } else if (guide.beacon.visible === coachOwnsBeacon) {
@@ -228,10 +305,8 @@ export function createObjective(G, S, ctx) {
 
       if (coachOwnsBeacon) { caption.classList.add('hidden'); return; }
 
-      // The 3s stage is visual-only. At ~7s the same single cue earns a compact route word. Explicit
-      // intro/context guidance remains immediately captioned because it is already an authored lesson.
-      const showWord = guided || stage === 'route';
-      if (!showWord) { caption.classList.add('hidden'); return; }
+      // The destination glyph rides only with a walkthrough; a pointer is just the arrow.
+      if (!full) { caption.classList.add('hidden'); return; }
       const y = HOVER_Y;
       fx.project(target.x, y + 0.75, target.z, tmp);
       // `captionIcon` is the carry system's concrete destination glyph; `kind` is the routine job.

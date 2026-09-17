@@ -293,6 +293,11 @@ export function createStations(G, S, ctx) {
     bodyBoxes = [];
     for (const st of world.stations.values()) {
       if (!st.active) continue;
+      // A gate is the OPENING in a fence, not a thing: world.js leaves it out of the sim's boxes
+      // for exactly that reason, and this list must too. Left in, its 4.8 m footprint was a wall
+      // across the terrace's only doorway that only the player collided with — guests and staff
+      // walked through while the owner was stuck on the deck (owner playtest, 2026-09-17).
+      if (st.type === 'gate') continue;
       let fw = st.fw != null ? st.fw : 1, fd = st.fd != null ? st.fd : 1;
       if (Math.abs(Math.sin(st.rot)) > 0.5) { const t = fw; fw = fd; fd = t; }
       // Union, never replace: a prop drawn smaller than its footprint must not open a gap that the

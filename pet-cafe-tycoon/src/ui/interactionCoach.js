@@ -568,6 +568,13 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
     if (!key || (!mechanicIsKnown(key) && !isRefillIceKey(key))) return;
     proven.add(key); failures.delete(key); resetCandidate(); hide();
   }
+  // The objective guidance (systems/objective.js) reads and writes the same proven set, so "the
+  // player has done this before" is one fact with one save path, not two. Marking here has none
+  // of mark()'s presentation side effects — it is bookkeeping, not a cue being dismissed.
+  if (G) {
+    G.mechanicProven = key => proven.has(key);
+    G.markMechanic = key => { if (key && mechanicIsKnown(key)) proven.add(key); };
+  }
 
   function advanceCandidate(key, dt, distance = null) {
     if (key !== candidateKey) {

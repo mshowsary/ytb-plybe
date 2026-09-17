@@ -108,12 +108,23 @@ export function createZones(G, S, ctx) {
       // here is cheap, and it is the one plot besides wherever the owner is standing that still
       // earns a price pill below.
       const savingTarget = pickSavingTarget(area.zones, world.built);
+      // One standing spot arms at most ONE plot. Two markers 0.7 m apart (the pet lounge and the
+      // terrace, before data/area1.js moved them) both read the owner as "inside" and every payment
+      // tick split between them — the owner's "spreading the coins on both" report, 2026-09-17.
+      // Where footprints still overlap for any reason, the nearer centre owns the owner.
+      let armedZone = null, armedD = Infinity;
+      for (const z of world.activeZoneList) {
+        const zv = zonesMap.get(z.id); if (!zv) continue;
+        if (!insideBuildFootprint(P, z, zv.fw, zv.fd, zv.rot)) continue;
+        const d = (P.x - z.x) ** 2 + (P.z - z.z) ** 2;
+        if (d < armedD) { armedD = d; armedZone = z; }
+      }
       for (const z of world.activeZoneList) {
         const zv = zonesMap.get(z.id); if (!zv) continue;
         zv.outline.visible = true; zv.ghost.visible = true;
         zv.pulse.target = 1; const s = zv.pulse.step(dt); zv.outline.scale.setScalar(s); zv.ghost.scale.setScalar(s);
 
-        const inside = insideBuildFootprint(P, z, zv.fw, zv.fd, zv.rot);
+        const inside = armedZone === z;
         const intent = stepBuildIntent(zv.intent, inside, speed, dt);
         let paid = world.partial[z.id] || 0;
 

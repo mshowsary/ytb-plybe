@@ -125,6 +125,14 @@
       "timeoutMs": 600000
     },
     {
+      "name": "Guidance policy: a demo the first time, a pointer on hesitation, nothing forever",
+      "command": [
+        "node",
+        "tools/guidance-policy-smoke.js"
+      ],
+      "timeoutMs": 300000
+    },
+    {
       "name": "Browser visual smoke",
       "command": [
         "node",

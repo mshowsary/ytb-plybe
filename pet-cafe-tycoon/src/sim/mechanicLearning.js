@@ -10,6 +10,10 @@ export const MECHANIC_IDS = Object.freeze([
   // Task 33 keeps the demonstrated role inside the same compact stable-ID payload. The first one
   // proven suppresses all future first-hire demonstrations; no UI text or employee name is saved.
   'staffDemoRunner', 'staffDemoCashier',
+  // Guidance (2026-09-17): the first time a routine errand of a kind is offered, the floor trail
+  // walks the player through it once; from then on it only appears after real hesitation. These
+  // two are the errand kinds with no other proof of their own.
+  'clean', 'deliver',
 ]);
 const KNOWN = new Set(MECHANIC_IDS);
 
