@@ -227,6 +227,9 @@ export function stepMover(m, grid, movers, dt) {
   // observe this frame because some other mover ahead of it, on essentially the same heading,
   // is being followed rather than passed — see the per-`o` computation and application below.
   let forwardCap = Infinity;
+  // True when this mover is already TOUCHING a leader it follows and that leader is not moving
+  // forward. See the note where the cap's 0.4x floor is applied, below.
+  let pressedOnStoppedLeader = false;
   if (d0 > 1e-4) for (let i = 0; i < movers.length; i++) {
     const o = movers[i];
     if (o === m) continue;
@@ -277,9 +280,15 @@ export function stepMover(m, grid, movers, dt) {
           if (mIsFollower) {
             followsO = true;
             const oFwd = o.vx * hox + o.vz * hoz;
-            const oSpeed = (o.vx * o.vx + o.vz * o.vz) > 1e-6 ? oFwd : o.speed;
+            const oMoving = (o.vx * o.vx + o.vz * o.vz) > 1e-6;
+            const oSpeed = oMoving ? oFwd : o.speed;
             const cap = dist < m.r + o.r + 0.1 ? m.speed * 0.4 : Math.min(m.speed, oSpeed * 0.9);
             forwardCap = Math.min(forwardCap, Math.max(0, cap));
+            // Touching a leader that is not going anywhere: a stopped mover reads here as moving at
+            // its NOMINAL speed (oSpeed falls back to o.speed when its velocity is zero), and the
+            // contact branch above caps the follower at 0.4x regardless — so the follower kept
+            // walking into its back.
+            if (dist < m.r + o.r + 0.05 && (!oMoving || oFwd < 0.1)) pressedOnStoppedLeader = true;
           }
         }
       }
@@ -395,7 +404,16 @@ export function stepMover(m, grid, movers, dt) {
     // fix round 3's own writeup above (ids 78/80) flags as too slow to ever clear the acceptance
     // test's overlap window. Flooring at 0.4x this mover's own speed guarantees it's always still
     // closing the gap, not just theoretically uncapped.
-    forwardCap = Math.max(forwardCap, m.speed * 0.4);
+    //
+    // EXCEPT when that gap is already closed and the leader has stopped. "Keep closing the gap" is
+    // then "keep walking into their back": nav-fullhouse measured a guest pressed 0.37 m into the
+    // Cleaner's back for over a second at the terrace gate, the Cleaner held up against the gate
+    // post and the guest behind it floored at 0.4x its own speed by this line. Pressed against a
+    // leader that is not moving, a follower's forward speed is zero; its lateral avoidance is
+    // untouched, so it can still step round — which is what a person does when the person in front
+    // of them stops.
+    if (pressedOnStoppedLeader) forwardCap = 0;
+    else forwardCap = Math.max(forwardCap, m.speed * 0.4);
     const fwdNow = vx * dirX + vz * dirZ;
     if (fwdNow > forwardCap) { vx += dirX * (forwardCap - fwdNow); vz += dirZ * (forwardCap - fwdNow); }
   }

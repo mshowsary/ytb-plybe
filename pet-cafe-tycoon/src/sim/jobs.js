@@ -1,6 +1,7 @@
 // src/sim/jobs.js — pure pending-job detection, shared by the objective arrow (Task 5) and the
 // bot (tools/bot.js). Reads world stations + a G-shaped state carrying { coins, customers }.
 import { activeZones } from './world.js';
+import { isStarved } from './supplies.js';
 
 export function pendingJobs(w, G) {
   const customers = (G && G.customers) || [];
@@ -26,9 +27,11 @@ export function pendingJobs(w, G) {
   for (const st of w.stations.values()) {
     if (!st.active) continue;
     if (st.type === 'seat' && st.dirty) dirtyTables++;
-    else if (st.type === 'coffee' && st.beans === 0) sacksEmpty++;
-    else if (st.type === 'bowl' && st.stock === 0) sacksEmpty++;
     else if (st.type === 'bush' && st.stage === 3) ripeBushes++;
+    // Any machine out of its consumable, not just the espresso machine and the treat bowl. The ice
+    // cream machine's cream and the bath's water were invisible here, so running either one dry
+    // produced no pending job at all and the player got no arrow, no coach and no explanation.
+    else if (isStarved(st) && st.type !== 'blender') sacksEmpty++;
   }
   const next = registerWaiting > 0 ? 'register'
     : emptyDisplayWithWaiting > 0 ? 'restock'
@@ -66,13 +69,14 @@ function pickRestockTarget(w, customers) {
   }
   return null;
 }
-function pickRefillTarget(w) {
+function pickRefillTarget(w, ref) {
+  let best = null, bestD = Infinity;
   for (const st of w.stations.values()) {
-    if (!st.active) continue;
-    if (st.type === 'coffee' && st.beans === 0) return st;
-    if (st.type === 'bowl' && st.stock === 0) return st;
+    if (!isStarved(st) || st.type === 'blender') continue;
+    const d = ref ? (st.x - ref.x) ** 2 + (st.z - ref.z) ** 2 : 0;
+    if (d < bestD) { bestD = d; best = st; }
   }
-  return null;
+  return best;
 }
 function pickCleanTarget(w, ref) {
   let best = null, bestD = Infinity;
@@ -104,7 +108,7 @@ export function jobTarget(w, G) {
   let st = null;
   if (j.next === 'register') st = pickRegisterTarget(w);
   else if (j.next === 'restock') st = pickRestockTarget(w, customers);
-  else if (j.next === 'refill') st = pickRefillTarget(w);
+  else if (j.next === 'refill') st = pickRefillTarget(w, ref);
   else if (j.next === 'clean') st = pickCleanTarget(w, ref);
   else if (j.next === 'harvest') st = pickHarvestTarget(w);
   else if (j.next === 'build') st = pickBuildTarget(w, coins);
