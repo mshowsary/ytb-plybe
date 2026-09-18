@@ -16,6 +16,7 @@ import { emitWorld } from './events.js';
 import { takeFromDisplay, takeTreat, clearPhotoSession, PHOTO_CHANCE, PHOTO_QUEUE_CAP, clearGroomSession, clearBathSession, BATH_SPARKLE_SECONDS } from './world.js';
 import { wishFor, familyOf } from './economy.js';
 import { createMover, setTarget, stepMover } from './mover.js';
+import { idx, isFree } from './nav.js';
 export const SPECIES = ['cat', 'dog', 'bunny', 'hamster'];
 // The interior's south edge. A guest past this line is on the terrace deck, and leaves by the
 // deck's own street exit rather than walking the full width of the café back through the fence gap.
@@ -685,22 +686,57 @@ function assignBathSlots(list, w) {
 // They hover by a table that will free up instead. The golden angle spreads several waiters into a
 // ring around it rather than stacking them on one tile, and mover.js's setTarget already snaps a
 // blocked point to the nearest free cell, so this never needs to be walkable itself.
-const WAIT_RING = 1.35;
+// How far behind the chair a waiting guest hovers, along the same line they would walk in on.
+const WAIT_BACKOFF = 0.9;
 function anyDirtySeat(w) {
   for (const st of w.stations.values()) if (st.type === 'seat' && st.active && st.dirty) return true;
   return false;
 }
+// Is this point somewhere a guest may actually stand? The nav grid is the authority: it knows the
+// station footprints, the wall and its door gap, the fence lines and their gates, and which regions
+// have been built. Anything it calls free is floor.
+function standable(w, c, x, z) {
+  const g = w.grid;
+  if (!g) return true;
+  const i = idx(g, x, z);
+  return i >= 0 && isFree(g, i, c.mover.mask);
+}
+// Where a guest waits for a table.
+//
+// The first version of this put them on a ring 1.35 m from the table at an angle derived from their
+// id. mover.js's setTarget snaps an unreachable target to the nearest free cell, so nobody got
+// stuck — but "nearest free cell" from a point inside the garden fence is a cell in the garden, and
+// the owner photographed guests standing in the flowerbeds along the fence, with some then leaving
+// through the fence instead of by the door. An arbitrary offset from a table is not a place.
+//
+// A table's own approach spot IS a place: pair.human is where every seated guest walks to, proven
+// walkable by every meal ever served. So a waiter hovers one step BEHIND that spot, on the same
+// line they would have walked in on, and the nav grid is asked whether that step is floor before
+// they are sent there. Failing that, the approach spot itself when nobody is sitting in it; failing
+// that, they simply stay where they are, which is by definition somewhere they could reach.
+//
+// Guests fan out across the tables rather than crowding one: the candidate list is ordered by
+// distance and entered at an offset taken from the guest's id.
 function waitSpotFor(w, c) {
-  let best = null, bd = Infinity;
+  const seats = [];
   for (const st of w.stations.values()) {
-    if (st.type !== 'seat' || !st.active) continue;
+    if (st.type !== 'seat' || !st.active || !st.pair) continue;
     if (!st.dirty && !st.occupied) continue;
-    const d = (st.x - c.x) ** 2 + (st.z - c.z) ** 2;
-    if (d < bd) { bd = d; best = st; }
+    seats.push(st);
   }
-  if (!best) return { x: c.x + 0.8, z: c.z + 0.8 };
-  const a = ((c.id | 0) * 2.399963) % (Math.PI * 2);
-  return { x: best.x + Math.cos(a) * WAIT_RING, z: best.z + Math.sin(a) * WAIT_RING };
+  if (!seats.length) return { x: c.x, z: c.z };
+  seats.sort((a, b) => ((a.x - c.x) ** 2 + (a.z - c.z) ** 2) - ((b.x - c.x) ** 2 + (b.z - c.z) ** 2));
+  const start = (c.id | 0) % seats.length;
+  for (let k = 0; k < seats.length; k++) {
+    const st = seats[(start + k) % seats.length];
+    const hx = st.pair.human.x, hz = st.pair.human.z;
+    const dx = hx - st.x, dz = hz - st.z;
+    const len = Math.hypot(dx, dz) || 1;
+    const bx = hx + (dx / len) * WAIT_BACKOFF, bz = hz + (dz / len) * WAIT_BACKOFF;
+    if (standable(w, c, bx, bz)) return { x: bx, z: bz };
+    if (!st.occupied && standable(w, c, hx, hz)) return { x: hx, z: hz };
+  }
+  return { x: c.x, z: c.z };
 }
 function proceedToSeatOrLeave(w, c) {
   const seat = pickSeat(w, c);
@@ -1331,6 +1367,11 @@ export function stepCustomers(list, w, price, dt) {
           c.seat.occupied = false;
           c.seat.uses = (c.seat.uses | 0) + 1;
           if (c.seat.uses % DIRTY_EVERY === 0) { c.seat.dirty = true; emitWorld(w, { type: 'dirtied', seatId: c.seat.id }); }
+          // A SETTLED VISIT: this pet sat down in the café and had a nice time. It is what the Pet
+          // Book's friendship ladder is built on now — see the note on the subscription in
+          // systems/petFriendship.js. Emitted before the seat reference is dropped so the moment
+          // has a table to play at.
+          emitWorld(w, { type: 'settled', id: c.id, seatId: c.seat.id, x: c.seat.x, z: c.seat.z });
           c.seat = null; c.seatId = null; c.order = null; c.state = 'leave'; c.hop = 0.5;
         }
         break;

@@ -230,10 +230,15 @@ export function createCustomers(G, S, ctx) {
           fx.hearts(r.pet.group.position.x, r.pet.height + 0.25, r.pet.group.position.z);
           ctx.audio.play(petSound(c.species));
         }
-        // A paid guest with nowhere clean to sit. The countdown alone is the message: the guest is
-        // standing beside the dirty table, and the objective chevron is already pointing at it with
-        // the broom glyph, so a caption would only repeat what two other layers are showing.
-        if(c.state==='waitSeat') r.identity.announce(Math.max(0,Math.ceil(8-c.dirtyWait))+'s',1);
+        // A paid guest with nowhere clean to sit used to carry a per-head countdown, re-announced
+        // every frame — which also pinned their name tag on screen for the whole wait, whatever the
+        // proximity rule said. Two things made it wrong. It counted down from 8 while the grace is
+        // WAIT_SEAT_GRACE (18), so it sat at "0s" for ten seconds and meant nothing; and now that
+        // guests wait out an honestly full room as well as a dirty one, and wait in a group by the
+        // tables, it came back as the wall of pills this game keeps being asked to stop drawing.
+        //
+        // The message is already on the floor and much clearer than a number: a little crowd
+        // standing by the tables, and the objective pointing at the dirty one with the broom glyph.
 
       }
 

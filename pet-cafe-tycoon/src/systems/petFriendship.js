@@ -131,12 +131,54 @@ export function installPetFriendship(G, platform = null) {
   }
   const onBookOpen = () => presentationScheduler.afterFrames(renderBook, 1);
   if (bookButton) bookButton.addEventListener('click', onBookOpen);
+  // ...and whenever the Book is opened by any other route. The friendship rows used to be drawn
+  // only by that one click handler, on the .meta-pawbook button — which the calm HUD (ui/
+  // hudLayout.js) keeps off the play field. Players reach the Book through the pause menu's Pets
+  // page now (ui/pauseMenu.js openRoute), which opens the same panel without going anywhere near
+  // that button, so every friendship bar in the collection was simply missing for anyone who
+  // opened it the way the game actually offers.
+  //
+  // Drawn SYNCHRONOUSLY here, not through presentationScheduler.afterFrames like the button path.
+  // The pause menu pauses the scheduler (core/presentationScheduler.js armFrame returns early while
+  // any pause reason is held), so a deferred render queued from a menu route is never armed and
+  // never runs. That is the whole reason the bars were missing: not a render bug, a render that was
+  // waiting for a frame that only arrives once the player closes the menu. The second, plain rAF
+  // pass covers the case where ui/meta.js has un-hidden the panel before filling its card grid.
+  const bookRoot = document.querySelector('.meta-book-root');
+  const drawBookNow = () => {
+    if (!bookRoot || bookRoot.classList.contains('hidden')) return;
+    renderBook();
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(renderBook);
+  };
+  const bookObserver = bookRoot && typeof MutationObserver !== 'undefined'
+    ? new MutationObserver(drawBookNow)
+    : null;
+  if (bookObserver) bookObserver.observe(bookRoot, { attributes: true, attributeFilter: ['class'] });
 
-  // Observe successful checkout events at their source through an explicit subscription.
-  // Priorities preserve the former outer-to-inner observer order without replacing Array.push.
+  // WHAT A TABLE IS FOR.
+  //
+  // This used to credit a friendship visit on every 'pay'. Paying is not a relationship: a guest who
+  // buys a cookie at the counter and walks straight back out has not spent any time with you, and
+  // crediting them made the Pet Book fill itself whatever the café was like. It also left the
+  // tables with no positive payoff at all once a guest who could not sit simply took their order
+  // away (sim/customers.js) — they existed only to avoid a penalty, which is not a reason to build
+  // or clean anything.
+  //
+  // A SETTLED VISIT is the relationship: the pet came in, sat down at one of your tables, and had a
+  // whole meal there. That is what advances New Face -> Regular -> Friend -> Bestie now, so a clean
+  // table is directly how the collection fills, and the Cleaner and every seat upgrade pay for
+  // themselves in pets rather than in coins.
+  //
+  // Coins were the other option and this is deliberately not that: the economy bot already reports
+  // the core café completing in 8 days against a 10-12 target, so a seated tip would have made an
+  // existing balance problem worse to solve a design one. Collection value costs the economy
+  // nothing and surfaces the meta the owner keeps asking to see.
+  //
+  // Discovery is untouched — every pet that walks in still appears in the Book (systems/
+  // customers.js calls discoverPet on spawn). You MEET everyone; you BEFRIEND the ones you seat.
   const observedPush = function friendshipObservedPush(...items) {
     for (const event of items) {
-      if (!event || event.type !== 'pay') continue;
+      if (!event || event.type !== 'settled') continue;
       const customer = G.customers.find(c => c && c.id === event.id);
       if (!customer || !customer.species) continue;
       const result = recordPetVisit(G.meta, customer.species, customer.petVariant | 0);
@@ -222,6 +264,7 @@ export function installPetFriendship(G, platform = null) {
     destroy() {
       unsubscribe();
       if (bookButton) bookButton.removeEventListener('click', onBookOpen);
+      if (bookObserver) bookObserver.disconnect();
     },
   };
 }

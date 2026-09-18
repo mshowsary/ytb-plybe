@@ -47,7 +47,9 @@ const promotion = await page.evaluate(() => {
   const coins = G.coins;
   const fake = { id:991001, species:'cat', petVariant:0 };
   G.customers.push(fake);
-  G.world.emit({ type:'pay', id:fake.id, amount:123, by:'owner' });
+  // A SETTLED visit — a pet that sat at one of your tables — is what the friendship ladder
+  // reads now, not a payment. See the note on the subscription in systems/petFriendship.js.
+  G.world.emit({ type:'settled', id:fake.id, seatId:'seat1', x:0, z:0 });
   G.world.events.length = 0;
   G.customers.pop();
   const save = G.snapshot();
@@ -110,7 +112,7 @@ const friend = await page.evaluate(() => {
   const G = window.__game;
   const emit = () => {
     const fake = { id:991002, species:'cat', petVariant:0 };
-    G.customers.push(fake); G.world.emit({ type:'pay', id:fake.id, amount:1, by:'owner' });
+    G.customers.push(fake); G.world.emit({ type:'settled', id:fake.id, seatId:'seat1', x:0, z:0 });
     G.world.events.length = 0; G.customers.pop();
   };
   emit(); emit(); emit(); // 2 -> 5 visits = Friend
