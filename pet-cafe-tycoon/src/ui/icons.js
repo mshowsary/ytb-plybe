@@ -105,6 +105,25 @@ export function returnIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v12" stroke="#FF8A80" stroke-width="2.6" stroke-linecap="round"/>' +
     '<path d="M6.5 12L12 17.5 17.5 12" fill="none" stroke="#FF8A80" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 }
+// Fruit — the blender's input and what a ripe bush gives. A peach with a leaf: the owner carries a
+// peach when they pick, so the bubble over a hungry blender draws the thing that goes in it.
+export function fruitIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="14.2" r="7.2" fill="#FF9E7A"/>' +
+    '<path d="M12 7.6c-1.1 2.6-1.1 9.2 0 13.2" stroke="#E7795A" stroke-width="1.2" fill="none" stroke-linecap="round"/>' +
+    '<path d="M12.4 7.4c1.4-3.1 4.6-4 6.8-3.3-.7 2.8-3.6 4.2-6.8 3.3z" fill="#7BC47F"/>' +
+    '<circle cx="8.8" cy="11.6" r="1.5" fill="#FFD6C6"/></svg>';
+}
+
+// Rush hour. A stopwatch, deliberately NOT the sun: the sun already means golden hour's double tips
+// (systems/rewardsSystem.js), and rush used to borrow the same glyph, so the busiest stretch of the
+// day and a bonus looked identical.
+export function stopwatchIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="10" y="1.6" width="4" height="2.6" rx=".8" fill="#E26A4E"/>' +
+    '<circle cx="12" cy="13.6" r="8" fill="#FFF4E6" stroke="#E26A4E" stroke-width="2"/>' +
+    '<path d="M12 13.6V8.8M12 13.6l3.2 2" stroke="#3B2E2A" stroke-width="1.9" stroke-linecap="round"/>' +
+    '<path d="M18.3 6.3l1.7-1.7" stroke="#E26A4E" stroke-width="2.2" stroke-linecap="round"/></svg>';
+}
+
 export function leafIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19C5 10 12 4 19 4c0 7-6 14-15 15z" fill="#7BC47F"/>' +
     '<path d="M6.5 17.5C10 13 13 10 17 6.5" stroke="#4F9A56" stroke-width="1.2" stroke-linecap="round" fill="none"/></svg>';

@@ -4,7 +4,8 @@ import * as THREE from 'three';
 import { ovenMesh, counterMesh, checkoutMesh, tableMesh, hireDeskMesh, photographerDeskMesh, kioskMesh, bowlMesh, bushMesh, coffeeMesh, pantryMesh, crateMesh, blenderMesh, chalkboardMesh, itemGeoFor, cashPile, dirtyMesh, zoneRing, icecreamMesh, coldPantryMesh, groomTableMesh, bathTubMesh, waterTankMesh, boutiqueRackMesh, planterClusterMesh, spaLoungeMesh, photoBoothMesh, restroomMesh, fountainMesh, splashPoolMesh } from '../render/props.js';
 import { C, toonMaterial } from '../render/palette.js';
 import { buildRevealPhase, buildRevealScale } from '../render/buildReveal.js';
-import { iconFor, treatIcon, coinIcon, sackIcon, returnIcon, leafIcon, gearIcon, personIcon, beanIcon, creamIcon, broomIcon } from '../ui/icons.js';
+import { iconFor, treatIcon, coinIcon, sackIcon, returnIcon, leafIcon, gearIcon, personIcon, beanIcon, creamIcon, broomIcon, kibbleIcon, waterIcon, fruitIcon } from '../ui/icons.js';
+import { supplyKind, supplyLevel, supplyCap, supplyRoom, isStarved } from '../sim/supplies.js';
 import { STAR_IDS } from '../sim/economy.js';
 
 // DISPLAY_CAP_LEVELS' maximum (economy.js: [12,16,20,24]). props.js's counterMesh authors twelve
@@ -212,31 +213,75 @@ function rotateLocal(rot, right, forward) {
 }
 const DEMAND_Y = { display: 2.1, oven: 2.3, coffee: 1.55, blender: 1.55, bowl: 0.85, bush: 1.55, icecream: 1.55 };
 
-function makeDemandEl(type) {
-  const el = document.createElement('div'); el.className = 'demand hidden';
-  // Task 31 five-state truth: empty / producing / ready / full / blocked. Guest urgency is an
-  // attention overlay, never a fabricated sixth inventory state.
-  const state = document.createElement('span');
-  state.className = 'dstate';
-  state.style.cssText = 'display:flex;align-items:center;justify-content:center;min-width:13px;height:13px;font-size:11px;font-weight:1000;line-height:1;opacity:.82;pointer-events:none';
-  const main = document.createElement('div'); main.className = 'dmain'; main.style.display = 'none';
-  el.append(state, main);
-  let pips = null;
-  // icecream1's pips mirror coffee1's exactly (10, filled by cream/2) but style.css only tints
-  // '.dpip.bean'/'.dpip.fruit' (a file another task owns this batch); rather than add a class there,
-  // the cream tint below is set inline per-pip so this stays self-contained to visuals.js.
-  if (type === 'coffee' || type === 'blender' || type === 'icecream') {
-    pips = document.createElement('div'); pips.className = 'dpips';
-    const n = type === 'coffee' ? 10 : type === 'icecream' ? 10 : 9;
-    const cls = type === 'coffee' ? 'dpip bean' : type === 'icecream' ? 'dpip' : 'dpip fruit';
-    for (let i = 0; i < n; i++) { const p = document.createElement('div'); p.className = cls; pips.appendChild(p); }
-    el.appendChild(pips);
-  } else if (type === 'bush') {
-    pips = document.createElement('div'); pips.className = 'dpips';
-    for (let i = 0; i < 3; i++) { const p = document.createElement('div'); p.className = 'dstage'; pips.appendChild(p); }
-    el.appendChild(pips);
+// ---- What a station NEEDS, and how full it is ----------------------------------------------------
+// The day-18 report asked for "clever indicators, suitable for this kind of game" for coffee refills,
+// pet-treat refills, fruit picking — and said of the blender, "the player can't tell what is what".
+// What there was: one grey pill per station carrying a state glyph (○ ◌ ● ◆ ×), a count like "3/10"
+// and sometimes a row of pips. "3/10" of what? The blender answered two different questions through
+// the same pill — fruit loaded, drinks made — and nothing said which.
+//
+// NEEDS, NOT NUMBERS. A station shows a bubble only when it needs the PLAYER, and the bubble is a
+// picture of what to bring: the bean sack's bean over a coffee machine that has run dry, the cream
+// tub over the ice cream machine, a peach over the blender, the kibble sack over an empty pet bowl, a
+// water drop over the bath, and — only while a guest is actually waiting at it — the missing product
+// over an empty counter. The bubble is always the same shape so the eye learns it once, and every
+// icon matches what the player will be holding when they have fixed it. A ripe bush asks to be
+// picked only when the blender actually has room for fruit; otherwise the fruit on the branches
+// already says everything. A machine a Barista looks after never asks the player for anything.
+//
+// Standing next to a station swaps the bubble, if there isn't one, for a small gauge: the same supply
+// icon and a fill bar, no digits. Machines show what they EAT (beans, cream, fruit, water) and
+// counters show what they HOLD — which is exactly the distinction the blender's pill used to blur.
+// The underlying five-state truth (demandVisualState, below) is unchanged and still tested.
+const NEED_ICON = {
+  beans: () => beanIcon(), cream: () => creamIcon(), fruit: () => fruitIcon(), water: () => waterIcon(),
+  kibble: () => kibbleIcon(),
+  // The SAME peach as the blender's "needs fruit": white bubble = needs it, green bubble = has it.
+  // The player connects the two at a glance; a hand icon here (the first try) read as nothing much.
+  pick: () => fruitIcon(),
+};
+function needIconHtml(key, st) {
+  if (key === 'product') return iconFor(st.product);
+  const f = NEED_ICON[key];
+  return f ? f() : '';
+}
+
+/** What this station needs FROM THE PLAYER right now: a supply key, 'product', 'pick', or null. */
+export function stationNeed(st, { waiter = false, baristaOnDuty = false, blenderRoom = 0 } = {}) {
+  if (!st || st.active === false) return null;
+  switch (st.type) {
+    case 'coffee': return isStarved(st) && !baristaOnDuty ? 'beans' : null;
+    case 'icecream': case 'blender': case 'bath': case 'bowl': return isStarved(st) ? supplyKind(st) : null;
+    case 'display': return (st.stock | 0) <= 0 && waiter ? 'product' : null;
+    case 'bush': return (st.stage | 0) >= 3 && blenderRoom >= 3 ? 'pick' : null;
+    default: return null;
   }
-  return { el, main, state, pips, lastText: null, lastState: null, lastAttention: null, lastDetail: null, lastPulse: null, lastVisible: null };
+}
+
+/** The up-close gauge: which icon, and how full (0..1). Null where the prop itself is the gauge. */
+export function stationGauge(st) {
+  if (!st || st.active === false) return null;
+  const kind = supplyKind(st);
+  if (kind) {
+    const cap = supplyCap(st);
+    return cap > 0 ? { icon: kind, frac: Math.max(0, Math.min(1, supplyLevel(st) / cap)) } : null;
+  }
+  if (st.type === 'display') return { icon: 'product', frac: Math.max(0, Math.min(1, (st.stock | 0) / Math.max(1, st.capacity | 0))) };
+  return null;
+}
+
+const NEED_WORDS = { beans: 'Needs coffee beans', cream: 'Needs cream', fruit: 'Needs fruit', water: 'Needs water', kibble: 'Needs pet treats', pick: 'Ripe fruit to pick' };
+function needLabel(need, st) {
+  return need === 'product' ? 'Out of ' + (st.product || 'stock') + ', a guest is waiting' : NEED_WORDS[need] || '';
+}
+
+function makeDemandEl() {
+  const el = document.createElement('div'); el.className = 'demand hidden';
+  const icon = document.createElement('span'); icon.className = 'dicon';
+  const bar = document.createElement('span'); bar.className = 'dbar';
+  const fill = document.createElement('span'); fill.className = 'dfill'; bar.appendChild(fill);
+  el.append(icon, bar);
+  return { el, icon, fill, key: null, mode: null, frac: -1, urgent: null, lastVisible: null };
 }
 
 function stationHasWaiter(st, customers) {
@@ -276,40 +321,6 @@ export function demandDetailVisible(st, player = null, waiter = false, state = d
   if (waiter || state === 'blocked') return true;
   if (!player || !st.front) return false;
   return (player.x - st.front.x) ** 2 + (player.z - st.front.z) ** 2 <= DEMAND_DETAIL_RADIUS ** 2;
-}
-
-function stateGlyph(state, st) {
-  if (state === 'blocked' && st.type === 'coffee') {
-    return beanIcon().replace('<svg ', '<svg width="12" height="12" ');
-  }
-  if (state === 'blocked' && st.type === 'icecream') {
-    return creamIcon().replace('<svg ', '<svg width="12" height="12" ');
-  }
-  return {
-    empty: '○', producing: '◌', ready: '●', full: '◆', blocked: '×',
-  }[state] || '';
-}
-
-function applyDemandState(dv, state, st, attention) {
-  const stateKey = `${state}:${attention ? 1 : 0}:${st.type}`;
-  if (dv.lastState === stateKey) return;
-  dv.lastState = stateKey;
-  const spec = {
-    empty: { title: 'Empty', bg: '#fffdf9', fg: 'var(--ink)', border: '1px dashed #d7aaa3', opacity: '.88' },
-    producing: { title: 'Producing', bg: '#f3f0ff', fg: '#6256b9', border: '1px solid #d7d0ff', opacity: '.9' },
-    ready: { title: 'Ready', bg: 'var(--cream)', fg: 'var(--ink)', border: '1px solid transparent', opacity: '1' },
-    full: { title: 'Full', bg: '#eef8ef', fg: '#417b49', border: '1px solid #b9dfbf', opacity: '1' },
-    blocked: { title: st.type === 'coffee' ? 'Needs beans' : st.type === 'icecream' ? 'Needs cream' : st.type === 'blender' ? 'Needs fruit' : 'Blocked', bg: '#eee8e2', fg: '#554b46', border: '1px solid #b9aaa0', opacity: '.94' },
-  }[state] || { title: '', bg: 'var(--cream)', fg: 'var(--ink)', border: '1px solid transparent', opacity: '1' };
-  dv.state.innerHTML = stateGlyph(state, st);
-  dv.state.title = spec.title;
-  dv.el.dataset.stockState = state;
-  dv.el.dataset.attention = attention ? 'guest' : '';
-  dv.el.style.background = attention ? 'var(--coral)' : spec.bg;
-  dv.el.style.color = attention ? '#fff' : spec.fg;
-  dv.el.style.border = attention ? '1px solid transparent' : spec.border;
-  dv.el.style.opacity = spec.opacity;
-  dv.el.classList.remove('zero');
 }
 
 function reducedMotion() {
@@ -406,7 +417,7 @@ export function createVisuals(G, S, ctx) {
       const d = dirtyMesh(); d.position.set(a ? a.x : 0.15, a ? a.y : DIRTY_PROP_Y, a ? a.z : -0.1); d.visible = false; g.add(d);
       v.dirtyProp = d; v.dirtyY = a ? a.y : DIRTY_PROP_Y;
     }
-    if (DEMAND_Y[st.type] != null) { v.demand = makeDemandEl(st.type); els.fx.appendChild(v.demand.el); }
+    if (DEMAND_Y[st.type] != null) { v.demand = makeDemandEl(); els.fx.appendChild(v.demand.el); }
     const chalkKey = chalkIconKey(st);
     if (chalkKey) {
       const board = chalkboardMesh();
@@ -513,6 +524,10 @@ export function createVisuals(G, S, ctx) {
         }
       }
 
+      // How much fruit the hungriest blender has room for, once per frame: a ripe bush only asks to be
+      // picked when that fruit has somewhere to go (stationNeed's 'pick').
+      let frameBlenderRoom = 0;
+      for (const b of world.stations.values()) if (b.type === 'blender' && b.active) frameBlenderRoom = Math.max(frameBlenderRoom, supplyRoom(b));
       for (const st of world.stations.values()) {
         const v = vis.get(st.id); if (!v) continue;
 
@@ -630,37 +645,35 @@ export function createVisuals(G, S, ctx) {
           if (!st.active) {
             if (dv.lastVisible !== false) { dv.el.classList.add('hidden'); dv.lastVisible = false; }
           } else {
-            const { n, cap } = stockAmountAndCap(st);
-            const text = `${n}/${cap}`;
             const waiter = stationHasWaiter(st, G.customers);
-            const state = demandVisualState(st);
-            const attention = waiter && n === 0;
-            const showDetail = demandDetailVisible(st, G.P, waiter, state);
-            if (dv.lastText !== text) { dv.main.textContent = text; dv.lastText = text; }
-            if (dv.lastDetail !== showDetail) { dv.main.style.display = showDetail ? '' : 'none'; dv.lastDetail = showDetail; }
-            applyDemandState(dv, state, st, attention);
-            if (dv.lastPulse !== attention) { dv.el.classList.toggle('pulse', attention); dv.lastPulse = attention; }
-            if (dv.pips) {
-              if (st.type === 'coffee') { const filled = Math.round(st.beans / 2); for (let i = 0; i < dv.pips.children.length; i++) dv.pips.children[i].classList.toggle('filled', i < filled); }
-              else if (st.type === 'icecream') {
-                // No '.dpip.filled.cream' rule exists in style.css (owned elsewhere this batch), so
-                // the fill is painted directly rather than via a class the stylesheet won't pick up.
-                const filled = Math.round(st.cream / 2);
-                for (let i = 0; i < dv.pips.children.length; i++) dv.pips.children[i].style.background = i < filled ? '#F5C9DA' : '';
-              }
-              else if (st.type === 'blender') { for (let i = 0; i < dv.pips.children.length; i++) dv.pips.children[i].classList.toggle('filled', i < st.fruit); }
-              else if (st.type === 'bush') { for (let i = 0; i < dv.pips.children.length; i++) dv.pips.children[i].classList.toggle('filled', i < st.stage); }
+            const need = stationNeed(st, { waiter, baristaOnDuty: !!world.baristaOnDuty, blenderRoom: frameBlenderRoom });
+            const near = demandDetailVisible(st, G.P, false, 'ready');
+            const gauge = !need && near ? stationGauge(st) : null;
+            const mode = need ? 'need' : gauge ? 'gauge' : null;
+            const iconKey = need || (gauge && gauge.icon) || null;
+            const key = iconKey === 'product' ? 'product:' + st.product : iconKey;
+            if (key !== dv.key) { dv.key = key; dv.icon.innerHTML = iconKey ? needIconHtml(iconKey, st) : ''; }
+            if (mode !== dv.mode) {
+              dv.el.classList.toggle('need', mode === 'need');
+              dv.el.classList.toggle('gauge', mode === 'gauge');
+              dv.el.classList.toggle('pick', need === 'pick');
+              // A bubble arriving pops once. Never loops: a need is information, not an alarm.
+              if (mode === 'need') { dv.el.classList.remove('pop'); void dv.el.offsetWidth; dv.el.classList.add('pop'); }
+              dv.mode = mode;
             }
-            fx.project(st.x, DEMAND_Y[st.type], st.z, demandTmp);
+            // Urgent (coral) only while a guest is actually standing there waiting on it.
+            const urgent = mode === 'need' && waiter;
+            if (dv.urgent !== urgent) { dv.el.classList.toggle('urgent', urgent); dv.urgent = urgent; }
+            if (gauge) {
+              const frac = Math.round(gauge.frac * 20) / 20;
+              if (frac !== dv.frac) { dv.fill.style.width = (frac * 100) + '%'; dv.el.classList.toggle('low', frac < 0.25); dv.frac = frac; }
+            }
+            // The bubble's tail points down at the station, so it sits a little above the gauge line.
+            fx.project(st.x, DEMAND_Y[st.type] + (mode === 'need' ? 0.3 : 0), st.z, demandTmp);
             dv.el.style.left = demandTmp.sx + 'px'; dv.el.style.top = demandTmp.sy + 'px';
-            // The owner's "icon soup" report: a chip over EVERY active station, on screen or not,
-            // piled little ◆/● glyphs at the frame edge once fx.project started respecting the
-            // viewport. A ready/full/producing shelf already shows its truth as physical stock, so
-            // the chip earns its pixels only when there's something to say a glance can't see:
-            // the owner is close enough to read the count, a guest is waiting on empty stock, or
-            // the state itself (empty/blocked) is the thing that needs fixing.
-            const visible = demandTmp.visible && (showDetail || attention || state === 'empty' || state === 'blocked');
+            const visible = demandTmp.visible && !!mode;
             if (dv.lastVisible !== visible) { dv.el.classList.toggle('hidden', !visible); dv.lastVisible = visible; }
+            dv.el.setAttribute('aria-label', need ? needLabel(need, st) : '');
           }
         }
         if (v.chalk) {

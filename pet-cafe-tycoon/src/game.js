@@ -50,7 +50,7 @@ import { createHud, cue } from './ui/hud.js';
 // sentence survives as the cue's aria text (see the contract at the top of src/ui/hud.js).
 import {
   coinIcon, crossIcon, checkIcon, sparkleIcon, brushIcon,
-  lockIcon, repIcon, cafeIcon, trophyIcon, weekendIcon, holidayIcon, giftIcon, sunIcon, moonIcon,
+  lockIcon, repIcon, cafeIcon, trophyIcon, weekendIcon, holidayIcon, giftIcon, sunIcon, moonIcon, stopwatchIcon,
   streakIcon, iconFor,
 } from './ui/icons.js';
 import { createSheets } from './ui/sheets.js';
@@ -347,7 +347,7 @@ export function createGame(S, area, els, platform = null) {
     for (const e of dayEvents) {
       // Exactly the glyphs the day pill is about to switch to (hud.js PHASE_ICON), so the banner
       // announces the change and the pill confirms it with the same picture.
-      if (e.type === 'phase') { if (e.phase === 'rush') hud.banner(cue([sunIcon()], 'Rush hour')); else if (e.phase === 'closing') hud.banner(cue([moonIcon()], 'Closing')); }
+      if (e.type === 'phase') { if (e.phase === 'rush') hud.banner(cue([stopwatchIcon()], 'Rush hour')); else if (e.phase === 'closing') hud.banner(cue([moonIcon()], 'Closing')); }
       else if (e.type === 'dayEnd') openDaySummary();
     }
     hud.setDay(G.dayState.day, G.dayState.phase, phaseFrac(G.dayState)); hud.setContract(G.goal, G.dayStats, G.dayState.day);

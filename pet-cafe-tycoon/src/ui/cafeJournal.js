@@ -1,6 +1,7 @@
 import { cafeDayModel } from './cafeDayModel.js';
 import { DECOR_BY_ID } from '../../data/decor.js';
 import { buyDecor, buyUpgrade, upgradeCost } from '../sim/economy.js';
+import { stopwatchIcon } from './icons.js';
 
 const PROJECTS = [
   ['d_play_wand', 'Feather play perch', 'A springy feather toy for curious visitors. +1 reputation.'],
@@ -78,6 +79,13 @@ export function createCafeJournal(G, platform) {
     @media(min-width:260px){.pause-root .cafe-home{grid-template-columns:1fr 1fr}}
     .cafe-day-badge{position:absolute;right:-2px;bottom:-5px;padding:2px 5px;border-radius:7px;background:#3e302b;color:#fff9f1;font:800 10px/1.2 system-ui;pointer-events:none}
     .pause-btn.rush-soon{box-shadow:0 0 0 2px #cf9161,0 4px 14px #271b1524!important}
+    /* RUSH IS ON. The countdown above says rush is coming; nothing said it had arrived, beyond a
+       banner that is gone in two seconds. For the whole rush the day badge becomes a stopwatch on
+       warm orange and the button keeps a warm ring — the one persistent control on screen quietly
+       saying "this is the busy stretch". No motion: the café itself is busy enough to watch. */
+    .pause-btn.rush-on{box-shadow:0 0 0 2px #E26A4E,0 4px 14px #271b1524!important}
+    .cafe-day-badge.rush{background:#E26A4E;padding:1px 3px;line-height:0}
+    .cafe-day-badge.rush svg{width:13px;height:13px;display:block}
     .cafe-today{padding:13px;background:#eeeadd;border-radius:15px;margin-bottom:10px;line-height:1.35}
     .journal-eyebrow{font:800 10px/1.4 system-ui;text-transform:uppercase;letter-spacing:.06em;color:#666d51}.journal-title{display:block;font-size:17px;margin-top:3px}
     .journal-event,.journal-caption,.journal-project p{font:500 11px/1.45 system-ui;margin:5px 0;color:#6a6054}.journal-phase{font:750 12px/1.5 system-ui;margin-top:7px}.journal-next{font:600 10px/1.4 system-ui;margin-top:5px;color:#706658}
@@ -88,8 +96,11 @@ export function createCafeJournal(G, platform) {
   let lastSecond = -1;
   function refresh() {
     const model = cafeDayModel(G);
-    badge.textContent = model.soon ? `${model.left}s` : `D${model.day}`;
+    const rushOn = model.phase === 'rush';
+    if (rushOn) { if (!badge.classList.contains('rush')) { badge.innerHTML = stopwatchIcon(); badge.classList.add('rush'); } }
+    else { badge.classList.remove('rush'); badge.textContent = model.soon ? `${model.left}s` : `D${model.day}`; }
     button.classList.toggle('rush-soon', model.soon);
+    button.classList.toggle('rush-on', rushOn);
     button.title = `Day ${model.day} · ${model.label} · ${model.clock}`;
     button.setAttribute('aria-label', `Café menu. Day ${model.day}. ${model.soon ? 'Rush in ' + model.left + ' seconds' : model.label}`);
     card.querySelector('.journal-eyebrow').textContent = `Day ${model.day} · ${model.season}`;

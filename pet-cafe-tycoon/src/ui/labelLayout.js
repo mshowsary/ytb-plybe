@@ -54,6 +54,10 @@ const PRIORITY = [
   ['.fbtn', 100],
   ['.wish', 80],
   ['.patience', 78],
+  // A station NEED (systems/visuals.js stationNeed) is the one thing on a station the player is being
+  // asked to act on. It resolves to its own selector so it outranks every readout and stays out of
+  // HIDEABLE and MUTABLE: the declutter solver may move it, never hide or fade it.
+  ['.demand.need', 76],
   // A pet tag is usually pure flavour and yields to everything informative. Two of its states are
   // not flavour and must outrank the readouts below: a play-break tag is an offer the player is
   // meant to act on, and a regular-greeting tag is the returning-visitor moment. Both carry their

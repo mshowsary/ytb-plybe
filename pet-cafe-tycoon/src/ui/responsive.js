@@ -9,7 +9,7 @@ function installStyles() {
   s.textContent = `
     @media (max-width:600px) and (orientation:portrait) {
       body.meta-dense-cafe .chalk{display:none!important}
-      body.meta-dense-cafe .demand{font-size:11px!important;padding:1px 5px!important;min-height:20px!important;transform:translate(-50%,-50%) scale(.82)!important;transform-origin:center}
+      body.meta-dense-cafe .demand:not(.need){font-size:11px!important;padding:1px 5px!important;min-height:20px!important;transform:translate(-50%,-50%) scale(.82)!important;transform-origin:center}
       body.meta-dense-cafe .dpip{width:4px!important;height:4px!important}
       .objCaption{font-size:12px!important;padding:4px 9px!important;max-width:145px!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
       #hint{font-size:13px!important;max-width:76vw!important;padding:7px 12px!important;text-align:center}
@@ -18,7 +18,7 @@ function installStyles() {
       .meta-pawbook{min-height:38px!important;padding:0 10px!important}
     }
     @media (max-width:380px) and (orientation:portrait) {
-      body.meta-dense-cafe .demand{transform:translate(-50%,-50%) scale(.74)!important}
+      body.meta-dense-cafe .demand:not(.need){transform:translate(-50%,-50%) scale(.74)!important}
       .objCaption{max-width:122px!important}
     }
   `;

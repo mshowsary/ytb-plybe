@@ -76,20 +76,32 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE8D8;font-family:"S
 .patienceFill.warn{background:#FFC24D}
 .patienceFill.bad{background:var(--coral)}
 
-/* M3 T5: demand counters — n/cap label above every counter/machine/bowl/bush/oven */
-.demand{position:absolute;transform:translate(-50%,-50%);background:var(--cream);color:var(--ink);
-  font-size:15px;font-weight:800;border-radius:10px;padding:2px 8px;min-height:24px;box-sizing:border-box;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
-  box-shadow:0 2px 6px #0002;pointer-events:none;white-space:nowrap;z-index:1}
-.demand.zero{background:var(--coral);color:#fff}
-.demand.pulse{animation:demandPulse 0.9s ease-in-out infinite}
-@keyframes demandPulse{0%,100%{background:var(--coral);color:#fff}50%{background:#fff;color:var(--coral)}}
-.dpips{display:flex;gap:2px}
-.dpip{width:5px;height:5px;border-radius:50%;background:#0000002a}
-.dpip.filled.bean{background:#6B4A2B}
-.dpip.filled.fruit{background:var(--coral)}
-.dstage{width:6px;height:6px;border-radius:50%;background:#0000002a}
-.dstage.filled{background:#7BC47F}
+/* Station NEEDS and GAUGES (src/systems/visuals.js stationNeed / stationGauge).
+   Replaced "demand counters" — a grey pill over every station with a state glyph and "n/cap" — after
+   the day-18 report: "3/10" of what? A NEED is one picture of what to bring, in a speech bubble whose
+   tail points down at the station; it appears only when the player is needed. A GAUGE is the same
+   icon with a fill bar and no digits, and only appears when the player is standing next to it. */
+.demand{position:absolute;transform:translate(-50%,-50%);pointer-events:none;white-space:nowrap;z-index:1;
+  display:flex;align-items:center;justify-content:center;box-sizing:border-box}
+.demand .dicon{display:grid;place-items:center;line-height:0}
+.demand .dicon svg{display:block}
+.demand.need{transform:translate(-50%,-100%);padding:6px;border-radius:15px;background:#FFFDF8;
+  border:2px solid #FFFFFF;box-shadow:0 4px 12px #3B2E2A38}
+.demand.need::after{content:'';position:absolute;left:50%;bottom:-7px;width:11px;height:11px;background:inherit;
+  border-right:2px solid #FFFFFF;border-bottom:2px solid #FFFFFF;transform:translateX(-50%) rotate(45deg);
+  border-radius:0 0 3px 0;box-sizing:border-box}
+.demand.need .dicon svg{width:28px;height:28px}
+.demand.need .dbar{display:none}
+.demand.need.urgent{background:#FF8A80}
+.demand.need.pick{background:#E9F6E4}
+.demand.need.pop{animation:need-pop .42s cubic-bezier(.2,1.6,.4,1) 1}
+@keyframes need-pop{0%{transform:translate(-50%,-100%) scale(.4)}100%{transform:translate(-50%,-100%) scale(1)}}
+.demand.gauge{gap:5px;padding:4px 8px 4px 5px;border-radius:11px;background:#FFFDF8E8;box-shadow:0 2px 6px #0002}
+.demand.gauge .dicon svg{width:17px;height:17px}
+.demand .dbar{display:block;width:34px;height:6px;border-radius:3px;background:#3B2E2A1F;overflow:hidden}
+.demand .dfill{display:block;height:100%;width:0;border-radius:3px;background:#80977C;transition:width .25s ease}
+.demand.gauge.low .dfill{background:#FF8A80}
+@media(prefers-reduced-motion:reduce){.demand.need.pop{animation:none}.demand .dfill{transition:none}}
 
 /* Loop v2 Task 2 / program 5.5: chalkboards — projected from the 3D chalkboard mesh's
    front-left-corner position (src/render/props.js's chalkboardMesh, positioned in
