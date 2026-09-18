@@ -742,6 +742,8 @@ export function stepStaff(list, w, dt, onCollect, levels, customers) {
     if (!w._movers) w._movers = [];
     if (w._custRanFlag) w._custRanFlag = false; else w._movers.length = 0;
     for (const s of list) if (!w._movers.includes(s.mover)) w._movers.push(s.mover);
+    // Remembered for stepCustomers, which runs first next tick and would otherwise never see them.
+    w._staffMovers = list.map(s => s.mover);
   }
   // M3 T5: a worker's Speed level (+20%/tier) rescales its mover's speed every frame — cheap
   // (list is tiny) and picks up a live upgrade purchase instantly, the same pattern

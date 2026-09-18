@@ -107,13 +107,28 @@ const RESIDENT_SPOTS = [
   { furniture: dogBasketMesh, x: -8.9, y: 0, z: 2.3, ry: -0.4, petRy: 0 },
   // --- garden, past the south fence: no navigation grid out here, and environment.js's lawn tops
   //     out at y ~= -0.42, which is why the hutch is dropped to -0.44 instead of sitting at 0.
-  { furniture: bunnyHutchMesh, x: -6.0, y: -0.44, z: 10.6, ry: 0.45, petRy: 0 },
+  //
+  // ...until the terrace is built over that lawn. The deck spans z 7.4-14, so the hutch was left
+  // standing where it was, sunk 0.44 m to lawn height, and only its roof came up through the boards:
+  // walking the built deck, a long pink "bench" next to the terrace till that nothing explained.
+  // `paved` says where this home moves once its lawn is paved over — the middle of the deck's south
+  // rail behind the fountain, which is the most open stretch of rail on the built layout (0.99 m to
+  // the nearest seat, approach spot or queue spot). See relocateSpot() below.
+  { furniture: bunnyHutchMesh, x: -6.0, y: -0.44, z: 10.6, ry: 0.45, petRy: 0,
+    paved: { builtBy: 'z_terrace', x: -0.8, y: 0, z: 13.4, ry: Math.PI } },
   // --- ★3-★5 slots. Placed against walls and inside the terrace deck, clear of every station
   //     front, queue line and gate: the nav grid is 0.5m cells and Batch 1 lost pathfinding to a
   //     lantern sitting 0.67m from a gate, so none of these sits within a metre of a doorway.
   { furniture: catBedMesh, x: 9.05, y: 0, z: 2.6, ry: -0.25, petRy: -0.35 },
   { furniture: windowCushionMesh, x: 5.4, y: 0, z: -6.5, ry: 0, petRy: -0.2 },
-  { furniture: dogBasketMesh, x: 6.6, y: 0, z: 10.7, ry: 0.3, petRy: 0.15 },
+  // Was (6.6, 10.7) — chosen clear of every station at the time, and then the terrace's fix round 1
+  // moved seat8 from z 9.2 to z 10.75, straight on top of it: a resident dog in a basket sitting
+  // inside a table, which is the owner's "a chair after building the garden is glitched". Moved to
+  // the south rail between seat11 and seat9, the most open stretch of deck that is not a walkway
+  // (1.36 m to the nearest footprint edge, seat approach spot or queue spot, measured over the
+  // fully built layout; tools/prop-overlap-smoke.js now checks every resident spot against every
+  // station on every run).
+  { furniture: dogBasketMesh, x: -6.2, y: 0, z: 13.2, ry: 0.3, petRy: 0.15 },
 ];
 
 // Plan §3.6: 3 base slots, +1 per star, capped at 8. See the file header for why `stars` is always
@@ -200,9 +215,7 @@ function prefersReducedMotion() {
 
 function buildSpot(scene, spec) {
   const spot = new THREE.Group();
-  spot.position.set(spec.x, spec.y || 0, spec.z);
-  spot.rotation.y = spec.ry || 0;
-
+  spot.name = 'resident-spot';
   const furniture = spec.furniture();
   spot.add(furniture);
 
@@ -211,17 +224,39 @@ function buildSpot(scene, spec) {
   spot.add(perch);
   scene.add(spot);
 
-  // The pet's WORLD position: the spot's own yaw applied to the furniture's perch offset. Fixed
-  // for the life of the scene, so it is worth computing once.
-  const c = Math.cos(spot.rotation.y), s = Math.sin(spot.rotation.y);
-  const wx = spec.x + furniture.perch.x * c + furniture.perch.z * s;
-  const wz = spec.z - furniture.perch.x * s + furniture.perch.z * c;
+  // `at` is where this home stands NOW. It starts on the spec's own placement and only ever changes
+  // through placeSpot, so the shared RESIDENT_SPOTS table is never mutated.
+  const slot = { spec, spot, furniture, perch, at: null, paved: false };
+  placeSpot(slot, { x: spec.x, y: spec.y || 0, z: spec.z, ry: spec.ry || 0 });
+  return slot;
+}
 
-  return {
-    spec, spot, furniture, perch, wx, wz,
-    cos: c, sin: s,
-    facing: spot.rotation.y + (spec.petRy || 0), // the settled pet's total world yaw
-  };
+// Put a resident's home somewhere, and recompute everything derived from where it is. The pet's
+// WORLD position is the spot's own yaw applied to the furniture's perch offset; it only changes
+// when the home moves, so it is still computed once per move rather than per frame.
+function placeSpot(slot, at) {
+  slot.at = at;
+  slot.spot.position.set(at.x, at.y, at.z);
+  slot.spot.rotation.y = at.ry;
+  const c = Math.cos(at.ry), s = Math.sin(at.ry);
+  slot.cos = c; slot.sin = s;
+  slot.wx = at.x + slot.furniture.perch.x * c + slot.furniture.perch.z * s;
+  slot.wz = at.z - slot.furniture.perch.x * s + slot.furniture.perch.z * c;
+  slot.facing = at.ry + (slot.spec.petRy || 0); // the settled pet's total world yaw
+}
+
+// A home on open lawn moves when the lawn is paved over by a build (see the hutch's `paved` note),
+// and back again if a restore un-builds it. A settled occupant is parented under the perch, so it
+// travels with the furniture; nothing else has to follow.
+function relocateSpot(slot, built) {
+  const p = slot.spec.paved;
+  if (!p) return;
+  const want = !!(built && built.has(p.builtBy));
+  if (want === slot.paved) return;
+  slot.paved = want;
+  placeSpot(slot, want
+    ? { x: p.x, y: p.y || 0, z: p.z, ry: p.ry || 0 }
+    : { x: slot.spec.x, y: slot.spec.y || 0, z: slot.spec.z, ry: slot.spec.ry || 0 });
 }
 
 // render/pets.js's react()/idleLife() read the pet's own group.position to work out how far away
@@ -347,17 +382,17 @@ export function createResidentPets(S, G, els = null) {
     const pet = arr.pet;
     if (arr.t <= WALK_SECONDS) {
       const u = Math.max(0, Math.min(1, arr.t / WALK_SECONDS));
-      const x = arr.doorX + (slot.spec.x - arr.doorX) * u;
-      const z = arr.doorZ + (slot.spec.z - arr.doorZ) * u;
+      const x = arr.doorX + (slot.at.x - arr.doorX) * u;
+      const z = arr.doorZ + (slot.at.z - arr.doorZ) * u;
       const dx = x - pet.group.position.x, dz = z - pet.group.position.z;
       pet.group.position.set(x, 0, z);
       if (Math.hypot(dx, dz) > 1e-4) pet.group.rotation.y = Math.atan2(dx, dz);
       pet.update(dt, true);
     } else {
       const u = Math.max(0, Math.min(1, (arr.t - WALK_SECONDS) / SETTLE_SECONDS));
-      const perchWorldY = (slot.spec.y || 0) + slot.furniture.perch.y;
-      pet.group.position.set(slot.spec.x, perchWorldY * u, slot.spec.z);
-      const targetRy = (slot.spec.ry || 0) + (slot.spec.petRy || 0);
+      const perchWorldY = slot.at.y + slot.furniture.perch.y;
+      pet.group.position.set(slot.at.x, perchWorldY * u, slot.at.z);
+      const targetRy = slot.at.ry + (slot.spec.petRy || 0);
       let d = targetRy - pet.group.rotation.y; d = Math.atan2(Math.sin(d), Math.cos(d));
       pet.group.rotation.y += d * Math.min(1, dt * 6);
       pet.update(dt, u < 1);
@@ -406,6 +441,8 @@ export function createResidentPets(S, G, els = null) {
     if (!booted) bootstrap();
     const step = Math.min(0.12, Math.max(0, Number(dt) || 0));
     checkForNewResidents();
+    const built = G.world && G.world.built;
+    for (const slot of slots) relocateSpot(slot, built);
 
     const owner = readOwnerFrom(G);
     const reducedMotion = !!(G.settings && G.settings.reducedMotion) || prefersReducedMotion();

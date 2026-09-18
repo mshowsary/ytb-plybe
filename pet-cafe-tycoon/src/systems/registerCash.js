@@ -7,6 +7,7 @@ const COIN_MAX = 12;
 
 function makeRegisterStack(st) {
   const group = new THREE.Group();
+  group.name = 'registerCash';   // sits ON the till by design; named so audits can tell it from a clip
   group.position.set(st.x, 1.115, st.z);
   group.rotation.y = st.rot || 0;
   group.visible = false;

@@ -774,6 +774,16 @@ export function stepCustomers(list, w, price, dt) {
   // append onto it rather than clear it again.
   w._custRanFlag = true;
   for (const c of list) if (!c.done) movers.push(c.mover);
+  // ...and the workers. Guests step BEFORE stepStaff appends its movers, so on this path the list
+  // used to hold customers only: every guest was blind to every worker, while every worker avoided
+  // every guest. Measured on test/nav-fullhouse.test.js: a guest walking single file 0.23 m behind
+  // the Cleaner through the terrace gate at full speed for over a second, the Cleaner's overlap
+  // clock climbing while the guest's never left zero. The live game never had this — game.js freezes
+  // a roster of everyone per step (sim/actorRoster.js) — but tools/bot.js, the full-house test and
+  // every other bare caller did, so the economy bot's guests could walk through staff that the real
+  // game's guests step round. stepStaff records its movers below; they are the same objects every
+  // tick, so last tick's list is this tick's workers, at their live positions.
+  if (w._staffMovers) for (const m of w._staffMovers) if (!movers.includes(m)) movers.push(m);
 
   }
 

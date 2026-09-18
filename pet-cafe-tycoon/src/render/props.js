@@ -235,6 +235,25 @@ export function hireDeskMesh() {
   ]));
   return g;
 }
+// photoDesk1 — where the photographer is hired. It shared hireDeskMesh with the staff desk, so the
+// spa had an anonymous second staff desk in it: "a table that explains nothing". Same desk, but the
+// post carries a big camera instead of the paper sign board.
+export function photographerDeskMesh() {
+  const g = new THREE.Group();
+  g.add(mesh([
+    part('rbox', [1.0, 0.9, 1.6, 0.08], C.wood, { y: 0.45, tex: 'wood' }),
+    part('box', [1.05, 0.08, 1.65], C.woodDark, { y: 0.94, tex: 'wood' }),
+    part('box', [0.28, 0.02, 0.2], '#FFFFFF', { x: -0.12, y: 1.0, z: 0.45 }),          // a print
+    part('box', [0.24, 0.02, 0.18], '#FFE6EE', { x: -0.05, y: 1.015, z: 0.2, ry: 0.3 }),
+    part('cyl', [0.05, 0.05, 1.1, 8], C.woodDark, { x: 0.3, y: 1.45, z: -0.55 }),     // post
+    part('rbox', [0.56, 0.38, 0.3, 0.06], '#3B2E2A', { x: 0.3, y: 2.12, z: -0.55 }),   // camera
+    part('cyl', [0.14, 0.15, 0.2, 14], '#2B2B2B', { x: 0.3, y: 2.12, z: -0.35, rx: Math.PI / 2 }),
+    part('cyl', [0.1, 0.1, 0.02, 14], '#9BF6FF', { x: 0.3, y: 2.12, z: -0.24, rx: Math.PI / 2 }),
+    part('box', [0.18, 0.1, 0.14], '#FFFFFF', { x: 0.44, y: 2.36, z: -0.55 }),         // flash
+    part('box', [0.12, 0.06, 0.1], '#FF8A80', { x: 0.14, y: 2.33, z: -0.55 }),         // shutter
+  ]));
+  return g;
+}
 export function kioskMesh() {
   const parts = [
     part('rbox', [1.0, 1.6, 0.5, 0.1], C.accent, { y: 0.8 }),
@@ -723,8 +742,26 @@ export function buildRegion(area, region, palette = null) {
   // terrace's corners happen to be empty; the spa's north-west corner is bath1. Rather than
   // authoring the spa's stations around invisible geometry, the spa gets a real `planters` STATION
   // (blocking, in the lounge corner) and this loop stands down.
+  //
+  // ...and "the terrace's corners happen to be empty" stopped being true. Every later terrace build
+  // that went into a corner — the ice cream machine (north-east), the corner table (south-west),
+  // the restroom (south-east) — was authored after these pots and stands straight through one.
+  // Walking the built deck: a potted shrub growing up through a table, and a shrub swallowing the
+  // ice cream machine so completely that the machine read as a small grey box beside a bush
+  // (tools/prop-overlap-smoke.js measured 100, 98 and 147 of the pots' vertices inside those three
+  // footprints). A corner that has a station authored in it — built yet or not — gets no pot:
+  // an empty corner until the lane arrives beats a pot the lane is later built through.
   const inset = 0.9;
-  const cornerPots = region.floor === 'tile' ? [] : [[x0 + inset, z0 + inset], [x1 - inset, z0 + inset], [x0 + inset, z1 - inset], [x1 - inset, z1 - inset]];
+  const POT_REACH = 0.55;   // the crown's radius plus a little air
+  const occupied = (px, pz) => (area && area.stations || []).some(st => {
+    if (!st.fw || !st.fd || st.type === 'gate') return false;
+    const c = Math.cos(st.rot || 0), s = Math.sin(st.rot || 0);
+    const dx = px - st.x, dz = pz - st.z;
+    const lx = dx * c - dz * s, lz = dx * s + dz * c;
+    return Math.abs(lx) < st.fw / 2 + POT_REACH && Math.abs(lz) < st.fd / 2 + POT_REACH;
+  });
+  const cornerPots = region.floor === 'tile' ? [] : [[x0 + inset, z0 + inset], [x1 - inset, z0 + inset], [x0 + inset, z1 - inset], [x1 - inset, z1 - inset]]
+    .filter(([px, pz]) => !occupied(px, pz));
   for (const [px, pz] of cornerPots) {
     parts.push(part('cyl', [0.3, 0.24, 0.46, 10], potBody, { x: px, y: 0.19, z: pz }));
     parts.push(part('sph', [0.5, 9], crownA, { x: px, y: 0.82, z: pz }));
@@ -767,54 +804,128 @@ export function buildRegion(area, region, palette = null) {
 // ── Terrace station meshes (plan 3.1/7.2) ───────────────────────────────────────────────────────
 // icecream1 mirrors coffeeMesh's shape/scale (a counter-height machine) but in ice-cream pastels
 // with two swirl cones instead of a coffee spout.
+// ── Station toppers ─────────────────────────────────────────────────────────────────────────────
+// The day-18 report on the terrace and the spa was a list of objects nobody could name: "a square
+// thing", "a photograph stand", "a table and long chairs", "machines that don't make sense". Walked
+// with the game's own camera, it was fair. The kitchen's stations each had a silhouette that says
+// what they do — the oven's lit window, the coffee machine's group heads, a counter full of cakes —
+// and the later ones never got one: the ice cream machine was a 0.9 m box standing in a 1.6 m
+// footprint, the cream supply two pale spheres, the restroom a blank box with its only door facing
+// sideways away from the camera, the photo booth a pink cabinet with a porthole.
+//
+// The genre's answer, and the one used here, is a TOPPER: one oversized, unmistakable object on
+// top of each station — a giant soft-serve cone, a water drop, bubbles, a crescent-moon door, a
+// camera on a tripod. Toppers sit above head height, so they read from anywhere on the deck and from
+// every side, which matters because the camera sees most of these stations side-on. Each body also
+// fills the footprint the nav grid blocks, so what looks solid is exactly what is solid.
+// icecream1 — a soft-serve counter: a striped pastel cabinet filling the 1.6 x 1.2 footprint, a
+// chrome top, the machine with its two dispensing heads, and the lane's shop sign — a giant cone.
 export function icecreamMesh() {
   const g = new THREE.Group();
-  g.add(mesh([
-    part('rbox', [0.9, 0.62, 0.55, 0.06], '#EAF6FF', { y: 0.5, tex: 'metal' }),
-    part('box', [0.82, 0.06, 0.5], C.metal, { y: 0.82, tex: 'metal' }),
-    part('cyl', [0.16, 0.16, 0.05, 12], '#FFD6E7', { x: -0.22, y: 0.86 }),
-    part('cyl', [0.15, 0.15, 0.05, 12], '#FFF0F5', { x: 0.1, y: 0.86 }),
-    part('cone', [0.1, 0.24, 10], '#FFF0F5', { x: -0.22, y: 1.06 }),
-    part('cone', [0.09, 0.2, 10], '#FFD6E7', { x: 0.1, y: 1.02 }),
-    part('cyl', [0.05, 0.05, 0.28, 8], C.ink, { x: 0.38, y: 0.62, z: 0.2 }),
-  ]));
+  const P = [];
+  P.push(part('rbox', [1.5, 0.92, 1.08, 0.08], '#FFC7D9', { y: 0.46 }));                 // cabinet
+  P.push(part('rbox', [1.3, 0.62, 0.04, 0.03], C.cream, { y: 0.5, z: 0.55 }));           // front panel
+  for (let i = 0; i < 5; i++) P.push(part('box', [0.12, 0.6, 0.012], '#FF9DBB', { x: -0.52 + i * 0.26, y: 0.5, z: 0.575 }));
+  for (let i = 0; i < 4; i++) P.push(part('box', [0.012, 0.6, 0.12], '#FF9DBB', { x: 0.755, y: 0.5, z: -0.39 + i * 0.26 }));
+  P.push(part('box', [1.58, 0.07, 1.16], C.metal, { y: 0.955, tex: 'metal' }));           // counter top
+  P.push(part('rbox', [1.0, 0.62, 0.55, 0.07], '#F4FAFF', { y: 1.3, z: -0.22, tex: 'metal' })); // machine
+  P.push(part('box', [0.92, 0.09, 0.5], '#DDEBF5', { y: 1.65, z: -0.22, tex: 'metal' }));  // its lid
+  for (const x of [-0.24, 0.24]) {
+    P.push(part('rbox', [0.2, 0.18, 0.16, 0.04], '#E6EEF5', { x, y: 1.22, z: 0.12, tex: 'metal' })); // head
+    P.push(part('cyl', [0.045, 0.02, 0.12, 8], C.metal, { x, y: 1.08, z: 0.14 }));                   // nozzle
+    P.push(part('box', [0.05, 0.16, 0.04], C.ink, { x, y: 1.42, z: 0.14 }));                          // pull
+  }
+  P.push(part('box', [0.8, 0.03, 0.22], '#C9D4DC', { y: 1.005, z: 0.22 }));               // drip tray
+  // The sign: a giant cone on a short chrome post, point down, a pink-and-white swirl and a cherry.
+  P.push(part('cyl', [0.04, 0.04, 0.34, 8], C.metal, { y: 1.86, z: -0.22 }));
+  P.push(part('cyl', [0.25, 0.02, 0.48, 14], '#E0A560', { y: 2.27, z: -0.22, tex: 'fabric' }));
+  P.push(part('sph', [0.27, 12], '#FFF6FA', { y: 2.55, z: -0.22, sy: 0.55 }));
+  P.push(part('sph', [0.21, 12], '#FFD1E3', { y: 2.71, z: -0.22, sy: 0.6 }));
+  P.push(part('sph', [0.14, 10], '#FFF6FA', { y: 2.85, z: -0.22, sy: 0.7 }));
+  P.push(part('cone', [0.07, 0.15, 8], '#FFD1E3', { y: 2.97, z: -0.22 }));
+  P.push(part('sph', [0.06, 8], '#E0405F', { y: 3.07, z: -0.22 }));
+  g.add(mesh(P));
   return g;
 }
-// coldPantry1 — pantryMesh's shape in icy tones, so the pair reads as a matched set from across
-// the deck.
+// coldPantry1 — a chest freezer, which is what the cream actually comes out of. White body, a pale
+// blue lid with frost along the seam and icicles hanging off every edge (icicles say COLD from any
+// side, where a snowflake sign would be edge-on to the camera half the time), and a cream tub
+// standing on the lid as its topper, heaped with a swirl.
 export function coldPantryMesh() {
   const g = new THREE.Group();
-  g.add(mesh([
-    part('cyl', [0.32, 0.4, 0.06, 10], '#9BD9E8', { y: 0.03 }),
-    part('sph', [0.3, 8], '#DDF6FF', { x: -0.2, y: 0.28, sy: 1.1 }),
-    part('sph', [0.3, 8], '#BFEFFA', { x: 0.22, y: 0.28, sy: 1.1 }),
-    part('box', [0.16, 0.06, 0.02], '#FFFFFF', { x: -0.2, y: 0.46, rz: 0.3 }),
-    part('box', [0.16, 0.06, 0.02], '#FFFFFF', { x: 0.22, y: 0.46, rz: -0.3 }),
-  ]));
+  const P = [];
+  P.push(part('rbox', [1.1, 0.72, 0.84, 0.07], '#F4FAFF', { y: 0.38 }));                  // body
+  P.push(part('box', [1.12, 0.1, 0.86], '#8FD3EE', { y: 0.07 }));                          // kick band
+  P.push(part('rbox', [1.14, 0.1, 0.88, 0.04], '#BFEFFA', { y: 0.79 }));                   // lid
+  P.push(part('box', [0.36, 0.05, 0.06], C.metal, { y: 0.7, z: 0.45 }));                   // handle
+  for (const x of [-0.42, -0.14, 0.18, 0.44]) P.push(part('sph', [0.07, 6], '#FFFFFF', { x, y: 0.76, z: 0.43, sy: 0.5 }));
+  // icicles along all four lid edges
+  for (const [x, z] of [[-0.4, 0.45], [-0.05, 0.45], [0.32, 0.45], [-0.25, -0.45], [0.2, -0.45], [0.57, 0.1], [0.57, -0.25], [-0.57, -0.1], [-0.57, 0.25]]) {
+    P.push(part('cone', [0.035, 0.14, 6], '#E4F7FF', { x, y: 0.66, z, rx: Math.PI }));
+  }
+  // the tub, heaped
+  P.push(part('cyl', [0.25, 0.21, 0.32, 14], C.cream, { y: 1.0, tex: 'paper' }));
+  P.push(part('cyl', [0.255, 0.255, 0.07, 14], '#FF9DBB', { y: 1.04 }));
+  P.push(part('sph', [0.23, 12], '#FFFAF2', { y: 1.2, sy: 0.55 }));
+  P.push(part('sph', [0.15, 10], '#FFFAF2', { y: 1.31, sy: 0.6 }));
+  P.push(part('cone', [0.07, 0.14, 8], '#FFFAF2', { y: 1.42 }));
+  g.add(mesh(P));
   return g;
 }
-// The pet photo booth (z_photo). Scope note: this batch renders the booth only — no queue, no
-// mini-game (Batch 2, plan 3.2). A curtained cabinet with a lens front.
+// photo1 — a little portrait studio: a starry pink backdrop on posts at the back, a mat where the
+// pet poses, a camera on a tripod pointing at it, and a softbox light. It used to be a closed pink
+// cabinet with a lens on the front — "a photograph stand" nobody could read, and closed, so there
+// was nothing to show a pet being photographed in.
 export function photoBoothMesh() {
   const g = new THREE.Group();
-  g.add(mesh([
-    part('box', [1.2, 1.9, 1.6], '#F2C4CE', { y: 0.95 }),
-    part('box', [1.3, 0.12, 1.7], C.woodDark, { y: 1.9, tex: 'wood' }),
-    part('rbox', [0.9, 1.0, 0.05, 0.05], C.wall, { y: 1.1, z: 0.83, tex: 'fabric' }),
-    part('cyl', [0.16, 0.16, 0.1, 14], C.ink, { y: 1.2, z: 0.86, rx: Math.PI / 2 }),
-    part('cyl', [0.1, 0.1, 0.03, 14], '#9BF6FF', { y: 1.2, z: 0.92, rx: Math.PI / 2 }),
-  ]));
+  const P = [];
+  P.push(part('box', [1.3, 1.8, 0.08], '#F7B7C8', { y: 0.98, z: -0.9, tex: 'fabric' }));   // backdrop
+  P.push(part('rbox', [1.38, 0.14, 0.14, 0.05], C.woodDark, { y: 1.92, z: -0.9, tex: 'wood' }));
+  for (const x of [-0.64, 0.64]) P.push(part('cyl', [0.04, 0.05, 1.95, 8], C.woodDark, { x, y: 0.97, z: -0.9 }));
+  for (const [x, y] of [[-0.35, 1.45], [0.3, 1.2], [-0.1, 0.82], [0.42, 1.66], [-0.46, 0.55], [0.18, 0.42], [-0.5, 1.7]]) {
+    P.push(part('sph', [0.075, 6], '#FFFFFF', { x, y, z: -0.85, sz: 0.3 }));
+  }
+  P.push(part('cyl', [0.52, 0.52, 0.03, 18], '#FFE6EE', { y: 0.015, z: -0.3 }));            // pose mat
+  const cz = 0.62;
+  for (const a of [0.3, 2.4, 4.5]) {
+    const lx = Math.sin(a) * 0.16, lz = Math.cos(a) * 0.16;
+    P.push(part('cyl', [0.018, 0.024, 1.18, 6], C.ink, { x: lx, y: 0.58, z: cz + lz, rx: lz * 0.8, rz: -lx * 0.8 }));
+  }
+  P.push(part('rbox', [0.36, 0.25, 0.22, 0.04], '#3B2E2A', { y: 1.27, z: cz }));            // camera
+  P.push(part('cyl', [0.095, 0.105, 0.16, 12], '#2B2B2B', { y: 1.27, z: cz - 0.18, rx: Math.PI / 2 }));
+  P.push(part('cyl', [0.065, 0.065, 0.02, 12], '#9BF6FF', { y: 1.27, z: cz - 0.265, rx: Math.PI / 2 }));
+  P.push(part('box', [0.13, 0.09, 0.11], '#FFFFFF', { x: 0.09, y: 1.44, z: cz }));          // flash
+  P.push(part('cyl', [0.02, 0.025, 1.5, 6], C.ink, { x: 0.58, y: 0.75, z: 0.05 }));        // light stand
+  P.push(part('box', [0.38, 0.38, 0.1], '#FFFFFF', { x: 0.58, y: 1.56, z: 0.05, ry: -0.55 })); // softbox
+  g.add(mesh(P));
   return g;
 }
-// The restroom hut (wc1) — a comfort buff, not a queue (plan 7.2's `tidy`). A small board hut.
+// wc1 — a garden restroom hut: mint walls, a coral pyramid roof with a vent pipe, and a wooden door
+// with the crescent-moon cut-out that cartoons the world over use for "restroom". A round window
+// with a heart on the side the camera sees, so the hut is never a blank box from the deck. It was:
+// the only door faced the deck side-on and everything else was plain plaster, which is how guests
+// pairing up at it read as "customers step back and forth at a stand, and nothing happens".
 export function restroomMesh() {
   const g = new THREE.Group();
-  g.add(mesh([
-    part('box', [1.4, 1.7, 1.2], '#EFE0CE', { y: 0.85, tex: 'plaster' }),
-    part('box', [1.55, 0.12, 1.35], C.woodDark, { y: 1.72, tex: 'wood' }),
-    part('box', [0.5, 1.1, 0.05], C.wood, { y: 0.6, z: 0.61, tex: 'wood' }),
-    part('cyl', [0.04, 0.04, 0.2, 8], C.metal, { x: 0.18, y: 0.6, z: 0.64 }),
-  ]));
+  const P = [];
+  const doorC = '#E8B77F';
+  P.push(part('box', [1.4, 1.72, 1.2], '#CDEBDD', { y: 0.86, tex: 'plaster' }));           // hut
+  P.push(part('box', [1.46, 0.08, 1.26], '#FFFFFF', { y: 0.04 }));                          // plinth
+  P.push(part('box', [1.5, 0.1, 1.3], '#FFFFFF', { y: 1.74 }));                             // eave
+  P.push(part('cone', [1.12, 0.72, 4], C.coral, { y: 2.15, ry: Math.PI / 4 }));             // roof
+  P.push(part('cyl', [0.06, 0.06, 0.4, 8], C.metal, { x: 0.3, y: 2.3, z: -0.2 }));          // vent pipe
+  P.push(part('cyl', [0.09, 0.09, 0.05, 8], C.metal, { x: 0.3, y: 2.5, z: -0.2 }));
+  P.push(part('rbox', [0.62, 1.34, 0.06, 0.05], doorC, { y: 0.72, z: 0.62, tex: 'wood' }));  // door
+  P.push(part('cyl', [0.13, 0.13, 0.02, 16], '#5A3A2A', { x: -0.02, y: 1.16, z: 0.655, rx: Math.PI / 2 }));
+  P.push(part('cyl', [0.12, 0.12, 0.024, 16], doorC, { x: 0.06, y: 1.19, z: 0.66, rx: Math.PI / 2 }));
+  P.push(part('sph', [0.04, 8], C.metal, { x: 0.22, y: 0.7, z: 0.68 }));                    // knob
+  // The same crescent cut into both side walls: the camera sees these huts side-on as often as not
+  // (wc1 faces the deck, west, and the camera looks north), so the icon has to be on the sides too.
+  for (const sx of [-1, 1]) {
+    P.push(part('cyl', [0.19, 0.19, 0.02, 18], '#5A3A2A', { x: sx * 0.705, y: 1.2, rz: Math.PI / 2 }));
+    P.push(part('cyl', [0.175, 0.175, 0.024, 18], '#CDEBDD', { x: sx * 0.708, y: 1.24, z: 0.1, rz: Math.PI / 2 }));
+  }
+  g.add(mesh(P));
   return g;
 }
 // fountain1 (decor, pre-splash) — a tiered stone fountain. z_splash later adds splash1 in the same
@@ -862,6 +973,16 @@ export function groomTableMesh() {
     part('rbox', [0.3, 0.09, 0.13, 0.03], C.wood, { x: 0.42, y: 1.0, z: 0.2, ry: 0.35 }),  // brush back
     ...[-0.09, 0, 0.09].map(o => part('box', [0.2, 0.07, 0.02], C.ink, { x: 0.42 + o * 0.34, y: 0.94, z: 0.2 + o, ry: 0.35 })), // bristles
     part('cyl', [0.19, 0.19, 0.08, 12], '#7FB8D8', { y: 0.2, z: -0.3, rx: Math.PI / 2 }),   // hose coil
+    // The grooming arm — the tall L of chrome every real grooming table has, and the one shape that
+    // says "grooming table" rather than "table" from across the spa.
+    part('cyl', [0.035, 0.035, 1.3, 8], C.metal, { x: -0.55, y: 1.55, z: -0.34 }),
+    part('cyl', [0.035, 0.035, 0.62, 8], C.metal, { x: -0.25, y: 2.19, z: -0.34, rz: Math.PI / 2 }),
+    part('sph', [0.05, 8], C.metal, { x: -0.55, y: 2.19, z: -0.34 }),
+    // ...and hanging from it, a big pink dryer: the topper.
+    part('cyl', [0.02, 0.02, 0.24, 6], C.ink, { x: 0.02, y: 2.05, z: -0.34 }),
+    part('cyl', [0.11, 0.11, 0.34, 12], '#FF9DBB', { x: 0.02, y: 1.86, z: -0.28, rx: Math.PI / 2 }),
+    part('cyl', [0.08, 0.06, 0.1, 10], '#FF7AA2', { x: 0.02, y: 1.86, z: -0.08, rx: Math.PI / 2 }),
+    part('rbox', [0.07, 0.2, 0.08, 0.03], '#FF7AA2', { x: 0.02, y: 1.72, z: -0.4 }),
   ]));
   return g;
 }
@@ -881,22 +1002,30 @@ export function bathTubMesh() {
   for (const x of [-0.36, 0.36]) for (const z of [-0.36, 0.36]) {
     p.push(part('cyl', [0.05, 0.05, 0.6, 6], C.metal, { x, y: 0.3, z }));         // legs
   }
+  // The topper: a column of bubbles rising off the foam, smallest highest, a hint of blue in each.
+  for (const [x, y, z, r] of [[-0.12, 1.12, 0.05, 0.14], [0.14, 1.36, -0.06, 0.11], [-0.05, 1.6, 0.02, 0.09], [0.1, 1.82, 0.04, 0.07], [-0.08, 2.02, -0.02, 0.05]]) {
+    p.push(part('sph', [r, 10], '#F2FBFF', { x, y, z }));
+    p.push(part('sph', [r * 0.3, 6], '#FFFFFF', { x: x - r * 0.4, y: y + r * 0.4, z: z + r * 0.6 }));
+  }
   g.add(mesh(p));
   return g;
 }
-// waterTank1 — pantryMesh's silhouette (a low plinth with two containers) rebuilt as a plumbed
-// tank, so the spa's supply point reads as a sibling of the pantry and the cold pantry rather than
-// as a new kind of object. Same trick coldPantryMesh already uses for the ice cream lane.
+// waterTank1 — a banded blue water butt with a tap and a bucket under it, and a big water drop on
+// the lid for its topper. It was a pale cylinder the size of a bin, and read as one.
 export function waterTankMesh() {
   const g = new THREE.Group();
-  g.add(mesh([
-    part('cyl', [0.34, 0.42, 0.07, 10], C.metal, { y: 0.035 }),                   // plinth
-    part('cyl', [0.3, 0.3, 0.78, 12], '#BFEFFA', { y: 0.46, tex: 'metal' }),                    // tank
-    part('cyl', [0.32, 0.32, 0.07, 12], C.metal, { y: 0.86 }),                    // lid
-    part('cyl', [0.26, 0.26, 0.05, 12], '#8FD3EE', { y: 0.83 }),                  // water line
-    part('cyl', [0.05, 0.05, 0.2, 8], C.metal, { y: 0.28, z: 0.3, rx: Math.PI / 2 }),  // spigot
-    part('box', [0.14, 0.05, 0.05], C.metal, { y: 0.34, z: 0.36 }),               // spigot handle
-  ]));
+  const P = [];
+  P.push(part('cyl', [0.44, 0.48, 0.1, 14], C.metal, { y: 0.05, tex: 'metal' }));           // plinth
+  P.push(part('cyl', [0.4, 0.4, 0.9, 16], '#9FDDF2', { y: 0.55, tex: 'metal' }));           // tank
+  for (const y of [0.25, 0.85]) P.push(part('cyl', [0.415, 0.415, 0.05, 16], C.metal, { y }));
+  P.push(part('cyl', [0.43, 0.43, 0.06, 16], C.metal, { y: 1.03 }));                        // lid
+  P.push(part('cyl', [0.05, 0.05, 0.22, 8], C.metal, { y: 0.4, z: 0.46, rx: Math.PI / 2 })); // tap
+  P.push(part('box', [0.18, 0.05, 0.05], '#FF8A80', { y: 0.48, z: 0.52 }));
+  P.push(part('cyl', [0.13, 0.1, 0.16, 10], '#DCEFF7', { y: 0.08, z: 0.47 }));             // bucket
+  P.push(part('sph', [0.25, 14], '#4FB8E8', { y: 1.4 }));                                    // the drop
+  P.push(part('cone', [0.18, 0.34, 14], '#4FB8E8', { y: 1.7 }));
+  P.push(part('sph', [0.065, 8], '#FFFFFF', { x: -0.1, y: 1.48, z: 0.18 }));
+  g.add(mesh(P));
   return g;
 }
 // boutique1 — a shop rack: a frame, two hanging rails of accessory swatches and a shelf of boxes.
@@ -940,6 +1069,13 @@ export function planterClusterMesh() {
 // cushion and a side table, in place of the café's round table. Same local convention as
 // tableMesh (the human sits at +z 1.05, the pet waits at right 0.6), so seat.pair geometry and
 // every seated-guest system read it exactly as they read an interior table.
+// spaSeat1-3 — a lounge bench with a side table. The owner read them as "long chairs, and dirty
+// dishes left on the chair". The dishes were real in two ways. Clean, the side table had a CREAM
+// top with a blue glass of water standing on it, and from the top-down camera a cream disc with a
+// blue dot on it is a plate with food on it, at the head of every bench. Dirty, the bussed-table
+// prop was drawn where it is drawn for every seat — on what is, here, the cushion. So the table top
+// is wood now, dressed with a rolled towel and a succulent (spa, not food), and the mesh publishes
+// `dirtyAnchor` so systems/visuals.js stacks the plates on the SIDE TABLE when the seat is used.
 export function spaLoungeMesh() {
   const g = new THREE.Group();
   const p = [
@@ -947,20 +1083,25 @@ export function spaLoungeMesh() {
     part('rbox', [1.24, 0.12, 0.6, 0.05], '#EAF6FF', { y: 0.55, tex: 'fabric' }),                // cushion
     part('rbox', [1.3, 0.5, 0.12, 0.04], C.wood, { y: 0.75, z: -0.3, tex: 'wood' }),           // low back
     part('cyl', [0.26, 0.24, 0.5, 10], C.woodDark, { x: 0.82, y: 0.25, z: 0.2 }), // side table
-    part('cyl', [0.3, 0.3, 0.06, 12], C.cream, { x: 0.82, y: 0.53, z: 0.2 }),     // its top
-    part('cyl', [0.09, 0.09, 0.12, 10], '#8FD3EE', { x: 0.82, y: 0.6, z: 0.2 }),  // a glass of water
+    part('cyl', [0.3, 0.3, 0.06, 12], C.wood, { x: 0.82, y: 0.53, z: 0.2, tex: 'wood' }),   // its top, wood
+    part('cyl', [0.055, 0.055, 0.26, 10], '#FFFFFF', { x: 0.74, y: 0.62, z: 0.02, rz: Math.PI / 2, tex: 'fabric' }), // towel
+    part('cyl', [0.07, 0.06, 0.1, 8], '#A9764E', { x: 0.98, y: 0.61, z: 0.02 }),  // succulent pot
+    part('sph', [0.07, 7], C.plant, { x: 0.98, y: 0.7, z: 0.02, sy: 0.8 }),
     part('cyl', [0.1, 0.13, 0.06, 12], C.pink, { x: 0.6, y: 0.03, z: 1.05 }),     // pet bowl, matching seat.pair.pet
   ];
   for (const x of [-0.52, 0.52]) for (const z of [-0.22, 0.22]) {
     p.push(part('box', [0.1, 0.36, 0.1], C.woodDark, { x, y: 0.16, z }));         // legs
   }
   g.add(mesh(p));
+  // Where a used seat's plates go: centred on the side table's top face.
+  g.dirtyAnchor = new THREE.Vector3(0.82, 0.57, 0.24);
   return g;
 }
 
 export function cashPile(max = 60) {
   const geo = new THREE.BoxGeometry(0.32, 0.04, 0.18); const mat = new THREE.MeshToonMaterial({ color: new THREE.Color(C.cash) });
   const im = new THREE.InstancedMesh(geo, mat, max); im.castShadow = true; im.count = 0;
+  im.name = 'cashPile';   // it sits ON a register by design; named so audits can tell it from a clip
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(1, 1, 1), e = new THREE.Euler();
   im.setCount = n => {
     n = Math.min(max, n | 0); if (n === im.count) return;

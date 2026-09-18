@@ -134,6 +134,8 @@ const report = (rows, limit, what) => {
   const bad = rows.filter(r => r.sink > limit).sort((a, b) => b.sink - a.sink);
   const worst = rows.reduce((m, r) => Math.max(m, r.sink), 0);
   console.log(`${what}: ${rows.length} stations, worst ${worst.toFixed(3)} m (limit ${limit} m)`);
+  // The three deepest, so a change that moves the worst case says WHICH station moved it.
+  console.log('    deepest: ' + [...rows].sort((a, b) => b.sink - a.sink).slice(0, 3).map(r => r.id + ' ' + r.sink.toFixed(3)).join(', '));
   for (const r of bad) failures.push(`${what}: the body sinks ${r.sink.toFixed(3)} m into ${r.id} (${r.type})`);
 };
 report(out.atFront, AT_FRONT_MAX, 'standing on the front spot');

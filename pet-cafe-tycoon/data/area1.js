@@ -85,6 +85,13 @@ export const AREA1 = {
     // those footprints happens to miss at its own z.
     { id: 'barIce',     type: 'display',  product: 'icecream', x: 5.5, z: 8.4, rot: 0, fw: 2.4, fd: 1.0, capacity: 8, builtBy: 'z_icecream', queueRight: -0.65 },
     { id: 'coldPantry1',type: 'pantry',   x: 9.2,  z: 11.4, rot: -Math.PI / 2, fw: 1.2, fd: 1.2, builtBy: 'z_icecream', supplies: ['cream'] },
+    // The terrace's own RETURN crate (owner, day 18: "there is no return in the garden"). Anything
+    // carried out here that the deck cannot take — cookies brought out by mistake, cream the ice
+    // cream machine is too full for — used to mean a walk back through the gate to the kitchen's
+    // crate. It stands just inside the terrace entrance, east of the gate lane, which is the one
+    // spot every trip onto the deck passes: clear of the lane (x <= 2.4) by half a metre, west of
+    // barIce's footprint and its queue column (x 4.85), and south of the fence row.
+    { id: 'return2',    type: 'return',   x: 3.3,  z: 8.05, rot: 0,            fw: 0.8, fd: 0.9, builtBy: 'z_icecream' },
     // Fix round 1: the plan's literal x:-7.0 put register3's own footprint touching seat7's
     // (-6.5, 9.2), and its queue running north into it. The whole west corner behind it
     // (photo1/seat11) leaves no queueRight-only gap the way barIce's east side does, so the
@@ -189,7 +196,7 @@ export const AREA1 = {
     // reward. 3600 behind the smoothie bar puts it within reach around day 9–10; the garden and the
     // pet lounge stay buyable on the way, they are simply no longer the gate.
     { id: 'z_terrace',      x: 0.75, z: 5.0,  price: 3600, adds: ['gate1', 'fountain1', 'seat7', 'seat8'],            requires: 'z_blender',    label: 'Terrace' },
-    { id: 'z_icecream',     x: 7.4,  z: 9.5,  price: 3600,  adds: ['icecream1', 'barIce', 'coldPantry1'],              requires: 'z_terrace',    label: 'Ice cream lane' },
+    { id: 'z_icecream',     x: 7.4,  z: 9.5,  price: 3600,  adds: ['icecream1', 'barIce', 'coldPantry1', 'return2'],   requires: 'z_terrace',    label: 'Ice cream lane' },
     { id: 'z_register3',    x: -5.0, z: 9.6,  price: 4000,  adds: ['register3'],                                      requires: 'z_icecream',   label: 'Terrace register' },
     { id: 'z_photo',        x: -9.0, z: 8.6,  price: 3000, adds: ['photo1'],                                         requires: 'z_terrace',    label: 'Pet photo studio' },
     { id: 'z_terraceSeats', x: 0.0,  z: 12.8, price: 4000,  adds: ['seat9', 'seat10', 'seat11', 'seat12'],             requires: 'z_register3',  label: 'Terrace tables' },

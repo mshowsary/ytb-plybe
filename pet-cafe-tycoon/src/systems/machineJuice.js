@@ -111,6 +111,9 @@ export function createMachineJuice(world, scene) {
     else if (st.type === 'blender') rec = blenderFx(st);
     else if (st.type === 'checkout') rec = registerFx(st);
     if (!rec) continue;
+    // The glow panes and status lights are part of the machine they sit on; named after it so an
+    // audit (tools/prop-overlap-smoke.js) and a cost report can tell them apart from a clip.
+    rec.g.name = 'machineJuice:' + st.type;
     rec.g.position.set(st.x, 0, st.z);
     rec.g.rotation.y = st.rot || 0;
     scene.add(rec.g);

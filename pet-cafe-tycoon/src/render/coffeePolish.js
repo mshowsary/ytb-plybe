@@ -27,6 +27,7 @@ export function coffeeCupGeometry(latte = false) {
 
 export function espressoDetailMesh() {
   const g = new THREE.Group();
+  g.name = 'coffeePolish';   // detail ON the machine by design; named so audits can tell it from a clip
   g.add(mesh([
     // top bean hopper and lid
     part('cyl', [0.14, 0.17, 0.20, 12], '#5D4032', { x: -0.18, y: 1.03, z: -0.05 }),

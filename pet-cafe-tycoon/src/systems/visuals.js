@@ -1,7 +1,7 @@
 // src/systems/visuals.js — builds a mesh per station, keeps physical stock props in sync, owns the
 // Task-31 glanceable stock truth, and runs Task-32's one-shot construction reveal.
 import * as THREE from 'three';
-import { ovenMesh, counterMesh, checkoutMesh, tableMesh, hireDeskMesh, kioskMesh, bowlMesh, bushMesh, coffeeMesh, pantryMesh, crateMesh, blenderMesh, chalkboardMesh, itemGeoFor, cashPile, dirtyMesh, zoneRing, icecreamMesh, coldPantryMesh, groomTableMesh, bathTubMesh, waterTankMesh, boutiqueRackMesh, planterClusterMesh, spaLoungeMesh, photoBoothMesh, restroomMesh, fountainMesh, splashPoolMesh } from '../render/props.js';
+import { ovenMesh, counterMesh, checkoutMesh, tableMesh, hireDeskMesh, photographerDeskMesh, kioskMesh, bowlMesh, bushMesh, coffeeMesh, pantryMesh, crateMesh, blenderMesh, chalkboardMesh, itemGeoFor, cashPile, dirtyMesh, zoneRing, icecreamMesh, coldPantryMesh, groomTableMesh, bathTubMesh, waterTankMesh, boutiqueRackMesh, planterClusterMesh, spaLoungeMesh, photoBoothMesh, restroomMesh, fountainMesh, splashPoolMesh } from '../render/props.js';
 import { C, toonMaterial } from '../render/palette.js';
 import { buildRevealPhase, buildRevealScale } from '../render/buildReveal.js';
 import { iconFor, treatIcon, coinIcon, sackIcon, returnIcon, leafIcon, gearIcon, personIcon, beanIcon, creamIcon, broomIcon } from '../ui/icons.js';
@@ -98,6 +98,8 @@ const MESH_ID_OVERRIDE = {
   // their own look — the same arrangement coldPantry1 has had since Batch 1.
   waterTank1: waterTankMesh, planters: planterClusterMesh,
   spaSeat1: spaLoungeMesh, spaSeat2: spaLoungeMesh, spaSeat3: spaLoungeMesh,
+  // The photographer is hired from a desk that should look like it: see props.js photographerDeskMesh.
+  photoDesk1: photographerDeskMesh,
 };
 // Program §5.5. Every chalkboard used to carry an English caption -- "OVEN · cupcakes",
 // "COFFEE · needs beans", "PANTRY" -- and with one board per station that made words the most
@@ -397,7 +399,13 @@ export function createVisuals(G, S, ctx) {
       v.stack = makeItemStack(g, st.product, slots);
     }
     if (st.type === 'checkout') { v.pile = cashPile(); v.pile.position.set(st.cash.x, 0, st.cash.z); scene.add(v.pile); }
-    if (st.type === 'seat') { const d = dirtyMesh(); d.position.set(0.15, DIRTY_PROP_Y, -0.1); d.visible = false; g.add(d); v.dirtyProp = d; }
+    if (st.type === 'seat') {
+      // A seat mesh may say where its plates go (props.js spaLoungeMesh: on the side table, not the
+      // cushion); every café table takes the default spot on its top.
+      const a = g.dirtyAnchor;
+      const d = dirtyMesh(); d.position.set(a ? a.x : 0.15, a ? a.y : DIRTY_PROP_Y, a ? a.z : -0.1); d.visible = false; g.add(d);
+      v.dirtyProp = d; v.dirtyY = a ? a.y : DIRTY_PROP_Y;
+    }
     if (DEMAND_Y[st.type] != null) { v.demand = makeDemandEl(st.type); els.fx.appendChild(v.demand.el); }
     const chalkKey = chalkIconKey(st);
     if (chalkKey) {
@@ -448,7 +456,7 @@ export function createVisuals(G, S, ctx) {
       // Program §6.3: a restore or a day flip is not a wipe. Drop any pop or crumb fade in flight
       // so a loaded save never plays half of someone else's cleaning animation.
       v.popT = null; v.dirtyFade = null;
-      if (v.dirtyProp) { v.dirtyProp.scale.setScalar(1); v.dirtyProp.position.y = DIRTY_PROP_Y; v.dirtyProp.visible = !!st.dirty; }
+      if (v.dirtyProp) { v.dirtyProp.scale.setScalar(1); v.dirtyProp.position.y = v.dirtyY; v.dirtyProp.visible = !!st.dirty; }
     }
     activeWipes.length = 0;
   }
@@ -565,15 +573,15 @@ export function createVisuals(G, S, ctx) {
           // beside DIRTY_FADE_SECONDS about the shared toon material.
           if (st.dirty) {
             v.dirtyProp.visible = true; v.dirtyProp.scale.setScalar(1);
-            v.dirtyProp.position.y = DIRTY_PROP_Y; v.dirtyFade = 0;
+            v.dirtyProp.position.y = v.dirtyY; v.dirtyFade = 0;
           } else if (v.dirtyFade != null && v.dirtyFade < DIRTY_FADE_SECONDS) {
             v.dirtyFade += Math.max(0, dt);
             const k = Math.min(1, v.dirtyFade / DIRTY_FADE_SECONDS);
             v.dirtyProp.visible = k < 1;
             v.dirtyProp.scale.setScalar(Math.max(0.001, 1 - k));
-            v.dirtyProp.position.y = DIRTY_PROP_Y + (still ? 0 : k * 0.1);
+            v.dirtyProp.position.y = v.dirtyY + (still ? 0 : k * 0.1);
           } else if (v.dirtyProp.visible) {
-            v.dirtyProp.visible = false; v.dirtyProp.position.y = DIRTY_PROP_Y;
+            v.dirtyProp.visible = false; v.dirtyProp.position.y = v.dirtyY;
           }
           // One clock per seat, render-side only: it never feeds the sim, so it cannot affect the
           // deterministic replay tools/bot.js depends on.

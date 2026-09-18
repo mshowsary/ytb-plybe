@@ -7,7 +7,7 @@ const _v = new THREE.Vector3(), _m = new THREE.Matrix4(), _q = new THREE.Quatern
 export function createFx(scene, camera, layer, walletEl) {
   const MAXP = 300; const parts = [];
   const pm = new THREE.InstancedMesh(new THREE.SphereGeometry(0.07, 6, 4), new THREE.MeshBasicMaterial({ toneMapped: false }), MAXP);
-  pm.count = 0; pm.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAXP * 3), 3); scene.add(pm);
+  pm.count = 0; pm.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAXP * 3), 3); pm.name = 'fx:particles'; scene.add(pm);
   const hearts = []; const hg = heartGeo(); const hm = emissiveMaterial('#FF8A80');
   const F = { camera };
   // `visible` used to mean only "in front of the camera", which is why a plot two screens away
@@ -20,7 +20,7 @@ export function createFx(scene, camera, layer, walletEl) {
   F.burst = (x, y, z, hex, n = 12) => { const c = new THREE.Color(hex);
     for (let i = 0; i < n && parts.length < MAXP; i++) { const a = Math.random() * Math.PI * 2, sp = 1.5 + Math.random() * 2.5;
       parts.push({ x, y, z, vx: Math.cos(a) * sp, vy: 2.5 + Math.random() * 2.5, vz: Math.sin(a) * sp, life: 0.6, r: c.r, g: c.g, b: c.b, sz: 0.6 + Math.random() * 0.8 }); } };
-  F.hearts = (x, y, z, n = 3) => { for (let i = 0; i < n && hearts.length < 24; i++) { const m = new THREE.Mesh(hg, hm); m.scale.setScalar(0.18); m.position.set(x + (Math.random() - 0.5) * 0.5, y, z + (Math.random() - 0.5) * 0.3); scene.add(m); hearts.push({ m, life: 1.2, vx: (Math.random() - 0.5) * 0.4 }); } };
+  F.hearts = (x, y, z, n = 3) => { for (let i = 0; i < n && hearts.length < 24; i++) { const m = new THREE.Mesh(hg, hm); m.name = 'fx:heart'; m.scale.setScalar(0.18); m.position.set(x + (Math.random() - 0.5) * 0.5, y, z + (Math.random() - 0.5) * 0.3); scene.add(m); hearts.push({ m, life: 1.2, vx: (Math.random() - 0.5) * 0.4 }); } };
   const tmp = { sx: 0, sy: 0, visible: true };
   F.coinArc = (x, y, z, n = 6, onArrive) => { F.project(x, y, z, tmp); const r = walletEl.getBoundingClientRect(); const tx = r.left + 24, ty = r.top + r.height / 2; let first = true;
     for (let i = 0; i < Math.min(n, 12); i++) { const d = document.createElement('div'); d.className = 'fcoin';

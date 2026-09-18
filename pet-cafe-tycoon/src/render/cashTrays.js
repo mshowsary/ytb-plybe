@@ -26,6 +26,7 @@ export function createCashTrays(world, scene) {
   for (const st of world.stations.values()) {
     if (st.type !== 'checkout') continue;
     const group = makeTray();
+    group.name = 'cashTray';
     group.position.set(st.cash.x, 0, st.cash.z);
     group.rotation.y = st.rot || 0;
     group.visible = st.active;
