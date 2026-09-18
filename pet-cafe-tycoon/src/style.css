@@ -258,6 +258,37 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE8D8;font-family:"S
 .polaroidFrame.shrink{transform:scale(.4) rotate(12deg)}
 @media(prefers-reduced-motion:reduce){.polaroid{transition:opacity .3s ease}.polaroidFrame{transition:none}}
 
+/* --- The photo reveal (src/ui/photoGame.js revealPolaroid) ----------------------------------------
+   A pet's first photo, or a better one than the album holds: a soft shutter flash, then the print
+   develops in the upper middle of the screen — faded, warm and soft, coming up to full colour — with
+   the pet's name and its stars, and files itself into the collection chip. Fixed-position and
+   pointer-events:none, deliberately outside ui/labelLayout.js's managed classes: it is a moment on
+   top of the floor, not a label in it, and it must never take a tap from the game underneath. */
+.photoFlash{position:fixed;inset:0;z-index:84;background:#fff;pointer-events:none;opacity:.5;animation:photo-flash .4s ease-out forwards}
+@keyframes photo-flash{to{opacity:0}}
+.photoReveal{position:fixed;left:50%;top:38%;z-index:85;pointer-events:none;
+  width:min(44vmin,200px);box-sizing:border-box;padding:9px 9px 8px;border-radius:6px;
+  background:#fffdf8;box-shadow:0 14px 34px #3b2e2a47,0 0 0 1px #0000000d;
+  transform:translate(-50%,-50%) scale(.6) rotate(-7deg);opacity:0;
+  transition:transform .45s cubic-bezier(.2,1.45,.3,1),opacity .22s ease,left .6s cubic-bezier(.5,0,.3,1),top .6s cubic-bezier(.5,0,.3,1)}
+.photoReveal.shown{transform:translate(-50%,-50%) scale(1) rotate(-3deg);opacity:1}
+.photoReveal.stowing{transform:translate(-50%,-50%) scale(.16) rotate(9deg);opacity:0;
+  transition:transform .6s cubic-bezier(.5,0,.3,1),opacity .5s ease .15s,left .6s cubic-bezier(.5,0,.3,1),top .6s cubic-bezier(.5,0,.3,1)}
+.photoRevealFrame{width:100%;aspect-ratio:1/1;border-radius:3px;background:#f3e8d8 center/contain no-repeat;
+  transition:filter 1s ease .1s,opacity 1s ease .1s}
+.photoRevealFrame.developing{filter:sepia(.85) brightness(1.35) contrast(.65) blur(1.4px);opacity:.5}
+.photoRevealName{margin-top:7px;text-align:center;color:#4a3a33;
+  font:900 clamp(12px,3.6vmin,17px)/1.1 ui-rounded,"Arial Rounded MT Bold",system-ui,sans-serif;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.photoRevealStars{margin-top:3px;text-align:center;font-size:clamp(12px,3.4vmin,16px);letter-spacing:2px;line-height:1}
+.photoRevealStars .on{color:#F5B83D;text-shadow:0 1px 0 #b27f15}
+.photoRevealStars .off{color:#0000001f}
+@media(prefers-reduced-motion:reduce){
+  .photoReveal,.photoReveal.shown,.photoReveal.stowing{transition:opacity .3s ease!important}
+  .photoReveal{transform:translate(-50%,-50%) rotate(-3deg)}
+  .photoRevealFrame{transition:none}
+}
+
 /* --- Paw Rating sheet (src/ui/pawSheet.js) -----------------------------------------------------
    Same overlay shape as .career-root / .meta-book-root (fixed inset root + backdrop + one centred
    card), with one difference that the certification matrix forces: the card is a flex COLUMN whose

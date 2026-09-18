@@ -72,6 +72,73 @@ export function createPhotoGame({ project, els, onResolve, renderPortrait, avoid
   }
   hit.addEventListener('pointerdown', onPointerDown);
 
+  // Arrival: the collection chip (the Pet Book's own button) gives a little bump, so the eye that
+  // followed the photo in sees where it went.
+  function bumpChip() {
+    const chip = document.querySelector('.meta-pawbook');
+    if (!chip) return;
+    chip.classList.remove('bump'); void chip.offsetWidth; chip.classList.add('bump');
+    setTimeout(() => chip.classList.remove('bump'), 420);
+  }
+
+  // A NEW PHOTO IS A MOMENT.
+  //
+  // The day-18 report: "the photo should give a bigger, cuter, more detailed preview of the pet it
+  // photographed — it is tiny, invisible." Measured, it was: a 46 x 58 px card that began shrinking
+  // and flying on the very next frame and had faded out 0.8 s later, heading for the Pet Book
+  // button — which the calm HUD hides, so it simply drifted up and vanished. The Pet Book's own
+  // portraits are the best-looking art in the game, and the one moment built to show them off
+  // showed a thumbnail for under a second.
+  //
+  // So a pet's first photo, or a better one than the album holds, gets the reveal a collection game
+  // gives a new card: a soft shutter flash, then the print DEVELOPS in the upper middle of the
+  // screen — faded, warm and soft, coming up to full colour — with the pet's name and one to three
+  // stars for the shot. It holds for a breath and then files itself into the collection chip, which
+  // bumps. It never takes a tap and never blocks the floor: the player keeps walking through it.
+  // Repeat shots the album already has keep the quick little flight instead (see flyPolaroid).
+  const REVEAL_HOLD_MS = 1500;
+  function revealPolaroid(st, poseId, petKeyStr, info) {
+    const calm = !!(typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
+    if (!calm) {
+      const flash = document.createElement('div'); flash.className = 'photoFlash';
+      document.body.appendChild(flash);
+      setTimeout(() => flash.remove(), 420);
+    }
+    const card = document.createElement('div');
+    card.className = 'photoReveal';
+    const frame = document.createElement('div'); frame.className = 'photoRevealFrame developing';
+    if (typeof renderPortrait === 'function' && petKeyStr) {
+      const dataUrl = renderPortrait(petKeyStr, poseId);
+      if (dataUrl) frame.style.backgroundImage = `url(${dataUrl})`;
+    }
+    const name = document.createElement('div'); name.className = 'photoRevealName';
+    name.textContent = info.name || '';
+    const stars = document.createElement('div'); stars.className = 'photoRevealStars';
+    const filled = Math.max(1, Math.min(3, (info.rank | 0) + 1));
+    for (let i = 0; i < 3; i++) {
+      const s = document.createElement('span'); s.className = i < filled ? 'on' : 'off'; s.textContent = '\u2605';
+      stars.appendChild(s);
+    }
+    card.append(frame, name, stars);
+    card.setAttribute('role', 'img');
+    card.setAttribute('aria-label', `${info.name || 'A pet'}: a new ${['', 'good ', 'perfect '][info.rank | 0]}photo for the Pet Book`);
+    document.body.appendChild(card);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      card.classList.add('shown');
+      frame.classList.remove('developing');
+    }));
+    setTimeout(() => {
+      const target = document.querySelector('.meta-pawbook');
+      const rect = target && target.getBoundingClientRect();
+      if (rect && rect.width > 0) {
+        card.style.left = (rect.left + rect.width / 2) + 'px';
+        card.style.top = (rect.top + rect.height / 2) + 'px';
+      }
+      card.classList.add('stowing');
+    }, REVEAL_HOLD_MS);
+    setTimeout(() => { card.remove(); bumpChip(); }, REVEAL_HOLD_MS + 650);
+  }
+
   // The card starts at the booth (world position) and eases toward the Pet Book button —
   // `.meta-pawbook` (src/ui/meta.js) already exists whether or not this file's own wiring has
   // landed, so a missing button just leaves the card drifting straight up and fading in place
@@ -96,7 +163,7 @@ export function createPhotoGame({ project, els, onResolve, renderPortrait, avoid
     requestAnimationFrame(() => {
       const target = document.querySelector('.meta-pawbook');
       const rect = target && target.getBoundingClientRect();
-      if (rect) {
+      if (rect && rect.width > 0) {
         card.style.left = (rect.left + rect.width / 2) + 'px';
         card.style.top = (rect.top + rect.height / 2) + 'px';
       } else {
@@ -105,7 +172,7 @@ export function createPhotoGame({ project, els, onResolve, renderPortrait, avoid
       frame.classList.add('shrink');
       card.classList.add('flying');
     });
-    setTimeout(() => card.remove(), 1300);
+    setTimeout(() => { card.remove(); bumpChip(); }, 1300);
   }
 
   return {
@@ -135,7 +202,9 @@ export function createPhotoGame({ project, els, onResolve, renderPortrait, avoid
       // guest's own FSM has cleared st.session and freed the booth for the next customer).
       if (!session.flown) {
         session.flown = true;
-        flyPolaroid(st, session.poseId, session.petKeyStr);
+        const s = st.session || {};
+        if (s.reveal) revealPolaroid(st, session.poseId, session.petKeyStr, { name: s.petName, rank: s.rank });
+        else flyPolaroid(st, session.poseId, session.petKeyStr);
         root.classList.add('hidden');
       }
     },

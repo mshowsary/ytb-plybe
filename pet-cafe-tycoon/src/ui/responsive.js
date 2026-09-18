@@ -1,3 +1,4 @@
+import { pawIcon } from './icons.js';
 // Responsive presentation policy: preserve tutorial clarity early, reduce label noise in a dense café.
 const ID = 'pet-cafe-responsive-polish';
 
@@ -26,8 +27,10 @@ function installStyles() {
 
 export function createResponsivePolish(G) {
   installStyles();
+  // The collection chip's paw is an SVG (systems/petFriendship.js sets it). This used to overwrite
+  // it with the emoji, which renders differently on every device and now sits on the floor all day.
   const paw = document.querySelector('.meta-paw');
-  if (paw) paw.textContent = '🐾';
+  if (paw && !paw.querySelector('svg')) paw.innerHTML = pawIcon();
   let lastDense = null;
   return {
     update() {

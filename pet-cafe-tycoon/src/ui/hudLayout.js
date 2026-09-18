@@ -31,7 +31,6 @@ export function installHudLayout() {
     body.calm-hud #goalPill,
     body.calm-hud #handsFull,
     body.calm-hud .meta-reputation,
-    body.calm-hud .meta-pawbook,
     body.calm-hud .meta-streak,
     body.calm-hud .party-order-btn,
     body.calm-hud .rewards-cal-btn,
@@ -70,6 +69,32 @@ export function installHudLayout() {
     body.calm-hud #walletNum{display:block;min-width:4ch;overflow:hidden;text-overflow:clip}
     body.calm-hud #wallet .wallet-target{display:none!important}
 
+    /* THE COLLECTION — the one piece of progress kept on the floor.
+       The owner, day 18: "the Café menu keeps the gameplay clean, but nobody digs into menus during a
+       rush, and the pet collection is gatekept behind a maze" — Café menu, Pets, Pet Visitor Book,
+       three taps from the floor. Collecting the pets IS this game's long-term goal (seated visits
+       befriend them, photos fill the album, besties move in), and every one of those moments used to
+       aim its little flourish at this button while it was hidden. So it comes back, calm: a paw and
+       found/total, docked under the wallet in the wallet's own pill, one tap from the Book. Nothing
+       else returns with it. */
+    body.calm-hud .meta-pawbook{
+      display:flex!important;align-items:center!important;position:fixed!important;
+      left:calc(var(--hud-edge) + env(safe-area-inset-left,0px))!important;
+      top:calc(var(--hud-edge) + 56px + env(safe-area-inset-top,0px))!important;
+      right:auto!important;bottom:auto!important;
+      height:48px!important;min-height:48px!important;min-width:48px!important;
+      padding:0 12px 0 9px!important;gap:6px!important;box-sizing:border-box!important;
+      border:1px solid #3e302b18!important;border-radius:15px!important;
+      background:rgba(255,249,241,.94)!important;color:var(--ui-espresso)!important;
+      box-shadow:0 4px 14px #271b1524!important;
+      font:850 15px/1 ui-rounded,"Arial Rounded MT Bold",system-ui,sans-serif!important;
+      font-variant-numeric:tabular-nums;
+    }
+    body.calm-hud .meta-pawbook .meta-paw{display:grid;place-items:center;width:24px;height:24px;flex:none}
+    body.calm-hud .meta-pawbook .meta-paw svg{width:24px;height:24px;display:block}
+    /* The Pet Social launcher, while a social is running, takes the next slot down. */
+    body.calm-hud .social-launch{top:calc(var(--hud-edge) + 112px + env(safe-area-inset-top,0px))!important}
+
     body.calm-hud .pause-btn{
       right:calc(var(--hud-edge) + env(safe-area-inset-right,0px))!important;
       top:calc(var(--hud-edge) + env(safe-area-inset-top,0px))!important;
@@ -88,6 +113,8 @@ export function installHudLayout() {
       :root{--hud-edge:5px}
       body.calm-hud #wallet{min-width:74px!important;max-width:calc(100vw - 63px)!important;padding:0 8px!important;gap:5px!important;font-size:14px!important}
       body.calm-hud #wallet .coin{width:18px!important;height:18px!important}
+      body.calm-hud .meta-pawbook{font-size:13px!important;padding:0 9px 0 7px!important}
+      body.calm-hud .meta-pawbook .meta-paw,body.calm-hud .meta-pawbook .meta-paw svg{width:20px;height:20px}
       body.calm-hud .pause-btn{border-radius:13px!important}
     }
   `;

@@ -8,7 +8,7 @@ import { presentationScheduler } from '../core/presentationScheduler.js';
 import { admitResident, currentResidentStars } from './residentPets.js';
 import { addFollowers, followersForBestie } from '../sim/followers.js';
 import { cue, paintCue } from '../ui/hud.js';
-import { heartIcon, giftIcon } from '../ui/icons.js';
+import { heartIcon, giftIcon, pawIcon } from '../ui/icons.js';
 import { petPortrait } from '../ui/petPortrait.js';
 
 const STYLE_ID = 'pet-cafe-friendship-style';
@@ -127,7 +127,9 @@ export function installPetFriendship(G, platform = null) {
   if (bookButton) {
     bookButton.classList.add('pet-forward');
     bookButton.title = 'Pet Visitor Book · meet named pets and build friendships';
-    const paw = bookButton.querySelector('.meta-paw'); if (paw) paw.textContent = '🐾';
+    // An SVG paw rather than the emoji it used to be: emoji render differently on every device, and
+    // this glyph now sits on the play field all the time (ui/hudLayout.js's collection chip).
+    const paw = bookButton.querySelector('.meta-paw'); if (paw) paw.innerHTML = pawIcon();
   }
   const onBookOpen = () => presentationScheduler.afterFrames(renderBook, 1);
   if (bookButton) bookButton.addEventListener('click', onBookOpen);

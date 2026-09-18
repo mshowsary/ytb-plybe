@@ -12,7 +12,7 @@
 // batch, so this file cannot wire itself in.
 import { stepPhotoBooth, resolvePhotoShot, collectCash } from '../sim/world.js';
 import { addFollowers, followersForShot } from '../sim/followers.js';
-import { petFriendship, petKey } from '../sim/petBook.js';
+import { petFriendship, petKey, petProfile } from '../sim/petBook.js';
 import { createPhotoGame } from '../ui/photoGame.js';
 
 // Radii deliberately match the scale systems/stations.js already uses for a checkout's own
@@ -89,6 +89,12 @@ export function createPhotoStudio(G, S, ctx) {
     const album = G.meta.album || (G.meta.album = {});
     const prev = album[pk] || null;
     const rank = s.quality === 'perfect' ? 2 : s.quality === 'good' ? 1 : 0;
+    // Is this shot a MOMENT? A pet's first photo, or a better one than the album already holds.
+    // Those get the full reveal in ui/photoGame.js; a repeat of a shot the album already has just
+    // files itself away. Read by the mini-game on the same frame, before st.session is cleared.
+    s.reveal = !prev || rank > ((prev.best) | 0);
+    s.rank = rank;
+    s.petName = petProfile(s.species, s.variant).name;
     // REPLACED, never mutated in place. G.snapshot() spreads meta.album exactly one level deep, so
     // an in-place prev.shots++ would reach through the shared nested reference and rewrite a
     // snapshot that had already been taken (task 2.3 flagged this precise hazard).
