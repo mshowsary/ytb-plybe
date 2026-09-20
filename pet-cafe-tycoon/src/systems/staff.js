@@ -2,7 +2,6 @@
 // pure staff sim, renders carried items, and owns Task 33's one-time first-hire demonstration.
 import * as THREE from 'three';
 import { stepStaff, createStaff as createStaffSim } from '../sim/staff.js';
-import { staffLevelsWithRushCrew } from '../sim/rushCrew.js';
 import { snapshotStaffState, photographerSpawnAllowed } from '../sim/staffState.js';
 import { nextStaffDemoJob, STAFF_DEMO_SECONDS, STAFF_DEMO_MECHANICS } from '../sim/staffTeaching.js';
 import { createHuman } from '../render/human.js';
@@ -79,7 +78,6 @@ function createStaffDemoVisual(scene) {
 export function createStaff(G, S, ctx) {
   const { world, scene, hud, fx, audio } = ctx;
   const rec = new Map(); // sim staff object -> { human, itemMeshes, px, pz }
-  const rushLevelScratch = { runner: { speed: 0, carry: 0 }, cashier: { speed: 0 }, cleaner: { speed: 0 } };
   const demoVisual = createStaffDemoVisual(scene);
   let activeDemo = null;
   let snapshotWrapped = false;
@@ -247,8 +245,10 @@ export function createStaff(G, S, ctx) {
       assignmentSignature = sig;
     },
     update(dt) {
-      const effectiveLevels = staffLevelsWithRushCrew(G.staffLevels, G.boosts, G.dayState, rushLevelScratch);
-      stepStaff(G.staffList, world, dt, onCollect, effectiveLevels, G.customers);
+      // The Rush Crew boost ("your Cashier borrows +1 Speed tier until Rush ends") went with the
+      // dead ad placements in Batch E2, so the authored levels ARE the effective levels: one list,
+      // no per-frame scratch copy, and a worker's speed is now only ever what the player bought.
+      stepStaff(G.staffList, world, dt, onCollect, G.staffLevels, G.customers);
 
       for (const s of G.staffList) {
         const r = rec.get(s); if (!r) continue;

@@ -1,48 +1,45 @@
-// src/sim/adPacing.js — when each ad format may exist, and how claims are recorded.
+// src/sim/adPacing.js — WHERE a rewarded offer may exist, and how a claim is recorded.
 //
-// Placement model (owner brief: "best meta economics for us AND the player"):
-// - Rewarded ads are USER-INITIATED offers. Each placement may be claimed once per shift, but the
-//   placements are independent: a summary double-reward never silences the in-shift helper, and
-//   vice versa. More opt-in value, zero forced interruptions.
-// - The in-shift budget covers the relief helpers, the Mystery Paw Gift, AND the `speed-build`
-//   offer together (one of them per shift), so the café never stacks two mid-shift ad offers at
-//   once. `speed-build` (Task 1.7): while the owner stands on a build circle already
-//   >= SPEED_BUILD_MIN_PAID_RATIO paid, watching finishes that build immediately for free.
-// - The Gift Calendar is real-day keyed (meta.rewards.calendar), not shift keyed, and does not
-//   consume any shift budget.
-// - Interstitials stay host-paced: natural day transitions plus a once-per-session welcome-back
-//   spot for returning players, always behind the shared minimum wall-clock gap.
+// Batch E2 (ship plan §1.7/§1.7a) rewrote this file's placement model. It used to carry eight keys
+// — relief, gift (the mystery box), speed-build, rare-visitor, golden-shot — sharing one "in-shift"
+// budget, plus a numeric summary key and a boot interstitial. Five of those were invisible (the calm
+// HUD hid their chips), one had no writer at all, and the boot spot was never called. The measured
+// result was about ONE rewarded view a day, all of it the day-summary button.
+//
+// There are now exactly FOUR placements, each one a thing in the world:
+//
+//   dayend    the ×2 button on the day summary            1 per game day
+//   guest     the sparkly Special Guest at the door       1 per game day
+//   service   the Helper Pup OR the Build Boost ▶ badge   1 per game day (they share this slot)
+//   calendar  the daily gift                              1 per REAL day, keyed in meta.rewards
+//
+// The first three are shift-keyed in `meta.rewardedDays`; the calendar is real-day keyed in
+// `meta.rewards.calendar` and deliberately consumes no shift budget (§1.7: "at most 3 rewarded
+// offers per game day PLUS the daily gift"). Nothing here shows UI, requests an ad or grants a
+// reward — src/systems/offers.js does that, and sim/offers.js decides when each one is earned.
+//
+// SAVE COMPATIBILITY. `dayend` keeps the bare numeric day key the old summary placement wrote, so a
+// save that already claimed today's summary bonus still reads as claimed. The five retired keys are
+// simply never written or read again; an old save carrying them loads unchanged and ignores them.
 export const AD_PACING = Object.freeze({
-  rewardedClaimsPerShift: 1, // per placement; summary and in-shift budgets are independent
+  rewardedClaimsPerShift: 1, // per placement; the four placements are independent of each other
   interstitialMinGapMs: 4 * 60 * 1000,
+  // §1.7.5: "only at CONTINUE after completed days 3, 5, 7 …". It used to be every second day from
+  // day 2, which contradicted the file's own comment about two clean first shifts.
+  interstitialFirstCompletedDay: 3,
   interstitialEveryCompletedShifts: 2,
-  purchaseBridgeEnabled: false,
 });
 
-// Task 1.7 — `speed-build`: offered only while the owner stands on a build circle that is already
-// this far paid off. Below the threshold there is nothing worth accelerating yet, so no offer.
-export const SPEED_BUILD_MIN_PAID_RATIO = 0.4;
+/** The three shift-keyed placements, in the order the world offers them. */
+export const SHIFT_PLACEMENTS = Object.freeze(['dayend', 'guest', 'service']);
 
-// Pure eligibility predicate so callers (zones/stations UI) and tests share one threshold instead
-// of each hardcoding 0.4. `paid`/`price` are coins; a non-positive price is never eligible.
-export function speedBuildEligible(paid, price) {
-  const p = Number(price) || 0;
-  if (p <= 0) return false;
-  const ratio = Math.max(0, Number(paid) || 0) / p;
-  return ratio >= SPEED_BUILD_MIN_PAID_RATIO;
-}
-
-// The end-of-day rewarded bonus is worth about a third of the day's takings.
+// ---- the day-summary ×2 --------------------------------------------------------------------
 //
-// It used to be the contract reward (when the contract was met) or 15% of sales capped at 250 coins.
-// Measured against the economy bot's 60-day run (tools/bot.js, BOT_DAYS_JSON), that came to 11-15%
-// of a day's sales on days 1-5, 6-9% by day 8 and 3-5% from day 13 on: 210 coins offered for a
-// 30-second ad on a 2,300-coin day. A reward nobody takes twice is wasted inventory for us and a
-// cheap-feeling moment for the player. A third of the day is a boost a daily watcher feels (their
-// next unlock arrives roughly a quarter sooner) without hollowing out the build cadence the bot's
-// gates hold for players who never watch. Rounded to a figure that reads as a prize, not a receipt.
-export const SUMMARY_BONUS_SHARE = 0.35;
-export const SUMMARY_BONUS_MIN = 50;
+// It was 35% of the day's sales, min 50 — a receipt, not a prize, and the research report's single
+// clearest recommendation was the ×2 framing ("the most legible and most-watched rewarded pattern").
+// §1.7a: "+100% of that day's sales, min 100". The rounding stays: a prize reads as a round number.
+export const SUMMARY_BONUS_SHARE = 1.0;
+export const SUMMARY_BONUS_MIN = 100;
 export function summaryBonusAmount(earned) {
   const e = Math.max(0, Number(earned) || 0);
   const raw = e * SUMMARY_BONUS_SHARE;
@@ -50,101 +47,107 @@ export function summaryBonusAmount(earned) {
   return Math.max(SUMMARY_BONUS_MIN, Math.round(raw / step) * step);
 }
 
-// Returning-player boot spot: the pre-roll equivalent. New players (first two completed shifts)
-// always get a clean first session; established players get one optional interstitial at boot.
-export const BOOT_INTERSTITIAL_MIN_COMPLETED_DAYS = 3;
+// ---- Build Boost ------------------------------------------------------------------------------
+//
+// §1.7a: "the pad is ≥40% paid and is not the player's first build" → "pays up to half the pad's
+// price". The threshold constant survives from the dead `speed-build` wiring (it was the one part
+// of that placement that was ever designed); the offer around it is new.
+export const BUILD_BOOST_MIN_PAID_RATIO = 0.4;
+export const BUILD_BOOST_MAX_SHARE = 0.5;
 
-// Task 2.7 — `rare-visitor`: offered only in the morning phase, from day 6. Earlier days have too
-// small a Pet Book for "the next guest is rare/epic" to read as a reward rather than noise.
-export const RARE_VISITOR_MIN_DAY = 6;
-export function rareVisitorEligible(day, phase) {
-  return (day | 0) >= RARE_VISITOR_MIN_DAY && phase === 'morning';
+/** Pure eligibility, shared by the offer, the tests and the bot. A non-positive price never is. */
+export function buildBoostEligible(paid, price) {
+  const p = Number(price) || 0;
+  if (p <= 0) return false;
+  const owed = p - Math.max(0, Number(paid) || 0);
+  if (owed <= 0) return false; // already paid off: there is nothing left to boost
+  return (Math.max(0, Number(paid) || 0) / p) >= BUILD_BOOST_MIN_PAID_RATIO;
 }
 
-export function reliefRewardKey(day) { return `relief:${Math.max(1, day | 0)}`; }
-export function giftRewardKey(day) { return `gift:${Math.max(1, day | 0)}`; }
-export function speedBuildRewardKey(day) { return `speed-build:${Math.max(1, day | 0)}`; }
-// Task 2.7 — two more placements, both sharing the existing in-shift budget (see
-// inShiftClaimedForShift below) so the café never stacks two mid-shift offers.
-export function rareVisitorRewardKey(day) { return `rare-visitor:${Math.max(1, day | 0)}`; }
-export function goldenShotRewardKey(day) { return `golden-shot:${Math.max(1, day | 0)}`; }
+/** What watching pays into the pad: up to half the pad's price, never more than is still owed. */
+export function buildBoostAmount(paid, price) {
+  const p = Number(price) || 0;
+  if (p <= 0) return 0;
+  const owed = Math.max(0, p - Math.max(0, Number(paid) || 0));
+  return Math.min(owed, Math.round(p * BUILD_BOOST_MAX_SHARE));
+}
 
-function numericClaimed(rewarded, d) { return !!(rewarded[d] || rewarded[String(d)]); }
-function keyedClaimed(rewarded, key) { return !!rewarded[key]; }
+// ---- Special Guest ------------------------------------------------------------------------------
+//
+// §1.7a: "morning, day 3+, while the Pet Book is incomplete". Day 1-2 have met almost nobody, so
+// "the next guest is a pet you have never seen" is not yet a reward the player can feel.
+export const SPECIAL_GUEST_MIN_DAY = 3;
+export function specialGuestEligible(day, phase) {
+  return (day | 0) >= SPECIAL_GUEST_MIN_DAY && phase === 'morning';
+}
 
-// The summary double-reward placement: claimed iff the numeric day key exists.
+// ---- Helper Pup ---------------------------------------------------------------------------------
+//
+// §1.7a: "rush, day 3+, when a counter is empty with a guest waiting, or 3+ guests have waited 5 s".
+export const HELPER_PUP_MIN_DAY = 3;
+export const HELPER_PUP_WAIT_SECONDS = 5;
+export const HELPER_PUP_WAITING_GUESTS = 3;
+
+// ---- claims -------------------------------------------------------------------------------------
+
+export function guestRewardKey(day) { return `guest:${Math.max(1, day | 0)}`; }
+export function serviceRewardKey(day) { return `service:${Math.max(1, day | 0)}`; }
+
+function rewardedMap(meta) {
+  return meta && meta.rewardedDays && typeof meta.rewardedDays === 'object' ? meta.rewardedDays : {};
+}
+
+/** The day-summary ×2, claimed iff the bare numeric day key exists (the legacy summary key). */
 export function summaryClaimedForShift(meta, day) {
-  const rewarded = meta && meta.rewardedDays && typeof meta.rewardedDays === 'object' ? meta.rewardedDays : {};
-  return numericClaimed(rewarded, Math.max(1, day | 0));
-}
-
-// The shared in-shift budget (relief helpers + mystery gift + speed-build + Task 2.7's
-// rare-visitor + golden-shot): claimed iff any key exists. This is what keeps the café from ever
-// stacking two mid-shift ad offers at once. Widening this set is deliberate (plan §4.4: "Both
-// share the existing in-shift budget") -- every existing caller (mystery gift, speed-build) keeps
-// its own meaning of "is the mid-shift slot free", it just now also respects two more placements.
-export function inShiftClaimedForShift(meta, day) {
-  const rewarded = meta && meta.rewardedDays && typeof meta.rewardedDays === 'object' ? meta.rewardedDays : {};
+  const rewarded = rewardedMap(meta);
   const d = Math.max(1, day | 0);
-  return keyedClaimed(rewarded, reliefRewardKey(d))
-    || keyedClaimed(rewarded, giftRewardKey(d))
-    || keyedClaimed(rewarded, speedBuildRewardKey(d))
-    || keyedClaimed(rewarded, rareVisitorRewardKey(d))
-    || keyedClaimed(rewarded, goldenShotRewardKey(d));
+  return !!(rewarded[d] || rewarded[String(d)]);
+}
+export function guestClaimedForShift(meta, day) { return !!rewardedMap(meta)[guestRewardKey(day)]; }
+export function serviceClaimedForShift(meta, day) { return !!rewardedMap(meta)[serviceRewardKey(day)]; }
+
+/** Is THIS placement already spent for this shift? One predicate for every caller. */
+export function placementClaimedForShift(meta, placement, day) {
+  if (placement === 'dayend') return summaryClaimedForShift(meta, day);
+  if (placement === 'guest') return guestClaimedForShift(meta, day);
+  if (placement === 'service') return serviceClaimedForShift(meta, day);
+  return false;
 }
 
-// Legacy predicate kept for older callers/tests: ANY rewarded claim this shift (summary or
-// in-shift). New code should prefer the placement-scoped predicates above.
+/** Any rewarded claim at all this shift — what the interstitial rule reads. */
 export function rewardedClaimedForShift(meta, day) {
-  return summaryClaimedForShift(meta, day) || inShiftClaimedForShift(meta, day);
+  return SHIFT_PLACEMENTS.some(p => placementClaimedForShift(meta, p, day));
 }
 
-export function markRewardedClaim(meta, day, placement = 'relief') {
+/**
+ * Record a claim. Returns false when that placement is already spent, so a double tap (or a
+ * reload mid-ad) can never pay twice. `placement` must be one of SHIFT_PLACEMENTS.
+ */
+export function markRewardedClaim(meta, day, placement = 'service') {
   if (!meta || typeof meta !== 'object') return false;
+  if (!SHIFT_PLACEMENTS.includes(placement)) return false;
   if (!meta.rewardedDays || typeof meta.rewardedDays !== 'object') meta.rewardedDays = {};
   const d = Math.max(1, day | 0);
-  if (placement === 'summary') {
-    if (summaryClaimedForShift(meta, d)) return false;
-    meta.rewardedDays[d] = 1;
-    return true;
-  }
-  if (placement === 'gift') {
-    if (inShiftClaimedForShift(meta, d)) return false;
-    meta.rewardedDays[giftRewardKey(d)] = 1;
-    return true;
-  }
-  if (placement === 'speed-build') {
-    if (inShiftClaimedForShift(meta, d)) return false;
-    meta.rewardedDays[speedBuildRewardKey(d)] = 1;
-    return true;
-  }
-  if (placement === 'rare-visitor') {
-    if (inShiftClaimedForShift(meta, d)) return false;
-    meta.rewardedDays[rareVisitorRewardKey(d)] = 1;
-    return true;
-  }
-  if (placement === 'golden-shot') {
-    if (inShiftClaimedForShift(meta, d)) return false;
-    meta.rewardedDays[goldenShotRewardKey(d)] = 1;
-    return true;
-  }
-  if (inShiftClaimedForShift(meta, d)) return false;
-  meta.rewardedDays[reliefRewardKey(d)] = 1;
+  if (placementClaimedForShift(meta, placement, d)) return false;
+  if (placement === 'dayend') meta.rewardedDays[d] = 1;
+  else if (placement === 'guest') meta.rewardedDays[guestRewardKey(d)] = 1;
+  else meta.rewardedDays[serviceRewardKey(d)] = 1;
   return true;
 }
 
-export function purchaseBridgeEnabled() {
-  return AD_PACING.purchaseBridgeEnabled;
-}
+// ---- interstitials --------------------------------------------------------------------------------
 
-export function interstitialDueAfterShift(completedDay) {
+/**
+ * §1.7.5 — at CONTINUE after completed days 3, 5, 7 … Never on days 1 and 2 (a new player gets
+ * clean first shifts), and `rewardedJustWatched` skips the day the player already gave us a view.
+ */
+export function interstitialDueAfterShift(completedDay, rewardedJustWatched = false) {
   const day = completedDay | 0;
+  if (rewardedJustWatched) return false;
+  const first = AD_PACING.interstitialFirstCompletedDay;
   const cadence = AD_PACING.interstitialEveryCompletedShifts;
-  return day >= cadence && day % cadence === 0;
-}
-
-export function bootInterstitialDue(completedDays) {
-  return (completedDays | 0) >= BOOT_INTERSTITIAL_MIN_COMPLETED_DAYS;
+  if (day < first) return false;
+  return (day - first) % cadence === 0;
 }
 
 export function interstitialGapSatisfied(lastAdAt, now = Date.now(), minGapMs = AD_PACING.interstitialMinGapMs) {

@@ -13,15 +13,11 @@ function ensureStyle() {
     .pet-identity .paw{font-size:12px;color:#d97c70}.pet-identity .detail{font-size:9px;font-weight:800;opacity:.56;text-transform:uppercase;letter-spacing:.06em;max-width:88px;overflow:hidden;text-overflow:ellipsis}
     .pet-identity.rare{border-color:#9d87ed88}.pet-identity.epic{border-color:#df78b488;background:#fff4faee}
     .pet-identity.regular-greeting{border-color:#8b7cf6aa;background:#fffaf2f5;box-shadow:0 5px 16px #8b7cf633,0 0 0 2px #fff8}
-    .pet-identity.play-break{border-color:#e58fa3cc;background:#fff6faee;box-shadow:0 4px 14px #d97c7040,0 0 0 2px #ffd9e080}
-    .pet-identity.play-break .paw{animation:pet-break-paw .72s ease-in-out infinite alternate}.pet-identity.play-break .detail{opacity:.82;color:#a9516c}
-    @keyframes pet-break-paw{from{transform:scale(.9)}to{transform:scale(1.2)}}
     .pet-identity.seated .detail{display:none}
     .pet-identity .paw{width:24px;height:24px;flex:none;border-radius:50%;display:grid;place-items:center;background:linear-gradient(145deg,#fffdf5,#f1dfc7);box-shadow:inset 0 0 0 1px var(--pet-accent,#b99576)}
     .pet-identity .paw svg{width:20px;height:20px;fill:none;stroke:#654735;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
     .pet-identity .paw svg circle{fill:#654735;stroke:none}
     @media(max-width:380px){.pet-identity{max-width:118px;font-size:10px;padding:4px 6px}.pet-identity .detail{display:none}}
-    @media(prefers-reduced-motion:reduce){.pet-identity.play-break .paw{animation:none}}
   `;
   document.head.appendChild(style);
 }
@@ -37,7 +33,7 @@ export function createPetMoment(els, profile, customerId = null, species = 'cat'
   const detail = document.createElement('span'); detail.className = 'detail'; detail.textContent = '';
   el.append(paw, name, detail); els.fx.appendChild(el);
 
-  let timer = 0, seated = false, playBreak = false, near = false, detailText = '';
+  let timer = 0, seated = false, near = false, detailText = '';
   const projection = { sx: 0, sy: 0, visible: true };
   const P = { el };
   P.announce = (text = '', seconds = 2.2) => { detailText = text; detail.textContent = text; timer = Math.max(timer, seconds); };
@@ -59,19 +55,10 @@ export function createPetMoment(els, profile, customerId = null, species = 'cat'
   // A name is worth reading when you are standing next to the animal, so walking up to a pet is
   // what asks for it. Two or three tags on screen at once instead of nine also means the solver
   // never has to dim or displace one, so a tag is now always legible and always over its own pet.
-  // The earned MOMENTS -- a returning regular's hello, a rare coat's spotlight, the play-break
-  // offer, a treat's heart -- still show from any distance, exactly as before.
+  // The earned MOMENTS -- a returning regular's hello, a rare coat's spotlight, a treat's heart --
+  // still show from any distance, exactly as before. (The play-break badge went with its rewarded
+  // offer in Batch E2.)
   P.setNear = value => { near = !!value; };
-  P.setPlayBreak = value => {
-    const next = !!value;
-    if (next === playBreak) return;
-    playBreak = next; el.classList.toggle('play-break', playBreak);
-    if (playBreak) {
-      detailText = '♥'; detail.textContent = detailText;
-    } else if (detailText === '♥') {
-      detailText = ''; detail.textContent = '';
-    }
-  };
   P.remove = () => el.remove();
   P.update = (dt, fx, x, y, z) => {
     // The moment's clock runs on the WORLD's time, not on whether the camera happens to be pointed
@@ -80,9 +67,9 @@ export function createPetMoment(els, profile, customerId = null, species = 'cat'
     // the next time that animal wandered anywhere near the camera, minutes later.
     timer = Math.max(0, timer - dt);
     if (timer <= 0) el.classList.remove('regular-greeting');
-    if (!playBreak && seated && timer <= 0 && detailText) { detailText = ''; detail.textContent = ''; }
+    if (seated && timer <= 0 && detailText) { detailText = ''; detail.textContent = ''; }
 
-    const wantsVisible = near || playBreak || timer > 0;
+    const wantsVisible = near || timer > 0;
     if (!wantsVisible) { el.classList.remove('show', 'regular-greeting'); return; }
     fx.project(x, y, z, projection);
     el.style.left = projection.sx + 'px'; el.style.top = projection.sy + 'px';

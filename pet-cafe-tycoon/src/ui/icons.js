@@ -241,6 +241,13 @@ export function tableDirtyIcon() {
   return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 13h18M6 13v7M18 13v7" stroke="#7A583A" stroke-width="2" stroke-linecap="round"/>'
     + '<path d="M8 3.5l8 7M16 3.5l-8 7" stroke="#E2483C" stroke-width="2" stroke-linecap="round"/></svg>';
 }
+// A table with a guest sitting at it: the 'seated' daily goal (sim/dailyGoal.js) counts meals
+// EATEN AT A TABLE, so its picture is the same table tableDirtyIcon draws, in use rather than
+// crossed out. Same silhouette, opposite state.
+export function seatIcon() {
+  return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 13h18M6 13v7M18 13v7" stroke="#7A583A" stroke-width="2" stroke-linecap="round"/>'
+    + '<circle cx="12" cy="6.4" r="2.6" fill="#C38D9E"/><path d="M7.6 11.4c.5-2.1 2.3-3.2 4.4-3.2s3.9 1.1 4.4 3.2z" fill="#C38D9E"/></svg>';
+}
 // Cleaning. The owner literally holds this while wiping a seat, so the cue and the animation match.
 export function broomIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.5 3.2l3.3 3.3-8 8-3.3-3.3z" fill="#B9834A"/>'
@@ -399,4 +406,19 @@ export function hamsterIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="8" r="2.4" fill="#D9A066"/><circle cx="17" cy="8" r="2.4" fill="#D9A066"/>'
     + '<ellipse cx="12" cy="14" rx="7.6" ry="6.4" fill="#F0C48A"/><ellipse cx="12" cy="16.2" rx="4" ry="3" fill="#FFF4E6"/>'
     + '<circle cx="9.4" cy="12.6" r="1.1" fill="#4A3B32"/><circle cx="14.6" cy="12.6" r="1.1" fill="#4A3B32"/><ellipse cx="12" cy="14.8" rx="1" ry=".7" fill="#E27D60"/></svg>';
+}
+// The rewarded-offer play triangle (ship plan §1.7a: "a ▶ badge on the build pad"). One shape for
+// every rewarded surface in the game — the pad badge, the offer bubble and the day summary's ×2 —
+// so "this costs a video" is the same picture wherever the player meets it.
+export function playIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="#8B7CF6" stroke="#5145AE" stroke-width="1.4"/>'
+    + '<path d="M9.7 7.9l7 4.1-7 4.1z" fill="#FFF4E6"/></svg>';
+}
+// A pet that has never been seen: the paw with a sparkle where the face would be. The Special
+// Guest's silhouette at the door, at HUD scale.
+export function mysteryPetIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="15.4" rx="4.6" ry="3.9" fill="#4A3B6E"/>'
+    + '<circle cx="6.6" cy="10.2" r="2.1" fill="#4A3B6E"/><circle cx="17.4" cy="10.2" r="2.1" fill="#4A3B6E"/>'
+    + '<circle cx="9.6" cy="6.4" r="2" fill="#4A3B6E"/><circle cx="14.4" cy="6.4" r="2" fill="#4A3B6E"/>'
+    + '<path d="M20 3.2l.72 1.86L22.6 5.8l-1.88.72L20 8.4l-.72-1.88L17.4 5.8l1.88-.74z" fill="#FFD84D"/></svg>';
 }

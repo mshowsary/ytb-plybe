@@ -13,14 +13,22 @@ export const MASTERY = {
   treat:    { label: 'Pet Treats',thresholds: [0, 35, 110, 250, 500] },
 };
 
-// These begin after the core build chain is normally winding down. They consume late-game coins
-// and change the room itself; rep gates stop a rich early player from skipping the career journey.
+// THE CAFÉ THEMES (ship plan §1.6c.1). Five visible makeovers of the room — the post-build coin
+// sink, and the thing the Café card's goal row names once the last zone is standing.
+//
+// Batch E1 re-gated them. They used to wait on REPUTATION (30/70/100/140/185 at ~2.5/day, i.e. days
+// ~12/26/37/52/70), which is a number the UI no longer draws anywhere, so the wait had no picture
+// and no way to hurry it. They now wait on a Café Star and on coins, at the plan's prices.
+//
+// WHY THEMES 4 AND 5 SIT AT ★4 AND NOT AT ★5: ★5's own last row is "every theme owned", so gating
+// the last theme behind ★5 would be a deadlock — the star would need the theme and the theme the
+// star. ★4 opens the rest of the ladder and the 9,000/12,000 prices are what pace it from there.
 export const RENOVATIONS = [
-  { level: 1, name: 'Greenhouse Glow', cost: 1800, rep: 30, desc: 'Hanging greenery and warm window lights' },
-  { level: 2, name: 'Gallery Café', cost: 3600, rep: 70, desc: 'Collector wall, art ledges and premium trim' },
-  { level: 3, name: 'Pet Palace', cost: 6500, rep: 100, desc: 'Signature pet lounge décor and service accents' },
-  { level: 4, name: 'Grand Café', cost: 10500, rep: 140, desc: 'Gold canopy lights and trophy presentation' },
-  { level: 5, name: 'Legendary Finish', cost: 16000, rep: 185, desc: 'A landmark entrance and star-lit final makeover' },
+  { level: 1, name: 'Greenhouse Glow', cost: 2000, star: 3, desc: 'Hanging greenery and warm window lights' },
+  { level: 2, name: 'Gallery Café', cost: 4000, star: 4, desc: 'Collector wall, art ledges and premium trim' },
+  { level: 3, name: 'Pet Palace', cost: 6500, star: 4, desc: 'Signature pet lounge décor and service accents' },
+  { level: 4, name: 'Grand Café', cost: 9000, star: 4, desc: 'Gold canopy lights and trophy presentation' },
+  { level: 5, name: 'Legendary Finish', cost: 12000, star: 4, desc: 'A landmark entrance and star-lit final makeover' },
 ];
 
 const FAMILY = { brownie: 'cookie', latte: 'coffee' };
@@ -47,99 +55,18 @@ export function weekNumber(day) { return Math.max(1, Math.ceil(Math.max(1, day |
 export function weekdayIndex(day) { return (Math.max(1, day | 0) - 1) % WEEK_LENGTH; }
 export function weekdayName(day) { return WEEKDAY_NAMES[weekdayIndex(day)]; }
 
-function round25(n) { return Math.max(25, Math.round(n / 25) * 25); }
-
-// Week 1 teaches the three contract verbs. Later weeks challenge the player's own previous
-// same-weekday result, so difficulty follows actual skill/cafe power instead of an exploding day formula.
-function legacyCareerGoal(day, meta) {
-  day = Math.max(1, day | 0);
-  const c = ensureCareer(meta || {});
-  const wd = weekdayIndex(day);
-  const week = weekNumber(day);
-  const previous = c.history[String(day - WEEK_LENGTH)] || null;
-  const cupDay = wd === 6;
-
-  if (previous) {
-    let kind, target, previousValue;
-    if (wd === 0 || wd === 3 || cupDay) {
-      kind = 'serve'; previousValue = previous.served | 0;
-      target = Math.min(cupDay ? 65 : 60, Math.max(cupDay ? 30 : 20, previousValue + (cupDay ? 3 : 2)));
-    } else if (wd === 1 || wd === 4) {
-      kind = 'earn'; previousValue = previous.earned | 0;
-      target = round25(Math.max(200, previousValue * 1.05));
-    } else {
-      kind = 'streak'; previousValue = previous.bestStreak | 0;
-      target = Math.min(24, Math.max(5, previousValue + 1));
-    }
-    return {
-      kind, target, previous: previousValue, rival: true, cupDay,
-      reward: 140 + week * 35 + (cupDay ? 100 : 0),
-      eyebrow: cupDay ? 'WEEKLY CUP RIVAL' : `BEAT LAST ${WEEKDAY_NAMES[wd].toUpperCase()}`,
-    };
-  }
-
-  // Fresh installs and migrated old saves with no per-shift history use bounded fallback goals.
-  // These intentionally do NOT grow forever with the absolute day number.
-  const firstWeek = [
-    { kind: 'serve', target: 24, reward: 60 },
-    { kind: 'earn', target: 250, reward: 80 },
-    { kind: 'streak', target: 5, reward: 90 },
-    { kind: 'serve', target: 34, reward: 110 },
-    { kind: 'earn', target: 450, reward: 130 },
-    { kind: 'streak', target: 8, reward: 150 },
-    { kind: 'serve', target: 40, reward: 240, cupDay: true },
-  ];
-  const base = { ...firstWeek[wd] };
-  if (week > 1) {
-    // A migrated Day 8+ save has no history yet. Keep the first adaptive week challenging but sane.
-    if (base.kind === 'serve') base.target = Math.min(48, base.target + 4);
-    else if (base.kind === 'earn') base.target = round25(base.target * 1.2);
-    else base.target = Math.min(12, base.target + 2);
-    base.reward += Math.min(180, (week - 1) * 35);
-  }
-  base.rival = false;
-  base.cupDay = cupDay;
-  base.eyebrow = cupDay ? 'WEEKLY CUP' : `DAILY CONTRACT · ${WEEKDAY_NAMES[wd].toUpperCase()}`;
-  return base;
-}
-
-// Targets are fixed at shift start from durable operating capacity, never last week's
-// score. Deliberately serving fewer guests cannot buy an easier next contract.
-export function chooseCareerGoal(day, meta, context) {
-  const career = ensureCareer(meta || {});
-  const saved = career.currentContract;
-  if (saved?.day === day && ['serve', 'earn', 'streak'].includes(saved.goal?.kind)
-      && Number.isFinite(saved.goal.target) && saved.goal.target > 0
-      && Number.isFinite(saved.goal.reward) && saved.goal.reward >= 0) return { ...saved.goal };
-  const goal = legacyCareerGoal(day, meta);
-  if (!context?.world?.built) return goal; // Historical experiment callers retain their control.
-  const built = context.world.built;
-  const tier = built.has('z_blender') ? 3 : built.has('z_coffee') ? 2 : built.has('z_oven2') ? 1 : 0;
-  const targets = { serve: [20, 24, 28, 34], earn: [350, 650, 950, 1900], streak: [4, 5, 8, 12] };
-  goal.target = targets[goal.kind][tier];
-  goal.rival = false;
-  goal.eyebrow = goal.cupDay ? 'WEEKLY CUP' : 'DAILY CONTRACT';
-  delete goal.previous;
-  career.currentContract = { day, tier, goal: { ...goal } };
-  return goal;
-}
-
-export function careerGoalLabel(goal) {
-  if (!goal) return '';
-  const action = goal.kind === 'serve' ? `Serve ${goal.target}` : goal.kind === 'streak' ? `Reach ${goal.target}x service` : `Earn ${goal.target}`;
-  return goal.rival ? `Rival · ${action}` : action;
-}
-
-export function careerGoalProgress(goal, stats) {
-  if (!goal || !stats) return 0;
-  if (goal.kind === 'serve') return stats.served | 0;
-  if (goal.kind === 'streak') return stats.bestStreak | 0;
-  return stats.earned | 0;
-}
-
-export function careerGoalMet(goal, stats) {
-  return careerGoalProgress(goal, stats) >= (goal ? goal.target : Infinity);
-}
+// THE DAILY GOAL MOVED OUT (Batch E1). The contract and the special-day theme merged into ONE goal
+// with one reward; its whole implementation is src/sim/dailyGoal.js. These four re-exports are the
+// compatibility seam for the harnesses under tools/ that still import the goal from here
+// (barista-economy-bot, fee-removal-experiment, runtime-bot-parity, the staffing experiments and
+// the third-party jev-* tools, which must not be edited). There is exactly one implementation; new
+// code imports it from dailyGoal.js by its own names.
+export {
+  chooseDailyGoal as chooseCareerGoal,
+  dailyGoalProgress as careerGoalProgress,
+  dailyGoalMet as careerGoalMet,
+  dailyGoalLabel as careerGoalLabel,
+} from './dailyGoal.js';
 
 export function masteryLevel(meta, product) {
   const c = ensureCareer(meta || {});
@@ -179,23 +106,26 @@ export function masteryProgress(meta, product) {
 
 export function allMasteryProgress(meta) { return Object.keys(MASTERY).map(k => masteryProgress(meta, k)); }
 
-export function renovationState(meta, coins = 0) {
+// `bestStar` is the Café Stars RATCHET (meta.pawBest via pawBestStar), passed in rather than read
+// here so this module keeps its zero imports. Defaults to 0, which is the safe direction for a gate.
+export function renovationState(meta, coins = 0, bestStar = 0) {
   const c = ensureCareer(meta || {});
   const level = c.renovationLevel | 0;
   const next = RENOVATIONS[level] || null;
+  const stars = Math.max(0, Math.trunc(Number(bestStar) || 0));
   return {
-    level, maxLevel: RENOVATIONS.length, next,
+    level, maxLevel: RENOVATIONS.length, next, stars,
     complete: !next,
-    repReady: !next || ((meta && meta.reputation) | 0) >= next.rep,
+    starReady: !next || stars >= next.star,
     coinReady: !next || (coins | 0) >= next.cost,
   };
 }
 
-export function buyRenovation(meta, coins) {
+export function buyRenovation(meta, coins, bestStar = 0) {
   const c = ensureCareer(meta || {});
-  const state = renovationState(meta, coins);
+  const state = renovationState(meta, coins, bestStar);
   if (!state.next) return { ok: false, reason: 'max', coins, level: c.renovationLevel };
-  if (!state.repReady) return { ok: false, reason: 'reputation', requiredRep: state.next.rep, coins, level: c.renovationLevel };
+  if (!state.starReady) return { ok: false, reason: 'stars', requiredStar: state.next.star, coins, level: c.renovationLevel };
   if (!state.coinReady) return { ok: false, reason: 'coins', cost: state.next.cost, coins, level: c.renovationLevel };
   c.renovationLevel++;
   return { ok: true, cost: state.next.cost, coins: (coins | 0) - state.next.cost, level: c.renovationLevel, renovation: state.next };

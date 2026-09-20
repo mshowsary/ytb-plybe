@@ -3,7 +3,8 @@ import { normalizeSocials } from './petSocials.js';
 // Pure save/restore helper shared by game.js and node tests.
 import { ensureReputation } from './reputation.js';
 import { ensurePetBook, normalizePetKeepsake } from './petBook.js';
-import { ensureCareer, chooseCareerGoal } from './career.js';
+import { ensureCareer } from './career.js';
+import { buildDailyGoal, cachedDailyGoal } from './dailyGoal.js';
 import { ensurePartyOrders } from './partyOrders.js';
 import {
   CURRENT_SAVE_VERSION, SAVE_LIMITS, validateAndMigrateSave as validateCoreSave,
@@ -11,14 +12,12 @@ import {
 import { normalizeStationState } from './stationState.js';
 import { normalizeOwnerState } from './ownerState.js';
 import { normalizeStaffState } from './staffState.js';
-import { normalizeTemporaryHelp } from './temporaryHelp.js';
 import { normalizeMechanicLearning } from './mechanicLearning.js';
 
 export { CURRENT_SAVE_VERSION, SAVE_LIMITS } from './saveSchema.js';
 export { STATION_STATE_VERSION } from './stationState.js';
 export { OWNER_STATE_VERSION } from './ownerState.js';
 export { STAFF_STATE_VERSION } from './staffState.js';
-export { TEMPORARY_HELP_VERSION } from './temporaryHelp.js';
 
 const LEGACY_STAFF_DESK_PRICE = 480;
 
@@ -185,9 +184,12 @@ export function validateAndMigrateSave(raw, area = null) {
   if (!staffState.ok) return { ok: false, reason: `staffState:${staffState.reason}` };
   result.data.staffState = staffState.data;
 
-  const help = normalizeTemporaryHelp(raw && raw.temporaryHelp, result.data.boosts, result.data.dayState);
-  if (!help.ok) return { ok: false, reason: `temporaryHelp:${help.reason}` };
-  result.data.temporaryHelp = help.data;
+  // TEMPORARY HELP IS GONE (Batch E2, ship plan 1.7 "Cut: ... rush crew, play break, roomba").
+  // The three entitlements this record carried were all rewarded offers that no longer exist, so
+  // the record is neither validated nor restored any more. A legacy save that still contains
+  // `temporaryHelp` (or a `boosts.rushCrew` / `boosts.petPlayBreak`) loads exactly as before,
+  // minus those fields -- the same rule 3 already applies to a carried item whose station retired:
+  // it comes back as empty hands, never as a refusal to load.
 
   // Task 29: preserve only known demonstrated mechanic IDs. UI-copy, shown-only hints and arbitrary
   // unknown fields never cross the canonical host boundary. Legacy saves infer only conservative
@@ -311,22 +313,19 @@ export function applySave(state, save, area = state && state.world && state.worl
   state.dayState = { ...canonical.dayState };
   state.stars = { ...canonical.stars };
 
-  // Task 12 owns one canonical temporary-help record. Active Crew/Break instances are restored only
-  // into their legitimate rush; Roomba is consumed later by systems/petMess after that runtime is
-  // constructed; pending earned entitlement remains available for the next useful moment.
+  // The two retired temporary-help boosts are dropped rather than carried: nothing steps them any
+  // more, and a boost object no system reads is exactly the dead state this batch is removing.
   if (!state.boosts || typeof state.boosts !== 'object') state.boosts = {};
-  if (canonical.temporaryHelp.rushCrew) state.boosts.rushCrew = { ...canonical.temporaryHelp.rushCrew };
-  else delete state.boosts.rushCrew;
-  if (canonical.temporaryHelp.petPlayBreak) state.boosts.petPlayBreak = { ...canonical.temporaryHelp.petPlayBreak, recipientIds: [], needsRecipients: true };
-  else delete state.boosts.petPlayBreak;
-  state.temporaryHelp = {
-    v: canonical.temporaryHelp.v,
-    roomba: canonical.temporaryHelp.roomba ? { ...canonical.temporaryHelp.roomba } : null,
-    pending: canonical.temporaryHelp.pending ? { ...canonical.temporaryHelp.pending } : null,
-  };
+  delete state.boosts.rushCrew;
+  delete state.boosts.petPlayBreak;
+  delete state.temporaryHelp;
 
-  // Regenerate the live adaptive contract so old saves cannot preserve retired Serve-110 style goals.
-  state.goal = chooseCareerGoal(state.dayState.day, state.meta);
+  // Regenerate the live goal so an old save cannot preserve a retired kind. UNCACHED (see
+  // dailyGoal.cachedDailyGoal): this runs before src/game.js G.restore() has rebuilt world.built, so
+  // a roll here would be judged against an empty cafe -- and freezing it would leave a finished
+  // cafe asking for a day-1 target. game.js re-rolls, and caches, once the builds are back.
+  state.goal = cachedDailyGoal(state.meta, state.dayState.day)
+    || buildDailyGoal(state.dayState.day, state);
   state.dayStats = { ...canonical.dayStats };
   return canonical;
 }

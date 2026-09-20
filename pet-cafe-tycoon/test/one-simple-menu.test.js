@@ -13,7 +13,8 @@ import { buildKioskModel, normalizeShopTab, SHOP_TABS, decorTeaser } from '../sr
 import { shopTitle } from '../src/ui/sheets.js';
 import { petCardSignature, newPetKeys } from '../src/ui/meta.js';
 import { starRewards } from '../src/ui/pawSheet.js';
-import { PAW_MAX_STAR, PAW_LEGENDARY_STAR } from '../src/sim/pawRating.js';
+import { PAW_MAX_STAR, PAW_LEGENDARY_STAR, PAW_ARRIVAL_STAR } from '../src/sim/pawRating.js';
+import { RENOVATIONS } from '../src/sim/career.js';
 import { contractModel } from '../src/ui/contractBadge.js';
 
 const src = rel => fs.readFileSync(new URL(`../src/${rel}`, import.meta.url), 'utf8');
@@ -126,13 +127,19 @@ test('the Pet Book is ONE grid; Discover and Album no longer show the same twent
 test('each star lists the rewards the game actually applies at that star', () => {
   for (let s = 1; s <= PAW_MAX_STAR; s++) {
     const kinds = starRewards(s).map(r => r.kind);
-    assert.ok(kinds.includes('guests'), `★${s} brings more guests`);
+    // Batch E1: +10% arrivals lands once, at PAW_ARRIVAL_STAR, so only that star promises it -- a
+    // sheet that advertised it on all five would be promising four rewards the game never applies.
+    assert.equal(kinds.includes('guests'), s === PAW_ARRIVAL_STAR, `★${s} arrivals row matches the effect`);
     assert.equal(kinds.includes('decor'), decorSetForStar(s).length > 0, `★${s} lists its décor set iff it has one`);
     assert.equal(kinds.includes('legendary'), s === PAW_LEGENDARY_STAR);
     assert.equal(kinds.includes('golden'), s === PAW_MAX_STAR);
+    // Every star admits a resident (systems/starRewards.js), so every star says so.
+    assert.ok(kinds.includes('resident'), `★${s} moves a pet in`);
+    // ...and a star that puts café themes on sale shows how many.
+    assert.equal(kinds.includes('theme'), RENOVATIONS.some(r => r.star === s), `★${s} theme row matches career.js`);
   }
   assert.deepEqual(starRewards(0), []);
-  assert.equal(starRewards(1).find(r => r.kind === 'guests').value, '+10%');
+  assert.equal(starRewards(PAW_ARRIVAL_STAR).find(r => r.kind === 'guests').value, '+10%');
 });
 
 test('Café Stars keeps the renovation buy and drops the Journey\'s rank, week, mastery and legendary UI', () => {

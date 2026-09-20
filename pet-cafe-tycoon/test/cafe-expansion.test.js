@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { cafeDayModel } from '../src/ui/cafeDayModel.js';
+import { createWorld } from '../src/sim/world.js';
+import { AREA1 } from '../data/area1.js';
 import { petSocialPose } from '../src/render/petSocialPose.js';
 import { buyDecor } from '../src/sim/economy.js';
 import { DECOR_BY_ID } from '../data/decor.js';
@@ -25,12 +27,17 @@ test('day guide follows simulation time and only warns in the final 15 seconds b
   assert.equal(cafeDayModel(state).clock, '1:30');
   assert.equal(cafeDayModel(state).phase, 'rush');
 });
-// Batch D: the Café card's Today row draws the theme as its glyph, a count and the coins it pays,
-// never the old sentence ("Puppy playdate · 4/6 themed serves · +190 coins at closing").
-test('daily event completion and reward use the actual current shift', () => {
-  const m = cafeDayModel({ dayState: { day: 7, t: 215, phase: 'closing' }, special: { id: 'puppy', icon: 'dog', target: 6, reward: 190 }, dayStats: { specialServed: 4 } });
-  assert.deepEqual(m.theme, { id: 'puppy', icon: 'dog', count: 4, target: 6, met: false, reward: 190 });
-  assert.equal(cafeDayModel({ dayState: { day: 7, t: 10, phase: 'morning' } }).theme, null, 'a day with no theme draws no theme chip');
+// Batch D: the Café card's Today row draws glyphs and numerals, never the old sentence ("Puppy
+// playdate · 4/6 themed serves · +190 coins at closing").
+// Batch E1: the second meter beside the goal — the special-day THEME — is gone (the contract and
+// the theme merged into one daily goal, src/sim/dailyGoal.js). In its place the row carries the
+// NEXT THING (src/sim/nextThing.js), which is what keeps the card from going blank after the last
+// zone is bought. Same rule as before: pictures and numbers, never a sentence.
+test('the Today row names a next thing, as data and never as prose', () => {
+  const m = cafeDayModel({ dayState: { day: 7, t: 230, phase: 'closing' }, dayStats: {}, meta: {}, coins: 0, world: createWorld(AREA1) });
+  assert.equal(m.theme, undefined, 'the theme chip is gone with the theme');
+  assert.ok(m.next && typeof m.next.kind === 'string', 'there is always a next thing');
+  assert.equal(m.next.kind, 'build', 'a fresh café is saving for its first build pad');
   for (const k of ['title', 'event', 'tip', 'tomorrow', 'label']) assert.equal(k in m, false, `the model carries no ${k} sentence`);
 });
 test('all 20 social performances settle and remain within small pose limits', () => {

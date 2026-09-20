@@ -131,35 +131,32 @@ export function seasonRolledOver(prevSeason, day) {
 // `paletteId` is an id only -- this module owns none of the actual colour values. The re-tint
 // itself is render/environment.js's GARDEN_PALETTE (its own header already anticipates Seasons
 // "swapping these arrays"), which this task does not own; see wiringNeeded for the exact hook.
-// `specialThemeId` reuses an existing src/sim/specialDays.js THEMES id as this season's "spotlight"
-// theme (flavour only -- it does NOT change specialForDay's own deterministic day-seeded rotation).
+// `specialThemeId` was this season's spotlight entry in src/sim/specialDays.js's THEMES table. That
+// table is gone (Batch E1 merged the theme day into the one daily goal, src/sim/dailyGoal.js), so
+// the field went with it rather than being left pointing at a catalogue that no longer exists.
 // `accessoryId` reuses an existing data/accessories.js id (see header re: acc_party_hat's gap).
 export const SEASON_CONTENT = Object.freeze({
   blossom: Object.freeze({
     index: 0,
     paletteId: 'blossom',
-    specialThemeId: 'bunnybrunch',
     accessoryId: 'acc_flower_crown',
     goal: Object.freeze({ id: 'blossom_contracts', statKey: 'contractsMet', target: 4 }),
   }),
   splash: Object.freeze({
     index: 1,
     paletteId: 'splash',
-    specialThemeId: 'berry-blast',
     accessoryId: 'acc_sunglasses',
     goal: Object.freeze({ id: 'splash_contracts', statKey: 'contractsMet', target: 4 }),
   }),
   harvest: Object.freeze({
     index: 2,
     paletteId: 'harvest',
-    specialThemeId: 'sweet-tooth',
     accessoryId: 'acc_scarf',
     goal: Object.freeze({ id: 'harvest_contracts', statKey: 'contractsMet', target: 5 }),
   }),
   lights: Object.freeze({
     index: 3,
     paletteId: 'lights',
-    specialThemeId: 'latte-rush',
     accessoryId: 'acc_party_hat',
     goal: Object.freeze({ id: 'lights_contracts', statKey: 'contractsMet', target: 5 }),
   }),
@@ -240,7 +237,6 @@ export function seasonSummary(meta, day, prevSeason) {
   return {
     ...s,
     paletteId: content.paletteId,
-    specialThemeId: content.specialThemeId,
     accessoryId: content.accessoryId,
     accessoryReachable: seasonAccessoryReachable(s.id, meta),
     goal: content.goal,

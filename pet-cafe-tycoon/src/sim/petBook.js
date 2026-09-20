@@ -56,7 +56,8 @@ export const LEGENDARY_VARIANT_INDEX = 4;
 // entry point reaches first -- a petBook-first entry evaluates pawRating's body while PET_SPECIES
 // is still in TDZ and throws at load. petBook.js is a leaf with zero imports and stays one.
 // test/paw-rating-effects.test.js asserts the two numbers are equal so they cannot drift apart.
-export const PET_LEGENDARY_PAW_STAR = 4;
+// Batch E1 moved it from ★4 to ★3 (ship plan §1.6a/§1.6b: "the four legendaries from ★3").
+export const PET_LEGENDARY_PAW_STAR = 3;
 
 // Batch 3 wired this to the real rating. Reads meta.pawBest -- the RATCHET, the highest star ever
 // reached -- and NOT a live re-derivation: a coat that appeared at ★4 and vanished after a bad

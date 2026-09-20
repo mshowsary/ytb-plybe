@@ -12,6 +12,7 @@ import { PET_PROFILES, PET_SPECIES, petKey } from './petBook.js';
 import { DECOR_IDS, DECOR_ID_SET, DECOR_BY_ID, decorUnlocked } from '../../data/decor.js';
 import { ACCESSORY_IDS, ACCESSORY_ID_SET } from '../../data/accessories.js';
 import { restoreSettlement } from './settlement.js';
+import { DAILY_GOAL_KINDS } from './dailyGoal.js';
 import {
   PAW_MAX_STAR, PAW_SEAT_WINDOW_DAYS, PAW_SEAT_WINDOW_KEEP, pawEntitlementCeiling,
 } from './pawRating.js';
@@ -64,10 +65,16 @@ const PET_KEYS = new Set(
 const STAT_KEYS = ['served', 'lifetimeEarned', 'serviceFees', 'wasteFees', 'rewardedReliefCoins', 'partyOrderCoins'];
 // dayStats keys persisted across a reload. applySave replaces state.dayStats with EXACTLY this
 // set, so a live counter that is missing here is silently zeroed on every save/load -- which is why
-// 'missedSeats' (task 0.6, dirty tables), 'specialServed' (special-day progress, game.js) and
-// 'returnActions' (systems/serviceFriction.js, read back by ui/serviceSummary.js) all have to be
-// listed: a player who reloads mid-shift keeps the shift they actually played.
-const SHIFT_STAT_KEYS = ['photos', 'followersStart', 'petsStart', 'served', 'lost', 'earned', 'serviceFees', 'serviceMisses', 'wasteFees', 'bestStreak', 'missedSeats', 'specialServed', 'returnActions'];
+// 'missedSeats' (task 0.6, dirty tables) and 'returnActions' (systems/serviceFriction.js, read back
+// by ui/serviceSummary.js) have to be listed: a player who reloads mid-shift keeps the shift they
+// actually played.
+//
+// 'seatedServed' and 'iceCreams' joined them in Batch E1: they are what two of the five daily-goal
+// kinds count (sim/dailyGoal.js PROGRESS), so leaving them out would reset a "seat 8 table meals"
+// goal to 0/8 on every reload -- exactly the silent-zero this list exists to prevent.
+// 'specialServed' stays for saves written before the special-day theme was deleted; nothing writes
+// it any more, and dropping it would make an old save's shift fail its round trip.
+const SHIFT_STAT_KEYS = ['photos', 'followersStart', 'petsStart', 'served', 'lost', 'earned', 'serviceFees', 'serviceMisses', 'wasteFees', 'bestStreak', 'missedSeats', 'seatedServed', 'iceCreams', 'specialServed', 'returnActions'];
 // A settlement record is authored by sim/settlement.js snapshotStats(); restore must reproduce
 // EXACTLY those fields or a reloaded end-of-shift summary stops deep-equalling the live one it is
 // supposed to be. So the settlement key list is pinned separately from the live dayStats list.
@@ -485,7 +492,7 @@ function normalizeFranchise(raw) {
   return { level, multiplier: franchiseMultiplier(level) };
 }
 
-function normalizeCareer(raw, completedDays, repEntitlement) {
+function normalizeCareer(raw, completedDays) {
   const src = isRecord(raw) ? raw : {};
   const historySrc = isRecord(src.history) ? src.history : {};
   const history = {};
@@ -521,36 +528,31 @@ function normalizeCareer(raw, completedDays, repEntitlement) {
   const recipeSales = {};
   for (const key of Object.keys(MASTERY)) recipeSales[key] = clampInt(recipeSrc[key], 0, SAVE_LIMITS.maxCounter, 0);
 
-  // A renovation is a PURCHASE (career.buyRenovation spends coins), not a live readout of the
-  // reputation meter. serviceQuality.applySeatMiss used to DECREMENT meta.reputation (it no longer
-  // does), and clamping the owned tier against the CURRENT value would silently revoke a renovation
-  // the player already paid for the first time the meter ever dropped back under the gate.
-  //
-  // Clamp against the reputation ENTITLEMENT instead: the same bounded expression the reputation
-  // clamp itself enforces (3 per settled shift + 1 per owned decor piece). It only ever grows, so
-  // it can never drop below the reputation the player held when they bought the tier. It is no
-  // weaker against a tampered save than the old check: a forged reputation was already clamped to
-  // exactly this ceiling before it arrived here, so any save that could forge the tier could
-  // already forge the reputation that unlocked it.
-  let renovationLevel = clampInt(src.renovationLevel, 0, RENOVATIONS.length, 0);
-  while (renovationLevel > 0 && repEntitlement < RENOVATIONS[renovationLevel - 1].rep) renovationLevel--;
+  // A café theme is a PURCHASE (career.buyRenovation spends coins), and since Batch E1 it is gated
+  // on a Café Star rather than on reputation. The star clamp cannot happen here, because the star
+  // ceiling itself reads the theme count (★5's last row is "every theme owned") — so this function
+  // only bounds the level to the authored ladder, and normalizeMeta below does the star clamp once
+  // it has computed a ceiling with the theme row deliberately held at zero. See its comment.
+  const renovationLevel = clampInt(src.renovationLevel, 0, RENOVATIONS.length, 0);
 
   const contractStreak = clampInt(src.contractStreak, 0, completedDays, 0);
   const cached = src.currentContract;
   const g = cached?.goal;
+  // DAILY_GOAL_KINDS, not a literal list: the goal kinds rotate with what the café can do (serve,
+  // earn, seated, photos, icecream) and a save written by a newer kind must not silently validate.
+  // A save carrying a retired kind ('streak') simply fails this check and the goal is re-rolled.
   const validContract = isRecord(cached) && isRecord(g)
     && Number.isInteger(cached.day) && cached.day >= 1 && cached.day <= SAVE_LIMITS.maxDay
-    && ['serve', 'earn', 'streak'].includes(g.kind)
+    && DAILY_GOAL_KINDS.includes(g.kind)
     && Number.isInteger(g.target) && g.target > 0 && g.target <= SAVE_LIMITS.maxShiftEarned
     && Number.isInteger(g.reward) && g.reward >= 0 && g.reward <= SAVE_LIMITS.maxShiftEarned;
-  const contractFields = new Set(['kind', 'target', 'reward', 'rival', 'cupDay', 'eyebrow']);
+  const contractFields = new Set(['kind', 'target', 'reward', 'tier']);
   return {
     history,
     ...(validContract ? { currentContract: {
       day: cached.day, tier: clampInt(cached.tier, 0, 3, 0),
       goal: Object.fromEntries(Object.entries(g).filter(([key, value]) => contractFields.has(key)
-        && (key === 'eyebrow' ? typeof value === 'string' && value.length <= 80
-          : ['rival', 'cupDay'].includes(key) ? typeof value === 'boolean' : true))),
+        && (key === 'tier' ? Number.isInteger(value) && value >= 0 && value <= 8 : true))),
     } } : {}),
     weeklyCups,
     trophies,
@@ -651,22 +653,12 @@ function normalizeSettlement(raw, dayState) {
   };
 }
 
+// The only two boost records this schema ever knew -- rushCrew and petPlayBreak -- were rewarded-ad
+// entitlements, and Batch E2 cut both offers (ship plan 1.7). No live system writes or reads a boost
+// now, so a save's `boosts` container is accepted (an old one still has the keys) and canonicalized
+// to empty rather than carrying state nothing will ever step.
 function normalizeBoosts(raw) {
-  if (!isRecord(raw)) return {};
-  const out = {};
-  // Existing restore helpers do the semantic day/phase validation. Keep only the two known records
-  // and bounded primitive fields so a save cannot smuggle an arbitrary object graph into state.
-  for (const key of ['rushCrew', 'petPlayBreak']) {
-    if (!isRecord(raw[key])) continue;
-    const clean = {};
-    for (const [field, value] of Object.entries(raw[key]).slice(0, 16)) {
-      if (BAD_KEYS.has(field) || field.length > 40) continue;
-      if (typeof value === 'boolean' || typeof value === 'string') clean[field] = typeof value === 'string' ? value.slice(0, 80) : value;
-      else if (finiteNumber(value)) clean[field] = clamp(value, -SAVE_LIMITS.maxCounter, SAVE_LIMITS.maxCounter);
-    }
-    out[key] = clean;
-  }
-  return out;
+  return isRecord(raw) ? {} : {};
 }
 
 export function validateAndMigrateSave(raw, area = null) {
@@ -711,17 +703,12 @@ export function validateAndMigrateSave(raw, area = null) {
   // it is still bounded, because the decor list itself was just validated against the catalogue.
   // Unversioned legacy saves without completedDays keep their historical reputation instead.
   const reputation = hasCompletedDays ? Math.min(rawRep, completedDays * 3 + decorZoneGated.length) : rawRep;
-  // The lifetime reputation ENTITLEMENT: the ceiling the clamp above enforces, never below what the
-  // save actually holds. Monotonic in completedDays/decor, so a seat-miss decrement cannot shrink
-  // it -- which is what keeps a bought renovation bought. An unversioned legacy save has no
-  // completedDays to bound it with, so it keeps the historical current-reputation behaviour.
-  const repEntitlement = hasCompletedDays
-    ? Math.max(reputation, completedDays * 3 + decorZoneGated.length)
-    : reputation;
+  // (The lifetime reputation ENTITLEMENT that used to be derived here went with the reputation gate
+  // on café themes -- Batch E1 re-gated them on a Café Star, which normalizeMeta clamps below.)
   const shiftRatings = normalizeShiftRatings(metaRaw.shiftRatings, Math.max(completedDays, day.dayState._ended ? day.dayState.day : 0));
   const petBook = normalizePetBook(metaRaw.petBook);
   const petFriendship = normalizePetFriendship(metaRaw.petFriendship);
-  const career = normalizeCareer(metaRaw.career, completedDays, repEntitlement);
+  const career = normalizeCareer(metaRaw.career, completedDays);
   const partyOrders = normalizePartyOrders(metaRaw.partyOrders, day.dayState.day);
 
   const levels = normalizeLevels(raw);
@@ -747,6 +734,17 @@ export function validateAndMigrateSave(raw, area = null) {
   // every returning ★4 player to ★3 on load: the retroactive requirement the live ratchet absorbs,
   // which the boundary never absorbed. The zone rows never protected anything either — a forged
   // save declares its build list as easily as its star — so their one real effect was that bug.
+  //
+  // TWO PASSES, because ★5's last row is "every café theme owned" and a theme is itself gated on a
+  // star: clamping either against the other in one step is circular. Pass one derives the ceiling
+  // with the theme count held at ZERO, which can therefore never award ★5 and is never higher than
+  // the true ceiling. A theme whose own star gate that ceiling does not reach was not legitimately
+  // bought, so it is dropped. Pass two then derives the real ceiling from the honest theme count.
+  const themelessCeiling = Math.min(SAVE_LIMITS.maxPawStar, pawEntitlementCeiling({
+    meta: { album, followers, petBook, petFriendship, career: { ...career, renovationLevel: 0 }, pawSeatWindow },
+    stats, built: buildState.builtSet, area: null,
+  }));
+  while (career.renovationLevel > 0 && themelessCeiling < RENOVATIONS[career.renovationLevel - 1].star) career.renovationLevel--;
   const pawCeiling = Math.min(SAVE_LIMITS.maxPawStar, pawEntitlementCeiling({
     meta: { album, followers, petBook, petFriendship, career, pawSeatWindow },
     stats, built: buildState.builtSet, area: null,

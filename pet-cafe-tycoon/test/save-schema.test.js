@@ -7,6 +7,23 @@ import {
 import { createYouTubePlatform, LOAD_STATUS } from '../src/platform/youtube.js';
 import { SAVE_LIMITS as CORE_LIMITS } from '../src/sim/saveSchema.js';
 import { DECOR, DECOR_IDS } from '../data/decor.js';
+import { PAW_PET_KEYS, pawInteriorZoneIds } from '../src/sim/pawRating.js';
+
+// The zones star 2's "the whole cafe interior" names, derived rather than listed.
+const INTERIOR_ZONES = pawInteriorZoneIds(AREA1);
+
+// A v5 save, for the tests that need real Cafe Star evidence: the v4 fixture above predates every
+// v5 meta field, so a v4 migration necessarily restores zero stars and could never exercise a gate.
+function v5Fixture(over = {}) {
+  return {
+    v: 5, coins: 500,
+    builds: { a1: ['z_seats1'] },
+    dayState: { day: 6, t: 120 },
+    stats: { served: 0 },
+    meta: { completedDays: 5, ...(over.meta || {}) },
+    ...over,
+  };
+}
 
 function validate(raw) { return validateAndMigrateSave(raw, AREA1); }
 function playableHost(loadData, saveData = async () => {}) {
@@ -327,37 +344,51 @@ test('owned decor widens the reputation ceiling by exactly one point per piece',
   assert.equal(forged.data.meta.reputation, 7, 'the invalid id buys no headroom');
 });
 
-// sim/serviceQuality.applySeatMiss used to DECREMENT reputation (it no longer does, 2026-09-19), so
-// saves written before then can hold a meter below a renovation already bought. career.buyRenovation
-// spends coins, so the tier it grants is a purchase and must not evaporate on reload.
-test('a purchased renovation survives a reputation loss on reload', () => {
-  // 12 settled shifts can have paid up to 36 reputation, enough to buy level 1 (30 rep). Seat
-  // misses then dragged the live meter down to 28 -- under the gate, but the coins were spent.
-  const result = validate(v4Fixture({
+// A cafe theme is a PURCHASE (career.buyRenovation spends coins), so the tier it grants must not
+// evaporate on reload. Batch E1 moved its gate from reputation (a number the UI no longer draws) to
+// a Cafe Star, so the two tests below now clamp against the star ENTITLEMENT the save's own
+// evidence proves -- the same guarantee, a currency the player can see.
+test('a purchased cafe theme survives a reload when the star that bought it is still evidenced', () => {
+  const book = n => Object.fromEntries(PAW_PET_KEYS.slice(0, n).map(k => [k, 1]));
+  // A cafe that has genuinely reached star 3: the whole interior, the garden, 14 pets met, 5 shots.
+  const result = validate(v5Fixture({
     dayState: { day: 13, t: 120 },
-    meta: { completedDays: 12, reputation: 28, career: { renovationLevel: 1 } },
+    builds: { a1: [...INTERIOR_ZONES, 'z_terrace'] },
+    stats: { served: 500 },
+    meta: {
+      completedDays: 12, pawBest: 5, petBook: book(14), album: { 'cat:0': { shots: 5, best: 0 } },
+      career: { renovationLevel: 1 },
+    },
   }));
   assert.equal(result.ok, true);
-  assert.equal(result.data.meta.reputation, 28, 'the lost reputation stays lost');
-  assert.equal(result.data.meta.career.renovationLevel, 1, 'the purchase is not revoked with it');
+  assert.equal(result.data.meta.pawBest, 3);
+  assert.equal(result.data.meta.career.renovationLevel, 1, 'the purchase is not revoked');
 });
 
-test('the renovation entitlement stays bounded by what the save could have earned', () => {
-  // Four settled shifts cap the reputation entitlement at 12, far under the 30-rep level-1 gate,
-  // so a forged reputation buys no renovation no matter how large it is.
-  const forged = validate(v4Fixture({
+test('the theme entitlement stays bounded by the stars the save could have earned', () => {
+  // A cafe with nothing but served guests holds star 1, far under the star-3 gate on theme 1, so a
+  // forged renovationLevel buys no theme no matter how large it is.
+  const forged = validate(v5Fixture({
     dayState: { day: 5, t: 0 },
-    meta: { completedDays: 4, reputation: 999, career: { renovationLevel: 5 } },
+    stats: { served: 500 },
+    meta: { completedDays: 4, pawBest: 5, career: { renovationLevel: 5 } },
   }));
-  assert.equal(forged.data.meta.reputation, 12);
+  assert.equal(forged.data.meta.pawBest, 1);
   assert.equal(forged.data.meta.career.renovationLevel, 0);
 
-  // A renovation the entitlement does reach is kept; the tiers above it are still stripped.
-  const partial = validate(v4Fixture({
+  // A theme the entitlement does reach is kept; the tiers above it are still stripped.
+  const book = n => Object.fromEntries(PAW_PET_KEYS.slice(0, n).map(k => [k, 1]));
+  const partial = validate(v5Fixture({
     dayState: { day: 13, t: 120 },
-    meta: { completedDays: 12, reputation: 36, career: { renovationLevel: 4 } },
+    builds: { a1: [...INTERIOR_ZONES, 'z_terrace'] },
+    stats: { served: 500 },
+    meta: {
+      completedDays: 12, pawBest: 5, petBook: book(14), album: { 'cat:0': { shots: 5, best: 0 } },
+      career: { renovationLevel: 4 },
+    },
   }));
-  assert.equal(partial.data.meta.career.renovationLevel, 1, '36 rep clears level 1 (30) but not level 2 (70)');
+  assert.equal(partial.data.meta.pawBest, 3);
+  assert.equal(partial.data.meta.career.renovationLevel, 1, 'star 3 clears theme 1 but not theme 2 (star 4)');
 });
 
 // Every other id-bearing normalizer here consults buildState.builtSet, and economy.buyDecor refuses

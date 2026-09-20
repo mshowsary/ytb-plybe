@@ -30,9 +30,16 @@ test('phase timing and fractions remain stable across the four-minute shift', ()
   assert.equal(phaseOf(0), 'morning');
   assert.equal(phaseOf(60), 'rush');
   assert.equal(phaseOf(150), 'afternoon');
-  assert.equal(phaseOf(210), 'closing');
+  // Batch E1 moved 15 s out of CLOSING and into AFTERNOON (ship plan 1.6: shorten the dead tail of
+  // every day to about 15 s). The shift is still exactly four minutes -- render/daylight.js's
+  // keyframe table is authored against that span -- so only the boundary between the last two
+  // phases moved: closing now starts at 225, not 210.
+  assert.equal(phaseOf(210), 'afternoon');
+  assert.equal(phaseOf(224.9), 'afternoon');
+  assert.equal(phaseOf(225), 'closing');
   assert.equal(DAY_LENGTH, 240);
-  assert.equal(phaseFrac({ phase: 'afternoon', t: 180 }), 0.5);
+  assert.equal(DAY_LENGTH - 225, 15, 'the empty tail is 15 s, not 30');
+  assert.equal(phaseFrac({ phase: 'afternoon', t: 187.5 }), 0.5);
 
   const d = createDay();
   const events = stepDay(d, 60);

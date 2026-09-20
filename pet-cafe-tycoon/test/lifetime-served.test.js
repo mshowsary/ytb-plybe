@@ -48,7 +48,10 @@ test('one guest served through the real frame order counts once, for the lifetim
   assert.equal(payVisibleToCustomersUpdate, 0, 'why the old counter never moved: no pay exists yet when customers.update reads events');
   assert.equal(G.stats.served, 1);
   assert.equal(G.dayStats.served, 1);
-  assert.equal(G.dayStats.earned, 5);
+  // 6, not 5: the café owns two tables from t = 0 now (Batch E1), so this guest sits down and pays
+  // the seated rate the harness's own price fn gives (seated 6 / takeaway 5). The counting path
+  // this test exists for -- exactly one 'pay', drained after stepStaff -- is unchanged.
+  assert.equal(G.dayStats.earned, 6);
   assert.equal(G.dayStats.bestStreak, 1);
 });
 

@@ -24,7 +24,7 @@
 //     immediately before `.meta-reward`, so it lands among the rows rather than between the bonus
 //     and Continue.
 //   - The card keeps `.card` and `.ctitle` so sheets.js's shell and its close chevron still apply.
-import { coinIcon, personIcon, streakIcon, checkIcon, giftIcon, pawIcon, photoIcon, starIcon } from './icons.js';
+import { coinIcon, personIcon, seatIcon, checkIcon, giftIcon, pawIcon, photoIcon, starIcon, iconFor } from './icons.js';
 import { pawSheetModel } from './pawSheet.js';
 
 const STYLE_ID = 'pet-cafe-day-summary-style';
@@ -76,6 +76,7 @@ function ensureStyle() {
     .ds-bonus .ds-bonus-badge{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:26px;padding:0 6px;box-sizing:border-box;border-radius:8px;background:#ffffff2e;border:1px solid #ffffff66;font:950 11px/1 system-ui,sans-serif;letter-spacing:.06em}
     .ds-bonus .ds-bonus-badge svg{width:18px;height:18px;display:block}
     .ds-bonus i{width:24px;height:24px;display:inline-flex}.ds-bonus i svg{width:100%;height:100%;display:block}
+    .ds-bonus .ds-bonus-x2{font:950 24px/1 system-ui,sans-serif;letter-spacing:-.02em}
     .ds-bonus:disabled{cursor:default;opacity:1;background:#e9f8ee;color:#2f8a4f;box-shadow:none}
     .ds-card .sbtn.continue.secondary{background:#fff;border:2px solid #3b2e2a1c;min-height:48px;font-size:16px}
     @media(max-height:520px) and (min-aspect-ratio:5/4){
@@ -134,9 +135,16 @@ function countUp(node, from, to, ms = 750) {
   requestAnimationFrame(step);
 }
 
+// ONE goal row (Batch E1): the contract and the special-day theme merged into a single goal with a
+// single reward, so this card carries one meter instead of two. Its icon and unit come from the
+// same five kinds ui/contractBadge.js paints into the ring, so the ring on the Café button and this
+// row can never describe different things.
+const GOAL_ROW_ICON = { serve: personIcon, earn: coinIcon, seated: seatIcon, photos: photoIcon, icecream: () => iconFor('icecream') };
+const GOAL_ROW_UNIT = { serve: 'guests', earn: 'coins', seated: 'table meals', photos: 'pets photographed', icecream: 'ice creams' };
+
 function contractRow(c) {
-  const kindIcon = c.kind === 'serve' ? personIcon() : c.kind === 'streak' ? streakIcon() : coinIcon();
-  const unit = c.kind === 'serve' ? 'guests' : c.kind === 'streak' ? 'in a row' : 'coins';
+  const kindIcon = (GOAL_ROW_ICON[c.kind] || personIcon)();
+  const unit = GOAL_ROW_UNIT[c.kind] || 'guests';
   const row = el('div', 'ds-row ds-contract' + (c.met ? ' won' : ''));
   row.setAttribute('role', 'group');
   row.setAttribute('aria-label', c.met
@@ -241,9 +249,12 @@ export function renderDaySummary(card, model, { onContinue }) {
         btn.setAttribute('aria-label', `Bonus collected, ${fmt(bonus.amount)} coins`);
         cont.classList.remove('secondary');
       } else {
+        // DOUBLE TODAY (ship plan 1.7a). The reward is +100% of the day's sales now, so the button
+        // says so in the one notation every player of this genre already reads: x2, then the coins
+        // it is worth today. "+580" alone was a number with nothing to compare it to.
         const badge = bonus.liveAd ? 'AD' : giftIcon();
-        btn.innerHTML = `<span class="ds-bonus-badge">${badge}</span>${icon(coinIcon())}<span>+${fmt(bonus.amount)}</span>`;
-        btn.setAttribute('aria-label', `${bonus.liveAd ? 'Watch an ad for' : 'Collect'} a bonus of ${fmt(bonus.amount)} coins`);
+        btn.innerHTML = `<span class="ds-bonus-badge">${badge}</span><span class="ds-bonus-x2">×2</span>${icon(coinIcon())}<span>+${fmt(bonus.amount)}</span>`;
+        btn.setAttribute('aria-label', `${bonus.liveAd ? 'Watch an ad to double' : 'Double'} today's earnings, plus ${fmt(bonus.amount)} coins`);
         cont.classList.add('secondary');
       }
     };

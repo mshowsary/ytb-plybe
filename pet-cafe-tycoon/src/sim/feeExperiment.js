@@ -4,7 +4,22 @@
 // Task 23 can remove live punishment without erasing the evidence baseline.
 import { legacyServiceRecoveryCost } from './serviceQuality.js';
 import { serviceFrictionCost } from './serviceFriction.js';
-import { returnWasteCost } from './relief.js';
+import { PRODUCTS } from './economy.js';
+
+// The former Return "food waste" fee, kept HERE and nowhere else. The live game has charged nothing
+// for a return since the never-punishing rule retired it, and sim/relief.js — the module that used
+// to own this arithmetic alongside the rush-help classifiers — went with the dead ad placements in
+// Batch E2. This experiment is the only remaining reader, so the formula moved in with it rather
+// than leaving a sim module alive for one tools-only caller.
+export const RETURN_WASTE_RATE = 0.18;
+export const RETURN_WASTE_CAP = 20;
+export function returnWasteCost(productKeys = [], fruit = 0) {
+  let retail = 0;
+  for (const key of productKeys || []) retail += PRODUCTS[key] ? PRODUCTS[key].price : 0;
+  retail += Math.max(0, fruit | 0) * 3;
+  if (retail <= 0) return 0;
+  return Math.min(RETURN_WASTE_CAP, Math.max(1, Math.round(retail * RETURN_WASTE_RATE)));
+}
 
 export const FEE_VARIANTS = Object.freeze({
   current: Object.freeze({ id:'current', directFees:true }),

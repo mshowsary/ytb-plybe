@@ -178,7 +178,10 @@ test('every season id has full content: palette, special-day theme, accessory, g
     const content = seasonContentFor(id);
     assert.ok(content, `missing content for ${id}`);
     assert.equal(typeof content.paletteId, 'string');
-    assert.equal(typeof content.specialThemeId, 'string');
+    // specialThemeId pointed at src/sim/specialDays.js's THEMES table, which Batch E1 deleted with
+    // the theme day itself (one daily goal now). The field went with it rather than being left
+    // naming a catalogue that no longer exists.
+    assert.equal('specialThemeId' in content, false);
     assert.equal(typeof content.accessoryId, 'string');
     assert.ok(content.goal && content.goal.target > 0 && content.goal.target <= SEASON_LENGTH_DAYS);
   }

@@ -15,17 +15,23 @@ import { cafeDayModel } from './cafeDayModel.js';
 import { createGoalRing, GOAL_ICON } from './contractBadge.js';
 import { petBookProgress } from '../sim/petBook.js';
 import { pawBestStar, PAW_MAX_STAR } from '../sim/pawRating.js';
-import { dayKeyFor, calendarSlotIndex, calendarRewardFor, normalizeCalendar } from '../sim/rewards.js';
 import {
   sunriseIcon, sunIcon, sunsetIcon, moonIcon, stopwatchIcon, coinIcon, pawIcon, shopIcon, starIcon,
-  giftIcon, speakerIcon, speakerOffIcon, motionIcon, checkIcon, catIcon, dogIcon, bunnyIcon,
-  coffeeIcon, cupcakeIcon, smoothieIcon, treatIcon, sparkleIcon,
+  giftIcon, speakerIcon, speakerOffIcon, motionIcon, brushIcon, sparkleIcon,
 } from './icons.js';
 
 const STYLE_ID = 'pet-cafe-cafe-card-style';
 const cafeMark = () => '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M7 14h16v6a7 7 0 0 1-7 7h-2a7 7 0 0 1-7-7z" fill="#DDB986" stroke="#3E302B" stroke-width="1.8"/><path d="M23 16h2a3 3 0 0 1 0 6h-2" fill="none" stroke="#3E302B" stroke-width="1.8"/><circle cx="11" cy="10" r="2.1" fill="#D98C82"/><circle cx="20" cy="10" r="2.1" fill="#D98C82"/><circle cx="15.5" cy="7" r="2.2" fill="#D98C82"/><path d="M12 13c1-2.7 6-2.7 7 0-1 2.3-6 2.3-7 0z" fill="#D98C82"/></svg>';
 const PHASE_ICON = { morning: sunriseIcon, rush: sunIcon, afternoon: sunsetIcon, closing: moonIcon };
-const THEME_ICON = { dog: dogIcon, cat: catIcon, bunny: bunnyIcon, coffee: coffeeIcon, cupcake: cupcakeIcon, smoothie: smoothieIcon, treat: treatIcon };
+// THE NEXT THING (sim/nextThing.js), one glyph per kind: a building for the next zone, a paint
+// roller for the next cafe theme, a star for the row holding the next star, a shop bag for the
+// cheapest upgrade left, a paw for the pets still unmet. There is always one of these, which is the
+// whole point of the row -- the card can never go blank after the last zone is bought.
+const NEXT_ICON = { build: shopIcon, theme: brushIcon, star: starIcon, upgrade: shopIcon, pets: pawIcon, complete: sparkleIcon };
+const NEXT_ARIA = {
+  build: 'Next: a new part of the cafe', theme: 'Next: a cafe makeover', star: 'Next: the next Cafe Star',
+  upgrade: 'Next: an upgrade', pets: 'Next: pets you have not met', complete: 'Everything is done',
+};
 const fmt = n => Math.round(Math.max(0, Number(n) || 0)).toLocaleString('en-US');
 
 function installStyle() {
@@ -54,7 +60,6 @@ function installStyle() {
     .cc-tile[data-tile="pets"]{background:#fff1e8}.cc-tile[data-tile="shop"]{background:#f4efe4}.cc-tile[data-tile="stars"]{background:#fff6dc}
     .cc-gift{min-height:56px;border:0;border-radius:16px;background:linear-gradient(135deg,#ffe9a8,#ffd27a);color:#5c3d10;display:flex;align-items:center;justify-content:center;gap:10px;cursor:pointer;font:950 18px/1 system-ui,sans-serif}
     .cc-gift i{width:30px;height:30px;display:block}.cc-gift i svg{width:100%;height:100%;display:block}
-    .cc-gift.claimed{background:#e9f8ee;color:#2f7a4a;cursor:default}
     .cc-motion{min-height:48px;border:0;border-radius:14px;background:transparent;color:#3E302B;display:flex;align-items:center;gap:8px;padding:0 6px;cursor:pointer;font:800 13px/1 system-ui,sans-serif;opacity:.75}
     .cc-motion i{width:24px;height:24px;display:block}.cc-motion i svg{width:100%;height:100%;display:block}
     .cc-motion b{margin-left:auto;min-width:44px;padding:5px 8px;border-radius:9px;background:#ddd8d3;color:#615550;font:900 11px/1 system-ui,sans-serif}
@@ -132,20 +137,18 @@ export function createPauseMenu(G, platform, routes = {}) {
   const giftBtn = root.querySelector('.cc-gift');
   const tile = name => root.querySelector(`[data-tile="${name}"]`);
   const TILE_ROUTE = { pets: 'pets', shop: 'shop', stars: 'paw' };
-  let giftBusy = false;
 
   const isOpen = () => !root.classList.contains('hidden');
   const soundOn = () => G.settings.music !== false || G.settings.sfx !== false;
   function savePrefs() { if (platform && G.snapshot) platform.save(G.snapshot()); }
 
-  // The daily gift, read from the calendar the rewards system keeps. The tile exists only while
-  // today's gift can be claimed AND the claim is wired (G.claimDailyGift); otherwise there is no tile
-  // at all rather than a button that does nothing.
+  // The daily gift. systems/rewardsSystem.js owns the calendar and answers BOTH surfaces from one
+  // function, so this tile can never advertise a slot the gift card would not pay. The tile exists
+  // only while today's gift is unclaimed AND the card is wired; otherwise there is no tile at all
+  // rather than a button that does nothing.
   function giftState() {
-    if (typeof G.claimDailyGift !== 'function') return null;
-    const cal = normalizeCalendar(G.meta && G.meta.rewards && G.meta.rewards.calendar);
-    const slot = calendarSlotIndex(cal, dayKeyFor(Date.now()));
-    return slot == null ? null : { slot, reward: calendarRewardFor(slot) };
+    if (typeof G.dailyGiftState !== 'function' || typeof G.openDailyGiftCard !== 'function') return null;
+    return G.dailyGiftState();
   }
 
   const chip = (cls, html, aria) => `<span class="cc-chip${cls ? ' ' + cls : ''}" role="img" aria-label="${aria}">${html}</span>`;
@@ -158,10 +161,14 @@ export function createPauseMenu(G, platform, routes = {}) {
       html += chip(goal.complete ? 'met' : '', `<i>${GOAL_ICON[goal.kind]()}</i>${Math.min(goal.current, goal.target)}/${goal.target}${pay}`,
         `Today's goal ${Math.min(goal.current, goal.target)} of ${goal.target}${goal.reward ? `, pays ${goal.reward} coins` : ''}`);
     }
-    if (d.theme) {
-      const icon = (THEME_ICON[d.theme.icon] || sparkleIcon)();
-      html += chip(d.theme.met ? 'met' : '', `<i>${icon}</i>${d.theme.count}/${d.theme.target}<span class="cc-pay"><i>${coinIcon()}</i>+${fmt(d.theme.reward)}</span>`,
-        `Theme of the day ${d.theme.count} of ${d.theme.target}, pays ${d.theme.reward} coins`);
+    if (d.next && d.next.kind !== 'complete') {
+      const icon = (NEXT_ICON[d.next.kind] || sparkleIcon)();
+      // A price when there is one to save for, else how far along the thing itself is. Either way
+      // the row NAMES something, every single day of the game.
+      const tail = d.next.price != null
+        ? `<span class="cc-pay"><i>${coinIcon()}</i>${fmt(d.next.price)}</span>`
+        : (d.next.target ? `${d.next.current}/${d.next.target}` : '');
+      html += chip('cc-next', `<i>${icon}</i>${tail}`, NEXT_ARIA[d.next.kind] || 'Next');
     }
     today.innerHTML = html;
     dayLine.textContent = `Day ${d.day}`;
@@ -182,14 +189,13 @@ export function createPauseMenu(G, platform, routes = {}) {
     tile('stars').querySelector('small').textContent = `${stars}/${PAW_MAX_STAR}`;
     tile('stars').setAttribute('aria-label', `Café Stars, ${stars} of ${PAW_MAX_STAR}`);
     for (const [name, route] of Object.entries(TILE_ROUTE)) tile(name).hidden = typeof routes[route]?.open !== 'function';
-    if (!giftBusy) {
-      const gift = giftState();
-      giftBtn.hidden = !gift;
-      giftBtn.classList.remove('claimed');
-      if (gift) {
-        giftBtn.innerHTML = `<i>${giftIcon()}</i><span>+${fmt(gift.reward)}</span>`;
-        giftBtn.setAttribute('aria-label', `Daily gift, ${gift.reward} coins`);
-      }
+    // The tile is a door now, not a claim button, so it has no busy state of its own: it is simply
+    // there while today's gift is unclaimed and gone the moment the card pays it.
+    const gift = giftState();
+    giftBtn.hidden = !gift;
+    if (gift) {
+      giftBtn.innerHTML = `<i>${giftIcon()}</i><span>+${fmt(gift.reward)}</span>`;
+      giftBtn.setAttribute('aria-label', `Daily gift, ${gift.reward} coins`);
     }
   }
 
@@ -215,17 +221,14 @@ export function createPauseMenu(G, platform, routes = {}) {
     route.open();
     closeModal('cafe');
   }
-  async function claimGift() {
-    if (giftBusy || giftBtn.hidden || giftBtn.classList.contains('claimed')) return;
-    giftBusy = true;
-    let result = null;
-    try { result = await G.claimDailyGift(); } catch (_) { result = null; }
-    if (result && result.ok) {
-      giftBtn.classList.add('claimed');
-      giftBtn.innerHTML = `<i>${checkIcon()}</i><span>+${fmt(result.prize)}</span>`;
-      giftBtn.setAttribute('aria-label', `Daily gift claimed, ${result.prize} coins`);
-      setTimeout(() => { giftBusy = false; if (isOpen()) sync(); }, 1400);
-    } else { giftBusy = false; sync(); }
+  // The tile is a DOOR, like the other three: it hands over to the gift card, which carries the
+  // free CLAIM and the optional x2. One claim path for the card and the tile (ship plan 1.7.4).
+  function openGift() {
+    if (giftBtn.hidden) return;
+    audio.play('tap');
+    root.classList.add('hidden'); root.setAttribute('aria-hidden', 'true');
+    G.openDailyGiftCard();
+    closeModal('cafe');
   }
 
   button.addEventListener('click', open);
@@ -233,7 +236,7 @@ export function createPauseMenu(G, platform, routes = {}) {
   soundBtn.addEventListener('click', () => { const on = !soundOn(); G.settings.music = on; G.settings.sfx = on; sync(); audio.play('tap'); savePrefs(); });
   motionBtn.addEventListener('click', () => { G.settings.reducedMotion = !G.settings.reducedMotion; sync(); audio.play('tap'); savePrefs(); });
   for (const name of Object.keys(TILE_ROUTE)) tile(name).addEventListener('click', () => openTile(name));
-  giftBtn.addEventListener('click', claimGift);
+  giftBtn.addEventListener('click', openGift);
   root.addEventListener('click', e => { if (e.target === root) close(); });
   document.addEventListener('keydown', e => {
     if (e.code !== 'KeyP' || e.repeat) return;

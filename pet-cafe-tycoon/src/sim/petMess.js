@@ -1,11 +1,11 @@
 // Pet-floor mess rules are deliberately cosmetic/operational: no coin loss, patience damage,
-// navigation blocking or economy multiplier. Pawprints exist to make the pet-cafe fantasy visible
-// and give Roomba Assist a pet-specific job that never replaces the permanent table Cleaner.
+// navigation blocking or economy multiplier. Pawprints exist to make the pet-cafe fantasy visible;
+// the owner wipes one by standing over it. Roomba Assist, the rewarded offer they used to justify,
+// went with the rest of the dead placements in Batch E2 (ship plan 1.7 "Cut").
 export const PET_MESS_MIN_DAY = 2;
 export const PET_MESS_MAX = 4;
 export const PET_MESS_SPAWN_COOLDOWN = 7;
 export const PET_MESS_CLEAN_SECONDS = 0.42;
-export const ROOMBA_SWEEP_SECONDS = 18;
 
 export function shouldSpawnPetMess(day, customerId, currentCount, secondsSinceLast = Infinity) {
   if ((day | 0) < PET_MESS_MIN_DAY) return false;

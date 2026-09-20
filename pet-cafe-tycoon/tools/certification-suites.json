@@ -47,40 +47,16 @@
         "tools/owner-persistence-smoke.js"
       ],
       "timeoutMs": 300000
-    },
-    {
-      "name": "Temporary help persistence smoke",
-      "command": [
-        "node",
-        "tools/temporary-help-persistence-smoke.js"
-      ],
-      "timeoutMs": 300000
     }
   ],
   "gameplay": [
     {
-      "name": "Rewarded Rush Help smoke",
+      "name": "Rewarded offers in the world: Special Guest, Helper Pup, Build Boost, day-end x2, daily gift",
       "command": [
         "node",
-        "tools/rush-help-smoke.js"
+        "tools/rewarded-offers-smoke.js"
       ],
-      "timeoutMs": 300000
-    },
-    {
-      "name": "Rewarded Pet Play Break smoke",
-      "command": [
-        "node",
-        "tools/pet-play-break-smoke.js"
-      ],
-      "timeoutMs": 300000
-    },
-    {
-      "name": "Pet Play Break visual feedback smoke",
-      "command": [
-        "node",
-        "tools/pet-play-break-visual-smoke.js"
-      ],
-      "timeoutMs": 300000
+      "timeoutMs": 600000
     },
     {
       "name": "Pet friendship persistence and book smoke",
@@ -91,7 +67,7 @@
       "timeoutMs": 300000
     },
     {
-      "name": "Pet pawprint and Roomba smoke",
+      "name": "Pet pawprint smoke",
       "command": [
         "node",
         "tools/pet-mess-smoke.js"
@@ -295,6 +271,26 @@
       "command": [
         "node",
         "tools/shift-transition-regression.js"
+      ],
+      "timeoutMs": 300000
+    }
+  ],
+  "ads": [
+    {
+      "name": "Ad policy: a player who never watches an ad",
+      "command": [
+        "npm",
+        "run",
+        "bot:noads"
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "name": "Ad policy: a player who takes every offer",
+      "command": [
+        "npm",
+        "run",
+        "bot:ads"
       ],
       "timeoutMs": 300000
     }

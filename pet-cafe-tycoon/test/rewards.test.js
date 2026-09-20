@@ -1,34 +1,36 @@
-// test/rewards.test.js — validates Gift Calendar and Mystery Paw Gift retention mechanics.
+// test/rewards.test.js — the daily gift.
+//
+// REWRITTEN IN BATCH E2. Two of the old cases pinned behaviour the ship plan deliberately changed
+// (§1.7.4) and one pinned a mechanic it cut:
+//
+//   * "advanceCalendar advances streak on consecutive days and RESETS AFTER A GAP" — a missed real
+//     day now PAUSES the streak and never resets it, so the assertion that a gap sends the streak
+//     back to 1 asserts the punishment the plan removes.
+//   * "calendarSlotIndex ... missed days reset to slot 0" — same rule, same reason.
+//   * isConsecutiveDay existed ONLY to implement that reset and is deleted with it.
+//   * the Mystery Paw Gift (mysteryForDay / mysteryCoinsForDay / mysteryRewardKindForDay) is cut
+//     outright by §1.7, so its three cases go with the code.
+//
+// Everything else — the UTC day key, normalization bounds, the reward table, the final slot — is
+// unchanged, and the new rules get cases of their own below.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   CALENDAR_LENGTH,
   CALENDAR_REWARDS,
+  CALENDAR_DOUBLE_MULTIPLIER,
+  calendarDoubledReward,
   dayKeyFor,
-  isConsecutiveDay,
   normalizeCalendar,
   advanceCalendar,
   calendarSlotIndex,
   calendarRewardFor,
   calendarIsFinalSlot,
-  MYSTERY_START_DAY,
-  mysteryForDay,
-  mysteryCoinsForDay,
-  mysteryRewardKindForDay,
 } from '../src/sim/rewards.js';
 
 test('dayKeyFor formats UTC date strings accurately', () => {
   const ts = Date.parse('2026-09-07T12:00:00Z');
   assert.equal(dayKeyFor(ts), '2026-09-07');
-});
-
-test('isConsecutiveDay detects consecutive UTC days across month and year boundaries', () => {
-  assert.equal(isConsecutiveDay('2026-09-07', '2026-09-08'), true);
-  assert.equal(isConsecutiveDay('2026-09-30', '2026-10-01'), true);
-  assert.equal(isConsecutiveDay('2026-12-31', '2027-01-01'), true);
-  assert.equal(isConsecutiveDay('2026-09-07', '2026-09-07'), false);
-  assert.equal(isConsecutiveDay('2026-09-07', '2026-09-09'), false);
-  assert.equal(isConsecutiveDay(null, '2026-09-08'), false);
 });
 
 test('normalizeCalendar bounds streak and validates lastKey format', () => {
@@ -38,7 +40,7 @@ test('normalizeCalendar bounds streak and validates lastKey format', () => {
   assert.deepEqual(normalizeCalendar({ lastKey: '2026-09-07', streak: -5 }), { lastKey: '2026-09-07', streak: 0 });
 });
 
-test('advanceCalendar advances streak on consecutive days and resets after a gap', () => {
+test('a missed real day PAUSES the streak and never resets it', () => {
   let cal = { lastKey: null, streak: 0 };
   cal = advanceCalendar(cal, '2026-09-01');
   assert.deepEqual(cal, { lastKey: '2026-09-01', streak: 1 });
@@ -46,23 +48,31 @@ test('advanceCalendar advances streak on consecutive days and resets after a gap
   cal = advanceCalendar(cal, '2026-09-02');
   assert.deepEqual(cal, { lastKey: '2026-09-02', streak: 2 });
 
-  // Same day claim preserves streak
+  // Claiming twice on the same real day changes nothing.
   cal = advanceCalendar(cal, '2026-09-02');
   assert.deepEqual(cal, { lastKey: '2026-09-02', streak: 2 });
 
-  // Gap resets streak to 1
+  // A three-day gap: the streak CONTINUES from where it paused. This is the whole change — a player
+  // who missed a Tuesday used to lose six days of progress toward the 1,000-coin slot.
   cal = advanceCalendar(cal, '2026-09-05');
-  assert.deepEqual(cal, { lastKey: '2026-09-05', streak: 1 });
+  assert.deepEqual(cal, { lastKey: '2026-09-05', streak: 3 });
+
+  // ...and it still wraps at the end of the week rather than growing forever.
+  for (let i = 0; i < 10; i++) cal = advanceCalendar(cal, `2026-10-${String(i + 1).padStart(2, '0')}`);
+  assert.equal(cal.streak, CALENDAR_LENGTH);
 });
 
-test('calendarSlotIndex returns null when already claimed today, else valid 0..6 slot index', () => {
+test('calendarSlotIndex is null once today is claimed, and otherwise follows the paused streak', () => {
   const cal = { lastKey: '2026-09-07', streak: 3 };
-  assert.equal(calendarSlotIndex(cal, '2026-09-07'), null); // already claimed
-  assert.equal(calendarSlotIndex(cal, '2026-09-08'), 3); // consecutive next day
-  assert.equal(calendarSlotIndex(cal, '2026-09-10'), 0); // missed days reset to slot 0
+  assert.equal(calendarSlotIndex(cal, '2026-09-07'), null, 'already claimed today');
+  assert.equal(calendarSlotIndex(cal, '2026-09-08'), 3, 'the next day continues the streak');
+  assert.equal(calendarSlotIndex(cal, '2026-09-10'), 3, 'and so does the day after a gap');
 
   const fresh = { lastKey: null, streak: 0 };
   assert.equal(calendarSlotIndex(fresh, '2026-09-07'), 0);
+
+  // A full week wraps back to the first slot rather than stopping.
+  assert.equal(calendarSlotIndex({ lastKey: '2026-09-07', streak: CALENDAR_LENGTH }, '2026-09-08'), 0);
 });
 
 test('calendarRewardFor and calendarIsFinalSlot match specifications', () => {
@@ -75,34 +85,19 @@ test('calendarRewardFor and calendarIsFinalSlot match specifications', () => {
   assert.equal(calendarIsFinalSlot(5), false);
 });
 
-test('mysteryForDay returns null before day 3 and is deterministic from day 3', () => {
-  assert.equal(mysteryForDay(1), null);
-  assert.equal(mysteryForDay(2), null);
-  let found = 0;
-  for (let d = 3; d <= 20; d++) {
-    const m = mysteryForDay(d);
-    if (m) {
-      found++;
-      assert.equal(m.day, d);
-      assert.ok(m.startT >= 25 && m.startT <= 45);
-    }
-  }
-  assert.ok(found >= 5, `expected ~55% mystery gifts, found ${found}/18`);
+test('the optional ▶ doubles the gift, and nothing else changes', () => {
+  assert.equal(CALENDAR_DOUBLE_MULTIPLIER, 2);
+  for (const prize of CALENDAR_REWARDS) assert.equal(calendarDoubledReward(prize), prize * 2);
+  assert.equal(calendarDoubledReward(0), 0);
+  assert.equal(calendarDoubledReward(-50), 0);
+  assert.equal(calendarDoubledReward('nonsense'), 0);
 });
 
-test('mysteryCoinsForDay stays within bounded limits', () => {
-  for (let d = 3; d <= 20; d++) {
-    const coins = mysteryCoinsForDay(d, 500);
-    assert.ok(coins >= 80 && coins <= 500, `coins ${coins} out of range [80, 500] on day ${d}`);
-  }
-});
-
-test('mysteryRewardKindForDay returns valid prize and avoids duplicate golden hour', () => {
-  const validKinds = new Set(['coins', 'restock', 'golden']);
-  for (let d = 3; d <= 30; d++) {
-    const kind = mysteryRewardKindForDay(d, false);
-    assert.ok(validKinds.has(kind));
-    const kindWhenGolden = mysteryRewardKindForDay(d, true);
-    assert.notEqual(kindWhenGolden, 'golden');
+test('the Mystery Paw Gift is gone, not merely unreachable', async () => {
+  // §1.7 cuts it. A module that still exported it would be the exact "correct code nothing calls"
+  // this batch exists to remove, so the absence is asserted rather than assumed.
+  const r = await import('../src/sim/rewards.js');
+  for (const dead of ['mysteryForDay', 'mysteryCoinsForDay', 'mysteryRewardKindForDay', 'mysteryCoinsCap', 'isConsecutiveDay']) {
+    assert.equal(dead in r, false, `${dead} must not survive its placement`);
   }
 });

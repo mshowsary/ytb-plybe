@@ -13,7 +13,10 @@
 //     nothing on the card scolds — no "left" chip, no stock-up tip
 //   - Continue and the bonus are both visible without scrolling and at least 48 px tall
 //   - the close chevron overlaps no row
-//   - the bonus is about a third of the day (sim/adPacing.js summaryBonusAmount)
+//   - the bonus DOUBLES the day and says so (Batch E2, ship plan §1.7a: "+100% of that day's
+//     sales, min 100"). It used to be a third; the band here moved with it, and the button now
+//     carries a "×2" of its own, which is why the coin figure is read from its own span rather
+//     than by stripping digits out of the whole label (that produced "22450" on a 2,471-coin day).
 //   - Continue actually finishes the day
 import http from 'node:http';
 import fs from 'node:fs';
@@ -86,6 +89,8 @@ for (const [w, h] of [[390, 844], [852, 393], [218, 418], [418, 218], [183, 416]
       cont: cont && r(cont), contInView: !!cont && inView(r(cont)) && r(cont).b <= cardR.b + 0.5,
       bonus: bonus && r(bonus), bonusInView: !!bonus && inView(r(bonus)) && r(bonus).b <= cardR.b + 0.5,
       bonusText: bonus ? bonus.textContent.replace(/\s+/g, '') : null,
+      bonusX2: bonus ? (bonus.querySelector('.ds-bonus-x2') || {}).textContent || '' : null,
+      bonusCoinText: bonus ? (bonus.querySelector('span:last-child') || {}).textContent || '' : null,
       closeOverRows: close ? rows.reduce((n, row) => n + overlap(r(close), r(row)), 0) : 0,
       // A row the pinned buttons still sit on once the card is scrolled all the way down is a row
       // the player can never read. (Before scrolling, rows below the fold passing under the pinned
@@ -119,8 +124,9 @@ for (const [w, h] of [[390, 844], [852, 393], [218, 418], [418, 218], [183, 416]
   check(m.bonusInView, 'the bonus is not visible inside the card without scrolling');
   check(m.bonus && m.bonus.h >= 47.5, 'the bonus is ' + (m.bonus && m.bonus.h) + ' px tall, under the 48 px tap floor');
   check(m.closeOverRows < 1, 'the close chevron covers ' + Math.round(m.closeOverRows) + ' px² of the rows');
-  const bonusCoins = Number(String(m.bonusText || '').replace(/[^\d]/g, ''));
-  check(bonusCoins >= EARNED * 0.3 && bonusCoins <= EARNED * 0.4, 'the bonus offers ' + bonusCoins + ' coins on a ' + EARNED + '-coin day');
+  const bonusCoins = Number(String(m.bonusCoinText || '').replace(/[^\d]/g, ''));
+  check(m.bonusX2 === '×2', 'the bonus does not read as a double: ' + JSON.stringify(m.bonusX2));
+  check(bonusCoins >= EARNED * 0.97 && bonusCoins <= EARNED * 1.03, 'the bonus offers ' + bonusCoins + ' coins on a ' + EARNED + '-coin day');
 
   const before = await page.evaluate(() => window.__game.dayState.day);
   await page.click('.ds-card .continue');

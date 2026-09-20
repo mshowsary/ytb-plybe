@@ -65,8 +65,19 @@ test('even-id customer takes an order of 2 cookies and pays 2x the price', () =>
   const took = w.events.find(e => e.type === 'took');
   assert.ok(took); assert.equal(took.product, 'cookie'); assert.equal(took.count, 2);
   const processed = w.events.find(e => e.type === 'processed');
-  assert.ok(processed); assert.equal(processed.amount, 10); // 2 cookies at the unseated price of 5 each
+  // 12: 2 cookies at the SEATED price of 6. The café owns two tables from t = 0 since Batch E1, so
+  // an ordinary guest finds one and pays the seated rate; the takeaway rate is asserted right
+  // below, on a café whose tables are all occupied.
+  assert.ok(processed); assert.equal(processed.amount, 12);
   assert.equal(c.done, true);
+});
+test('a guest with no free table pays the takeaway price', () => {
+  const w = createWorld(AREA1); putOnDisplay(w, 'dispCookie', 'cookie', 5);
+  for (const st of w.stations.values()) if (st.type === 'seat' && st.active) st.occupied = true;
+  const c = createCustomer(4, 'cat', V, AREA1); const list = [c];
+  runManned(list, w, 25);
+  const processed = w.events.find(e => e.type === 'processed');
+  assert.ok(processed); assert.equal(processed.amount, 10, '2 cookies at the unseated price of 5 each');
 });
 test('seated customer pays the tip price', () => {
   const w = createWorld(AREA1, { built: ['z_seats1'] }); putOnDisplay(w, 'dispCookie', 'cookie', 5);

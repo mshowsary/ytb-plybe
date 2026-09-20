@@ -13,6 +13,8 @@
     "test": "node --test test/**/*.test.js",
     "shot": "node tools/shot.js",
     "bot": "node tools/bot.js",
+    "bot:noads": "node tools/bot.js --ads=none",
+    "bot:ads": "node tools/bot.js --ads=all",
     "barista:sweep": "node tools/barista-price-sweep.js",
     "barista:robust": "node tools/barista-price-robustness.js",
     "barista:policy": "node tools/barista-policy-robustness.js",

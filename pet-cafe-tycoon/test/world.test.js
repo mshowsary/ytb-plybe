@@ -7,7 +7,16 @@ test('initial world has only pre-built stations active', () => {
   assert.equal(w.stations.get('oven1').active, true);
   assert.equal(w.stations.get('dispCupcake').active, false);
   assert.deepEqual(activeZones(w).map(z => z.id), ['z_seats1']);
-  assert.equal(freeSeat(w), null);
+  // Batch E1 (ship plan 1.6, "the first 3 seconds show the cafe working"): the cafe OWNS two
+  // tables before the player arrives, so the two opening guests have somewhere to be sitting at
+  // t = 0. freeSeat therefore finds one immediately instead of null -- the old assertion pinned an
+  // opening state the plan deliberately replaced. The gating rule it was really protecting (a seat
+  // behind an unbought zone stays inert) is asserted on seat3/seat6 instead.
+  assert.ok(freeSeat(w), 'the cafe opens with its own tables');
+  assert.equal(w.stations.get('seat1').active, true);
+  assert.equal(w.stations.get('seat2').active, true);
+  assert.equal(w.stations.get('seat3').active, false, 'z_seats1 is still a real purchase');
+  assert.equal(w.stations.get('seat6').active, false);
 });
 // Loop v2 Task 1 new layout (data/area1.js): 2 ovens + coffee1 + pantry1 + blender1 (5
 // machines/pantry) + return1 + 4 displays + 2 registers (code type 'checkout') + 1 bowl + 3
@@ -31,10 +40,11 @@ test('AREA1 has 29 stations and 12 zones', () => {
   assert.equal(AREA1.stations.length, 29);
   assert.equal(AREA1.zones.length, 12);
 });
-test('exactly oven1, dispCookie and register1 are active at start', () => {
+test('exactly oven1, dispCookie, register1 and the two opening tables are active at start', () => {
   const w = createWorld(AREA1);
   const active = [...w.stations.values()].filter(st => st.active).map(st => st.id).sort();
-  assert.deepEqual(active, ['dispCookie', 'oven1', 'register1']);
+  // seat1/seat2 joined this set in Batch E1 -- see the opening-cafe note above.
+  assert.deepEqual(active, ['dispCookie', 'oven1', 'register1', 'seat1', 'seat2']);
 });
 test('building the whole zone chain in order activates every station and rebuilds w.boxes', () => {
   const w = createWorld(AREA1);
@@ -128,8 +138,11 @@ test('refreshActive lists both cupcake-chain displays after building z_oven2 (re
   refreshActive(w); // idempotent, callable directly too
   assert.deepEqual(w.displays.slice().sort(), ['dispCookie', 'dispCupcake']);
 });
-test('freeSeat returns null with no seats, and pair geometry after z_seats1', () => {
+test('freeSeat returns null when every seat is taken, and pair geometry on a table', () => {
   const w = createWorld(AREA1);
+  // No unbuilt-café case left to test (the café owns two tables from t = 0), so the real invariant
+  // -- freeSeat never invents a seat -- is checked by occupying the ones that exist.
+  for (const st of w.stations.values()) if (st.type === 'seat' && st.active) st.occupied = true;
   assert.equal(freeSeat(w), null);
   const w2 = createWorld(AREA1, { built: ['z_seats1'] });
   const seat = freeSeat(w2);

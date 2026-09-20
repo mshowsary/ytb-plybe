@@ -19,8 +19,20 @@ export function createCustomerSpawnSequence(seed = CUSTOMER_SPAWN_SEED) {
   return {
     // meta is optional and defaults to null, which reads as locked — tools/bot.js and the eight
     // other headless callers pass nothing and stay byte-identical.
-    next(followers = 0, meta = null) {
-      const species = SPECIES[speciesIndex++ % SPECIES.length];
+    //
+    // `allowed` (ship plan §1.6b, sim/petArrivals.js unlockedSpecies) is the species this café has
+    // opened: cats and dogs from day 1, bunnies with the Pet treat bar, hamsters with the Ice cream
+    // garden. Omitting it keeps every species, so a caller that does not know about builds behaves
+    // exactly as before. THE ROUND-ROBIN IS NOT AN RNG DRAW — it is a counter — so filtering it
+    // consumes no randomness and the seeded stream stays bit-identical draw for draw. The counter
+    // advances once per accepted species, never once per rejected candidate, so the rotation is a
+    // function of (how many guests so far, which species are open) and nothing else.
+    next(followers = 0, meta = null, allowed = null) {
+      const pool = Array.isArray(allowed) && allowed.length
+        ? SPECIES.filter(s => allowed.includes(s))
+        : SPECIES;
+      const list = pool.length ? pool : SPECIES;
+      const species = list[speciesIndex++ % list.length];
       // A bigger following pulls rarer coats in. weightedVariantWeights only redistributes slots
       // inside a fixed-length bag, so this consumes exactly one rng draw either way and cannot
       // return an out-of-catalogue variant — the seeded stream stays identical at 0 followers.

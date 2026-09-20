@@ -143,9 +143,9 @@ export function franchisePreview(meta) {
 // ---- the keep/reset partition, as data -----------------------------------------------------------
 //
 // Three lists, exhaustive over the RUNTIME snapshot (game.js's literal plus every wrapper that adds
-// to it: petFriendship's petKeepsake, staff's staffState, economyExperience's temporaryHelp,
-// economicLedger's ledger, interactionCoach's learning). Anything in none of them is `unknown`, and
-// `unknown` is a test failure, not a shrug.
+// to it: petFriendship's petKeepsake, staff's staffState, economicLedger's ledger,
+// interactionCoach's learning). Anything in none of them is `unknown`, and `unknown` is a test
+// failure, not a shrug. (`temporaryHelp` left this list with its three rewarded offers in Batch E2.)
 
 /** Copied to the new branch verbatim (deep-cloned, never aliased). */
 export const FRANCHISE_KEEP = Object.freeze([
@@ -157,7 +157,6 @@ export const FRANCHISE_KEEP = Object.freeze([
   'dayState',         // the calendar CONTINUES. See the note under DROP for why.
   'stats',            // lifetime totals — and load-bearing: see the warning below
   'lifetimeEarned',   // mirrors stats.lifetimeEarned; the boundary re-derives it from stats anyway
-  'temporaryHelp',    // a rewarded-ad entitlement is the player's, not the café's
   'meta',             // handled field-by-field below
 ]);
 
@@ -179,7 +178,7 @@ export const FRANCHISE_DROP = Object.freeze([
   'stationState',  // null -> stationState.js's own "historical creation defaults" for a fresh café
   'ownerState',    // null -> the owner walks in at the door carrying nothing
   'staffState',    // null -> no runners, so no runner assignments
-  'boosts',        // legacy field; economyExperience deletes it from every modern snapshot
+  'boosts',        // legacy field; nothing writes a boost since Batch E2 cut the two that existed
   'goal',          // applySave regenerates the contract from the day and meta
 ]);
 
@@ -209,7 +208,7 @@ const RESET_FACTORY = Object.freeze({
   staffLevels: () => ({ runner: { speed: 0, carry: 0 }, cashier: { speed: 0 }, cleaner: { speed: 0 } }),
   machineLevels: () => ({ oven: 0, coffee: 0, display: 0 }),
   stars: () => ({}),
-  dayStats: () => ({ served: 0, lost: 0, earned: 0, serviceFees: 0, serviceMisses: 0, wasteFees: 0, bestStreak: 0, specialServed: 0 }),
+  dayStats: () => ({ served: 0, lost: 0, earned: 0, serviceFees: 0, serviceMisses: 0, wasteFees: 0, bestStreak: 0, seatedServed: 0, iceCreams: 0, photos: 0 }),
   // null, not a copy: sim/save.js reads a null ledger as "start a fresh reconciliation baseline from
   // the validated wallet", which is precisely right for a wallet that was just zeroed. Carrying the
   // old ledger over would have it reconcile a balance that no longer exists.

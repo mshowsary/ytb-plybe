@@ -67,7 +67,12 @@ window.ytgame={IN_PLAYABLES_ENV:true,game:{firstFrameReady(){},gameReady(){windo
 // Anything else that positions itself is a projected label and must be registered in ANCHORS.
 const SELF_POSITIONED_FX = new Set([
   'fcoin', 'fbill',
-  'mystery-float-chip', 'speed-build-chip', 'rare-visitor-chip', 'golden-shot-chip',
+  // Batch E2 retired the four hidden rewarded chips (mystery-float / speed-build / rare-visitor /
+  // golden-shot) with their placements. The one projected rewarded element left is the Build
+  // Boost's ▶ badge, which systems/offers.js positions on the pad itself every frame from
+  // fx.project -- a picture with a tap target, anchored to a plot the owner is standing in, so the
+  // label solver must not nudge it off the thing it is pointing at.
+  'offer-pad',
   'build-intent-progress',
   // Guidance (2026-09-17): the screen-edge arrow toward an off-screen target and the first-touch
   // drag hand. Both compute their own screen positions in systems/objective.js and are pure
@@ -183,14 +188,53 @@ for (const [tag, width, height, dpr] of VIEWPORTS) {
     const flushFor = (edge, r) => edge === 'left' ? r.l - 2
       : edge === 'right' ? (vw - 2) - r.r
         : edge === 'top' ? r.t - 2 : (vh - 2) - r.b;
+    // A LABEL GROUP MOVES AS ONE UNIT. src/systems/customers.js pairs a guest's wish bubble with its
+    // patience bar through `data-label-group` (the bar is painted 6 px under the bubble) and
+    // src/ui/labelLayout.js solves the pair as a single rect so they can never drift apart. Pushing
+    // ONE member off-screen and leaving the other in the middle of the frame therefore asks the
+    // solver to satisfy a state the game cannot produce: the unit's own box is 130 px tall, and a
+    // clamp that brings the anchor inside legitimately leaves the far member out.
+    //
+    // Until Batch E1 put two seated guests in the café at t = 0 this never fired -- the smoke ran on
+    // an empty room and had NO real labels to displace (`labelsOnScreen: 0`), so only the synthetic
+    // pet-identity tag was ever tested. The displacement now moves every member of a group by the
+    // same delta, which is the state the player can actually reach, and asserts that ALL of them
+    // come back inside.
+    const groupOf = el => (el.dataset && el.dataset.labelGroup) || null;
+    const membersOf = el => {
+      const g = groupOf(el);
+      return g ? [...fx.querySelectorAll(`[data-label-group="${g}"]`)] : [el];
+    };
     for (const el of displaced) {
       const cls = (el.className || '').toString().split(/\s+/).filter(Boolean)[0];
+      const unit = membersOf(el);
+      const home = unit.map(m => ({ m, left: parseFloat(m.style.left) || 0, top: parseFloat(m.style.top) || 0 }));
+      const anchor = home.find(h => h.m === el);
       for (const [edge, [x, y]] of Object.entries(edgePos)) {
-        el.style.left = x + 'px'; el.style.top = y + 'px';
+        for (const h of home) {
+          h.m.style.left = (x + (h.left - anchor.left)) + 'px';
+          h.m.style.top = (y + (h.top - anchor.top)) + 'px';
+        }
         const before = rectOf(el);
         layout.update();
         const after = rectOf(el);
-        cases.push({ cls, edge, beforeOutside: outside(before), after, afterOutside: outside(after), flush: flushFor(edge, after) });
+        // Every member of the unit, not just the one that was named: a solver that rescued the
+        // bubble and abandoned its patience bar would still be leaving a label off-screen.
+        const strays = unit.filter(m => isVisible(m) && outside(rectOf(m))).length;
+        // FLUSHNESS is measured on the UNIT's own box, which is what the solver clamps. A member of
+        // a two-anchor group (the wish hangs above its point, the patience bar sits below it) lands
+        // its own offset short of the edge by construction, so measuring the member would report a
+        // rect-model error that is really just the group's height.
+        const boxes = unit.filter(isVisible).map(rectOf);
+        const unitRect = boxes.length ? {
+          l: Math.min(...boxes.map(b => b.l)), t: Math.min(...boxes.map(b => b.t)),
+          r: Math.max(...boxes.map(b => b.r)), b: Math.max(...boxes.map(b => b.b)),
+        } : after;
+        cases.push({
+          cls, edge, beforeOutside: outside(before), after,
+          afterOutside: outside(after) || strays > 0,
+          unit: unit.length, flush: flushFor(edge, unitRect),
+        });
       }
     }
 

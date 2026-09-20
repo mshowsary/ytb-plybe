@@ -1,7 +1,22 @@
-// src/sim/day.js — four-minute café shift with an intentional emotional rhythm:
+// src/sim/day.js — the café shift, with an intentional emotional rhythm:
 // prepare calmly → feel a real rush → recover/restock → close cleanly.
-const MORNING = 60, RUSH = 90, AFTERNOON = 60, CLOSING = 30;
+//
+// CLOSING WAS 30 SECONDS AND IS NOW 15 (Batch E1, ship plan §1.6: "a short 'last call' close instead
+// of 40 s of empty café"). spawnMult() returns 0 for the whole closing phase — nobody arrives — so
+// those 30 seconds were the café emptying out and then standing still, which the 19-day playthrough
+// measured as the deadest part of every day. 15 s is long enough for the guests already inside to
+// finish their meal (EAT_TIME is 4 s) and walk out, and short enough that the day ends on the last
+// guest leaving rather than on a wait. The beat itself — the last call, the pets' wave and the tip
+// jars being swept — is in src/game.js.
+//
+// THE 15 SECONDS MOVE INTO THE AFTERNOON RATHER THAN OFF THE CLOCK: DAY_LENGTH stays 240. The
+// afternoon still has arrivals (spawnMult 0.48), so the shift loses dead time instead of losing a
+// quarter of its content — and render/daylight.js's keyframe table is authored against this exact
+// 240-second span (its last keyframe IS DAY_LENGTH), so shortening the day would have ended every
+// shift mid-sunset with the dusk frame never reached.
+const MORNING = 60, RUSH = 90, AFTERNOON = 75, CLOSING = 15;
 export const DAY_LENGTH = MORNING + RUSH + AFTERNOON + CLOSING;
+export const PHASE_SECONDS = Object.freeze({ morning: MORNING, rush: RUSH, afternoon: AFTERNOON, closing: CLOSING });
 
 export function createDay() { return { day: 1, t: 0, phase: 'morning' }; }
 export function phaseOf(t) {

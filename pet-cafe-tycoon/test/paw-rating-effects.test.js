@@ -32,15 +32,21 @@ const FOLLOWER_MULTS = [1, 1 / 1.2, 1 / 1.5];
 
 // ---- effect 1: arrivals ---------------------------------------------------------------------------
 
-test('+10% arrivals per star is a DIVISION of the interval, clamped to the authored star range', () => {
+// Batch E1: the arrivals bonus is +10% ONCE, at ★2, not +10% compounding on every star. Ship plan
+// §1.6a lists it against ★2 alone, and the per-star version handed +10% on day 1 (★1 is 40 guests
+// served) to a café with four tables -- measured on the 60-day bot at 0.027 seat misses per guest,
+// over the 0.02 quiet gate. The DIVISION rule this test exists for is unchanged and still asserted.
+test('+10% arrivals lands once at ★2 and is a DIVISION of the interval, not a subtraction', () => {
   assert.equal(pawArrivalMultiplier(0), 1);
-  assert.ok(Math.abs(pawArrivalMultiplier(5) - 1.5) < 1e-12);
+  assert.equal(pawArrivalMultiplier(1), 1, 'star 1 is a resident and an awning, not more traffic');
+  for (const star of [2, 3, 4, 5]) assert.ok(Math.abs(pawArrivalMultiplier(star) - 1.1) < 1e-12, `star ${star}`);
   assert.equal(pawSpawnIntervalMultiplier(0), 1);
-  assert.ok(Math.abs(pawSpawnIntervalMultiplier(5) - 1 / 1.5) < 1e-12);
+  assert.equal(pawSpawnIntervalMultiplier(1), 1);
   // 10% MORE ARRIVALS is 1/1.1 of the interval, not 0.9 of it. Getting this backwards would make
-  // every star ~1% weaker than authored and the error would compound five times over.
-  assert.ok(Math.abs(pawSpawnIntervalMultiplier(1) - 1 / 1.1) < 1e-12);
-  // Out-of-range stars cannot buy more than ★5's bonus, in either direction.
+  // the bonus ~1% weaker than authored.
+  assert.ok(Math.abs(pawSpawnIntervalMultiplier(2) - 1 / 1.1) < 1e-12);
+  assert.ok(Math.abs(pawSpawnIntervalMultiplier(5) - 1 / 1.1) < 1e-12);
+  // Out-of-range stars cannot buy more than the authored bonus, in either direction.
   assert.equal(pawSpawnIntervalMultiplier(99), pawSpawnIntervalMultiplier(PAW_MAX_STAR));
   assert.equal(pawSpawnIntervalMultiplier(-3), 1);
 });

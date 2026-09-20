@@ -73,6 +73,11 @@ export function createZones(G, S, ctx) {
   }
   const tmp = { sx: 0, sy: 0, visible: true };
   const markCheckpoint = reason => { if (typeof G.requestCheckpoint === 'function') G.requestCheckpoint(reason); };
+  // The ONE plot the owner is standing in this frame, resolved below and published so the Build
+  // Boost offer (systems/offers.js, ship plan 1.7a) puts its play badge on exactly the plot that
+  // would take the payment. A second footprint test over there could disagree with this one; there
+  // is only ever one armed plot, and this is it.
+  let armed = null;
 
   function onBuilt(e) {
     const zv = zonesMap.get(e.zoneId); if (!zv) return;
@@ -131,6 +136,7 @@ export function createZones(G, S, ctx) {
 
   return {
     syncAll,
+    get armedZone() { return armed; },
     update(dt) {
       const speed = Math.hypot(P.vx || 0, P.vz || 0);
       if (speed > 0.6 && S.releasePunch) S.releasePunch();
@@ -150,6 +156,7 @@ export function createZones(G, S, ctx) {
         const d = (P.x - z.x) ** 2 + (P.z - z.z) ** 2;
         if (d < armedD) { armedD = d; armedZone = z; }
       }
+      armed = armedZone;
       for (const z of world.activeZoneList) {
         const zv = zonesMap.get(z.id); if (!zv) continue;
         zv.outline.visible = true; zv.ghost.visible = true;

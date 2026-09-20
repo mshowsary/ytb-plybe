@@ -117,24 +117,27 @@ test('a developed café gets genuinely busier, and stays bounded', () => {
 // Rewarded offers have to keep pace with the ladders, or the whole meta-economy quietly dies with
 // them: an optional ad worth 500 coins is compelling beside a 900-coin upgrade and meaningless
 // beside a 15,000-coin one, and an offer nobody accepts earns nothing for anybody.
-test('rewarded value tracks the café, and stays bounded', async () => {
-  const r = await import('../src/sim/rewards.js');
-  // Authored behaviour is untouched when no level is supplied.
-  assert.equal(r.mysteryCoinsCap(0), r.MYSTERY_COINS_MAX);
-  assert.equal(r.mysteryCoinsCap(8), r.MYSTERY_COINS_MAX);
-  for (let d = 3; d <= 20; d++) {
-    const coins = r.mysteryCoinsForDay(d, 500);
-    assert.ok(coins >= r.MYSTERY_COINS_MIN && coins <= r.MYSTERY_COINS_MAX);
+//
+// This used to be measured on the Mystery Paw Gift's coin cap, which needed a per-level ceiling
+// precisely because it paid a FIXED number. Batch E2 cut that offer (ship plan 1.7) and the
+// day-end offer became "double today", which is a SHARE of the day the player just played -- so it
+// tracks the café by construction, at every scale, with no ceiling to maintain. Same requirement,
+// measured against the offer that now carries it.
+test('rewarded value tracks the cafe, and never falls behind it', async () => {
+  const { summaryBonusAmount, SUMMARY_BONUS_MIN } = await import('../src/sim/adPacing.js');
+  // A day of any size is doubled, within the rounding the prize is printed at.
+  for (const sales of [180, 420, 1_240, 4_486, 9_871, 28_500, 120_000]) {
+    const bonus = summaryBonusAmount(sales);
+    assert.ok(bonus >= sales * 0.99 && bonus <= sales * 1.01,
+      `a ${sales}-coin day must offer about ${sales}, offered ${bonus}`);
   }
-  // Past the authored build-out the ceiling rises with café level, monotonically.
+  // Monotonic: a bigger day is never worth less to watch.
   let prev = 0;
-  for (let lvl = 8; lvl <= 80; lvl += 6) {
-    const cap = r.mysteryCoinsCap(lvl);
-    assert.ok(cap >= prev, `cap must not fall as the café grows (level ${lvl})`);
-    prev = cap;
+  for (let sales = 0; sales <= 60_000; sales += 2_500) {
+    const bonus = summaryBonusAmount(sales);
+    assert.ok(bonus >= prev, `the offer must not fall as the day grows (sales ${sales})`);
+    prev = bonus;
   }
-  assert.ok(r.mysteryCoinsCap(30) > r.mysteryCoinsCap(8));
-  // ...and is clamped, because rewarded value that outruns its own economy just inflates it.
-  assert.ok(r.mysteryCoinsCap(10_000) <= r.MYSTERY_COINS_CEILING);
-  assert.ok(r.mysteryCoinsForDay(9, 999_999, 10_000) <= r.MYSTERY_COINS_CEILING);
+  // ...and a quiet day still pays a floor rather than nothing.
+  assert.equal(summaryBonusAmount(0), SUMMARY_BONUS_MIN);
 });

@@ -68,9 +68,16 @@ export const AREA1 = {
     // The west three tables close up to x <= -3.85 so seat3 clears the apron too (seat1 stays east
     // of the corner plant at (-9.2, 6.2), which tools/prop-overlap-smoke.js watches), and the lounge
     // now adds two tables (seat3, seat6); the deck's four tables are the garden's own.
-    { id: 'seat1', type: 'seat', x: -7.8,  z: 6.0, rot: Math.PI, fw: 1.4, fd: 1.4, builtBy: 'z_seats1' },
-    { id: 'seat2', type: 'seat', x: -5.85, z: 6.0, rot: Math.PI, fw: 1.4, fd: 1.4, builtBy: 'z_seats1' },
-    { id: 'seat3', type: 'seat', x: -3.85, z: 6.0, rot: Math.PI, fw: 1.4, fd: 1.4, builtBy: 'z_seats2' },
+    // THE FIRST THREE SECONDS (Batch E1, ship plan §1.6: "the first 3 seconds show the café
+    // working"). seat1 and seat2 have NO builtBy: they are the café's own two tables, standing
+    // before the player arrives, with a guest and its pet already at each of them at t = 0
+    // (src/game.js seedOpeningGuests). The room used to open with zero tables and zero coins, so
+    // the first thing a new player saw was an empty shop. The table COUNT is unchanged — four
+    // inside, exactly as §2b measured — the two purchased ones just moved one zone later: z_seats1
+    // now buys seat3 and z_seats2 buys seat6.
+    { id: 'seat1', type: 'seat', x: -7.8,  z: 6.0, rot: Math.PI, fw: 1.4, fd: 1.4 },
+    { id: 'seat2', type: 'seat', x: -5.85, z: 6.0, rot: Math.PI, fw: 1.4, fd: 1.4 },
+    { id: 'seat3', type: 'seat', x: -3.85, z: 6.0, rot: Math.PI, fw: 1.4, fd: 1.4, builtBy: 'z_seats1' },
     { id: 'seat6', type: 'seat', x: 4.5,  z: 6.0, rot: Math.PI, fw: 1.4, fd: 1.4, builtBy: 'z_seats2' },
 
     // The staff desk is the only thing left in the café that opens a sheet by standing at it. The
@@ -130,7 +137,7 @@ export const AREA1 = {
   // build needs. Only systems/zones.js (and test/zone-spacing.test.js, which checks the same
   // ground) read it.
   zones: [
-    { id: 'z_seats1',    x: -6.75, z: 4.3,  price: 90,   adds: ['seat1', 'seat2'],                       label: 'Tables' },
+    { id: 'z_seats1',    x: -6.75, z: 4.3,  price: 90,   adds: ['seat3'],                                 label: 'Tables' },
     { id: 'z_oven2',     x: 5.0,   z: -3.2, price: 220,  adds: ['oven2', 'dispCupcake'],                 requires: 'z_seats1', label: 'Cupcake oven' },
     // Task 25 supported candidate: after Cupcakes, staffing and checkout capacity become parallel
     // choices. The Desk advances the productive room chain; the second register is a useful but
@@ -144,7 +151,7 @@ export const AREA1 = {
     // bar would be. It now stands in the corner itself, still >= 1.6 m from every working spot.
     { id: 'z_blender',   x: 6.3,   z: 0.5,  price: 1150, adds: ['blender1', 'barSmoothie', 'bush1'],      requires: 'z_bowl',   label: 'Smoothie bar' },
     { id: 'z_garden',    x: 5.5,   z: 4.3,  price: 1400, adds: ['bush2', 'bush3'],                        requires: 'z_blender',label: 'Fruit garden' },
-    { id: 'z_seats2',    x: -3.0,  z: 4.8,  price: 1750, adds: ['seat3', 'seat6'],                        requires: 'z_garden', label: 'Pet lounge' },
+    { id: 'z_seats2',    x: -3.0,  z: 4.8,  price: 1750, adds: ['seat6'],                                 requires: 'z_garden', label: 'Pet lounge' },
 
     // Two parallel goals after the lounge (docs/SHIP-PLAN-2026-09-19.md §1.1): the cheaper Pet
     // camera and the Ice cream garden. The player picks which one to save for.

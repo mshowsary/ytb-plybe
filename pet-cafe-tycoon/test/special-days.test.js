@@ -1,58 +1,29 @@
-// test/special-days.test.js — validates deterministic theme challenges and Golden Hour.
+// test/special-days.test.js — Golden Hour, the one thing left in src/sim/specialDays.js.
+//
+// Batch E1 (ship plan §1.6) merged the special-day THEME into the one daily goal
+// (src/sim/dailyGoal.js, covered by test/daily-goal.test.js). Two daily meters with two separate
+// coin rewards were two things to read for one day's work, so THEMES, specialForDay,
+// specialForDaySeasoned, saleMatchesTheme, specialProgress and specialReward are gone and the four
+// tests that pinned them went with the catalogue they described. Golden Hour was never a goal — it
+// is a short 2× tip window that announces itself — and every assertion about it is unchanged below.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  THEMES,
-  SPECIALS_START_DAY,
   GOLDEN_HOUR_START_DAY,
   GOLDEN_HOUR_SECONDS,
   GOLDEN_HOUR_TIP_MULT,
-  specialForDay,
-  saleMatchesTheme,
-  specialProgress,
-  specialReward,
   goldenHourForDay,
   createGoldenHourState,
   stepGoldenHour,
   goldenHourMult,
 } from '../src/sim/specialDays.js';
-import { familyOf } from '../src/sim/economy.js';
+import * as specialDays from '../src/sim/specialDays.js';
 
-test('specials start only from day 3; day 1 and 2 return null', () => {
-  assert.equal(specialForDay(1), null);
-  assert.equal(specialForDay(2), null);
-  const day3 = specialForDay(3);
-  assert.ok(day3);
-  assert.ok(THEMES.some(t => t.id === day3.id));
-  assert.ok(day3.target >= 6);
-  assert.ok(day3.reward >= 130);
-});
-
-test('special theme for a given day is deterministic and pure', () => {
-  const a = specialForDay(5);
-  const b = specialForDay(5);
-  assert.deepEqual(a, b);
-  assert.notEqual(specialForDay(4), null);
-});
-
-test('saleMatchesTheme checks product family accurately', () => {
-  const puppyTheme = { family: 'treat' };
-  assert.equal(saleMatchesTheme(puppyTheme, 'treat', familyOf), true);
-  assert.equal(saleMatchesTheme(puppyTheme, 'cookie', familyOf), false);
-
-  const coffeeTheme = { family: 'coffee' };
-  assert.equal(saleMatchesTheme(coffeeTheme, 'coffee', familyOf), true);
-  assert.equal(saleMatchesTheme(coffeeTheme, 'latte', familyOf), true);
-  assert.equal(saleMatchesTheme(coffeeTheme, 'smoothie', familyOf), false);
-});
-
-test('specialProgress tracks met status and fractional completion', () => {
-  const special = { target: 6, reward: 150 };
-  assert.deepEqual(specialProgress(special, 0), { count: 0, target: 6, met: false, frac: 0 });
-  assert.deepEqual(specialProgress(special, 3), { count: 3, target: 6, met: false, frac: 0.5 });
-  assert.deepEqual(specialProgress(special, 6), { count: 6, target: 6, met: true, frac: 1 });
-  assert.deepEqual(specialProgress(special, 9), { count: 6, target: 6, met: true, frac: 1 });
-  assert.equal(specialReward(special), 150);
+test('the theme catalogue is gone, not merely unused', () => {
+  for (const name of ['THEMES', 'SPECIALS_START_DAY', 'specialForDay', 'specialForDaySeasoned',
+    'saleMatchesTheme', 'specialProgress', 'specialReward', 'seasonFestivalDay', 'SEASON_FESTIVAL_IDS']) {
+    assert.equal(name in specialDays, false, `${name} was deleted with the theme day`);
+  }
 });
 
 test('goldenHourForDay starts from day 2, is deterministic, and schedules in afternoon', () => {

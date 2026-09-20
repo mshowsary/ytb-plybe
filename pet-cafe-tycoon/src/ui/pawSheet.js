@@ -20,10 +20,11 @@
 // into a fixed head/star row and ONE internal scroller (.paw-list), so the smallest certification
 // viewports (280x653, 653x280) scroll the list instead of the page. CSS lives in src/style.css.
 import {
-  PAW_MAX_STAR, PAW_LEGENDARY_STAR, PAW_ARRIVAL_BONUS_PER_STAR, pawVisibleRequirements,
+  PAW_MAX_STAR, PAW_LEGENDARY_STAR, PAW_ARRIVAL_BONUS_PER_STAR, PAW_ARRIVAL_STAR, pawVisibleRequirements,
   pawAwningSetIndex, pawResidentSlots,
 } from '../sim/pawRating.js';
 import { decorSetForStar, DECOR_BY_ID } from '../../data/decor.js';
+import { RENOVATIONS } from '../sim/career.js';
 import { openModal, closeModal } from './modal.js';
 import { pawIcon, heartIcon, personIcon, sparkleIcon, checkIcon, starIcon, cafeIcon } from './icons.js';
 
@@ -36,25 +37,23 @@ const svg = body => `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="fals
 const roomsIcon = () => svg('<rect x="3" y="3" width="8" height="8" rx="2" fill="#8B7CF6"/><rect x="13" y="3" width="8" height="8" rx="2" fill="#B7ACFB"/><rect x="3" y="13" width="8" height="8" rx="2" fill="#B7ACFB"/><rect x="13" y="13" width="8" height="8" rx="2" fill="#8B7CF6"/>');
 const zoneIcon = () => svg('<path d="M3 10l9-6 9 6v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" fill="#E9954A"/><path d="M3 10h18l-1.6-2.2H4.6z" fill="#FF8A80"/>');
 const cameraIcon = () => svg('<rect x="2.5" y="7" width="19" height="13" rx="3" fill="#5B4AB6"/><path d="M9 7l1.4-2.2h3.2L15 7z" fill="#5B4AB6"/><circle cx="12" cy="13.5" r="4.2" fill="#FFF4E6"/><circle cx="12" cy="13.5" r="2.2" fill="#8B7CF6"/>');
-const seatIcon = () => svg('<path d="M6 4h12v7H6z" fill="#C38D9E"/><rect x="4" y="11" width="16" height="4" rx="1.6" fill="#9F6B7C"/><path d="M6 15v5M18 15v5" stroke="#9F6B7C" stroke-width="2.2" stroke-linecap="round"/>');
 const bookIcon = () => svg('<path d="M4 4h6.5a2.5 2.5 0 0 1 2.5 2.5V20a2 2 0 0 0-2-2H4z" fill="#FFF4E6" stroke="#7A583A" stroke-width="1.6" stroke-linejoin="round"/><path d="M20 4h-6.5A2.5 2.5 0 0 0 11 6.5V20a2 2 0 0 1 2-2h7z" fill="#F4EAE6" stroke="#7A583A" stroke-width="1.6" stroke-linejoin="round"/><circle cx="16.4" cy="10.4" r="1.5" fill="#C97A3A"/><circle cx="19" cy="12.6" r="1.1" fill="#C97A3A"/>');
-const cupIcon = () => svg('<path d="M7 3h10v6a5 5 0 0 1-10 0z" fill="#EFB928"/><path d="M7 5H4.5v1.5A3.5 3.5 0 0 0 8 10M17 5h2.5v1.5A3.5 3.5 0 0 1 16 10" fill="none" stroke="#C98A00" stroke-width="1.8"/><path d="M11 14h2v4h-2z" fill="#C98A00"/><rect x="7.5" y="18" width="9" height="3" rx="1.2" fill="#C98A00"/>');
-const albumIcon = () => svg('<rect x="3.5" y="6" width="13" height="12" rx="2" fill="#F4EAE6" stroke="#7A583A" stroke-width="1.5" transform="rotate(-7 10 12)"/><rect x="7.5" y="5" width="13" height="12" rx="2" fill="#FFF4E6" stroke="#7A583A" stroke-width="1.5"/><circle cx="11.6" cy="9" r="1.5" fill="#FFB300"/><path d="M8.6 15l3.2-3.4 2.4 2.3 2-1.7 3 2.8z" fill="#8B7CF6"/>');
-const followersIcon = () => svg('<circle cx="8" cy="8.6" r="3" fill="#6B4A2B"/><path d="M2.6 19c0-3.2 2.4-5.2 5.4-5.2s5.4 2 5.4 5.2" fill="none" stroke="#6B4A2B" stroke-width="2.2" stroke-linecap="round"/><circle cx="16.6" cy="9.6" r="2.4" fill="#C97A3A"/><path d="M13.6 18.4c.3-2.6 1.9-4 3.9-4 2.3 0 3.9 1.7 3.9 4.4" fill="none" stroke="#C97A3A" stroke-width="2" stroke-linecap="round"/>');
+// The cafe theme row (r5.theme): the paint roller the rest of the game already uses for "the room
+// itself changes", so the star sheet, the Cafe card's next-thing chip and the theme's own buy
+// button are all the same picture.
+const themeIcon = () => svg('<path d="M4 4.5h11a1.6 1.6 0 0 1 1.6 1.6v2.4H4z" fill="#8B7CF6"/><path d="M16.6 6.4h2.2A1.2 1.2 0 0 1 20 7.6v2.2a1.2 1.2 0 0 1-1.2 1.2h-6.3v1.6h-1.6v-3.2h7.9V7.6h-2.2z" fill="#7A583A"/><rect x="10.1" y="12.6" width="3.4" height="7.4" rx="1.4" fill="#E9954A"/>');
 
-// kind -> glyph. Keys are exactly PAW_REQUIREMENT_KINDS.
+// kind -> glyph. Keys are exactly PAW_REQUIREMENT_KINDS. (Batch E1 retired the seatMiss, cup, album
+// and followers rows with the requirements themselves, so their glyphs went too.)
 export const PAW_ROW_ICONS = Object.freeze({
   guests: personIcon,
   zoneSet: roomsIcon,
   bestie: heartIcon,
   zone: zoneIcon,
   photos: cameraIcon,
-  seatMiss: seatIcon,
   petBook: bookIcon,
-  cup: cupIcon,
-  album: albumIcon,
   perfect: sparkleIcon,
-  followers: followersIcon,
+  theme: themeIcon,
 });
 
 // Met / not yet / cannot be judged yet. The third state exists because pawRating.js marks the ★3
@@ -136,18 +135,33 @@ export function pawRowIcon(kind) {
 export function starRewards(star) {
   const s = Math.max(0, Math.min(PAW_MAX_STAR, star | 0));
   if (!s) return [];
-  const out = [{ kind: 'guests', value: `+${Math.round(PAW_ARRIVAL_BONUS_PER_STAR * 100)}%` }];
+  // The arrivals bonus lands once, at PAW_ARRIVAL_STAR — so only that star's row promises it.
+  const out = [];
+  if (s === PAW_ARRIVAL_STAR) out.push({ kind: 'guests', value: `+${Math.round(PAW_ARRIVAL_BONUS_PER_STAR * 100)}%` });
   if (pawAwningSetIndex(s) !== pawAwningSetIndex(s - 1)) out.push({ kind: 'awning' });
   const set = decorSetForStar(s);
   if (set.length) out.push({ kind: 'decor', count: set.length, icon: (DECOR_BY_ID.get(set[0]) || {}).icon || '' });
-  if (pawResidentSlots(s) > pawResidentSlots(s - 1)) out.push({ kind: 'resident' });
+  // A star always admits a resident (systems/starRewards.js applyStarRewards) — the slot COUNT only
+  // rises at some of them, so the resident picture is not conditional on the slot the way it was.
+  out.push({ kind: 'resident', slot: pawResidentSlots(s) > pawResidentSlots(s - 1) });
   if (s === PAW_LEGENDARY_STAR) out.push({ kind: 'legendary' });
+  // The stars that put a cafe theme on sale (sim/career.js RENOVATIONS[].star).
+  const themes = themesUnlockedAt(s);
+  if (themes) out.push({ kind: 'theme', count: themes });
   if (s === PAW_MAX_STAR) out.push({ kind: 'golden' });
   return out;
 }
+/** How many cafe themes become buyable exactly at this star. */
+export function themesUnlockedAt(star) {
+  const s = star | 0;
+  return RENOVATIONS.filter(r => (r.star | 0) === s).length;
+}
 const REWARD_ARIA = {
   guests: r => `${r.value} more guests`, awning: () => 'a new awning', decor: r => `${r.count} new décor pieces`,
-  resident: () => 'room for one more resident pet', legendary: () => 'legendary pets start visiting', golden: () => 'the Golden Paw',
+  resident: r => (r.slot ? 'a pet moves in, and room for one more' : 'a pet moves in'),
+  legendary: () => 'legendary pets start visiting',
+  theme: r => (r.count === 1 ? 'a café makeover goes on sale' : `${r.count} café makeovers go on sale`),
+  golden: () => 'the Golden Paw',
 };
 function rewardHtml(r) {
   if (r.kind === 'guests') return `<i>${personIcon()}</i><b>${r.value}</b>`;
@@ -155,6 +169,7 @@ function rewardHtml(r) {
   if (r.kind === 'decor') return `<i>${r.icon}</i><b>×${r.count}</b>`;
   if (r.kind === 'resident') return `<i>${heartIcon()}</i><i>${pawIcon()}</i>`;
   if (r.kind === 'legendary') return `<i>${sparkleIcon()}</i><i>${pawIcon()}</i>`;
+  if (r.kind === 'theme') return `<i>${themeIcon()}</i>${r.count > 1 ? `<b>×${r.count}</b>` : ''}`;
   return `<i class="gold">${pawIcon()}</i>`;
 }
 

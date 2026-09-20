@@ -153,6 +153,20 @@ export function refreshActive(w) {
 export function activeZones(w) {
   return w.area.zones.filter(z => !w.built.has(z.id) && (!z.requires || w.built.has(z.requires)));
 }
+// The tail both payment paths share: bank the coins on the pad, or finish the build — activate its
+// stations, refresh the active sets and emit the one 'built' event every consumer listens for.
+function bankZonePayment(w, z, spent) {
+  const total = (w.partial[z.id] || 0) + spent;
+  if (total >= z.price) {
+    delete w.partial[z.id]; delete w.payAcc[z.id]; w.built.add(z.id);
+    for (const id of z.adds) { const st = w.stations.get(id); if (st) st.active = true; }
+    refreshActive(w);
+    emitWorld(w, { type: 'built', zoneId: z.id });
+    return { spent, done: true };
+  }
+  if (spent > 0) w.partial[z.id] = total;
+  return { spent, done: false };
+}
 export function payZone(w, zoneId, coins, dt) {
   const z = w.area.zones.find(z => z.id === zoneId);
   if (!z || w.built.has(zoneId)) return { spent: 0, done: false };
@@ -162,16 +176,22 @@ export function payZone(w, zoneId, coins, dt) {
   let spent = Math.floor(w.payAcc[zoneId]);
   spent = Math.max(0, Math.min(coins, z.price - paid, spent));
   w.payAcc[zoneId] -= spent;
-  const total = paid + spent;
-  if (total >= z.price) {
-    delete w.partial[zoneId]; delete w.payAcc[zoneId]; w.built.add(zoneId);
-    for (const id of z.adds) { const st = w.stations.get(id); if (st) st.active = true; }
-    refreshActive(w);
-    emitWorld(w, { type: 'built', zoneId });
-    return { spent, done: true };
-  }
-  if (spent > 0) w.partial[zoneId] = total;
-  return { spent, done: false };
+  return bankZonePayment(w, z, spent);
+}
+/**
+ * A payment into a pad that does NOT come from the wallet: the Build Boost rewarded offer pays up
+ * to half a pad's price (ship plan §1.7a, sim/offers.js). It shares payZone's completion exactly,
+ * so a boosted build raises the same 'built' event, activates the same stations and reaches
+ * systems/zones.js's reveal, the objective, the region sync and the checkpoint the same way a
+ * hand-paid one does. Returns { spent, done }.
+ */
+export function creditZone(w, zoneId, amount) {
+  const z = w.area.zones.find(zone => zone.id === zoneId);
+  if (!z || w.built.has(zoneId)) return { spent: 0, done: false };
+  const paid = w.partial[zoneId] || 0;
+  const spent = Math.max(0, Math.min(Math.round(Number(amount) || 0), z.price - paid));
+  if (spent <= 0) return { spent: 0, done: false };
+  return bankZonePayment(w, z, spent);
 }
 // Loop v2 Task 3: once a station's star tier is >= 2, its bake/make speed is 1.5x (design section
 // 6). w.stars is an informal reference to G.stars (set once by game.js/tools/bot.js/tools/
@@ -239,6 +259,29 @@ export function takeTreat(w, id) {
 }
 export function addCash(w, id, amt) { w.stations.get(id).pile += amt; }
 export function collectCash(w, id) { const st = w.stations.get(id); const p = st.pile; st.pile = 0; return p; }
+
+// THE TIP JARS ARE SWEPT AT CLOSING (Batch E1, ship plan §1.6: the day ends on a beat instead of on
+// 30 s of empty café). Every active station that holds cash — the registers, the ice-cream stand's
+// jar and the tables' tip saucers — is emptied into one number the caller adds to the wallet. It is
+// a gift, never a charge: the money was already earned and already the player's, and this only
+// removes the "walk the whole room before the day ends or lose the round trip" chore.
+//
+// Returns { total, spots } — `spots` is one {x, z, amount} per jar that actually held something, so
+// the presentation layer can fly the coins out of the places the player can see them. Idempotent:
+// a second call on the same world sweeps 0, which is what makes it safe on a re-opened terminal
+// save (src/game.js openDaySummary runs on restore too).
+export function sweepTipJars(w) {
+  let total = 0;
+  const spots = [];
+  for (const st of w.stations.values()) {
+    if (!st.active || !(st.pile > 0)) continue;
+    const amount = st.pile;
+    st.pile = 0;
+    total += amount;
+    spots.push({ id: st.id, x: st.x, z: st.z, amount });
+  }
+  return { total, spots };
+}
 // Task 4: a dirty seat is not free — it's not usable again until cleanSeat clears it.
 export function freeSeat(w) { for (const st of w.stations.values()) if (st.type === 'seat' && st.active && !st.occupied && !st.dirty) return st; return null; }
 export function seatById(w, id) { return w.stations.get(id); }

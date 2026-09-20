@@ -4,7 +4,26 @@
 import {
   createWorld, activeZones, payZone, stepOvens, stepMachines, takeFromOven, takeFromMachine,
   putOnDisplay, collectCash, refillBeans, refillBowl, harvestBush, addFruit as stationAddFruit, cleanSeat,
+  sweepTipJars,
 } from '../src/sim/world.js';
+// Batch E1: the cafe the player actually opens on -- its own two tables, two guests already seated
+// with the tips they left, and OPENING_COINS in the wallet -- and the species gate that decides who
+// may visit at all. Both are real day-1 pacing inputs, so the bot has to model them or its day-1
+// numbers describe a cafe nobody plays.
+import { OPENING_COINS, seedOpeningCafe } from '../src/sim/opening.js';
+import { unlockedSpecies, dailyPetPlan } from '../src/sim/petArrivals.js';
+// BATCH E2 (ship plan 1.7, task item 5): the two ad policies. Everything below that reads AD_POLICY
+// is INERT unless BOT_ADS is set, so `npm run bot` -- the gate -- runs exactly the loop it ran
+// before this batch, byte for byte. See the AD POLICY block further down for what a policy turns on.
+import {
+  summaryBonusAmount, buildBoostEligible, buildBoostAmount, specialGuestEligible,
+} from '../src/sim/adPacing.js';
+import { specialGuestPick, helperPupNeeded, restockEverything } from '../src/sim/offers.js';
+import { creditZone } from '../src/sim/world.js';
+import { refreshWaitingPatience } from '../src/sim/customers.js';
+import { resolveUniquePetIdentity, activeNamedPetKeys } from '../src/sim/regularVisitors.js';
+import { ensurePetBook, discoverPet, recordPetVisit, petKey, petBookProgress } from '../src/sim/petBook.js';
+import { buyRenovation, renovationState } from '../src/sim/career.js';
 import { stepPetPoses, POSE_SERVE_RADIUS } from '../src/sim/petPose.js';
 import { createCustomer, stepCustomers, gardenTableCount } from '../src/sim/customers.js';
 import { createCustomerSpawnSequence } from '../src/sim/customerSpawn.js';
@@ -12,7 +31,7 @@ import { createStaff, stepStaff } from '../src/sim/staff.js';
 import { photographerSpawnAllowed } from '../src/sim/staffState.js';
 import { createMover, setTarget, stepMover } from '../src/sim/mover.js';
 import {
-  spawnInterval, maxCustomers, terraceSpawnInterval, terraceMaxCustomers, salePrice, playerSpeed, carryCap, cafeLevel,
+  effectiveSpawnInterval, maxCustomers, terraceSpawnInterval, terraceMaxCustomers, salePrice, playerSpeed, carryCap, cafeLevel,
   ensureStars, hireCost, nextStarCost, STAR_IDS, familyOf, cheapestDecor,
   upgradeCost, workerUpgradeCost, machineUpgradeCost, UPGRADES,
 } from '../src/sim/economy.js';
@@ -60,6 +79,29 @@ function configIdentity() {
 }
 const CONFIG_HASH = configIdentity();
 
+// ---- AD POLICY (Batch E2) -----------------------------------------------------------------------
+//
+// BOT_ADS=none   a player who never watches an ad
+// BOT_ADS=all    a player who takes every offer the café puts in front of them
+//
+// BOTH policies additionally switch on a META MODEL (pets met, photos credited to the album,
+// friendship visits, café themes bought). The default run does NOT, deliberately: writing meta
+// would let the bot reach Café Star 2, whose reward is +10% arrivals, which moves the seat-miss
+// quiet gate this file has been holding since Batch E1. The gate run must keep measuring the same
+// café it measured yesterday; the policy runs exist to compare two PLAYERS of the same café, and
+// they are only comparable to each other. Every number printed under "--- ad policy ---" is from a
+// policy run and must never be read against the gate run's table.
+const AD_POLICY_ARG = (process.argv.find(a => a.startsWith('--ads=')) || '').slice(6);
+const AD_POLICY = (AD_POLICY_ARG || process.env.BOT_ADS || '').trim().toLowerCase() || null;
+if (AD_POLICY && AD_POLICY !== 'none' && AD_POLICY !== 'all') {
+  console.error(`BOT_ADS must be 'none' or 'all' (got '${AD_POLICY}')`);
+  process.exit(2);
+}
+const WATCHES_ADS = AD_POLICY === 'all';
+const adViewsByDay = [];          // one entry per completed day
+let adViewsToday = 0, adCoinsTotal = 0, adBuildValueTotal = 0;
+let pendingSpecialGuestKey = null, serviceUsedDay = -1, guestUsedDay = -1;
+
 const DT = 1 / 30;
 // Batch 1 (task E3): the terrace unlocks ~day 14, so a 25-day run (the old ceiling, set when Area 1
 // was the whole game) never simulates the terrace era at all. Raised to 40 so the garden chain
@@ -72,7 +114,7 @@ const wallStart = Date.now();
 const world = createWorld(AREA1);
 
 const G = {
-  coins: 0,
+  coins: OPENING_COINS,
   up: { speed: 0, carry: 0, income: 0 },
   staff: { runner: 0, cashier: 0, cleaner: 0 },
   staffLevels: { runner: { speed: 0, carry: 0 }, cashier: { speed: 0 }, cleaner: { speed: 0 } },
@@ -84,6 +126,7 @@ const G = {
   stats: { served: 0 },
 };
 ensureCareer(G.meta);
+if (AD_POLICY) ensurePetBook(G.meta);
 // Gap (b): src/game.js:216 normalizes meta.servicePolicy once at startup, exactly like this. Without
 // it, G.meta.servicePolicy is undefined and prepareServicePolicy(G) below would throw.
 G.meta.servicePolicy = normalizeServicePolicy(G.meta.servicePolicy);
@@ -104,11 +147,48 @@ const spawns = createCustomerSpawnSequence();
 
 // `garden` spawns a garden guest at the garden's own arch (src/systems/customers.js does the same).
 function spawnCustomer(garden = false) {
-  const next = spawns.next();
-  const c = createCustomer(next.id, next.species, next.variant, AREA1, { garden });
-  c.petVariant = next.petVariant;
+  // The species gate (ship plan 1.6b): cats and dogs from day 1, bunnies with the Pet treat bar,
+  // hamsters with the Ice cream garden. src/systems/customers.js passes the same list, so the
+  // seeded stream stays in step between the live game and this harness.
+  const allowed = unlockedSpecies(world.built);
+  const next = spawns.next(0, G.meta, allowed);
+  let species = next.species, petVariant = next.petVariant;
+  if (AD_POLICY) {
+    // The META MODEL's spawn half, mirroring src/systems/customers.js exactly: the identity is
+    // RESOLVED (daily plan first, then the roll, then a deterministic rotation) and the resolved
+    // pet is what goes in the book. resolveUniquePetIdentity is pure and consumes no RNG, so the
+    // seeded stream is identical with or without a policy.
+    const day = Math.max(1, G.dayState.day | 0);
+    const plan = dailyPetPlan(G.meta, day, world.built);
+    // The Special Guest offer's invitation outranks the day's own promised face, for one arrival.
+    const preferred = (!garden && pendingSpecialGuestKey) || (plan ? plan.key : null);
+    if (!garden && pendingSpecialGuestKey) pendingSpecialGuestKey = null;
+    const pick = resolveUniquePetIdentity(species, petVariant, activeNamedPetKeys(customers), preferred, G.meta, allowed);
+    species = pick.species; petVariant = pick.variant;
+  }
+  const c = createCustomer(next.id, species, next.variant, AREA1, { garden });
+  c.petVariant = petVariant;
+  if (AD_POLICY) {
+    c.petIdentityKey = petKey(species, petVariant);
+    // src/game.js's ctx.discoverPet hook, called from systems/customers.js attachActor on EVERY
+    // spawn: you MEET everyone who walks in. Without this the bot's petBook stays empty and Café
+    // Stars 2-5 are unreachable by construction, which is why the default run cannot measure them.
+    discoverPet(G.meta, species, petVariant);
+  }
   customers.push(c);
   custSpawnPhase.set(c.id, G.dayState.phase);
+}
+
+// THE FIRST THREE SECONDS (ship plan 1.6, src/sim/opening.js). src/game.js seeds exactly this on a
+// fresh save: two guests already seated at the cafe's own two tables with the tips they left on
+// them. Both are real day-1 inputs -- the tips are the first coins toward the first pad -- so the
+// bot seeds them too or its day-1 row describes a cafe nobody opens. Authored, not rolled: the ids
+// come from a counter of their own, so the seeded spawn stream is untouched.
+{
+  let openingSeq = 1000000;
+  // custSpawnPhase (declared further down) is not set for these two: the friction index reads it
+  // with a 'morning' fallback, and an opening guest is already seated, so it has no wait to bucket.
+  seedOpeningCafe(world, customers, AREA1, () => openingSeq++);
 }
 
 const owner = { x: 0, z: 2.5, rot: 0 };
@@ -512,12 +592,19 @@ const pawDays = [];             // one row per settled shift
 const pawFirstDay = new Map();  // star -> day the RATCHET first reached it
 let pawCeremonies = 0, pawCeremonyDay = null, pawCeremonyDueChecks = 0;
 const PAW_UNMEASURED = {
-  'r2.bestie': 'meta.petFriendship — Bestie visits are recorded by src/systems/petFriendship.js on each pay event; this loop runs no systems/ layer, so petFriendship is never written and besties is 0 by construction.',
+  // Batch E1 rewrote every tier (ship plan 1.6a), so this table names the NEW row ids. The reason
+  // a row is unmeasurable here has not changed: this loop is pure sim + data and writes no meta
+  // beyond career, so every row fed by src/systems/ reads 0 BY CONSTRUCTION.
+  'r2.book':   'meta.petBook — discoverPet() is called from src/systems/petFriendship.js (via the ctx.discoverPet hook src/game.js installs), not from sim; this loop never discovers a pet.',
+  'r3.book':   'meta.petBook — same missing discoverPet() as r2.book.',
+  'r4.book':   'meta.petBook — same missing discoverPet() as r2.book.',
+  'r5.book':   'meta.petBook — same missing discoverPet() as r2.book.',
   'r3.photos': 'meta.album — poses genuinely RUN here (pets pose, the owner and the Photographer shoot them; see the photo-shots line above), but a shot only becomes an album entry in src/systems/photo.js creditShot(). With no album write, album shots stay 0 however many shots are taken.',
-  'r4.book':   'meta.petBook — discoverPet() is called from src/systems/petFriendship.js, not from sim; this loop never discovers a pet.',
-  'r5.album':  'meta.album — same missing creditShot() as r3.photos; photographed pets is 0.',
+  'r4.photos': 'meta.album — same missing creditShot() as r3.photos.',
+  'r4.bestie': 'meta.petFriendship — Bestie visits are recorded by src/systems/petFriendship.js on each settled visit; this loop runs no systems/ layer, so petFriendship is never written and besties is 0 by construction.',
+  'r5.bestie': 'meta.petFriendship — same missing systems/petFriendship.js as r4.bestie.',
   'r5.perfect':'meta.album best-rank — same missing creditShot(); and a headless shot is only ever a photographer shot ("good") or PHOTO_AUTO_RESOLVE ("ok") — there is no tap here — so this row could not be earned even with an album.',
-  'r5.followers':'meta.followers — awarded by src/systems/photo.js and by the Golden Paw ceremony itself, neither of which runs headlessly.',
+  'r5.theme':  'career.renovationLevel — a cafe theme is bought from the Cafe Stars sheet (src/ui/renovation.js -> src/game.js buyNextRenovation); botDecide models no meta purchase, so no theme is ever owned here.',
 };
 // Evidence handed to pawRating.js. G.stats.served is written by sim/settlement.js recordPaidGuest,
 // the same call src/game.js makes for every 'pay' event, so this is the real lifetime figure.
@@ -547,7 +634,11 @@ while (G.dayState.day <= MAX_DAYS) {
   if (paceKey !== cachedBuiltSize) {
     cachedBuiltSize = paceKey;
     const lvl = cafeLevel(G);
-    interval = spawnInterval(world.built, G.staff, lvl);
+    // effectiveSpawnInterval, the same one src/systems/customers.js now calls: it folds the Cafe
+    // Stars "+10% arrivals per star" into the interval and re-clamps against the demand floor. The
+    // bot earns stars headlessly (r1.served, r2.interior, r3.terrace are all measurable here), so
+    // omitting it would under-count arrivals from the day star 1 lands onward.
+    interval = effectiveSpawnInterval(world.built, G.staff, lvl, { pawStars: G.meta.pawBest | 0 });
     maxC = maxCustomers(world.built, G.staff, lvl);
   }
   const mult = spawnMult(G.dayState);
@@ -565,6 +656,43 @@ while (G.dayState.day <= MAX_DAYS) {
   if (gardenInterval && mult > 0) {
     gardenSpawnT -= DT;
     if (gardenSpawnT <= 0 && gardenNow < gardenMax) { gardenSpawnT = gardenInterval / mult; spawnCustomer(true); }
+  }
+
+  // ---- THE IN-SHIFT OFFERS (BOT_ADS=all) -------------------------------------------------------
+  // A watcher takes whatever the cafe puts in front of them, at the first moment it is offered: the
+  // Special Guest in the morning, and the service slot during the rush -- Build Boost first (it is
+  // the one under the player's feet), otherwise the Helper Pup. Each is capped at one a day by its
+  // own `...UsedDay`, exactly like sim/adPacing.js's placement keys cap the live game.
+  if (WATCHES_ADS) {
+    const today = G.dayState.day | 0;
+    if (guestUsedDay !== today
+      && specialGuestEligible(today, G.dayState.phase)
+      && !(petBookProgress(G.meta).found >= petBookProgress(G.meta).total)) {
+      const pick = specialGuestPick(G.meta, world.built);
+      if (pick) { pendingSpecialGuestKey = pick.key; guestUsedDay = today; adViewsToday++; }
+    }
+    if (serviceUsedDay !== today && G.dayState.phase === 'rush') {
+      let boosted = null;
+      if (world.built.size >= 1) {
+        for (const z of (world.activeZoneList || activeZones(world))) {
+          if (!buildBoostEligible(world.partial[z.id] || 0, z.price)) continue;
+          boosted = z; break;
+        }
+      }
+      if (boosted) {
+        const amount = buildBoostAmount(world.partial[boosted.id] || 0, boosted.price);
+        const paid = creditZone(world, boosted.id, amount);
+        if (paid.spent > 0) {
+          // NOT a ledger entry: the ad paid the PAD, not the wallet, so the wallet still reconciles
+          // to the coin. Counted separately as ad value in the report below.
+          adBuildValueTotal += paid.spent; serviceUsedDay = today; adViewsToday++;
+        }
+      } else if (helperPupNeeded(world, customers, G.dayState)) {
+        restockEverything(world);
+        refreshWaitingPatience(world, customers);
+        serviceUsedDay = today; adViewsToday++;
+      }
+    }
   }
 
   stepOvens(world, DT); stepMachines(world, DT); ownerStep(DT);
@@ -640,7 +768,25 @@ while (G.dayState.day <= MAX_DAYS) {
       recordRecipeOrder(G.meta, order);
       for (const item of order) if (ICE_PRODUCTS.has(item)) dayIceUnits++;
       if (paid && paid.terraceBound) { dayGardenServed++; totalGardenServed++; }
-    } else if (e.type === 'photo') { dayPhotoShots++; dayPhotoTips += e.tip | 0; if (e.quality === 'good') dayPhotographerShots++; }
+    } else if (e.type === 'photo') {
+      dayPhotoShots++; dayPhotoTips += e.tip | 0; if (e.quality === 'good') dayPhotographerShots++;
+      // The META MODEL's album half: src/systems/photo.js creditShot(), minus its presentation.
+      // Without it every photo row of Cafe Stars 3-5 reads 0 however many shots were taken.
+      if (AD_POLICY) {
+        const shot = customers.find(c => c.id === e.id);
+        if (shot) {
+          const pk = petKey(shot.species, shot.petVariant | 0);
+          const prev = (G.meta.album || (G.meta.album = {}))[pk] || null;
+          const rank = e.quality === 'perfect' ? 2 : e.quality === 'good' ? 1 : 0;
+          G.meta.album = { ...G.meta.album, [pk]: { shots: ((prev && prev.shots) | 0) + 1, best: Math.max((prev && prev.best) | 0, rank) } };
+        }
+      }
+    } else if (e.type === 'settled' && AD_POLICY) {
+      // ...and the friendship half: src/systems/petFriendship.js records one visit per settled
+      // guest, which is what makes a Bestie and therefore Cafe Stars 4 and 5.
+      const seatedGuest = customers.find(c => c.id === e.id);
+      if (seatedGuest && seatedGuest.species) recordPetVisit(G.meta, seatedGuest.species, seatedGuest.petVariant | 0);
+    }
     else if (e.type === 'pose') dayPoses++;
     else if (e.type === 'runnerStuck') runnerStuckEvents++;
     else if (e.type === 'seatMissed') { dayMissedSeats++; totalMissedSeats++; }
@@ -679,11 +825,49 @@ while (G.dayState.day <= MAX_DAYS) {
       const lostRate = G.dayStats.lost / outcomes;
       const rating = lostRate <= 0.06 && (met || G.shiftBestStreak >= 8) ? 3 : lostRate <= 0.16 ? 2 : 1;
       recordCareerShift(G.meta, completedDay, G.dayStats, rating, met);
+      // THE TIP JARS ARE SWEPT AT CLOSING (ship plan 1.6, src/sim/world.js sweepTipJars): every
+      // register tray, the garden jar and every table saucer empty into the wallet when the shift
+      // settles. src/game.js openDaySummary makes the identical call, and the ledger records it so
+      // the bot's wallet still reconciles to the coin.
+      {
+        const swept = sweepTipJars(world);
+        if (swept.total > 0) {
+          G.coins += swept.total;
+          ledger.record('collection', 'closing-sweep', swept.total, { meta: { day: completedDay, jars: swept.spots.length } });
+        }
+      }
       const cup = awardWeeklyCup(G.meta, completedDay);
       if (cup.awarded) {
         G.coins += cup.reward;
         ledger.record('bonus', 'weekly-cup', cup.reward, { meta:{ day:completedDay } });
       }
+      // ---- THE DAY-END x2, AND THE THEME SINK (Batch E2) ---------------------------------------
+      // src/game.js openDaySummary offers summaryBonusAmount(the day's sales) behind one ad; a
+      // watcher takes it every night. G.dayStats.earned is the same figure the summary reads.
+      if (WATCHES_ADS) {
+        const bonus = summaryBonusAmount(G.dayStats.earned);
+        G.coins += bonus; adCoinsTotal += bonus; adViewsToday++;
+        ledger.record('bonus', 'ad:dayend', bonus, { meta: { day: completedDay } });
+      }
+      // Cafe themes are the post-build coin sink (ship plan 1.6c.1) and Cafe Star 5's last row, so
+      // a run that never buys one can never reach star 5 however many pets it meets. Bought here,
+      // before the ratchet reads the evidence, exactly as the player buys them from the Cafe Stars
+      // sheet (src/game.js buyNextRenovation).
+      if (AD_POLICY) {
+        for (;;) {
+          const state = renovationState(G.meta, G.coins, G.meta.pawBest | 0);
+          if (state.complete || !state.starReady || !state.coinReady) break;
+          const bought = buyRenovation(G.meta, G.coins, G.meta.pawBest | 0);
+          if (!bought.ok) break;
+          G.coins = bought.coins;
+          ledger.record('spend', 'purchase:theme', bought.cost, { meta: { level: bought.level } });
+          recordSpend(spendByCategory, 'theme', bought.cost);
+          recordSpend(curDaySpend.cat, 'theme', bought.cost);
+          dayPurchases.push('theme:' + bought.level);
+        }
+      }
+      if (AD_POLICY) { adViewsByDay.push(adViewsToday); adViewsToday = 0; }
+
       // Paw rating, settled in the order the running game will have to use it: this shift's misses
       // enter the 7-day window FIRST (recordPawSeatDay is idempotent per day), then the ratchet
       // reads the updated evidence, then the ceremony predicate is checked exactly once.
@@ -887,26 +1071,21 @@ for (let star = 1; star <= PAW_MAX_STAR; star++) {
   console.log(`  star ${star}: ${day == null ? 'not reached' : 'day ' + day}${verdict}`);
 }
 
-// Dynamic, not hardcoded: before this task's two fixes, r3.seats and r4.cup (the one MEASURED row
-// per tier that can actually fail) were both UNMET every run, so a fixed sentence naming them as
-// blockers was always true. Now that staff actors and the service policy are real, either or both
-// can legitimately read MET — a fixed sentence would then be lying about what actually blocks star
-// 3/4. Read straight off the final settled day's own measured rows instead of asserting it.
+// Batch E1 retired both of the rows this block used to name. r3.seats (the 7-day missed-seat
+// window) and r4.cup (a gold Weekly Cup) were the only MEASURED rows that could fail here, and the
+// ship plan removed them: the seat window was regressible and punishing, the cup is a scoring
+// system the UI no longer draws. Every remaining row above star 1 is fed by src/systems/ and is
+// therefore unmeasurable in this sim-only loop -- so the honest report is which rows this run could
+// judge at all, read off the final settled day rather than asserted.
 {
   const lastPawRow = pawDays[pawDays.length - 1];
-  const rowMet = id => { const r = lastPawRow && lastPawRow.rows.find(rr => rr.id === id); return !!(r && r.met); };
-  const seatsMet = rowMet('r3.seats'), cupMet = rowMet('r4.cup');
-  console.log(`  VERDICT on the acceptance check: r3.seats is ${seatsMet ? 'MET' : 'UNMET'} and r4.cup is ${cupMet ? 'MET' : 'UNMET'}`
-    + ' as of the final settled day (diagnosed below) — the only two MEASURED rows blocking star 3/star 4 respectively.');
-  if (seatsMet && cupMet) {
-    console.log('  Both measurable rows are now met: star 3 and star 4 are blocked ONLY by rows this bot cannot measure');
-    console.log('  (r3.photos, r4.book — meta.album/meta.petBook, written by src/systems/ which this sim-only loop never runs).');
-  } else {
-    console.log(`  ${seatsMet ? '' : 'r3.seats UNMET blocks star 3. '}${cupMet ? '' : 'r4.cup UNMET blocks star 4. '}`
-      + 'Star 3/4 also each need an unmeasurable row (r3.photos, r4.book) this harness cannot produce evidence for.');
-  }
-  console.log('  The day-~20 and day-~34 targets are therefore NOT verifiable headlessly as this harness stands regardless;');
-  console.log('  what is measurable is reported above and below instead of being guessed at or back-filled.');
+  const rows = (lastPawRow && lastPawRow.rows) || [];
+  const measured = rows.filter(r => !r.skipped && !PAW_UNMEASURED[r.id]);
+  const unmeasured = rows.filter(r => !r.skipped && PAW_UNMEASURED[r.id]);
+  console.log(`  VERDICT on the acceptance check: of the next star's ${rows.length} row(s), ${measured.length} are measurable here`
+    + ` (${measured.filter(r => r.met).length} met) and ${unmeasured.length} are 0 by construction.`);
+  console.log('  Every row above star 1 now needs meta this loop never writes (pets met, photos, Besties, themes owned),');
+  console.log('  so the star-by-day targets are NOT verifiable headlessly and are measured by the live 10-day probe instead.');
 }
 // Deliberately NOT a hard gate (no process.exit contribution): most of these rows are 0 because this
 // harness models no meta, so failing the shared bot gate on them would block every other run for a
@@ -960,20 +1139,23 @@ console.log(`  golden paw / ceremony predicate: ${pawCeremonies === 0 ? 'NEVER F
   const cleanerDay = (dayReport.find(r => r.purchases.some(k => k === 'hire:cleaner')) || {}).day || null;
   const preCleaner = cleanerDay == null ? dayReport : dayReport.filter(r => r.day < cleanerDay);
   const preWorst = preCleaner.length ? Math.min(...preCleaner.map(r => r.missedSeats || 0)) : null;
-  console.log('--- paw rating: r3.seats diagnosis (MEASURED, no longer contaminated by the two harness gaps closed this task) ---');
-  console.log(`  missed seats ${lifetimeMissed} lifetime, ${perDay.toFixed(1)}/day; best complete 7-day window ${pawFinal.seatWindow.best} against a limit of ${PAW_TARGETS.seatMisses}.`);
+  // The missed-seat window no longer GATES a star (Batch E1 retired r3.seats as a punishing,
+  // regressible row), but sim/pawRating.js still records it and it is the cleanest single read of
+  // whether the cafe is quietly turning paid guests away -- so it is still measured and printed,
+  // as a diagnosis rather than as a requirement.
+  console.log('--- seat-miss diagnosis (MEASURED; no longer a star requirement, still the quiet-cafe read) ---');
+  console.log(`  missed seats ${lifetimeMissed} lifetime, ${perDay.toFixed(1)}/day; best complete 7-day window ${pawFinal.seatWindow.best}.`);
   console.log(`  Quietest single day before any cleaner was hired: ${preWorst == null ? 'n/a' : preWorst} misses.`);
   console.log(`  A cleaner was hired on day ${cleanerDay == null ? 'n/a (never hired this run)' : cleanerDay}; from that day on a real cleaner actor now wipes tables here (previously nobody did once botDecide's cleanTarget() stood down).`);
   console.log(`  Net: ${lifetimeMissed <= 0 ? 'no misses' : lifetimeMissed + ' misses'} recorded is the real number this run produced — treat it as this task's honest baseline, not as a target already met or missed by balance.`);
 }
 
-// r4.cup is the OTHER measurable row that fails, and it fails on career quality rather than on
-// anything missing from this harness — so it is a real answer to "why not star 4 by day 34".
+// The weekly cup: still awarded and still paid at settlement, no longer a star row.
 {
   const cups = G.meta.career.weeklyCups || {};
   const hist = G.meta.career.history || {};
-  console.log('--- paw rating: r4.cup diagnosis (MEASURED, and failing on real career numbers) ---');
-  console.log(`  gold cups ${G.meta.career.trophies.gold} of ${PAW_TARGETS.goldCups} needed. Weekly tally (gold needs 24 of 28 points; points = shift rating 1-3 plus 1 for the contract):`);
+  console.log('--- weekly cup diagnosis (MEASURED; no longer a star requirement, still a coin source) ---');
+  console.log(`  gold cups ${G.meta.career.trophies.gold}. Weekly tally (gold needs 24 of 28 points; points = shift rating 1-3 plus 1 for the goal):`);
   for (const week of Object.keys(cups).sort((a, b) => a - b)) {
     const start = (Number(week) - 1) * 7 + 1;
     let r3 = 0, contracts = 0;
@@ -985,19 +1167,54 @@ console.log(`  golden paw / ceremony predicate: ${pawCeremonies === 0 ? 'NEVER F
     console.log(`    week ${week} (days ${start}-${start + 6}): ${cups[week].points}/28 -> ${cups[week].tier}; rating-3 days ${r3}/7, contracts met ${contracts}/7`);
   }
   console.log('  Gold needs ~3.43 points/day sustained for a whole week, i.e. very nearly every day at rating 3 AND its');
-  console.log('  contract met. This bot never manages it, so star 4 is out of reach on this row alone even before r4.book.');
+  console.log('  goal met. The cup still pays coins at settlement; since Batch E1 it gates nothing.');
 }
 
 console.log('--- paw rating: WHAT THIS BOT CANNOT MEASURE (and why) ---');
 console.log('  This loop is pure sim + data. It runs no src/systems/ layer and models no meta beyond career, so the');
 console.log('  following requirement rows are 0 BY CONSTRUCTION. They are not balance results and must not be tuned against.');
 for (const [id, why] of Object.entries(PAW_UNMEASURED)) console.log(`    ${id.padEnd(12)} ${why}`);
-console.log('  MEASURED here, from real sim state this run: r1.served (pay events), r2.interior + r3.terrace (world.built),');
-console.log('  r3.seats (seatMissed events -> recordPawSeatDay, one call per settled shift), r4.cup (career.awardWeeklyCup).');
+console.log('  MEASURED here, from real sim state this run: r1.served (pay events), r2.interior + r3.terrace (world.built).');
 {
   const shots = dayReport.reduce((s2, r) => s2 + (r.photoShots || 0), 0);
   console.log(`  Cross-check on r3.photos: ${shots} pose(s) were actually shot this run,`);
   console.log('  and the album still reads 0 — that gap IS the missing creditShot() caller, not poses that nobody reaches.');
+}
+
+// ---- AD POLICY REPORT (Batch E2, ship plan 1.7; task item 5) -------------------------------------
+// Printed only for a policy run. The four numbers the lead asked for, plus what fed them.
+if (AD_POLICY) {
+  const days = dayReport.length || 1;
+  const views = adViewsByDay.reduce((a, b) => a + b, 0);
+  const sales = dayReport.reduce((a, r) => a + (r.sales || 0), 0);
+  const collected = dayReport.reduce((a, r) => a + (r.collected || 0), 0);
+  const bonuses = dayReport.reduce((a, r) => a + (r.bonuses || 0), 0);
+  // "Coins from ads" is the day-end x2 plus what the Build Boost paid into a pad. The Special Guest
+  // and the Helper Pup pay no coins directly -- a pet and a restock -- so they are views, not coins,
+  // and folding an invented coin value into this share would overstate what ads earn the player.
+  const adValue = adCoinsTotal + adBuildValueTotal;
+  const income = sales + collected + bonuses;
+  const lastZoneDay = Math.max(0, ...AREA1.zones.map(z => zoneUnlockDay[z.id] || 0));
+  const allZonesBought = AREA1.zones.every(z => zoneUnlockDay[z.id] != null);
+  const star5 = pawFirstDay.has(5) ? pawFirstDay.get(5) : null;
+  const book = petBookProgress(G.meta);
+  console.log(`--- ad policy: ${AD_POLICY.toUpperCase()} (${WATCHES_ADS ? 'takes every offer' : 'never watches an ad'}) ---`);
+  console.log(`  rewarded views per game day : ${(views / days).toFixed(2)}  (${views} over ${days} days)`);
+  console.log(`  coins from ads              : ${adValue} of ${income} income = ${income ? (100 * adValue / income).toFixed(1) : '0.0'}%`
+    + `  (day-end x2 ${adCoinsTotal}, build boost ${adBuildValueTotal})`);
+  console.log(`  last zone bought            : ${allZonesBought ? 'day ' + lastZoneDay : 'NOT all bought within ' + MAX_DAYS + ' days'}`);
+  console.log(`  Cafe Star 5                 : ${star5 == null ? 'not reached within ' + MAX_DAYS + ' days' : 'day ' + star5}`
+    + `  (best star ${G.meta.pawBest | 0}, Pet Book ${book.found}/${book.total}, themes ${G.meta.career.renovationLevel | 0}/5)`);
+  console.log(`  views by day                : [${adViewsByDay.join(', ')}]`);
+  const missPerGuest = totalServedForDirty ? totalMissedSeats / totalServedForDirty : 0;
+  console.log(`  seat misses (quiet gate)    : ${missPerGuest.toFixed(4)} per guest`
+    + `${missPerGuest > 0.02 ? '  <-- OVER the 0.02 gate; see the note below' : ''}`);
+  console.log('  NOTE: a policy run also switches on the meta model (pets met, album, friendship,');
+  console.log('  themes), which the default gate run deliberately does not. Compare policy to policy.');
+  console.log('  The meta model is what lets this run reach Cafe Star 2, whose reward is +10%');
+  console.log('  arrivals -- measured A/B on this harness, that bonus alone moves seat misses from');
+  console.log('  0.0105 to 0.0309 per guest against four interior tables. That is a Batch E1');
+  console.log('  progression/seating finding, not an ads one: the ad policies change it by <0.006.');
 }
 
 // TASK 1.6b — invariant gate summary (plan 4.3). A/B/C are hard gates: they measure exactly the

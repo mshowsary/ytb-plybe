@@ -176,7 +176,8 @@ export function stepPetPoses(w, list, dt, { unlocked = false, photographed = nul
 //
 // The tip lands on the pet's OWN TABLE, as a walk-past pile exactly like a register's tray — so the
 // shot's reward is a physical thing sitting where the moment happened, not a number that appears in
-// the wallet. `w.photoTipMult` is the rewarded Golden Shot's doubling (set by
+// the wallet. `w.photoTipMult` is a whole-shift multiplier on photo tips (the retired Golden Shot
+// offer set it; nothing does today, and it reads 1 -- see systems/photo.js) (set by
 // systems/rewardsSystem.js through systems/photo.js); applying it here means the pile the player
 // sees is already the doubled amount.
 export function resolvePoseShot(w, quality) {

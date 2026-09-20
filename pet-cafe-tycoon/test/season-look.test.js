@@ -10,9 +10,6 @@ import {
   buildEnvironment, SEASON_IDS, paletteForSeason, GARDEN_PALETTE,
 } from '../src/render/environment.js';
 import {
-  SEASON_FESTIVAL_IDS, seasonFestivalDay, specialForDaySeasoned, specialForDay, SPECIALS_START_DAY,
-} from '../src/sim/specialDays.js';
-import {
   ACCESSORY_IDS, SEASON_ACCESSORY_IDS, SEASON_PLAYTHROUGH_DAYS,
   accessoryUnlocked, seasonAccessoryUnlocked,
 } from '../data/accessories.js';
@@ -116,53 +113,17 @@ test('an unrecognised season id falls back to Blossom instead of throwing', () =
   assert.deepEqual(Array.from(fallbackColor), Array.from(blossomColor));
 });
 
-// ---- specialDays.js: one festival day per season, reusing THEMES --------------------------------
+// ---- the per-season festival day is RETIRED (Batch E1) -------------------------------------
+// It forced one day per season onto that season's spotlight entry in src/sim/specialDays.js's
+// THEMES table. The theme day itself is gone -- the contract and the theme merged into the one
+// daily goal (src/sim/dailyGoal.js, test/daily-goal.test.js) -- so a festival that forced a theme
+// has nothing left to force. Six tests went with it. What replaces the "one special occasion a
+// week" beat is the Sunday Pet Parade (src/sim/petArrivals.js, test/pet-arrivals.test.js), which is
+// a guaranteed VISITOR rather than a second coin meter.
+//
+// The season's own visible identity -- the garden re-tint per season, its accessory, and the
+// wrap-around unlock rules -- is unchanged and is asserted above and below.
 
-test('SEASON_FESTIVAL_IDS matches SEASON_IDS one for one', () => {
-  assert.deepEqual(SEASON_FESTIVAL_IDS, SEASON_IDS);
-});
-
-test('every season has exactly one festival day, and it forces a themed day even off the normal roll', () => {
-  for (const id of SEASON_FESTIVAL_IDS) {
-    const day = seasonFestivalDay(id, 1);
-    assert.ok(day >= SPECIALS_START_DAY, `${id} festival must not land before specials start`);
-    const forced = specialForDaySeasoned(day, id, 1);
-    assert.ok(forced && forced.festival === id, `${id} festival day must be tagged with its season`);
-    // Every season's forced theme is a real THEMES entry, not an invented shape.
-    assert.equal(typeof forced.id, 'string');
-    assert.ok(forced.reward > 0);
-  }
-});
-
-test('a festival day pays more than an ordinary themed day would for the same theme', () => {
-  const day = seasonFestivalDay('splash', 1); // splash's theme (berry-blast) also exists as a plain roll
-  const forced = specialForDaySeasoned(day, 'splash', 1);
-  const plainBonus = 140 + 15 * Math.min(12, day - SPECIALS_START_DAY); // berry-blast's own baseBonus
-  assert.ok(forced.reward > plainBonus, 'festival reward should read as richer, not throttled');
-});
-
-test("the festival theme per season matches src/sim/seasons.js's SEASON_CONTENT[id].specialThemeId", () => {
-  // Duplicated verbatim rather than imported (see specialDays.js's own reconciliation note) --
-  // this test is the tripwire if the two tables are ever edited out of sync.
-  const expected = { blossom: 'bunnybrunch', splash: 'berry-blast', harvest: 'sweet-tooth', lights: 'latte-rush' };
-  for (const id of SEASON_FESTIVAL_IDS) {
-    const day = seasonFestivalDay(id, 1);
-    assert.equal(specialForDaySeasoned(day, id, 1).id, expected[id], `${id} festival theme drifted from seasons.js`);
-  }
-});
-
-test('a day that is not the festival day behaves exactly like the un-seasoned roll', () => {
-  const day = 12;
-  for (const id of SEASON_FESTIVAL_IDS) {
-    if (day === seasonFestivalDay(id, 1)) continue;
-    assert.deepEqual(specialForDaySeasoned(day, id, 1), specialForDay(day));
-  }
-});
-
-test('a festival cannot fire before specials exist, and an unknown season id is a safe no-op', () => {
-  assert.equal(specialForDaySeasoned(2, 'blossom', 1), null);
-  assert.deepEqual(specialForDaySeasoned(5, 'not-a-season', 1), specialForDay(5));
-});
 
 // ---- accessories.js: season playthrough as a second unlock path ---------------------------------
 

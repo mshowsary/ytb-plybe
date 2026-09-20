@@ -39,7 +39,7 @@ const PLAY_FIELD_FILES = [
   'ui/meta.js',
   'systems/objective.js',
   'systems/rewardsSystem.js',
-  'systems/economyExperience.js',
+  'systems/offers.js',
   'systems/stations.js',
   'systems/customers.js',
   'systems/petFriendship.js',
@@ -194,8 +194,16 @@ test('B. a cue draws only pictograms, numerals, punctuation and proper nouns', (
 // by the variable or class its own file uses, so this survives the file being reformatted.
 // Batch D removed the Pet Social launcher, the party-order chip and its collect pill, and the
 // Mystery Gift chip with the rest of their UI; the objective caption is the one left.
+// Batch E2 adds the rewarded-offer bubble and the ▶ build-pad badge (systems/offers.js). They are
+// world-anchored controls in the strictest sense — the badge is projected onto the pad itself — so
+// they are held to the same rule: every drawn cell is a picture.
+//
+// The one deliberate exception, and the reason `adEl` is NOT listed here, is the two-letter AD
+// disclosure. That is a required, honest label on a paid surface, not prose about the game; the
+// separate test below pins its exact text so it can neither disappear nor grow into a sentence.
 const WORLD_CONTROLS = [
   ['systems/objective.js', ['caption']],
+  ['systems/offers.js', ['iconEl', 'valueEl', 'pad']],
 ];
 
 // Every `.textContent =` / `.innerHTML =` in a file, with the receiver text that precedes it and
@@ -295,4 +303,36 @@ test('F. Batch 6: the service policy never charges, so nothing explains a charge
   assert.doesNotMatch(read('game.js'), /coinMinusIcon\(\), '≤'/, 'the policy notice banner is gone');
   assert.ok(!fs.existsSync(path.join(SRC, 'systems/guestCare.js')), 'systems/guestCare.js must not exist');
   assert.doesNotMatch(read('game.js'), /guestCare/, 'game.js no longer wires guest care');
+});
+
+test('G. Batch E2: the rewarded offer bubble is a picture, a value and the AD badge — nothing else', async () => {
+  const { compactOfferModel } = await import('../src/systems/offers.js');
+  const cases = [
+    { kind: 'guest', aria: 'Watch an ad to invite a pet you have never met' },
+    { kind: 'guest', vip: true, aria: 'Watch an ad to invite a very important guest' },
+    { kind: 'helperPup', aria: 'Watch an ad and a courier pup fills every counter' },
+    { kind: 'buildBoost', amount: 1200, aria: 'Watch an ad to pay 1,200 coins toward this build' },
+  ];
+  for (const offer of cases) {
+    const compact = compactOfferModel(offer, false);
+    assert.match(compact.icon, /^<svg /, `${offer.kind} must lead with an authored pictogram`);
+    // The value is a glyph, or a coin glyph beside a signed numeral. Never a word.
+    const drawn = compact.value.replace(/<[^>]*>/g, '');
+    assert.ok(!/[A-Za-z]{2,}/.test(drawn), `${offer.kind} value draws a word: ${drawn}`);
+    // The disclosure, exactly: two letters in the host, the dev marker in preview.
+    assert.equal(compact.badge, 'AD');
+    assert.equal(compactOfferModel(offer, true).badge, 'DEV · AD');
+    // ...and the sentence survives as the accessible name, which is where English belongs.
+    assert.ok(compact.aria && compact.aria.length > 10, `${offer.kind} needs an accessible name`);
+  }
+  // There is no title, no "why" paragraph and no expanded card: the three-sentence rush-help card
+  // (systems/economyExperience.js, deleted in Batch E2) is what this rule exists to prevent.
+  const src = read('systems/offers.js');
+  assert.doesNotMatch(src, /relief-card|relief-title|relief-why|relief-math/);
+  // No prose sink at all: the deleted card wrote its three sentences through `.textContent =` on a
+  // title, a "why" and a "math" line. Comments may still quote them (the header above does, as the
+  // record of what this replaced); a DOM write may not exist.
+  assert.doesNotMatch(src, /(title|why|math|detail)\s*\.textContent\s*=/);
+  assert.doesNotMatch(src, /function\s+crewDetail|function\s+petBreakDetail|function\s+roombaDetail/);
+  assert.match(src, /class="offer-ad"/, 'the AD disclosure must be part of the markup, not optional');
 });

@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import {
   pawSheetModel, pawSheetRow, pawRowNumerals, pawRowIcon, PAW_ROW_ICONS,
 } from '../src/ui/pawSheet.js';
-import { PAW_MAX_STAR, PAW_REQUIREMENT_KINDS, pawRatingState } from '../src/sim/pawRating.js';
+import { PAW_MAX_STAR, PAW_REQUIREMENT_KINDS, PAW_TARGETS, pawRatingState } from '../src/sim/pawRating.js';
 import { AREA1 } from '../data/area1.js';
 
 const state = (meta, extra = {}) => pawRatingState({ meta, stats: { served: 0 }, built: [], ...extra });
@@ -69,27 +69,30 @@ test('★5 is a completed sheet: every paw filled, no next paw, no checklist', (
 // ---- the checklist ----------------------------------------------------------------------------
 
 test('the checklist is the NEXT star\'s requirements, in the sim\'s order', () => {
+  // Batch E1 replaced the rows themselves (ship plan 1.6a). The sheet is generic over whatever
+  // pawRating.js emits, which is the property this test actually protects; only the fixture's
+  // expected ids move with the plan.
   const m = pawSheetModel(state({ pawBest: 2 }));
-  assert.deepEqual(m.rows.map(r => r.id), ['r3.terrace', 'r3.photos', 'r3.seats']);
-  assert.deepEqual(m.rows.map(r => r.kind), ['zone', 'photos', 'seatMiss']);
+  assert.deepEqual(m.rows.map(r => r.id), ['r3.terrace', 'r3.book', 'r3.photos']);
+  assert.deepEqual(m.rows.map(r => r.kind), ['zone', 'petBook', 'photos']);
 });
 
-test('a SKIPPED requirement draws nothing (a catalogue without z_terrace shows two ★3 rows)', () => {
+test('a SKIPPED requirement draws nothing (a catalogue without z_terrace shows two star-3 rows)', () => {
   const noTerrace = { ...AREA1, zones: AREA1.zones.filter(z => z.id !== 'z_terrace'), regions: [] };
   const s = state({ pawBest: 2 }, { area: noTerrace });
   assert.equal(s.requirements.some(r => r.id === 'r3.terrace' && r.skipped), true, 'fixture assumption: r3.terrace is skipped');
-  assert.deepEqual(pawSheetModel(s).rows.map(r => r.id), ['r3.photos', 'r3.seats']);
+  assert.deepEqual(pawSheetModel(s).rows.map(r => r.id), ['r3.book', 'r3.photos']);
   // With the real catalogue the row exists and IS drawn.
-  assert.deepEqual(pawSheetModel(state({ pawBest: 2 })).rows.map(r => r.id), ['r3.terrace', 'r3.photos', 'r3.seats']);
-  // ★4 names no zone since the spa was retired: two rows, none skipped.
-  assert.deepEqual(pawSheetModel(state({ pawBest: 3 })).rows.map(r => r.id), ['r4.book', 'r4.cup']);
+  assert.deepEqual(pawSheetModel(state({ pawBest: 2 })).rows.map(r => r.id), ['r3.terrace', 'r3.book', 'r3.photos']);
+  // Star 4 names no zone since the spa was retired: three rows, none skipped.
+  assert.deepEqual(pawSheetModel(state({ pawBest: 3 })).rows.map(r => r.id), ['r4.bestie', 'r4.book', 'r4.photos']);
 });
 
 test('a row carries the numerals the sim gave it, untouched', () => {
   const m = pawSheetModel(state({}));
   assert.deepEqual(m.rows, [{
     id: 'r1.served', kind: 'guests', zoneId: null,
-    current: 0, target: 120, compare: 'gte', state: 'unmet', frac: 0,
+    current: 0, target: PAW_TARGETS.served, compare: 'gte', state: 'unmet', frac: 0,
   }]);
 });
 
@@ -108,20 +111,18 @@ test('met / unmet / pending are the only three row states, and pending beats met
   assert.equal(pawSheetRow({ id: 'a', kind: 'seatMiss', current: 0, target: 3, met: true, pending: true }).state, 'pending');
 });
 
-test('the ★3 seat window is pending until a full week has been settled', () => {
-  const m = pawSheetModel(state({ pawBest: 2 }));
-  const seats = m.rows.find(r => r.id === 'r3.seats');
-  assert.equal(seats.state, 'pending');
-  assert.equal(seats.compare, 'lte');
-});
-
-test('a settled clean week turns the seat row into a met, fewer-is-better row', () => {
-  const days = [];
-  for (let day = 1; day <= 7; day++) days.push({ day, missed: 0 });
-  const m = pawSheetModel(state({ pawBest: 2, pawSeatWindow: { days, best: 0 } }));
-  const seats = m.rows.find(r => r.id === 'r3.seats');
-  assert.equal(seats.state, 'met');
-  assert.equal(seats.frac, 1);
+// The star-3 missed-seat window is RETIRED (Batch E1, ship plan 1.6a): it was the only regressible,
+// fewer-is-better row in the track, it could not be influenced directly, and a rating that fell
+// after a bad week is the punishing pattern the plan forbids. The sheet still renders 'pending' and
+// 'lte' correctly -- asserted directly above and below on synthetic rows -- so the three-state
+// contract survives the row that used to be its only live example.
+test('no star row is fewer-is-better or unjudgeable any more', () => {
+  for (let best = 0; best < 5; best++) {
+    for (const row of pawSheetModel(state({ pawBest: best })).rows) {
+      assert.equal(row.compare, 'gte', `${row.id} counts up`);
+      assert.notEqual(row.state, 'pending', `${row.id} can always be judged`);
+    }
+  }
 });
 
 // ---- numerals and bars ------------------------------------------------------------------------
@@ -165,10 +166,11 @@ test('a fewer-is-better row says so with ≤, not with a slash', () => {
   assert.equal(pawRowNumerals(pawSheetRow({ current: 2, target: 3 })).sep, '/');
 });
 
-test('a four-digit target keeps its thousands separator (★5 followers is 2,000)', () => {
-  const m = pawSheetModel(state({ pawBest: 4 }));
-  const followers = m.rows.find(r => r.id === 'r5.followers');
-  assert.equal(pawRowNumerals(followers).target, '2,000');
+test('a four-digit target keeps its thousands separator', () => {
+  // No live row reaches four digits any more (the 2,000-follower row is retired), so the formatter
+  // is asserted directly -- the behaviour is the formatter's, not the row's.
+  assert.equal(pawRowNumerals(pawSheetRow({ current: 1234, target: 2000 })).target, '2,000');
+  assert.equal(pawRowNumerals(pawSheetRow({ current: 1234, target: 2000 })).current, '1,234');
 });
 
 // ---- defensive ---------------------------------------------------------------------------------

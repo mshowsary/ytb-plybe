@@ -1,10 +1,8 @@
 // End-of-shift settlement is one explicit, serializable transaction.
 // Presentation may open/close/reopen around it, but permanent rewards/progression commit once per day.
 import { ensureReputation, recordShift, reputationLevel } from './reputation.js';
-import {
-  ensureCareer, careerGoalProgress, careerGoalMet, recordCareerShift,
-  weeklyCupState, awardWeeklyCup,
-} from './career.js';
+import { ensureCareer, recordCareerShift, weeklyCupState, awardWeeklyCup } from './career.js';
+import { dailyGoalProgress, dailyGoalMet } from './dailyGoal.js';
 
 const clampRating = n => Math.max(1, Math.min(3, n | 0));
 const nonNegative = n => Math.max(0, Math.round(Number(n) || 0));
@@ -31,8 +29,8 @@ export function shiftRating(stats, bestStreak = 0, contractMet = false) {
 
 function snapshotGoal(goal, stats, forcedMet = null) {
   const g = goal && typeof goal === 'object' ? goal : {};
-  const progress = Math.max(0, careerGoalProgress(g, stats));
-  const met = forcedMet == null ? careerGoalMet(g, stats) : !!forcedMet;
+  const progress = Math.max(0, dailyGoalProgress(g, stats));
+  const met = forcedMet == null ? dailyGoalMet(g, stats) : !!forcedMet;
   return {
     kind: typeof g.kind === 'string' ? g.kind : 'serve',
     target: nonNegative(g.target),
@@ -152,7 +150,7 @@ export function settleShift(state) {
   // Their career/reputation records prove settlement already happened; reconstruct the display
   // record but never pay coins or trophies a second time.
   if (history || existingRating != null) {
-    const met = history ? !!history.contractMet : careerGoalMet(state.goal, stats);
+    const met = history ? !!history.contractMet : dailyGoalMet(state.goal, stats);
     const goal = snapshotGoal(state.goal, stats, met);
     const rating = clampRating(existingRating == null ? history && history.rating : existingRating);
     const cup = snapshotCup(state.meta, day, null, true);

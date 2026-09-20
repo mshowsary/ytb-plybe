@@ -9,6 +9,9 @@
 // each check below. tools/production-smoke.js — an older near-duplicate of this file, never wired
 // into tools/certification-suites.json — is retired outright rather than repaired twice.
 import http from 'node:http';
+import { AREA1 } from '../data/area1.js';
+import { buildDailyGoal } from '../src/sim/dailyGoal.js';
+import { RENOVATIONS } from '../src/sim/career.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
@@ -105,7 +108,13 @@ for (const [tag, width, height, dpr] of cases) {
     s.meta = {
       completedDays: 12, rewardedDays: {}, reputation: 72, perfectShifts: 5, bestServiceStreak: 18,
       shiftRatings: { 1: 2, 2: 3, 3: 2, 4: 3, 5: 3, 6: 2, 7: 3, 8: 2, 9: 3, 10: 2, 11: 3, 12: 3 },
-      petBook: { 'cat:0': 1, 'cat:1': 1, 'cat:2': 1, 'dog:0': 1, 'dog:1': 1, 'bunny:0': 1, 'bunny:2': 1 }, petDiscoveries: 7,
+      // Batch E1 re-gated the café themes on a Café Star instead of on reputation, so this fixture
+      // now has to carry real star evidence or the buy button below is (correctly) locked. Star 3 is
+      // the garden + 14 pets met + 5 album shots; every zone is built two lines above.
+      petBook: Object.fromEntries(['cat:0','cat:1','cat:2','cat:3','dog:0','dog:1','dog:2','dog:3','bunny:0','bunny:1','bunny:2','bunny:3','hamster:0','hamster:1'].map(k => [k, 1])),
+      petDiscoveries: 14,
+      pawBest: 3,
+      album: { 'cat:0': { shots: 5, best: 1, poseId: null, accessoryId: null } },
       career: {
         history: {
           6: { served: 38, lost: 1, earned: 760, bestStreak: 9, rating: 2, contractMet: true, points: 3 },
@@ -261,6 +270,11 @@ for (const [tag, width, height, dpr] of cases) {
       contract: !!document.querySelector('.ds-contract'),
       starsRow: !!document.querySelector('.ds-stars'),
       bonus: (document.querySelector('.ds-bonus')?.textContent || '').replace(/\s+/g, ''),
+      // Batch E2: the button carries its own "×2" now (ship plan §1.7a), so the coin figure is read
+      // from its own span rather than by stripping digits out of the whole label -- "×2 +1,200"
+      // flattens to "21200" and would look like a 21,200-coin offer on an 1,180-coin day.
+      bonusX2: (document.querySelector('.ds-bonus .ds-bonus-x2')?.textContent || '').trim(),
+      bonusCoins: (document.querySelector('.ds-bonus span:last-child')?.textContent || '').trim(),
       continueBtn: !!document.querySelector('.ds-card .continue'),
       fits: r.left >= -1 && r.top >= -1 && r.right <= innerWidth + 1 && r.bottom <= innerHeight + 1,
       overflow: document.body.scrollWidth > innerWidth + 1,
@@ -273,13 +287,20 @@ for (const [tag, width, height, dpr] of cases) {
   // .playables-compact/.meta-rep-title/.meta-rating/.career-* have no element anywhere in the
   // current source (grepped) — asserting their absence would be vacuous, not a real acceptance, so
   // those checks are removed rather than kept as always-true noise.
-  const goalBad = goal.day !== 13 || goal.kind !== 'streak' || goal.target !== 10;
+  // Batch E1: one daily goal (src/sim/dailyGoal.js), five kinds, targets derived from the café's
+  // capacity. Derived here rather than hardcoded, so the check stays a real acceptance ("the live
+  // goal is the one the sim would choose for this day and this café") instead of a copied literal
+  // that has to be re-copied every time the ladder is retuned. The retired 'streak' verb is
+  // explicitly refused.
+  const expectedGoal = buildDailyGoal(13, { built: new Set(AREA1.zones.map(z => z.id)) });
+  const goalBad = goal.day !== 13 || goal.kind !== expectedGoal.kind || goal.target !== expectedGoal.target
+    || goal.kind === 'streak';
   const bootBad = !boot.platform || boot.metaVersion !== CURRENT_SAVE_VERSION || boot.overflow || !boot.wallet || !boot.pawbook || !boot.pause || !boot.petCount;
   const todayBad = todayRow.count < 1 || todayRow.overflow;
   const starsBad = stars.pawPips !== 5 || stars.overflow || !stars.hasRenovation;
   const smallBad = tag === 'small' && (
     !smallChecks || !smallChecks.pauseFrozen || !smallChecks.soundOff || !smallChecks.soundOn || smallChecks.walkPaid !== 0 || smallChecks.earlyPaid !== 0 || !(smallChecks.heldPaid > 0) ||
-    !renovation || renovation.level !== 1 || renovation.spent !== 1800 || renovation.next !== 'Gallery Café' ||
+    !renovation || renovation.level !== 1 || renovation.spent !== RENOVATIONS[0].cost || renovation.next !== RENOVATIONS[1].name ||
     !interaction || interaction.shopTitle !== 'Staff' || interaction.pantry.sack !== 'beans' || interaction.pantry.guide !== 'COFFEE' ||
     interaction.pantry.button || interaction.pantry.sheet || !interaction.supply.empty || interaction.supply.delta !== 0 ||
     interaction.waste.fruit !== 0 || interaction.waste.spent !== 0 || interaction.waste.tracked !== 0 || interaction.blender.machine <= 0 ||
@@ -287,9 +308,12 @@ for (const [tag, width, height, dpr] of cases) {
     interaction.cleaning.dirty || interaction.cleaning.cleanVisible
   );
   const bookBad = book.cards !== PET_CARD_COUNT || book.found < 7 || book.overflow;
-  const bonusCoins = Number(String(summary.bonus).replace(/[^\d]/g, ''));
+  const bonusCoins = Number(String(summary.bonusCoins).replace(/[^\d]/g, ''));
+  // DOUBLE TODAY (Batch E2, ship plan §1.7a): +100% of the day's sales, min 100, and the button
+  // says "×2". It was 35%; the band moved with the reward, and the framing is now asserted too.
   const summaryIsBad = summary.earned !== (1180).toLocaleString('en-US') || summary.rows < 1 || !summary.contract || !summary.starsRow
-    || !summary.continueBtn || !summary.fits || summary.overflow || !(bonusCoins >= 1180 * 0.3 && bonusCoins <= 1180 * 0.4);
+    || !summary.continueBtn || !summary.fits || summary.overflow || summary.bonusX2 !== '×2'
+    || !(bonusCoins >= 1180 * 0.97 && bonusCoins <= 1180 * 1.03);
 
   const bad = bootBad || goalBad || todayBad || starsBad || smallBad || bookBad || summaryIsBad || errors.length;
   if (bad) failed = true;

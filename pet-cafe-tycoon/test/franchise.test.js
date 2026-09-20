@@ -28,7 +28,8 @@ import { AREA1 } from '../data/area1.js';
 function goldenCafe(over = {}) {
   const album = {};
   for (let i = 0; i < PAW_PET_KEYS.length; i++) {
-    album[PAW_PET_KEYS[i]] = { shots: 3, best: i < 3 ? 2 : 1, poseId: null, accessoryId: null };
+    // 10 Perfect shots, not 3: star 5's Perfect row is 10 pets since Batch E1 (ship plan 1.6a).
+    album[PAW_PET_KEYS[i]] = { shots: 3, best: i < 10 ? 2 : 1, poseId: null, accessoryId: null };
   }
   const petBook = {};
   for (const key of PAW_PET_KEYS) petBook[key] = { seen: 12 };
@@ -74,7 +75,9 @@ function goldenCafe(over = {}) {
         weeklyCups: { 8: { tier: 'gold', points: 24 } },
         trophies: { bronze: 0, silver: 0, gold: 1 },
         recipeSales: { cookie: 900, cupcake: 700, coffee: 600, smoothie: 400, treat: 100 },
-        contractStreak: 4, bestContractStreak: 9, bestWeekPoints: 24, renovationLevel: 2,
+        // Every cafe theme owned: star 5's last row since Batch E1. (Star 4 is what opens the
+        // ladder, and this cafe holds it, so the save boundary keeps all five.)
+        contractStreak: 4, bestContractStreak: 9, bestWeekPoints: 24, renovationLevel: 5,
       },
       partyOrders: { nextId: 4, completed: 3, lastOfferDay: 60, active: { id: 3, title: 'x', subtitle: '', createdDay: 60, expiresDay: 62, reward: 200, claimed: false, requirements: [{ product: 'smoothie', count: 0, target: 4 }] } },
       ...(over.meta || {}),
@@ -171,13 +174,12 @@ test('the new state is built from the keep-list, so an unnamed field is LOST LOU
 
 test('every top-level key of a realistic runtime snapshot is named by the partition', () => {
   // game.js's snapshot literal plus every wrapper that adds to it: petFriendship (petKeepsake),
-  // staff (staffState), economyExperience (temporaryHelp, and it deletes boosts), economicLedger
+  // staff (staffState), economicLedger
   // (ledger), interactionCoach (learning).
   const runtime = goldenCafe();
   runtime.stationState = { v: 1, byId: {} };
   runtime.ownerState = { v: 1 };
   runtime.staffState = { v: 1, runnerAssignments: [] };
-  runtime.temporaryHelp = { v: 1, roomba: null, pending: null };
   runtime.petKeepsake = { v: 1, key: PAW_PET_KEYS[0] };
   runtime.learning = { v: 1, proven: ['pantry'] };
   runtime.ledger = { day: 60 };
@@ -186,7 +188,6 @@ test('every top-level key of a realistic runtime snapshot is named by the partit
   assert.deepEqual(result.unknown, [], `unnamed save fields: ${result.unknown.join(', ')}`);
   assert.equal(result.save.petKeepsake.key, PAW_PET_KEYS[0], 'a pet memory is not the building');
   assert.deepEqual(result.save.learning, runtime.learning, 'the owner does not forget how to cook');
-  assert.deepEqual(result.save.temporaryHelp, runtime.temporaryHelp, 'an ad reward is not confiscated');
   for (const dropped of ['stationState', 'ownerState', 'staffState', 'goal']) {
     assert.equal(dropped in result.save, false, `${dropped} is dropped so the boundary rebuilds it`);
   }

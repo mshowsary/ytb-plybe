@@ -114,12 +114,11 @@ export function createPhotoStudio(G, S, ctx) {
 
   return {
     update(dt) {
-      // The rewarded Golden Shot doubles photo tips for the rest of the shift
-      // (systems/rewardsSystem.js). The tip becomes coins on the table, inside the sim, so the
-      // multiplier has to reach the sim: it rides on the world like dayState/stars already do.
-      // No offer writes G.goldenShotMult since the hidden ad chips went; the multiplier reads 1
-      // until the ad batch gives photo tips a boost of their own again.
-      world.photoTipMult = G.goldenShotMult || 1;
+      // THE GOLDEN SHOT IS GONE (Batch E2, ship plan §1.7 "Cut: ... golden shot"). This line used
+      // to read `G.goldenShotMult`, a flag no file had written since the hidden ad chips were
+      // deleted — a multiplier with no writer, reading 1 forever. `world.photoTipMult` itself stays
+      // (sim/petPose.js multiplies a tip by it and test/photo.test.js sets it directly) so a future
+      // boost has a seam to arrive through; nothing pretends one exists today.
       // The owner came to take the picture. Proximity IS the interaction — there is no button, no
       // station to stand at and nothing to tap first; the ring appears and the shot is the timing.
       const pose = world.pose;

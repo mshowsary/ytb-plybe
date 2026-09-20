@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ensureCareer, chooseCareerGoal, careerGoalMet, recordCareerShift,
+  ensureCareer, recordCareerShift,
   weeklyCupState, awardWeeklyCup, recordRecipeOrder, masteryLevel,
   masteryMultiplier, masteryProgress, renovationState, buyRenovation,
   RENOVATIONS, LEGENDARY_REPUTATION,
@@ -17,31 +17,14 @@ test('migrated meta receives safe long-term career state', () => {
   assert.equal(LEGENDARY_REPUTATION, 220);
 });
 
-test('week-one contracts are bounded and varied instead of exploding by day number', () => {
-  const meta = {};
-  const kinds = [];
-  for (let day = 1; day <= 7; day++) kinds.push(chooseCareerGoal(day, meta).kind);
-  assert.deepEqual(kinds, ['serve', 'earn', 'streak', 'serve', 'earn', 'streak', 'serve']);
-  assert.equal(chooseCareerGoal(7, meta).target, 40);
-  // A migrated day-10 save with no history is still sane (the old formula produced Serve 110).
-  const d10 = chooseCareerGoal(10, meta);
-  assert.equal(d10.kind, 'streak');
-  assert.ok(d10.target <= 12);
-});
-
-test('week two challenges the same weekday result from last week', () => {
-  const meta = {};
-  recordCareerShift(meta, 1, { served: 41, lost: 0, earned: 600, bestStreak: 8 }, 3, true);
-  recordCareerShift(meta, 2, { served: 40, lost: 0, earned: 775, bestStreak: 9 }, 3, true);
-  recordCareerShift(meta, 3, { served: 40, lost: 0, earned: 700, bestStreak: 11 }, 3, true);
-  const mon = chooseCareerGoal(8, meta);
-  const tue = chooseCareerGoal(9, meta);
-  const wed = chooseCareerGoal(10, meta);
-  assert.deepEqual({ kind: mon.kind, target: mon.target, previous: mon.previous, rival: mon.rival }, { kind: 'serve', target: 43, previous: 41, rival: true });
-  assert.equal(tue.kind, 'earn'); assert.equal(tue.previous, 775); assert.ok(tue.target > 775);
-  assert.deepEqual({ kind: wed.kind, target: wed.target, previous: wed.previous }, { kind: 'streak', target: 12, previous: 11 });
-  assert.equal(careerGoalMet(wed, { bestStreak: 12 }), true);
-});
+// THE DAILY GOAL LEFT THIS FILE (Batch E1, ship plan 1.6). The adaptive weekly "rival" contract and
+// the special-day theme merged into one goal with one reward, implemented in src/sim/dailyGoal.js
+// and covered by test/daily-goal.test.js. The two contract tests that lived here -- week-one
+// variety, and week two beating last week's same weekday -- pinned the rival mechanic itself, which
+// the plan deliberately removed: targets now come from durable cafe capacity, so deliberately
+// serving fewer guests can never buy an easier goal, and that IS asserted in the new file.
+// career.js keeps four compatibility re-exports for legacy tools/ harnesses; the seam is tested in
+// test/daily-goal.test.js too.
 
 test('weekly cup scores ratings + completed contracts and awards once', () => {
   const meta = {};
@@ -70,27 +53,41 @@ test('recipe mastery is family-aware, permanent and economically small', () => {
   assert.ok(p.frac >= 0 && p.frac <= 1);
 });
 
-test('renovations are a late-game coin sink gated by reputation and buy exactly once per level', () => {
-  const meta = { reputation: 0 };
-  let r = renovationState(meta, 99999);
-  assert.equal(r.level, 0); assert.equal(r.next.name, 'Greenhouse Glow'); assert.equal(r.repReady, false);
-  assert.equal(buyRenovation(meta, 99999).reason, 'reputation');
+// CAFE THEMES: the same five makeovers, re-gated in Batch E1 on a Cafe Star instead of on
+// reputation (a number the UI no longer draws anywhere, so the wait had no picture and no way to
+// hurry it). Same shape of gate, same buy-once-per-level rule, new currency for the lock.
+test('cafe themes are a late-game coin sink gated by a Cafe Star and buy exactly once per level', () => {
+  const meta = {};
+  const r = renovationState(meta, 99999, 0);
+  assert.equal(r.level, 0); assert.equal(r.next.name, 'Greenhouse Glow'); assert.equal(r.starReady, false);
+  const refused = buyRenovation(meta, 99999, 0);
+  assert.equal(refused.reason, 'stars');
+  assert.equal(refused.requiredStar, RENOVATIONS[0].star);
 
-  meta.reputation = RENOVATIONS[0].rep;
-  assert.equal(buyRenovation(meta, RENOVATIONS[0].cost - 1).reason, 'coins');
-  const bought = buyRenovation(meta, RENOVATIONS[0].cost + 250);
+  assert.equal(buyRenovation(meta, RENOVATIONS[0].cost - 1, RENOVATIONS[0].star).reason, 'coins');
+  const bought = buyRenovation(meta, RENOVATIONS[0].cost + 250, RENOVATIONS[0].star);
   assert.equal(bought.ok, true); assert.equal(bought.level, 1); assert.equal(bought.coins, 250);
   assert.equal(meta.career.renovationLevel, 1);
-  assert.equal(renovationState(meta, 0).next.name, 'Gallery Café');
+  assert.equal(renovationState(meta, 0, 5).next.name, 'Gallery Café');
 });
 
-test('renovation track has a finite visible endpoint', () => {
-  const meta = { reputation: 999 };
+test('the theme prices and star gates are the ship plan 1.6c ladder', () => {
+  assert.deepEqual(RENOVATIONS.map(r => r.cost), [2000, 4000, 6500, 9000, 12000]);
+  assert.deepEqual(RENOVATIONS.map(r => r.star), [3, 4, 4, 4, 4]);
+  // No theme may wait on star 5: star 5's own last row is "every theme owned", so a theme gated
+  // there would be an unopenable deadlock.
+  for (const r of RENOVATIONS) assert.ok(r.star < 5, `${r.name} must not need the final star`);
+  // Every level costs strictly more than the one before it.
+  for (let i = 1; i < RENOVATIONS.length; i++) assert.ok(RENOVATIONS[i].cost > RENOVATIONS[i - 1].cost);
+});
+
+test('the theme track has a finite visible endpoint', () => {
+  const meta = {};
   let coins = 999999;
   for (let i = 0; i < RENOVATIONS.length; i++) {
-    const b = buyRenovation(meta, coins); assert.equal(b.ok, true); coins = b.coins;
+    const b = buyRenovation(meta, coins, 5); assert.equal(b.ok, true); coins = b.coins;
   }
-  const done = renovationState(meta, coins);
+  const done = renovationState(meta, coins, 5);
   assert.equal(done.complete, true); assert.equal(done.level, RENOVATIONS.length); assert.equal(done.next, null);
-  assert.equal(buyRenovation(meta, coins).reason, 'max');
+  assert.equal(buyRenovation(meta, coins, 5).reason, 'max');
 });

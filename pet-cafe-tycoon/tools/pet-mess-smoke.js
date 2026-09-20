@@ -1,5 +1,11 @@
-// Browser acceptance for pet pawprints + Roomba sweep. Proves the pet-floor chore is zero-penalty,
-// the sweep visibly activates, and dirty tables remain untouched (Cleaner value is preserved).
+// Browser acceptance for pet pawprints. Proves the pet-floor chore is zero-penalty, that the owner
+// clears one by standing over it, and that dirty tables are untouched by it (the Cleaner's value is
+// preserved).
+//
+// THE ROOMBA HALF IS GONE (Batch E2, ship plan §1.7 "Cut: ... roomba"). Its rewarded offer had
+// already stopped being nominated in 2026-09-17, so `window.__petMess.sweep()` was an API only this
+// smoke ever called; the three assertions below it (sweep clears 3, the disc activates, it expires
+// after 18 s) were measuring a feature no player could reach.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -39,18 +45,22 @@ const seeded = await page.evaluate(() => {
 if (seeded.count !== 3 || seeded.coins !== 777 || !seeded.dirty || !seeded.seat1Active || !seeded.seat2Active) throw new Error(`pet mess seed failed: ${JSON.stringify(seeded)}`);
 await page.screenshot({path:path.join(shots,'01-pawprints.png')});
 
-const swept = await page.evaluate(() => {
-  const G=window.__game, before=G.coins, cleared=window.__petMess.sweep(18);
-  return {cleared,count:window.__petMess.count,active:window.__petMess.roombaActive,coinsBefore:before,coinsAfter:G.coins,dirty:G.world.stations.get('seat1').dirty};
+// The owner wipes a pawprint by standing over it: PET_MESS_CLEAN_SECONDS of proximity, no button,
+// no coins. This is the assertion the Roomba block used to sit beside, and it is the one that
+// matters -- the chore has to be completable by the player, or it is just litter.
+const swept = await page.evaluate(async () => {
+  const G=window.__game, before=G.coins;
+  // Stand on the first pawprint and let the game run its own frames over it.
+  const spot = { x: G.world.stations.get('seat1').pair.pet.x, z: G.world.stations.get('seat1').pair.pet.z };
+  G.P.x = spot.x; G.P.z = spot.z;
+  for (let i = 0; i < 40; i++) { window.__petMess.update(0.05); await new Promise(r => setTimeout(r, 0)); }
+  return {count:window.__petMess.count,coinsBefore:before,coinsAfter:G.coins,dirty:G.world.stations.get('seat1').dirty};
 });
-if (swept.cleared !== 3 || swept.count !== 0 || !swept.active) throw new Error(`Roomba sweep failed: ${JSON.stringify(swept)}`);
-if (swept.coinsAfter !== swept.coinsBefore) throw new Error(`Roomba/pawprints changed coins: ${JSON.stringify(swept)}`);
-if (!swept.dirty) throw new Error(`Roomba incorrectly cleaned a table: ${JSON.stringify(swept)}`);
-await page.waitForTimeout(450);
-await page.screenshot({path:path.join(shots,'02-roomba-active.png')});
+if (swept.count >= 3) throw new Error(`standing over a pawprint did not clear it: ${JSON.stringify(swept)}`);
+if (swept.coinsAfter !== swept.coinsBefore) throw new Error(`pawprints changed coins: ${JSON.stringify(swept)}`);
+if (!swept.dirty) throw new Error(`clearing a pawprint incorrectly cleaned a table: ${JSON.stringify(swept)}`);
+await page.waitForTimeout(250);
+await page.screenshot({path:path.join(shots,'02-pawprint-wiped.png')});
 
-const expired = await page.evaluate(() => { const G=window.__game; G.time += 19; return {active:window.__petMess.roombaActive,dirty:G.world.stations.get('seat1').dirty,coins:G.coins}; });
-if (expired.active || !expired.dirty || expired.coins !== 777) throw new Error(`Roomba expiry/separation failed: ${JSON.stringify(expired)}`);
-
-console.log(JSON.stringify({seeded,swept,expired},null,2));
+console.log(JSON.stringify({seeded,swept},null,2));
 await ctx.close(); await browser.close(); await new Promise(resolve=>server.close(resolve));

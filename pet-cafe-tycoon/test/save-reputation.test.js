@@ -8,6 +8,11 @@ function state() { return { coins: 0, up: {}, staff: {}, stats: {}, settings: {}
 test('old save without meta migrates to a safe modern meta + career + party-order shape', () => {
   const s = state();
   applySave(s, { coins: 50, upgrades: {}, staff: {}, stats: {}, settings: {} });
+  // applySave puts a goal on the restored state but does NOT freeze it: the world has not been
+  // rebuilt yet at that point, so caching a roll there would pin a day-1 target onto a finished
+  // cafe (src/sim/dailyGoal.js cachedDailyGoal). The migrated career therefore carries no
+  // currentContract at all, exactly as it did before Batch E1.
+  assert.equal('currentContract' in s.meta.career, false);
   assert.deepEqual(s.meta, {
     servicePolicy: normalizeServicePolicy(),
     completedDays: 0, rewardedDays: {}, reputation: 0, perfectShifts: 0, bestServiceStreak: 0,
@@ -52,6 +57,10 @@ test('reputation, pets, friendship, career and party orders round-trip without s
         },
         trophies: { bronze: 1, silver: 0, gold: 2 },
         recipeSales: { cookie: 78, cupcake: 22, coffee: 91, smoothie: 5, treat: 44 }, contractStreak: 3,
+        // renovationLevel 2 needs Cafe Star 4 since Batch E1 (themes are star-gated, not
+        // reputation-gated), and this save has no star evidence at all -- so the save boundary
+        // drops the themes. The round-trip this test is about (nested maps are copied, never
+        // aliased) is asserted on the fields that survive.
         bestContractStreak: 5, bestWeekPoints: 26, renovationLevel: 2,
       },
       partyOrders: {
@@ -66,7 +75,7 @@ test('reputation, pets, friendship, career and party orders round-trip without s
   assert.deepEqual(s.meta.petFriendship, { 'cat:0': 5, 'dog:2': 2 });
   assert.equal(s.meta.career.history[1].served, 31); assert.equal(s.meta.career.weeklyCups[1].tier, 'gold');
   assert.deepEqual(s.meta.career.trophies, { bronze: 1, silver: 0, gold: 2 }); assert.equal(s.meta.career.recipeSales.coffee, 91);
-  assert.equal(s.meta.career.contractStreak, 3); assert.equal(s.meta.career.bestContractStreak, 5); assert.equal(s.meta.career.bestWeekPoints, 26); assert.equal(s.meta.career.renovationLevel, 2);
+  assert.equal(s.meta.career.contractStreak, 3); assert.equal(s.meta.career.bestContractStreak, 5); assert.equal(s.meta.career.bestWeekPoints, 26); assert.equal(s.meta.career.renovationLevel, 0, 'no star, no theme');
   assert.equal(s.meta.partyOrders.completed, 2); assert.equal(s.meta.partyOrders.active.requirements[0].count, 2);
 
   s.meta.shiftRatings[3] = 1; s.meta.petBook['bunny:1'] = 1; s.meta.petFriendship['cat:0'] = 99; s.meta.career.history[1].served = 999;

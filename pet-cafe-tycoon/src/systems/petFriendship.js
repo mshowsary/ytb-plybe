@@ -69,7 +69,12 @@ export function installPetFriendship(G, platform = null) {
       if (!event || event.type !== 'settled') continue;
       const customer = G.customers.find(c => c && c.id === event.id);
       if (!customer || !customer.species) continue;
-      const result = recordPetVisit(G.meta, customer.species, customer.petVariant | 0);
+      // A VIP invited by the Special Guest offer counts DOUBLE for friendship (ship plan 1.7a).
+      // Two real visits, not a multiplier: the tier ladder stays one authored list of visit counts.
+      // The promotion flag is OR-ed so a level-up on the first of the two is still announced.
+      const first = recordPetVisit(G.meta, customer.species, customer.petVariant | 0);
+      const second = customer.vip ? recordPetVisit(G.meta, customer.species, customer.petVariant | 0) : null;
+      const result = second ? { ...second, promoted: second.promoted || first.promoted } : first;
       const day = Math.max(1, (G.dayState && G.dayState.day) | 0);
       const firstPetThisDay = spotlightDay !== day;
       if (firstPetThisDay) { spotlightDay = day; lastSpotlightKey = result.key; }

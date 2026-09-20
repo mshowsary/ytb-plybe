@@ -58,6 +58,9 @@ export const SPECIES = ['cat', 'dog', 'bunny', 'hamster'];
 // still within the ruling's original 12-18s intent), so that's what's shipped. mover.js/nav.js's
 // avoidance and the seat/exit-lane geometry in data/area1.js remain untouched and out of scope.
 export const CUSTOMER_SPEED = 2.2, EAT_TIME = 4, PATIENCE = 17;
+// The Special Guest offer's VIP tip (ship plan 1.7a). Declared here rather than imported from
+// sim/offers.js, which imports THIS file for PATIENCE; test/offers.test.js asserts the two agree.
+export const VIP_TIP_MULTIPLIER = 3;
 // Batch 7 (owner playtest, 2026-09-11): "the used tables majority of times do not show that they
 // were used or need cleaning, only sometimes randomly." Root cause was exactly this constant --
 // Batch 6 set it to 5 (dirty one sitting in five) specifically to dodge a nav-fullhouse mover-
@@ -389,6 +392,23 @@ function setPatience(w, c, value) {
   const q = Math.floor(c.patience * 4);
   if (q !== c._patQ) { c._patQ = q; emitWorld(w, { type: 'patience', id: c.id, value: c.patience }); }
 }
+/**
+ * THE HELPER PUP'S OTHER HALF (ship plan 1.7a: "and waiting guests' patience restored"). Every
+ * guest currently waiting -- at a counter, at the treat bowl or at a register -- gets its full
+ * patience back. Goes through setPatience so the render bars hear about it on the same throttle as
+ * an ordinary drain, and returns how many guests were actually helped so the caller can celebrate
+ * the real number. Pure: no clock, no RNG, no coins.
+ */
+export function refreshWaitingPatience(w, list) {
+  let helped = 0;
+  for (const c of list || []) {
+    if (!c || c.done || c.mood !== 'wait') continue;
+    if (c.patience >= PATIENCE) continue;
+    setPatience(w, c, PATIENCE);
+    helped++;
+  }
+  return helped;
+}
 function assignSlots(list, w) {
   for (const arr of w._queues.values()) arr.length = 0;
   for (const c of list) {
@@ -545,6 +565,9 @@ function proceedToSeatOrLeave(w, c) {
 function payAtStand(w, c, st, price) {
   const seated = !!pickSeat(w, c);
   c.amount = (c.order || []).reduce((sum, key) => sum + price(key, seated), 0);
+  // The Special Guest offer's VIP, when the Pet Book is already complete (ship plan 1.7a: "a VIP
+  // who tips 3x"). One flag on the customer, read at both of the two places an order is priced.
+  if (c.vip) c.amount *= VIP_TIP_MULTIPLIER;
   st.pile = (st.pile || 0) + c.amount;
   c.paid = true;
   emitWorld(w, { type: 'processed', id: c.id, amount: c.amount, checkoutId: st.id, by: 'self' });
@@ -765,6 +788,8 @@ export function stepCustomers(list, w, price, dt) {
           // Loop v2 Task 3: a holidayCupcake customer (wishFor's `holiday` flag — economy.js) pays
           // double for its whole order.
           if (c.wish && c.wish.holiday) c.amount *= 2;
+          // ...and the Special Guest VIP (see payAtStand above).
+          if (c.vip) c.amount *= VIP_TIP_MULTIPLIER;
         }
         if (c.state === 'atRegister') {
           if (c.paid) {

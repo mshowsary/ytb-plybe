@@ -19,9 +19,12 @@ import { PET_PROFILES, PET_SPECIES, PET_BESTIE_VISITS, petKey } from './petBook.
 // ---- catalogue -------------------------------------------------------------------------------
 
 export const PAW_MAX_STAR = 5;
-// Which star unlocks legendary coats (plan §3.7). Exported so petBook.js's `legendaryUnlocked`
-// gate has one authored number to read instead of a second literal 4 in another file.
-export const PAW_LEGENDARY_STAR = 4;
+// Which star unlocks legendary coats (ship plan §1.6a: "★3 | legendary pets start visiting").
+// Exported so petBook.js's `legendaryUnlocked` gate has one authored number to read instead of a
+// second literal in another file. It was ★4 until Batch E1 moved it: at ★4 the four legendaries
+// landed after the Pet Book had already stalled, so they were a reward for a collection nobody
+// could still finish.
+export const PAW_LEGENDARY_STAR = 3;
 
 export const PAW_SEAT_WINDOW_DAYS = 7;     // "a 7-day window..."
 export const PAW_SEAT_WINDOW_LIMIT = 3;    // "...with <= 3 missed seats"
@@ -32,15 +35,29 @@ export const PAW_SEAT_WINDOW_KEEP = 14;
 // Album `best` rank as written by systems/photo.js creditShot(): 0 Ok, 1 Good, 2 Perfect.
 export const PAW_PERFECT_RANK = 2;
 
+// Ship plan §1.6a. Every row is a thing the player can SEE THEMSELVES DOING, so every target here
+// is a count of an action taken in the café — guests served, pets met, photos shot, Besties made,
+// themes bought. Batch E1 retired the rows that were neither visible nor reachable: 2000 followers
+// (a number with no picture, ~day 90), a gold Weekly Cup (28 points of a scoring system the UI no
+// longer draws) and the 7-day missed-seat window (a REGRESSIBLE, punishing row — the only reason
+// the ratchet needed an "assume met" escape hatch at the save boundary).
 export const PAW_TARGETS = Object.freeze({
-  served: 120,     // ★1 lifetime guests served
-  besties: 1,      // ★2
-  photos: 10,      // ★3 shots in the album
-  seatMisses: PAW_SEAT_WINDOW_LIMIT, // ★3 (an upper bound — lower is better)
-  discovered: 16,  // ★4 of the 20 authored pets
-  goldCups: 1,     // ★4
-  perfect: 3,      // ★5
-  followers: 2000, // ★5
+  served: 40,      // ★1 lifetime guests served
+  met2: 10,        // ★2 pets met
+  met3: 14,        // ★3
+  photos3: 5,      // ★3 shots in the album
+  besties4: 3,     // ★4
+  met4: 18,        // ★4
+  photos4: 20,     // ★4
+  met5: 20,        // ★5 — the whole Pet Book
+  besties5: 5,     // ★5
+  perfect5: 10,    // ★5 pets shot Perfect
+  // ★5's last row: every café theme owned. Duplicated from career.js's RENOVATIONS.length rather
+  // than imported for the same reason petBook.js duplicates PET_LEGENDARY_PAW_STAR — this module is
+  // imported by the save boundary and by the headless bot, and a cycle through career.js would be
+  // resolved differently depending on which file the entry point reaches first.
+  // test/paw-rating.test.js asserts the two numbers are equal so they cannot drift apart.
+  themes: 5,
 });
 
 // Every authored pet key, in catalogue order. Derived from petBook.js so a fifth species or a
@@ -51,20 +68,29 @@ export const PAW_PET_KEYS = Object.freeze(
 
 // Icon families the star sheet draws. `id` is the stable row identity; `kind` is what to draw.
 export const PAW_REQUIREMENT_KINDS = Object.freeze([
-  'guests', 'zoneSet', 'bestie', 'zone', 'photos', 'seatMiss', 'petBook', 'cup', 'album', 'perfect', 'followers',
+  'guests', 'zoneSet', 'bestie', 'zone', 'photos', 'petBook', 'perfect', 'theme',
 ]);
 
 // ---- effects (plan §3.4: "+10% arrivals, +1 resident slot, an awning set, a decor set") ---------
 // All read `best`, never `live` — an effect that could switch off is worse than no effect.
 
-export const PAW_ARRIVAL_BONUS_PER_STAR = 0.10;
+// ARRIVALS: +10% ONCE, at ★2, not +10% per star. Ship plan §1.6a lists "+10% arrivals" against ★2
+// alone; the Batch-3 implementation compounded it on every star, which reached +50% at ★5 and — far
+// more damaging — handed +10% on the very first day, since ★1 is 40 guests served. Measured on the
+// 60-day bot: that alone pushed seat misses from 0.013 to 0.027 per guest (over the 0.02 quiet
+// gate), because the interior still has four tables and the extra traffic simply queued for them.
+// A café that gets busier than it can seat is not a reward.
+export const PAW_ARRIVAL_STAR = 2;
+export const PAW_ARRIVAL_BONUS = 0.10;
+// Kept under its old name for the star sheet, which prints it as the "+10%" on ★2's reward row.
+export const PAW_ARRIVAL_BONUS_PER_STAR = PAW_ARRIVAL_BONUS;
 export const PAW_RESIDENT_SLOTS_BASE = 3;
 export const PAW_RESIDENT_SLOTS_MAX = 8;
 export const PAW_AWNING_SETS = 6; // props.js AWNING_SETS must hold this many; index 0 is the starter.
 
 const clampStar = star => Math.max(0, Math.min(PAW_MAX_STAR, star | 0));
 
-export function pawArrivalMultiplier(best) { return 1 + PAW_ARRIVAL_BONUS_PER_STAR * clampStar(best); }
+export function pawArrivalMultiplier(best) { return clampStar(best) >= PAW_ARRIVAL_STAR ? 1 + PAW_ARRIVAL_BONUS : 1; }
 // `franchiseLevel` is the Franchise prestige's "+1 resident slot" (plan §3.11), added HERE because
 // this is the ratchet every consumer already reads for the slot count -- a second slot formula
 // somewhere else would be a second answer to the same question.
@@ -256,13 +282,9 @@ export function pawEvidence({ meta = null, stats = null, built = null, area = AR
   }
 
   const career = m.career && typeof m.career === 'object' ? m.career : {};
-  const trophies = career.trophies && typeof career.trophies === 'object' ? career.trophies : {};
-  let goldCups = Math.max(0, trophies.gold | 0);
-  // Fall back to the cup ledger when the trophy tally is missing (a meta that never met
-  // career.ensureCareer), so an earned gold cup is never invisible to ★4.
-  if (!goldCups && career.weeklyCups && typeof career.weeklyCups === 'object') {
-    for (const cup of Object.values(career.weeklyCups)) if (cup && cup.tier === 'gold') goldCups++;
-  }
+  // Café themes owned (career.renovationLevel — the five visible makeovers, bought with coins behind
+  // Café Stars since Batch E1). ★5's last row.
+  const themes = Math.max(0, Math.min(PAW_TARGETS.themes, career.renovationLevel | 0));
 
   const interiorZones = pawInteriorZoneIds(area);
   let interiorBuilt = 0;
@@ -280,7 +302,7 @@ export function pawEvidence({ meta = null, stats = null, built = null, area = AR
     perfect,
     discovered,
     petTotal: PAW_PET_KEYS.length,
-    goldCups,
+    themes,
     followers: Math.max(0, m.followers | 0),
     seatWindow: pawSeatWindow(m),
     storedBest: pawBestStar(m),
@@ -314,8 +336,15 @@ function zoneRow(star, id, zoneId, ev) {
   return row(star, id, 'zone', ev.builtSet.has(zoneId) ? 1 : 0, 1, ev.builtSet.has(zoneId), { zoneId });
 }
 
-function tierRequirements(star, ev, opts = {}) {
-  const assume = !!opts.assumeRegressible;
+// Pet-Book rows are capped at the catalogue size so a shrunken catalogue can never make a tier
+// unreachable; they are absolute counts rather than fractions so a future fifth species cannot
+// retroactively raise a gate a live player is already working against.
+const metRow = (star, id, ev, target) => {
+  const t = Math.min(target, ev.petTotal);
+  return row(star, id, 'petBook', ev.discovered, t, ev.discovered >= t);
+};
+
+function tierRequirements(star, ev) {
   if (star === 1) {
     return [row(1, 'r1.served', 'guests', ev.served, PAW_TARGETS.served, ev.served >= PAW_TARGETS.served)];
   }
@@ -327,32 +356,27 @@ function tierRequirements(star, ev, opts = {}) {
     const zones = total === 0
       ? row(2, 'r2.interior', 'zoneSet', 0, 0, true, { skipped: true })
       : row(2, 'r2.interior', 'zoneSet', ev.interiorBuilt, total, ev.interiorBuilt >= total);
-    return [zones, row(2, 'r2.bestie', 'bestie', ev.besties, PAW_TARGETS.besties, ev.besties >= PAW_TARGETS.besties)];
+    return [zones, metRow(2, 'r2.book', ev, PAW_TARGETS.met2)];
   }
   if (star === 3) {
-    const w = ev.seatWindow;
     return [
       zoneRow(3, 'r3.terrace', 'z_terrace', ev),
-      row(3, 'r3.photos', 'photos', ev.shots, PAW_TARGETS.photos, ev.shots >= PAW_TARGETS.photos),
-      row(3, 'r3.seats', 'seatMiss', w.current, PAW_TARGETS.seatMisses, assume || w.met, {
-        compare: 'lte', pending: !assume && !w.complete,
-      }),
+      metRow(3, 'r3.book', ev, PAW_TARGETS.met3),
+      row(3, 'r3.photos', 'photos', ev.shots, PAW_TARGETS.photos3, ev.shots >= PAW_TARGETS.photos3),
     ];
   }
   if (star === 4) {
-    // 16 of 20 is authored as an absolute count, not a fraction: it is a "most of the book" goal,
-    // and letting it scale with a future 24-pet catalogue would retroactively raise a live gate.
-    // (★4 also named the Pet Spa until the spa was retired on 2026-09-19; the row went with it.)
-    const target = Math.min(PAW_TARGETS.discovered, ev.petTotal);
     return [
-      row(4, 'r4.book', 'petBook', ev.discovered, target, ev.discovered >= target),
-      row(4, 'r4.cup', 'cup', ev.goldCups, PAW_TARGETS.goldCups, ev.goldCups >= PAW_TARGETS.goldCups),
+      row(4, 'r4.bestie', 'bestie', ev.besties, PAW_TARGETS.besties4, ev.besties >= PAW_TARGETS.besties4),
+      metRow(4, 'r4.book', ev, PAW_TARGETS.met4),
+      row(4, 'r4.photos', 'photos', ev.shots, PAW_TARGETS.photos4, ev.shots >= PAW_TARGETS.photos4),
     ];
   }
   return [
-    row(5, 'r5.album', 'album', ev.photographed, ev.petTotal, ev.photographed >= ev.petTotal),
-    row(5, 'r5.perfect', 'perfect', ev.perfect, PAW_TARGETS.perfect, ev.perfect >= PAW_TARGETS.perfect),
-    row(5, 'r5.followers', 'followers', ev.followers, PAW_TARGETS.followers, ev.followers >= PAW_TARGETS.followers),
+    metRow(5, 'r5.book', ev, PAW_TARGETS.met5),
+    row(5, 'r5.bestie', 'bestie', ev.besties, PAW_TARGETS.besties5, ev.besties >= PAW_TARGETS.besties5),
+    row(5, 'r5.perfect', 'perfect', ev.perfect, PAW_TARGETS.perfect5, ev.perfect >= PAW_TARGETS.perfect5),
+    row(5, 'r5.theme', 'theme', ev.themes, PAW_TARGETS.themes, ev.themes >= PAW_TARGETS.themes),
   ];
 }
 
@@ -361,11 +385,11 @@ export function pawVisibleRequirements(requirements) {
   return (requirements || []).filter(req => req && !req.skipped);
 }
 
-function buildTiers(ev, opts) {
+function buildTiers(ev) {
   const tiers = [];
   let live = 0, blocked = false;
   for (let star = 1; star <= PAW_MAX_STAR; star++) {
-    const requirements = tierRequirements(star, ev, opts);
+    const requirements = tierRequirements(star, ev);
     const met = requirements.every(req => req.met);
     if (met && !blocked) live = star; else blocked = true;
     tiers.push({ star, met, requirements });
@@ -390,7 +414,7 @@ function buildTiers(ev, opts) {
 export function pawRatingState(input = {}) {
   const ev = pawEvidence(input);
   const { area: _area, builtSet: _builtSet, ...counters } = ev;
-  const { tiers, live } = buildTiers(ev, {});
+  const { tiers, live } = buildTiers(ev);
   // THE RATCHET. Several inputs regress: a bad week pushes the missed-seat window back over 3, and
   // a newly authored zone row would retroactively un-earn a star a live player already holds. A rating
   // that falls is punishing and would ship as a visible regression, so the highest star ever
@@ -450,12 +474,11 @@ export function markGoldenPaw(meta) {
 // already-validated save could actually have earned. A hand-edited save cannot simply declare a
 // rating — an empty save's ceiling is 0.
 //
-// Regressible requirements are ASSUMED MET here (today: only the ★3 seat window). That is
-// deliberate and is not a hole: every other input is monotonic (lifetime served, builds, Bestie
-// visits, album shots, discoveries, gold cups, followers all only ever grow), each is separately
-// clamped by its own normaliser, and treating the one input that CAN fall as satisfied is what
-// stops the ratchet from being demoted on load by a bad week — which is the exact regression the
-// ratchet exists to prevent.
+// Since Batch E1 every row is MONOTONIC (lifetime served, builds, pets met, Bestie visits, album
+// shots, Perfect shots, themes owned all only ever grow), and each is separately clamped by its own
+// normaliser — so the ceiling is simply the live derivation and no "assume this regressible row was
+// met" escape hatch is needed any more. The ★3 seat-miss window was the one regressible row and the
+// only reason that hatch existed; the plan retired it as a punishing gate.
 export function pawEntitlementCeiling(input = {}) {
-  return buildTiers(pawEvidence(input), { assumeRegressible: true }).live;
+  return buildTiers(pawEvidence(input)).live;
 }

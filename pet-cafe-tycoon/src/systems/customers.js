@@ -3,7 +3,7 @@ import { cue } from '../ui/hud.js';
 import { clockIcon, tableDirtyIcon, displayIcon, registerIcon, coinMinusIcon } from '../ui/icons.js';
 import { SOCIALS } from '../sim/petSocials.js';
 // Customer render/system layer: human + named pet visitor, wish UI and pet delight moments.
-import { spawnInterval, maxCustomers, terraceSpawnInterval, terraceMaxCustomers, cafeLevel } from '../sim/economy.js';
+import { effectiveSpawnInterval, maxCustomers, terraceSpawnInterval, terraceMaxCustomers, cafeLevel } from '../sim/economy.js';
 import { spawnIntervalMultiplier } from '../sim/followers.js';
 import { spawnMult, capBonus } from '../sim/day.js';
 import { stepCustomers, createCustomer, gardenTableCount, PATIENCE } from '../sim/customers.js';
@@ -13,10 +13,12 @@ import { SERVICE_LABEL, dirtyTablesBlockingSeats } from '../sim/serviceQuality.j
 import { petProfile } from '../sim/petBook.js';
 import {
   REGULAR_GREETING_SECONDS,
-  regularIdentityForDay,
   resolveUniquePetIdentity,
   activeNamedPetKeys,
 } from '../sim/regularVisitors.js';
+import { dailyPetPlan, unlockedSpecies } from '../sim/petArrivals.js';
+import { seedOpeningCafe } from '../sim/opening.js';
+import { pawBestStar } from '../sim/pawRating.js';
 import { seatById } from '../sim/world.js';
 import { createHuman } from '../render/human.js';
 import { createPet } from '../render/pets.js';
@@ -58,7 +60,7 @@ function anonymousIdentity() {
   // All gameplay/render callers can stay branch-free. The anonymous overflow case owns no DOM and
   // therefore can never expose a duplicate name while still preserving the customer itself.
   return {
-    announce() {}, greetRegular() {}, setSeated() {}, setNear() {}, setPlayBreak() {}, update() {}, remove() {},
+    announce() {}, greetRegular() {}, setSeated() {}, setNear() {}, update() {}, remove() {},
   };
 }
 
@@ -84,7 +86,7 @@ export function createCustomers(G, S, ctx) {
   let gardenSpawnT = 2, gardenKey = -1, gardenInterval = null, gardenMax = 0;
   // Guests who have left, still shrinking out (see LEAVE_FADE_SECONDS).
   const leaving = [];
-  let regularPlanDay = 0, regularPlan = null, regularGreetedDay = 0;
+  let regularPlanDay = 0, regularPlanKey = '', regularPlan = null, regularGreetedDay = 0;
   const tmpProj = { sx: 0, sy: 0, visible: true };
 
   function applyServicePenalty(reason, r, c) {
@@ -108,31 +110,54 @@ export function createCustomers(G, S, ctx) {
     }
   }
 
+  // The species this cafe has opened, cached: unlockedSpecies walks the catalogue and this runs on
+  // every spawn.
+  let speciesCacheKey = '', speciesCache = null;
+  function allowedSpecies() {
+    const key = String(world.built.size);
+    if (key !== speciesCacheKey) { speciesCacheKey = key; speciesCache = unlockedSpecies(world.built); }
+    return speciesCache;
+  }
+
+  // TODAY'S GUARANTEED FACE (ship plan 1.6b, sim/petArrivals.js). On an odd day while the Pet Book
+  // is incomplete this is a pet nobody has met; on the days between it is a named regular coming
+  // back; on Sundays it is the Pet Parade's special visitor. The plan is recomputed when the day
+  // ticks over AND when the cafe's species set or star rating changes, so buying the Pet treat bar
+  // can hand the same day a bunny instead of leaving the promise on yesterday's pool.
   function syncRegularPlan() {
     const day = Math.max(1, (G.dayState && G.dayState.day) | 0);
-    if (regularPlanDay === day) return day;
-    regularPlanDay = day;
-    regularPlan = regularIdentityForDay(G.meta, day);
-    regularGreetedDay = 0;
+    const key = day + ':' + allowedSpecies().join(',') + ':' + pawBestStar(G.meta);
+    if (regularPlanKey === key) return day;
+    regularPlanKey = key;
+    regularPlan = dailyPetPlan(G.meta, day, world.built);
+    if (regularPlanDay !== day) { regularPlanDay = day; regularGreetedDay = 0; }
     return day;
   }
 
   function spawn(garden = false) {
-    const next = spawns.next(G.meta.followers, G.meta);
+    const allowed = allowedSpecies();
+    const next = spawns.next(G.meta.followers, G.meta, allowed);
     const social = G.meta.socials?.active;
     const theme = social?.status === 'running' ? SOCIALS.find(s=>s.id===social.id) : null;
     const day = syncRegularPlan();
-    const preferredKey = regularPlan && regularGreetedDay !== day ? regularPlan.key : null;
-    // The old rare-visitor ad used to force this one spawn to a rare variant through
-    // G.rareVisitorPending; nothing has written that flag since its (invisible) chip was deleted, and
-    // the branch was the only Math.random on the spawn path. The Special Guest offer in the ad batch
-    // replaces it, and will invite a pet the book is MISSING rather than reroll a variant.
+    // THE SPECIAL GUEST (ship plan 1.7a). systems/offers.js writes G.specialGuest when the player
+    // watches the ad at the door; the very next CAFE arrival is that pet. It replaces the old
+    // rare-visitor ad, which rerolled a variant the book already had (and was the only Math.random
+    // on this path): the invitation names a pet the book is MISSING, picked in catalogue order by
+    // sim/offers.js, and consumes no RNG -- resolveUniquePetIdentity is pure, so the seeded spawn
+    // stream tools/bot.js replays stays bit-identical. A garden arrival never consumes it: the
+    // silhouette is waiting at the CAFE door, so that is the door it comes through.
+    const special = garden ? null : (G.specialGuest || null);
+    const preferredKey = special && special.key ? special.key
+      : (regularPlan && regularGreetedDay !== day ? regularPlan.key : null);
+    const themeSpecies = theme?.species && allowed.includes(theme.species) ? theme.species : null;
     const identityPick = resolveUniquePetIdentity(
-      theme?.species || next.species,
+      themeSpecies || next.species,
       next.petVariant,
       activeNamedPetKeys(G.customers),
       preferredKey,
       G.meta,
+      allowed,
     );
     const { id, variant } = next;
     const species = identityPick.species;
@@ -145,7 +170,23 @@ export function createCustomers(G, S, ctx) {
     c.petIdentityKey = identityPick.key;
     c.regularCandidate = !!(identityPick.named && preferredKey && identityPick.key === preferredKey);
     c.regularDay = day;
+    // The VIP the Special Guest becomes once the Pet Book is complete: 3x the tip
+    // (sim/customers.js prices it) and a friendship visit that counts twice
+    // (systems/petFriendship.js). One flag, read by both.
+    if (special) { c.vip = !!special.vip; G.specialGuest = null; }
     G.customers.push(c);
+    attachActor(c, species, petVariant, variant, identityPick, profile, theme);
+    // A four-point star over the VIP, the same glyph a Pet Social guest wears: "this one is special"
+    // without a word. An invited unmet pet needs no marker -- its own discovery card is the moment.
+    if (c.vip) rec.get(c.id)?.identity.announce('✦', 3);
+  }
+
+  // The render/UI half of a spawn: the human, the pet, the leash, the shadows, the wish bubble and
+  // the name card. Split out of spawn() so the two OPENING GUESTS (sim/opening.js) -- seated and
+  // mid-meal at t = 0 rather than walking in -- get exactly the same actor as everyone else. A
+  // customer pushed into G.customers with no record here is invisible: update() skips it.
+  function attachActor(c, species, petVariant, variant, identityPick, profile, theme, quiet = false) {
+    const day = c.regularDay || 1;
     const human = createHuman(variant, 'customer'); human.group.position.set(c.x, 0, c.z); scene.add(human.group);
     const pet = createPet(species, petVariant); pet.group.position.set(c.x + 0.45, 0, c.z - 0.9); scene.add(pet.group);
     const leash = createLeash(scene); leash.attach(human.hand, pet.neck);
@@ -170,10 +211,52 @@ export function createCustomers(G, S, ctx) {
     rec.set(c.id, {
       human, pet, leash, identity, profile, humanShadow, petShadow,
       px: c.x, pz: c.z, eating: false, bub,
-      lastState: c.state, petHappyT: 0, petBreakActive: false, treatCelebrated: false, tablePenalty: false,
+      lastState: c.state, petHappyT: 0, treatCelebrated: false, tablePenalty: false,
       regularCandidate: c.regularCandidate, regularGreeted: false, regularGreetingT: 0, regularDay: day,
     });
-    if (ctx.discoverPet) ctx.discoverPet(species, petVariant);
+    if (ctx.discoverPet) ctx.discoverPet(species, petVariant, quiet ? { quiet: true } : null);
+  }
+
+  // THE FIRST THREE SECONDS (ship plan 1.6). Called once by src/game.js on a fresh save: two guests
+  // already seated with their pets, each with the tip they left on the table. Never on a restore --
+  // a save carries its own guests.
+  function seedOpening() {
+    let seq = 1000000;
+    const made = seedOpeningCafe(world, G.customers, area, () => seq++);
+    for (const c of made) {
+      c.serviceVisitId = G.meta.servicePolicy.nextVisit++;
+      c.regularDay = Math.max(1, (G.dayState && G.dayState.day) | 0);
+      const profile = petProfile(c.species, c.petVariant);
+      const identityPick = resolveUniquePetIdentity(
+        c.species, c.petVariant, activeNamedPetKeys(G.customers.filter(x => x !== c)), null, G.meta, allowedSpecies(),
+      );
+      c.petIdentityKey = identityPick.key;
+      attachActor(c, c.species, c.petVariant, c.variant, identityPick, profile, null, true);
+      const r = rec.get(c.id), seat = c.seat;
+      if (!r || !seat) continue;
+      // Sit them down the way the 'seated' event would have: pose, pet on its own spot, no bubble.
+      r.human.group.position.set(seat.pair.human.x, 0, seat.pair.human.z);
+      r.human.group.rotation.y = c.rot;
+      r.px = seat.pair.human.x; r.pz = seat.pair.human.z;
+      r.human.sit(); r.human.setMood('none');
+      r.bub.wrap.classList.add('hidden'); r.bub.bar.classList.add('hidden');
+      r.pet.group.position.set(seat.pair.pet.x, 0, seat.pair.pet.z);
+      r.pet.sit(); r.eating = true; r.identity.setSeated(true);
+      r.lastState = 'eating';
+    }
+    return made.length;
+  }
+
+  // THE PETS WAVE AT LAST CALL (ship plan 1.6). Render-only: a happy face, a heart burst and the
+  // existing greeting bob. No sim state, no coordinate and no patience clock is touched.
+  function wave() {
+    for (const c of G.customers) {
+      const r = rec.get(c.id);
+      if (!r || c.done || c.state === 'leave') continue;
+      r.pet.setMood('happy');
+      r.regularGreetingT = Math.max(r.regularGreetingT, REGULAR_GREETING_SECONDS * 1.6);
+      fx.hearts(r.pet.group.position.x, r.pet.height + 0.24, r.pet.group.position.z);
+    }
   }
 
   function dispose(r) {
@@ -188,8 +271,20 @@ export function createCustomers(G, S, ctx) {
     regularPlanDay = 0; regularPlan = null; regularGreetedDay = 0;
   }
 
+  // THE INVITED GUEST ARRIVES NOW (ship plan 1.7a). systems/offers.js writes G.specialGuest the
+  // instant the ad is granted and then calls this, so the pet walks in while the sparkle at the
+  // door is still fading rather than whenever the next pacing tick happens to fire. Same single
+  // mechanism -- spawn() reads G.specialGuest and clears it -- so there is still exactly one place
+  // that consumes an invitation, and the seconds-long window where a reload could have swallowed a
+  // watched ad closes with it.
+  function inviteSpecialNow() {
+    if (!G.specialGuest) return false;
+    spawn(false);
+    return true;
+  }
+
   return {
-    teardown,
+    teardown, seedOpening, wave, inviteSpecialNow,
     prepare(dt) {
       penaltyToastCd = Math.max(0, penaltyToastCd - dt);
       syncRegularPlan();
@@ -198,10 +293,18 @@ export function createCustomers(G, S, ctx) {
       // Star tiers now feed pacing too, so buying one visibly makes the room busier. Without the
       // level in this key a star purchase would silently leave arrival rate on its old value.
       const level = cafeLevel(G);
-      const demandKey = `${world.built.size}:${G.staff && G.staff.runner | 0}:${G.staff && G.staff.cashier | 0}:${level}`;
+      const demandKey = `${world.built.size}:${G.staff && G.staff.runner | 0}:${G.staff && G.staff.cashier | 0}:${level}:${pawBestStar(G.meta)}`;
       if (demandKey !== cachedDemandKey) {
         cachedDemandKey = demandKey;
-        interval = spawnInterval(world.built, G.staff, level) * spawnIntervalMultiplier(G.meta.followers);
+        // effectiveSpawnInterval, not spawnInterval: it is the ONE function that applies the
+        // follower curve AND the Cafe Stars "+10% arrivals per star" together and re-clamps the
+        // product against the demand floor. It had no caller at all before Batch E1 -- this line
+        // multiplied the raw interval by the follower curve only, so the arrivals reward the Cafe
+        // Stars sheet has promised since Batch 3 was never actually delivered to the cafe.
+        interval = effectiveSpawnInterval(world.built, G.staff, level, {
+          followerMult: spawnIntervalMultiplier(G.meta.followers),
+          pawStars: pawBestStar(G.meta),
+        });
         maxC = maxCustomers(world.built, G.staff, level);
       }
       const d = G.dayState;
@@ -316,26 +419,16 @@ export function createCustomers(G, S, ctx) {
           rec.delete(c.id); G.customers.splice(i, 1); continue;
         }
 
-        const petBreakNow = Number.isFinite(c._petBreakFloor);
-        if (petBreakNow && !r.petBreakActive) {
-          r.petBreakActive = true;
-          r.identity.setPlayBreak(true);
-          r.pet.setMood('happy');
-          fx.hearts(r.pet.group.position.x, r.pet.height + 0.25, r.pet.group.position.z);
-        } else if (!petBreakNow && r.petBreakActive) {
-          r.petBreakActive = false;
-          r.identity.setPlayBreak(false);
-          r.pet.group.rotation.z = 0;
-          if (r.petHappyT <= 0 && r.regularGreetingT <= 0) r.pet.setMood('none');
-        }
-
+        // The Pet Play Break's floating patience floor (and the bobbing pet that showed it) went
+        // with its rewarded offer in Batch E2 (ship plan 1.7 "Cut: ... play break"). The Helper Pup
+        // restores patience outright instead, which needs no per-guest render state at all.
         if (r.petHappyT > 0) {
           r.petHappyT = Math.max(0, r.petHappyT - dt);
-          if (r.petHappyT === 0 && !r.petBreakActive && r.regularGreetingT <= 0) r.pet.setMood('none');
+          if (r.petHappyT === 0 && r.regularGreetingT <= 0) r.pet.setMood('none');
         }
         if (r.regularGreetingT > 0) {
           r.regularGreetingT = Math.max(0, r.regularGreetingT - dt);
-          if (r.regularGreetingT === 0 && !r.petBreakActive && r.petHappyT <= 0) r.pet.setMood('none');
+          if (r.regularGreetingT === 0 && r.petHappyT <= 0) r.pet.setMood('none');
         }
         if (r.eating && c.state !== 'eating') {
           r.pet.stand(); r.human.stand(); r.eating = false; r.identity.setSeated(false);
@@ -355,16 +448,11 @@ export function createCustomers(G, S, ctx) {
 
         const traitTarget = r.profile.name === 'Marmalade' ? world.stations.get('oven1')
           : r.profile.name === 'Snowdrop' ? world.stations.get('bush1') : G.P;
-        if (!r.petBreakActive && c.mood !== 'angry' && traitTarget?.active !== false) {
+        if (c.mood !== 'angry' && traitTarget?.active !== false) {
           r.pet.react(r.profile.name, G.time + c.id * 0.37, traitTarget,
             !!G.settings.reducedMotion || globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
         }
-        if (r.petBreakActive) {
-          const pulse = (G.time + (c.id | 0) * 0.17) * 7;
-          r.pet.setMood('happy');
-          r.pet.group.position.y += 0.035 + Math.abs(Math.sin(pulse)) * 0.08;
-          r.pet.group.rotation.z = Math.sin(pulse * 0.67) * 0.075;
-        } else if (r.regularGreetingT > 0) {
+        if (r.regularGreetingT > 0) {
           // A tiny render-only hello: happy face, head/body tilt and 4cm bounce. No sim coordinate,
           // mover, queue state or patience clock is changed.
           const hello = (G.time + c.id * .19) * 8;
@@ -375,7 +463,7 @@ export function createCustomers(G, S, ctx) {
           r.pet.group.rotation.z *= Math.max(0, 1 - dt * 12);
         }
         const calm = !!G.settings.reducedMotion || !!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-        r.pet.social(dt, { state: c.state, target: G.P, reducedMotion: calm || r.petBreakActive || r.regularGreetingT > 0 });
+        r.pet.social(dt, { state: c.state, target: G.P, reducedMotion: calm || r.regularGreetingT > 0 });
         if (r._socialState !== c.state) {
           if (!calm && (c.state === 'atRegister' || (c.state === 'leave' && c.mood !== 'angry'))) r.human.greet();
           r._socialState = c.state;

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AREA1 } from '../data/area1.js';
+import { RENOVATIONS } from '../src/sim/career.js';
 import {
   PAW_MAX_STAR, PAW_PET_KEYS, PAW_SEAT_WINDOW_DAYS, PAW_SEAT_WINDOW_KEEP, PAW_TARGETS,
   applyPawRatchet, goldenPawDue, markGoldenPaw, pawArrivalMultiplier, pawBestStar,
@@ -80,134 +81,124 @@ test('interior zones are everything outside a region chain — the terrace chain
 
 // --- tier gates -----------------------------------------------------------------------------
 
-test('★1 opens at exactly 120 lifetime guests served', () => {
-  const at119 = pawRatingState({ meta: meta(), stats: { served: 119 }, built: [], area: AREA1 });
-  assert.equal(at119.live, 0);
-  assert.equal(at119.next, 1);
-  assert.equal(req(at119, 'r1.served').current, 119);
-  assert.equal(req(at119, 'r1.served').target, PAW_TARGETS.served);
-  assert.equal(req(at119, 'r1.served').met, false);
+// BATCH E1 REWROTE EVERY TIER (ship plan 1.6a). The old rows -- 120 served, one Bestie, a 7-day
+// missed-seat window at or under 3, a gold Weekly Cup, 2000 followers -- are gone: two of them
+// (the cup, the followers) were numbers the UI no longer draws and landed around day 90, and the
+// seat window was a REGRESSIBLE, punishing row. The new rows are the plan's, and every one of them
+// is a thing the player can see themselves doing. The behaviours those tests protected that are
+// NOT about the specific numbers -- the ratchet, the catalogue-skip rule, the uniform descriptor
+// shape and the save-boundary ceiling -- are all still asserted below, unchanged.
 
-  const at120 = pawRatingState({ meta: meta(), stats: { served: 120 }, built: [], area: AREA1 });
-  assert.equal(at120.live, 1);
-  assert.equal(at120.next, 2);
+test('star 1 opens at exactly PAW_TARGETS.served lifetime guests', () => {
+  assert.equal(PAW_TARGETS.served, 40, 'the plan 1.6a number');
+  const below = pawRatingState({ meta: meta(), stats: { served: PAW_TARGETS.served - 1 }, built: [], area: AREA1 });
+  assert.equal(below.live, 0);
+  assert.equal(below.next, 1);
+  assert.equal(req(below, 'r1.served').current, PAW_TARGETS.served - 1);
+  assert.equal(req(below, 'r1.served').target, PAW_TARGETS.served);
+  assert.equal(req(below, 'r1.served').met, false);
+
+  const at = pawRatingState({ meta: meta(), stats: { served: PAW_TARGETS.served }, built: [], area: AREA1 });
+  assert.equal(at.live, 1);
+  assert.equal(at.next, 2);
 });
 
-test('★2 needs every interior zone AND one Bestie', () => {
+test('star 2 needs every interior zone AND 10 pets met', () => {
   const base = { stats: { served: 200 }, area: AREA1 };
-  const bestie = { petFriendship: { 'cat:0': 10 } };
+  const tenPets = { petBook: bookOf(PAW_PET_KEYS.slice(0, 10)) };
 
-  const noZones = pawRatingState({ ...base, meta: meta(bestie), built: [] });
+  const noZones = pawRatingState({ ...base, meta: meta(tenPets), built: [] });
   assert.equal(noZones.live, 1);
   assert.equal(req(noZones, 'r2.interior').current, 0);
   assert.equal(req(noZones, 'r2.interior').target, INTERIOR.length);
 
-  const oneShort = pawRatingState({ ...base, meta: meta(bestie), built: INTERIOR.slice(0, -1) });
+  const oneShort = pawRatingState({ ...base, meta: meta(tenPets), built: INTERIOR.slice(0, -1) });
   assert.equal(oneShort.live, 1);
   assert.equal(req(oneShort, 'r2.interior').current, INTERIOR.length - 1);
 
-  const noBestie = pawRatingState({ ...base, meta: meta({ petFriendship: { 'cat:0': 9 } }), built: INTERIOR });
-  assert.equal(noBestie.live, 1, '9 visits is Friend, not Bestie');
-  assert.equal(req(noBestie, 'r2.bestie').met, false);
+  const ninePets = pawRatingState({ ...base, meta: meta({ petBook: bookOf(PAW_PET_KEYS.slice(0, 9)) }), built: INTERIOR });
+  assert.equal(ninePets.live, 1, 'nine met pets is not ten');
+  assert.equal(req(ninePets, 'r2.book').met, false);
+  assert.equal(req(ninePets, 'r2.book').target, PAW_TARGETS.met2);
 
-  const both = pawRatingState({ ...base, meta: meta(bestie), built: INTERIOR });
-  assert.equal(both.live, 2);
+  assert.equal(pawRatingState({ ...base, meta: meta(tenPets), built: INTERIOR }).live, 2);
 });
 
-test('★3 needs the terrace, 10 album shots and a 7-day window at or under 3 missed seats', () => {
+test('star 3 needs the garden, 14 pets and 5 photos, and no longer names a missed-seat window', () => {
   const built = [...INTERIOR, 'z_terrace'];
   const base = { stats: { served: 200 }, built, area: AREA1 };
-  const core = { petFriendship: { 'cat:0': 10 } };
-  const tenShots = { album: { 'cat:0': { shots: 10, best: 0 } } };
+  const core = { petBook: bookOf(PAW_PET_KEYS.slice(0, 14)), album: { 'cat:0': { shots: 5, best: 0 } } };
 
-  const noTerrace = pawRatingState({ ...base, built: INTERIOR, meta: withSeatDays(meta({ ...core, ...tenShots }), 7, 0) });
+  const noTerrace = pawRatingState({ ...base, built: INTERIOR, meta: meta(core) });
   assert.equal(noTerrace.live, 2);
   assert.equal(req(noTerrace, 'r3.terrace').met, false);
   assert.equal(req(noTerrace, 'r3.terrace').zoneId, 'z_terrace');
 
-  const nineShots = pawRatingState({ ...base, meta: withSeatDays(meta({ ...core, album: { 'cat:0': { shots: 9, best: 0 } } }), 7, 0) });
-  assert.equal(nineShots.live, 2);
-  assert.equal(req(nineShots, 'r3.photos').current, 9);
+  const fourShots = pawRatingState({ ...base, meta: meta({ ...core, album: { 'cat:0': { shots: 4, best: 0 } } }) });
+  assert.equal(fourShots.live, 2);
+  assert.equal(req(fourShots, 'r3.photos').current, 4);
+  assert.equal(req(fourShots, 'r3.photos').target, PAW_TARGETS.photos3);
 
-  // Four misses spread over the only complete window: over budget.
-  const dirty = pawRatingState({ ...base, meta: withSeatDays(meta({ ...core, ...tenShots }), 7, 1) });
-  assert.equal(dirty.live, 2);
-  assert.equal(req(dirty, 'r3.seats').current, 7);
-  assert.equal(req(dirty, 'r3.seats').compare, 'lte');
-  assert.equal(req(dirty, 'r3.seats').met, false);
+  const thirteenPets = pawRatingState({ ...base, meta: meta({ ...core, petBook: bookOf(PAW_PET_KEYS.slice(0, 13)) }) });
+  assert.equal(thirteenPets.live, 2);
+  assert.equal(req(thirteenPets, 'r3.book').current, 13);
 
-  // Not enough days recorded yet is PENDING, not failed-with-a-fake-number.
-  const early = pawRatingState({ ...base, meta: withSeatDays(meta({ ...core, ...tenShots }), 6, 0) });
-  assert.equal(early.live, 2);
-  assert.equal(req(early, 'r3.seats').pending, true);
-  assert.equal(req(early, 'r3.seats').met, false);
+  assert.equal(pawRatingState({ ...base, meta: meta(core) }).live, 3);
 
-  const clean = pawRatingState({ ...base, meta: withSeatDays(meta({ ...core, ...tenShots }), 7, 0) });
-  assert.equal(clean.live, 3);
-  assert.equal(req(clean, 'r3.seats').pending, false);
-
-  // Exactly at the limit still counts: 3 misses across seven days.
-  const atLimit = meta({ ...core, ...tenShots });
-  withSeatDays(atLimit, 4, 0, 1);
-  recordPawSeatDay(atLimit, 5, 3);
-  withSeatDays(atLimit, 2, 0, 6);
-  const edge = pawRatingState({ ...base, meta: atLimit });
-  assert.equal(pawSeatWindow(atLimit).best, 3);
-  assert.equal(edge.live, 3);
+  // The retired rows are gone from every tier, not merely unmet: a fewer-is-better row nobody can
+  // influence, and two numbers with no picture, are exactly what the plan took out.
+  const all = pawRatingState({ ...base, meta: meta(core) }).tiers.flatMap(t => t.requirements);
+  for (const id of ['r3.seats', 'r4.cup', 'r5.followers', 'r5.album', 'r2.bestie']) {
+    assert.equal(all.some(r => r.id === id), false, `${id} is retired`);
+  }
+  assert.equal(all.some(r => r.compare === 'lte'), false, 'no fewer-is-better row is left');
 });
 
-test('★4 needs 16 of 20 pets and a gold cup; ★5 needs the whole album, 3 Perfects and 2000 followers', () => {
-  // ★4 names no zone (its Pet Spa row went with the spa, 2026-09-19): the terrace is ★3's.
+test('star 4 needs 3 Besties, 18 pets and 20 photos; star 5 needs the whole book, 5 Besties, 10 Perfects and every theme', () => {
   const built = [...INTERIOR, 'z_terrace'];
-  const star3 = m => withSeatDays(meta({
-    petFriendship: { 'cat:0': 10 }, album: { 'cat:0': { shots: 10, best: 0 } }, ...m,
-  }), 7, 0);
   const base = { stats: { served: 200 }, built, area: AREA1 };
-
-  const noCup = pawRatingState({ ...base, meta: star3({ petBook: bookOf(PAW_PET_KEYS.slice(0, 16)) }) });
-  assert.equal(noCup.live, 3);
-  assert.equal(req(noCup, 'r4.book').met, true);
-  assert.equal(req(noCup, 'r4.cup').met, false);
-
-  const fifteen = pawRatingState({ ...base, meta: star3({
-    petBook: bookOf(PAW_PET_KEYS.slice(0, 15)),
-    career: { trophies: { gold: 1 }, weeklyCups: {} },
-  }) });
-  assert.equal(fifteen.live, 3);
-  assert.equal(req(fifteen, 'r4.book').current, 15);
-  assert.equal(req(fifteen, 'r4.book').target, 16);
-
-  const star4meta = star3({
-    petBook: bookOf(PAW_PET_KEYS.slice(0, 16)),
-    career: { trophies: { gold: 1 }, weeklyCups: {} },
+  const besties = n => Object.fromEntries(PAW_PET_KEYS.slice(0, n).map(k => [k, 10]));
+  const star4 = m => meta({
+    petBook: bookOf(PAW_PET_KEYS.slice(0, 18)),
+    petFriendship: besties(3),
+    album: { 'cat:0': { shots: 20, best: 0 } },
+    ...m,
   });
-  assert.equal(pawRatingState({ ...base, meta: star4meta }).live, 4);
 
-  // A gold cup recorded only in the weekly-cup ledger still counts.
-  const ledgerOnly = star3({
-    petBook: bookOf(PAW_PET_KEYS.slice(0, 16)),
-    career: { trophies: {}, weeklyCups: { 3: { tier: 'gold', reward: 1600, points: 25 } } },
-  });
-  assert.equal(pawRatingState({ ...base, meta: ledgerOnly }).live, 4);
+  const twoBesties = pawRatingState({ ...base, meta: star4({ petFriendship: besties(2) }) });
+  assert.equal(twoBesties.live, 3);
+  assert.equal(req(twoBesties, 'r4.bestie').current, 2);
+  assert.equal(req(twoBesties, 'r4.bestie').target, PAW_TARGETS.besties4);
+
+  const nineteenShots = pawRatingState({ ...base, meta: star4({ album: { 'cat:0': { shots: 19, best: 0 } } }) });
+  assert.equal(nineteenShots.live, 3, '19 shots is not 20');
+
+  assert.equal(pawRatingState({ ...base, meta: star4() }).live, 4);
 
   const full = {
     petBook: bookOf(PAW_PET_KEYS),
-    career: { trophies: { gold: 1 }, weeklyCups: {} },
-    album: { ...albumOf(PAW_PET_KEYS), ...albumOf(PAW_PET_KEYS.slice(0, 3), { best: 2 }) },
-    followers: 2000,
+    petFriendship: besties(5),
+    album: { ...albumOf(PAW_PET_KEYS, { shots: 2 }), ...albumOf(PAW_PET_KEYS.slice(0, 10), { best: 2, shots: 2 }) },
+    career: { renovationLevel: 5 },
   };
-  assert.equal(pawRatingState({ ...base, meta: star3(full) }).live, 5);
-  assert.equal(pawRatingState({ ...base, meta: star3({ ...full, followers: 1999 }) }).live, 4);
-  assert.equal(pawRatingState({ ...base, meta: star3({
-    ...full, album: { ...albumOf(PAW_PET_KEYS), ...albumOf(PAW_PET_KEYS.slice(0, 2), { best: 2 }) },
-  }) }).live, 4, 'two Perfect pets is not three');
-  assert.equal(pawRatingState({ ...base, meta: star3({
-    ...full, album: { ...albumOf(PAW_PET_KEYS.slice(0, 19)), ...albumOf(PAW_PET_KEYS.slice(0, 3), { best: 2 }) },
-  }) }).live, 4, 'one unphotographed pet holds ★5 closed');
+  assert.equal(pawRatingState({ ...base, meta: meta(full) }).live, 5);
+  assert.equal(pawRatingState({ ...base, meta: meta({ ...full, career: { renovationLevel: 4 } }) }).live, 4,
+    'star 5 needs every cafe theme owned');
+  assert.equal(pawRatingState({ ...base, meta: meta({ ...full, petFriendship: besties(4) }) }).live, 4, 'four Besties is not five');
+  assert.equal(pawRatingState({ ...base, meta: meta({
+    ...full, album: { ...albumOf(PAW_PET_KEYS, { shots: 2 }), ...albumOf(PAW_PET_KEYS.slice(0, 9), { best: 2, shots: 2 }) },
+  }) }).live, 4, 'nine Perfect pets is not ten');
+  assert.equal(pawRatingState({ ...base, meta: meta({ ...full, petBook: bookOf(PAW_PET_KEYS.slice(0, 19)) }) }).live, 4,
+    'one unmet pet holds star 5 closed');
 
-  const done = pawRatingState({ ...base, meta: star3(full) });
+  const done = pawRatingState({ ...base, meta: meta(full) });
   assert.equal(done.next, null);
   assert.deepEqual(done.requirements, []);
+});
+
+test("star 5's theme row matches career.js's authored theme ladder", () => {
+  assert.equal(PAW_TARGETS.themes, RENOVATIONS.length,
+    'pawRating duplicates the count rather than importing career.js (cycle); they must not drift');
 });
 
 // --- absent content ---------------------------------------------------------------------------
@@ -217,12 +208,12 @@ test('a requirement naming content absent from the catalogue is skipped, not fai
   assert.equal(pawZoneInCatalogue('z_terrace', NO_TERRACE_AREA), false);
   assert.equal(pawZoneInCatalogue('z_spa', AREA1), false, 'the retired spa is absent from the real catalogue');
 
-  const m = withSeatDays(meta({
-    petFriendship: { 'cat:0': 10 },
-    album: { 'cat:0': { shots: 10, best: 0 } },
-  }), 7, 0);
+  const m = meta({
+    petBook: bookOf(PAW_PET_KEYS.slice(0, 14)),
+    album: { 'cat:0': { shots: 5, best: 0 } },
+  });
 
-  // Without the terrace in the catalogue: ★3 is reachable, and the terrace row is marked skipped
+  // Without the terrace in the catalogue: star 3 is reachable, and the terrace row is marked skipped
   // so the UI draws nothing for it.
   const today = pawRatingState({ meta: m, stats: { served: 200 }, built: INTERIOR, area: NO_TERRACE_AREA });
   assert.equal(today.live, 3);
@@ -241,20 +232,23 @@ test('a requirement naming content absent from the catalogue is skipped, not fai
   assert.equal(builtTerrace.live, 3);
 });
 
-test('★4 names no zone: the retired spa row is gone, not skipped', () => {
+test('star 4 names no zone: the retired spa row is gone, not skipped', () => {
   const state = pawRatingState({ meta: meta(), stats: { served: 0 }, built: [], area: AREA1 });
-  assert.deepEqual(state.tiers[3].requirements.map(r => r.id), ['r4.book', 'r4.cup']);
+  assert.deepEqual(state.tiers[3].requirements.map(r => r.id), ['r4.bestie', 'r4.book', 'r4.photos']);
   assert.equal(state.tiers.flatMap(t => t.requirements).some(r => r.id === 'r4.spa'), false);
+  // Exactly one zone row in the whole track, and it is star 3's garden.
+  const zoneRows = state.tiers.flatMap(t => t.requirements).filter(r => r.kind === 'zone');
+  assert.deepEqual(zoneRows.map(r => r.zoneId), ['z_terrace']);
 });
 
 // --- the ratchet ------------------------------------------------------------------------------
 
 test('the rating ratchets: it never goes down when an input regresses', () => {
   const built = [...INTERIOR, 'z_terrace'];
-  const m = withSeatDays(meta({
-    petFriendship: { 'cat:0': 10 },
-    album: { 'cat:0': { shots: 10, best: 0 } },
-  }), 7, 0);
+  const m = meta({
+    petBook: bookOf(PAW_PET_KEYS.slice(0, 14)),
+    album: { 'cat:0': { shots: 5, best: 0 } },
+  });
   const input = { meta: m, stats: { served: 200 }, built, area: AREA1 };
 
   const first = applyPawRatchet(input);
@@ -264,17 +258,11 @@ test('the rating ratchets: it never goes down when an input regresses', () => {
   assert.equal(m.pawBest, 3);
   assert.equal(pawBestStar(m), 3);
 
-  // A bad fortnight rolls every clean day out of the ring... but the window's own best is a ratchet
-  // too, so the requirement itself survives.
-  for (let day = 8; day <= 8 + PAW_SEAT_WINDOW_KEEP; day++) recordPawSeatDay(m, day, 4);
-  assert.equal(pawSeatWindow(m).days.length, PAW_SEAT_WINDOW_KEEP);
-  assert.equal(pawSeatWindow(m).best, 0, 'the earned window is not forgotten when the ring rolls');
-  assert.equal(pawRatingState(input).live, 3);
-
-  // Now force the underlying evidence to actually regress: a meta whose window best is gone.
-  const regressed = { ...m, pawSeatWindow: { days: pawSeatWindow(m).days, best: null } };
+  // Every ROW is monotonic since Batch E1, so the only way evidence can fall is a tampered or
+  // truncated save. It still must not demote a star the player holds.
+  const regressed = { ...m, album: {}, petBook: bookOf(PAW_PET_KEYS.slice(0, 4)) };
   const after = pawRatingState({ ...input, meta: regressed });
-  assert.equal(after.live, 2, 'the derived value follows the evidence down');
+  assert.equal(after.live, 1, 'the derived value follows the evidence down');
   assert.equal(after.best, 3, 'the rating does not');
   assert.equal(after.next, 4, 'progress is shown toward the star after the one already held');
   assert.equal(after.tiers[2].reached, false);
@@ -288,10 +276,10 @@ test('the rating ratchets: it never goes down when an input regresses', () => {
 });
 
 test('a zone row that becomes real cannot un-earn a star a live player already holds', () => {
-  const m = withSeatDays(meta({
-    petFriendship: { 'cat:0': 10 },
-    album: { 'cat:0': { shots: 10, best: 0 } },
-  }), 7, 0);
+  const m = meta({
+    petBook: bookOf(PAW_PET_KEYS.slice(0, 14)),
+    album: { 'cat:0': { shots: 5, best: 0 } },
+  });
   // "Before" is a catalogue without the terrace; "after" is the real one, terrace still unbuilt.
   assert.equal(applyPawRatchet({ meta: m, stats: { served: 200 }, built: INTERIOR, area: NO_TERRACE_AREA }).best, 3);
 
@@ -306,7 +294,7 @@ test('a zone row that becomes real cannot un-earn a star a live player already h
 test('requirements are structured icon descriptors, never prose', () => {
   const state = pawRatingState({ meta: meta(), stats: { served: 0 }, built: [], area: AREA1 });
   const all = state.tiers.flatMap(tier => tier.requirements);
-  assert.equal(all.length, 11, 'twelve rows less the retired spa row');
+  assert.equal(all.length, 13, 'the five tiers of ship plan 1.6a: 1 + 2 + 3 + 3 + 4 rows');
   const KEYS = ['star', 'id', 'kind', 'zoneId', 'current', 'target', 'compare', 'met', 'skipped', 'pending'];
   const ids = new Set();
   for (const r of all) {
@@ -386,7 +374,9 @@ test('the Golden Paw ceremony is due exactly once, off the ratchet', () => {
 
 test('star effects read the ratchet and stay bounded', () => {
   assert.equal(pawArrivalMultiplier(0), 1);
-  assert.ok(Math.abs(pawArrivalMultiplier(5) - 1.5) < 1e-9);
+  // +10% arrivals lands ONCE, at star 2 (ship plan 1.6a) -- see the note in pawRating.js.
+  assert.equal(pawArrivalMultiplier(1), 1);
+  assert.ok(Math.abs(pawArrivalMultiplier(5) - 1.1) < 1e-9);
   assert.equal(pawArrivalMultiplier(99), pawArrivalMultiplier(5));
   assert.equal(pawResidentSlots(0), 3);
   assert.equal(pawResidentSlots(5), 8);
@@ -413,48 +403,61 @@ test('a hand-edited save cannot grant itself a rating', () => {
   assert.equal(forged({ pawBest: -3 }).data.meta.pawBest, 0);
   assert.equal(forged({ pawBest: 9e9 }).data.meta.pawBest, 0);
 
-  // 120 served is genuinely all ★1 asks, so ★1 restores -- and nothing above it does.
+  const book = n => Object.fromEntries(PAW_PET_KEYS.slice(0, n).map(k => [k, 1]));
+
+  // 40 served is genuinely all star 1 asks, so star 1 restores -- and nothing above it does.
   const oneStar = forged({ pawBest: 5 }, { stats: { served: 500 } });
   assert.equal(oneStar.data.meta.pawBest, 1);
 
-  // ★2 needs the interior built. The build list is validated first, so a forged pawBest cannot
-  // out-run it.
+  // Star 2 needs the interior built AND 10 pets met. The build list is validated first, so a forged
+  // pawBest cannot out-run it.
   const zonesOnly = forged({ pawBest: 5 }, { stats: { served: 500 }, builds: { a1: INTERIOR } });
-  assert.equal(zonesOnly.data.meta.pawBest, 1, 'no Bestie yet');
+  assert.equal(zonesOnly.data.meta.pawBest, 1, 'no pets met yet');
 
-  const withBestie = forged(
-    { pawBest: 5, petFriendship: { 'cat:0': 10 } },
+  const withPets = forged(
+    { pawBest: 5, petBook: book(10) },
     { stats: { served: 500 }, builds: { a1: INTERIOR } },
   );
-  assert.equal(withBestie.data.meta.pawBest, 2);
+  assert.equal(withPets.data.meta.pawBest, 2);
 
-  // The ceiling assumes the REGRESSIBLE seat window, so a legitimate ★3 survives a reload after a
-  // bad week -- but the terrace and the 10 photos still have to be there.
+  // Star 3 also needs the garden and five photos.
   const noPhotos = forged(
-    { pawBest: 5, petFriendship: { 'cat:0': 10 } },
+    { pawBest: 5, petBook: book(14) },
     { stats: { served: 500 }, builds: { a1: [...INTERIOR, 'z_terrace'] } },
   );
   assert.equal(noPhotos.data.meta.pawBest, 2);
 
   const realThree = forged(
-    { pawBest: 3, petFriendship: { 'cat:0': 10 }, album: { 'cat:0': { shots: 10, best: 0 } } },
+    { pawBest: 3, petBook: book(14), album: { 'cat:0': { shots: 5, best: 0 } } },
     { stats: { served: 500 }, builds: { a1: [...INTERIOR, 'z_terrace'] } },
   );
-  assert.equal(realThree.data.meta.pawBest, 3, 'a ★3 reloads as ★3 with no window in the ring');
+  assert.equal(realThree.data.meta.pawBest, 3);
+});
 
-  // THE DEMOTION REGRESSION (Batch 4b). When z_spa became a live ★4 row, a save written before the
-  // spa existed and holding a legitimate ★4 was demoted on load. The boundary skips zone rows
-  // (saveSchema passes area: null) precisely so a new zone can never un-earn a star on load — the
-  // live ratchet absorbs it, and the boundary does too.
-  const realFour = forged(
+test('a forged cafe theme cannot buy the star that gates it, and vice versa', () => {
+  const book = n => Object.fromEntries(PAW_PET_KEYS.slice(0, n).map(k => [k, 1]));
+  // A save that declares every theme owned on a cafe that has earned nothing: the themes are
+  // dropped (they are gated on star 3/star 4) and star 5's theme row therefore cannot be met from
+  // them either. This is the two-pass clamp in saveSchema.normalizeMeta.
+  const forgedThemes = forged(
+    { pawBest: 5, career: { renovationLevel: 5 } },
+    { stats: { served: 500 } },
+  );
+  assert.equal(forgedThemes.data.meta.career.renovationLevel, 0, 'no star, no theme');
+  assert.equal(forgedThemes.data.meta.pawBest, 1);
+
+  // A save that really did earn star 4 keeps the themes its stars allow.
+  const earned = forged(
     {
-      pawBest: 4, petFriendship: { 'cat:0': 10 }, album: { 'cat:0': { shots: 10, best: 0 } },
-      petBook: bookOf(PAW_PET_KEYS.slice(0, 16)),
-      career: { weeklyCups: { 3: { tier: 'gold', points: 25 } } },
+      pawBest: 4, petBook: book(18),
+      petFriendship: Object.fromEntries(PAW_PET_KEYS.slice(0, 3).map(k => [k, 10])),
+      album: { 'cat:0': { shots: 20, best: 0 } },
+      career: { renovationLevel: 5 },
     },
     { stats: { served: 500 }, builds: { a1: [...INTERIOR, 'z_terrace'] } },
   );
-  assert.equal(realFour.data.meta.pawBest, 4);
+  assert.equal(earned.data.meta.pawBest, 4);
+  assert.equal(earned.data.meta.career.renovationLevel, 5, 'star 4 opens the whole theme ladder');
 });
 
 test('meta.pawSeatWindow is bounded like every other restored counter', () => {
@@ -493,7 +496,7 @@ test('meta.pawSeatWindow is bounded like every other restored counter', () => {
 
 test('a restored save round-trips its rating unchanged', () => {
   const first = forged(
-    { pawBest: 3, petFriendship: { 'cat:0': 10 }, album: { 'cat:0': { shots: 10, best: 0 } } },
+    { pawBest: 3, petBook: Object.fromEntries(PAW_PET_KEYS.slice(0, 14).map(k => [k, 1])), album: { 'cat:0': { shots: 5, best: 0 } } },
     { stats: { served: 500 }, builds: { a1: [...INTERIOR, 'z_terrace'] } },
   ).data;
   const second = validateAndMigrateSave(first, AREA1);
@@ -504,11 +507,17 @@ test('a restored save round-trips its rating unchanged', () => {
 
 test('the entitlement ceiling is what the save clamp uses, and 0 with no evidence', () => {
   assert.equal(pawEntitlementCeiling({ meta: meta(), stats: { served: 0 }, built: [], area: AREA1 }), 0);
-  assert.equal(pawEntitlementCeiling({ meta: meta(), stats: { served: 120 }, built: [], area: AREA1 }), 1);
-  // The ★3 window is assumed met by the ceiling — that is the whole point of it.
-  const three = meta({ petFriendship: { 'cat:0': 10 }, album: { 'cat:0': { shots: 10, best: 0 } } });
-  assert.equal(pawRatingState({ meta: three, stats: { served: 200 }, built: [...INTERIOR, 'z_terrace'], area: AREA1 }).live, 2);
-  assert.equal(pawEntitlementCeiling({ meta: three, stats: { served: 200 }, built: [...INTERIOR, 'z_terrace'], area: AREA1 }), 3);
+  assert.equal(pawEntitlementCeiling({ meta: meta(), stats: { served: PAW_TARGETS.served }, built: [], area: AREA1 }), 1);
+  // Every row is monotonic since Batch E1, so the ceiling IS the live derivation -- no row is
+  // assumed met any more, because no row can fall. A ceiling that matches `live` exactly is the
+  // strongest form of the guarantee: a save can restore exactly what its own evidence proves.
+  const three = meta({
+    petBook: Object.fromEntries(PAW_PET_KEYS.slice(0, 14).map(k => [k, 1])),
+    album: { 'cat:0': { shots: 5, best: 0 } },
+  });
+  const input = { meta: three, stats: { served: 200 }, built: [...INTERIOR, 'z_terrace'], area: AREA1 };
+  assert.equal(pawRatingState(input).live, 3);
+  assert.equal(pawEntitlementCeiling(input), 3);
 });
 
 test('evidence reads the legacy bare-count album shape', () => {

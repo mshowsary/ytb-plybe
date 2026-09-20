@@ -2,13 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   PET_MESS_MIN_DAY, PET_MESS_MAX, PET_MESS_SPAWN_COOLDOWN,
-  ROOMBA_SWEEP_SECONDS, shouldSpawnPetMess, petMessOffset,
+  shouldSpawnPetMess, petMessOffset,
 } from '../src/sim/petMess.js';
 
 test('pet pawprints stay out of Day 1 and respect cap/cooldown', () => {
   assert.equal(PET_MESS_MIN_DAY, 2);
   assert.equal(PET_MESS_MAX, 4);
-  assert.equal(ROOMBA_SWEEP_SECONDS, 18);
   assert.equal(shouldSpawnPetMess(1, 2, 0, 999), false);
   assert.equal(shouldSpawnPetMess(2, 2, PET_MESS_MAX, 999), false);
   assert.equal(shouldSpawnPetMess(2, 2, 0, PET_MESS_SPAWN_COOLDOWN - 0.1), false);
