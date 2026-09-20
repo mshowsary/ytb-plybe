@@ -16,14 +16,17 @@ test('heldState keeps product, sack and fruit mutually legible', () => {
   assert.deepEqual(heldState([], { sack: null, sackLeft: 0, fruit: 3 }), { type: 'fruit', key: 'fruit', count: 3 });
 });
 
-test('product guidance routes to its family display and falls back to RETURN when full', () => {
+// docs/SHIP-PLAN-2026-09-19.md 1.4: there is no RETURN crate to fall back to. A full shelf means
+// there is nowhere for this load to go, and the answer says exactly that -- the load flies home by
+// itself the moment the owner stops at anything that needs empty hands (systems/stations.js).
+test('product guidance routes to its family display, and answers nothing when it is full', () => {
   const w = fullWorld();
   const cookie = w.stations.get('dispCookie');
   cookie.stock = 3;
   assert.equal(destinationFor(w, { type: 'product', key: 'cookie', count: 2 }).id, 'dispCookie');
   assert.equal(destinationFor(w, { type: 'product', key: 'brownie', count: 2 }).id, 'dispCookie', 'brownies share the cookie-family shelf');
   cookie.stock = cookie.capacity;
-  assert.equal(destinationFor(w, { type: 'product', key: 'cookie', count: 2 }).id, 'return1');
+  assert.equal(destinationFor(w, { type: 'product', key: 'cookie', count: 2 }), null);
 });
 
 test('coffee-family alt recipe routes to coffee bar', () => {
@@ -33,7 +36,7 @@ test('coffee-family alt recipe routes to coffee bar', () => {
   assert.equal(canDeliverTo(bar, { type: 'product', key: 'latte', count: 1 }), true);
 });
 
-test('beans, kibble and fruit route to their useful station before RETURN', () => {
+test('beans, kibble and fruit route to the station that can use them', () => {
   const w = fullWorld();
   const coffee = w.stations.get('coffee1'); coffee.beans = 6;
   const bowl = w.stations.get('bowl1'); bowl.stock = 2;
@@ -43,12 +46,19 @@ test('beans, kibble and fruit route to their useful station before RETURN', () =
   assert.equal(destinationFor(w, { type: 'fruit', key: 'fruit', count: 3 }).id, 'blender1');
 });
 
-test('full supply destinations deliberately point leftovers to RETURN', () => {
+test('a supply with nowhere left to go has no destination at all', () => {
   const w = fullWorld();
   w.stations.get('coffee1').beans = 20;
   w.stations.get('bowl1').stock = w.stations.get('bowl1').capacity;
   w.stations.get('blender1').fruit = 9;
-  assert.equal(destinationFor(w, { type: 'sack', key: 'beans', count: 5 }).id, 'return1');
-  assert.equal(destinationFor(w, { type: 'sack', key: 'kibble', count: 5 }).id, 'return1');
-  assert.equal(destinationFor(w, { type: 'fruit', key: 'fruit', count: 2 }).id, 'return1');
+  assert.equal(destinationFor(w, { type: 'sack', key: 'beans', count: 5 }), null);
+  assert.equal(destinationFor(w, { type: 'sack', key: 'kibble', count: 5 }), null);
+  assert.equal(destinationFor(w, { type: 'fruit', key: 'fruit', count: 2 }), null);
+});
+
+// The crates themselves: nothing of type 'return' is left in the data, so nothing can point at one.
+test('no RETURN crate stands in the world any more', () => {
+  const w = fullWorld();
+  assert.equal([...w.stations.values()].filter(st => st.type === 'return').length, 0);
+  assert.equal(AREA1.stations.some(s => s.type === 'return' || s.type === 'kiosk'), false);
 });

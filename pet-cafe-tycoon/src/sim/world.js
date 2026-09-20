@@ -54,7 +54,6 @@ export function createWorld(area, save, seed) {
     if (s.type === 'bush') Object.assign(st, { stage: 0, growT: 0 });
     if (s.type === 'coffee') Object.assign(st, { product: 'coffee', baseProduct: 'coffee', altProduct: ALT_PRODUCT[s.id] || null, beans: 20, stock: 0, buffer: 8, timer: 0 });
     if (s.type === 'pantry') Object.assign(st, {}); // was 'storage' — same no-state marker, renamed
-    if (s.type === 'return') Object.assign(st, {}); // the return crate carries no state of its own
     if (s.type === 'blender') Object.assign(st, { fruit: 0, stock: 0, buffer: 8, timer: 0 });
     // Batch 1 — terrace station types (plan 7.2). 'gate' is a non-blocking marker: it carries no
     // state and (src/sim/nav.js footprintBoxes, and w.boxes below) never contributes a collision
@@ -279,6 +278,17 @@ export function stepMachines(w, dt, coffeeMult = 1) {
 }
 // Coffee/blender stock pickup — same shape as takeFromOven.
 export function takeFromMachine(w, id, n) { const st = w.stations.get(id); const k = Math.min(n, st.stock); st.stock -= k; return k; }
+// The inverse of takeFromOven/takeFromMachine: a load the owner could not place anywhere flies back
+// onto the machine that made it (systems/stations.js flyBackHeld, docs/SHIP-PLAN-2026-09-19.md
+// §1.4 "no RETURN crates"). Capped at the machine's own buffer, so a fly-back can never overfill a
+// tray, and returns how many actually landed.
+export function returnToMachine(w, id, n) {
+  const st = w.stations.get(id);
+  if (!st || st.buffer == null) return 0;
+  const back = Math.max(0, Math.min(n | 0, st.buffer - st.stock));
+  st.stock += back;
+  return back;
+}
 // Final review fix: capped at 20 (a coffee machine never holds more beans than one full sack
 // worth) and consumes only what was actually used — same shape as refillBowl below (room-capped,
 // returns the amount drawn from the sack) instead of blindly adding a flat 20 regardless of how

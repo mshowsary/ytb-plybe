@@ -144,13 +144,42 @@ test('jobTarget: register → the manned-empty register with the longest queue',
   const reg2 = w.stations.get('register2');
   assert.equal(t.x, reg2.x); assert.equal(t.z, reg2.z);
 });
-test('jobTarget: restock → the display customers are waiting at', () => {
+test('jobTarget: restock → the display customers are waiting at, once there is something to carry', () => {
   const w = createWorld(AREA1);
   const c = mockCustomer({ state: 'queue', slot: 0, mood: 'wait', counterId: 'dispCookie' });
   const t = jobTarget(w, { coins: 0, customers: [c] });
   assert.equal(t.kind, 'restock');
   const st = w.stations.get('dispCookie');
+  // Nothing baked yet, so there is no producer to send anyone to: the shelf is still the answer.
   assert.equal(t.x, st.x); assert.equal(t.z, st.z);
+});
+
+// docs/SHIP-PLAN-2026-09-19.md §1.4 / onboarding research: 'restock' used to return the empty
+// display whatever the owner was holding, so the first post-intro walkthrough pointed an
+// empty-handed player at an empty counter and a driver re-routed 1,427 ticks over three days. It
+// mirrors sim/refillGuide.js now: empty hands at the producer, full hands at the shelf.
+test('jobTarget: restock points empty hands at the oven that has the cookies', () => {
+  const w = createWorld(AREA1);
+  const oven = w.stations.get('oven1');
+  oven.stock = 4;
+  const c = mockCustomer({ state: 'queue', slot: 0, mood: 'wait', counterId: 'dispCookie' });
+  const G = { coins: 0, customers: [c], carry: { sack: null, sackLeft: 0, fruit: 0 }, owner: { items: [] } };
+  const t = jobTarget(w, G);
+  assert.equal(t.kind, 'restock');
+  assert.equal(t.x, oven.x); assert.equal(t.z, oven.z);
+
+  // Carrying the right thing: back to the shelf it belongs on.
+  G.owner.items = [{ userData: { product: 'cookie' } }];
+  const t2 = jobTarget(w, G);
+  const disp = w.stations.get('dispCookie');
+  assert.equal(t2.x, disp.x); assert.equal(t2.z, disp.z);
+
+  // Hands busy with a supply: the producer is no use either, so the shelf stays the target rather
+  // than sending the owner somewhere that would just fly the sack home.
+  G.owner.items = [];
+  G.carry.sack = 'beans'; G.carry.sackLeft = 20;
+  const t3 = jobTarget(w, G);
+  assert.equal(t3.x, disp.x); assert.equal(t3.z, disp.z);
 });
 test('jobTarget: refill → the empty coffee machine', () => {
   const w = createWorld(AREA1, { built: T4_BUILT });

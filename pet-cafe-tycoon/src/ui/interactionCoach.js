@@ -24,7 +24,7 @@
 //      target inside CLOSING_GRACE_METERS never hides the hand.
 import * as THREE from 'three';
 import { carryCap, familyOf } from '../sim/economy.js';
-import { pantryFor, supplyLevel } from '../sim/supplies.js';
+import { pantryFor, supplyLevel, refilledInPlace } from '../sim/supplies.js';
 import { beanIcon, kibbleIcon, sackIcon, coffeeIcon, treatIcon } from './icons.js';
 import { isModalOpen } from './modal.js';
 import {
@@ -252,8 +252,11 @@ export function createRefillProgress() {
         // Only the player's own pour proves anything: the machine rose, their sack shrank in the
         // same step, and they were standing at that machine. Staff restocks teach nothing.
         if (!primed || prev == null || level <= prev) continue;
-        if (lastSack !== REFILL_SUPPLY[st.type] || sackLeft >= lastSackLeft) continue;
         if (!G.P || !st.front || d2(G.P, st.front) > HOLD_RADIUS * HOLD_RADIUS) continue;
+        // A machine with its own bin (the treat bowl) takes no sack at all: the owner standing at
+        // it IS the refill (docs/SHIP-PLAN-2026-09-19.md §1.4), so there is no sack to shrink.
+        if (refilledInPlace(st)) { creditRefill(REFILL_KEY_BY_TYPE[st.type]); continue; }
+        if (lastSack !== REFILL_SUPPLY[st.type] || sackLeft >= lastSackLeft) continue;
         creditRefill(REFILL_KEY_BY_TYPE[st.type]);
       }
       for (const id of [...levels.keys()]) if (!seen.has(id)) levels.delete(id);
@@ -302,20 +305,21 @@ export function refillLessonNeed(G, suppressed = new Set(), ready = null) {
 }
 
 /**
- * Which hand the refill lesson wants this frame. Pure, so the half-credit rule is testable:
- * 'tap' = press this button, 'route' = walk there, 'fall' = the generic lanes own the frame (that
- * is where the hold cue lives), 'none' = show nothing.
+ * Which hand the refill lesson wants this frame. Pure, so the rule is testable:
+ * 'route' = walk there, 'fall' = the generic lanes own the frame (that is where the hold cue
+ * lives), 'none' = show nothing.
+ *
+ * The 'tap' mode is gone with the thing it pointed at: the pantry's SUPPLIES button and the PANTRY
+ * sheet behind it (docs/SHIP-PLAN-2026-09-19.md §1.4). Every refill is a walk now — to the pantry
+ * for a sack, or straight to a machine that keeps its own bin ('inPlace', the treat bowl) — and
+ * the last step is standing still, which the generic lanes already own.
  */
 export function refillCueMode({
-  half = false, sheetChoice = false, overlay = false, carryingSupply = false,
-  pantryTapReady = false, hasPantry = true, nearMachine = false,
+  overlay = false, carryingSupply = false, hasPantry = true, nearMachine = false, inPlace = false,
 } = {}) {
-  if (!half && sheetChoice) return 'tap';
   if (overlay) return 'none';
-  if (!carryingSupply) {
-    if (!half && pantryTapReady) return 'tap';
-    return hasPantry ? 'route' : 'fall';
-  }
+  if (inPlace) return nearMachine ? 'fall' : 'route';
+  if (!carryingSupply) return hasPantry ? 'route' : 'fall';
   return nearMachine ? 'fall' : 'route';
 }
 
@@ -373,19 +377,6 @@ export function createCoachModeGate({ hold = MODE_HOLD_SECONDS, fade = MODE_FADE
   };
 }
 
-// A pantry "supports" a supply if its DATA says so explicitly (`supplies: [...]`), and otherwise
-// if the supply is one of the two the café runs on. Keeping the data rule means a future pantry that
-// stocks only one thing still routes correctly — that is how the (now cut) cold pantry worked.
-// exactly as much as for one with two (or, once agent D's third row lands on the interior pantry
-// sheet, three) — no English title or button copy participates in mechanic recognition either way,
-// so localization cannot change Task-29 learning.
-function pantryChoiceButton(supply) {
-  const sheets = [...document.querySelectorAll('.sheet')];
-  const sheet = sheets.find(el => !el.querySelector('.stabs') && el.querySelector('.srows > .sbtn.buy[data-supply]'));
-  if (!sheet) return null;
-  return sheet.querySelector(`.srows > .sbtn.buy[data-supply="${supply}"]`) || null;
-}
-
 function holdTarget(G, suppressed) {
   if (!G?.world || !G?.P || !G?.carry) return null;
   let best = null;
@@ -397,8 +388,6 @@ function holdTarget(G, suppressed) {
       key = 'refillCoffee'; y = 1.3;
     } else if (st.type === 'blender' && !suppressed.has('blend') && G.carry.fruit > 0 && st.fruit < 9) {
       key = 'blend'; y = 1.25;
-    } else if (st.type === 'bowl' && !suppressed.has('refillBowl') && G.carry.sack === 'kibble' && G.carry.sackLeft > 0 && st.stock < st.capacity) {
-      key = 'refillBowl'; y = .9;
     } else if (st.type === 'bush' && !suppressed.has('harvest') && st.stage === 3 && !G.carry.sack && (G.owner?.items?.length || 0) === 0 && G.carry.fruit < cap) {
       key = 'harvest'; y = 1;
     }
@@ -597,26 +586,20 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
     lessonLatch = lesson ? { key: lesson.key, stationId: lesson.stationId } : null;
 
     if (lesson && G && S) {
-      const half = progress.hasSack(lesson.key);
       const carrying = G.carry.sack === lesson.supply && (G.carry.sackLeft | 0) > 0;
       if (carrying) progress.creditSack(lesson.key);
-      const choice = half ? null : pantryChoiceButton(lesson.supply);
-      const pantry = pantryStation(G, lesson.supply);
-      const fbtn = document.querySelector('.fbtn');
-      const pantryTapReady = !!(pantry && !half && buttonVisible(fbtn) && stableContextAction(G) === 'pantry'
-        && G.P && d2(G.P, pantry.front) < HOLD_RADIUS * HOLD_RADIUS);
+      // The machine that keeps its own bin has no pantry leg at all; everything else fetches its
+      // sack from the pantry that actually declares that supply (strict: the loose fallback would
+      // send an owner after kibble to a pantry that no longer stocks any).
+      const station = G.world.stations.get(lesson.stationId);
+      const inPlace = refilledInPlace(station);
+      const pantry = inPlace ? null : pantryFor(G.world, lesson.supply, true);
       const mode = refillCueMode({
-        half, sheetChoice: !!choice, overlay: overlayOpen(), carryingSupply: carrying,
-        pantryTapReady, hasPantry: !!pantry,
+        overlay: overlayOpen(), carryingSupply: carrying, hasPantry: !!pantry, inPlace,
         nearMachine: !!(G.P && d2(G.P, { x: lesson.x, z: lesson.z }) <= HOLD_RADIUS * HOLD_RADIUS),
       });
-      if (mode === 'tap') {
-        return choice
-          ? tapPlan(choice, lesson.key, supplyIcon(lesson.supply), 0.22)
-          : tapPlan(fbtn, lesson.key, sackIcon(), 0.22);
-      }
       if (mode === 'route') {
-        return carrying
+        return (carrying || inPlace)
           ? routePlan(lesson, lesson.key, stationIcon(lesson.label))
           : routePlan({ ...pantry.front, stationId: pantry.id, y: 1.15 }, lesson.key, supplyIcon(lesson.supply));
       }

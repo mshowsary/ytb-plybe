@@ -28,8 +28,19 @@ export const AREA1 = {
     { id: 'oven2',    type: 'oven',    x: 3.5,  z: -5.2, rot: 0, fw: 1.6, fd: 1.2, product: 'cupcake', buffer: 12, builtBy: 'z_oven2' },
     { id: 'coffee1',  type: 'coffee',  x: 0.5,  z: -5.2, rot: 0, fw: 1.2, fd: 1.2, builtBy: 'z_coffee' },
     { id: 'pantry1',  type: 'pantry',  x: -2.2, z: -5.2, rot: 0, fw: 1.2, fd: 1.2, builtBy: 'z_coffee' },
-    { id: 'return1',  type: 'return',  x: -3.8, z: -5.2, rot: 0, fw: 0.8, fd: 0.9 },
-    { id: 'blender1', type: 'blender', x: -5.5, z: -5.2, rot: 0, fw: 1.2, fd: 1.2, builtBy: 'z_blender' },
+
+    // THE SMOOTHIE CORNER (docs/SHIP-PLAN-2026-09-19.md §1.4). The blender used to stand in the
+    // production row at (-5.5, -5.2) while its fruit grew at x 8.6 and its counter stood at x 8.6:
+    // bush front -> blender front was 15.4 m and blender -> counter 14.4 m, so the 19-day
+    // playthrough measured harvest+blend at 100-130 s of a 240 s day, nearly all of it walking.
+    // It moves in beside its own lane. Measured on the built café: bush1 1.20 m, barSmoothie
+    // 2.25 m (test/smoothie-corner.test.js pins both).
+    //
+    // x 7.8 and not 8.6 (in line with the bushes and the counter) because barSmoothie's queue runs
+    // north along x 8.6 from z -0.6 to 2.8: a blender centred on that line would have guests
+    // standing inside it. 7.8 keeps its east face 0.2 m clear of the queue and its front spot
+    // (7.8, 1.4) out of the lane entirely. z 0.1 leaves a 1.0 m corridor to the counter behind it.
+    { id: 'blender1', type: 'blender', x: 7.8,  z: 0.1,  rot: 0, fw: 1.2, fd: 1.2, builtBy: 'z_blender' },
 
     { id: 'dispCookie',  type: 'display', product: 'cookie',   x: 2.0,  z: -2.0, rot: 0, fw: 2.4, fd: 1.0, capacity: 8 },
     { id: 'dispCupcake', type: 'display', product: 'cupcake',  x: 5.0,  z: -2.0, rot: 0, fw: 2.4, fd: 1.0, capacity: 8, builtBy: 'z_oven2' },
@@ -62,8 +73,11 @@ export const AREA1 = {
     { id: 'seat3', type: 'seat', x: -3.85, z: 6.0, rot: Math.PI, fw: 1.4, fd: 1.4, builtBy: 'z_seats2' },
     { id: 'seat6', type: 'seat', x: 4.5,  z: 6.0, rot: Math.PI, fw: 1.4, fd: 1.4, builtBy: 'z_seats2' },
 
+    // The staff desk is the only thing left in the café that opens a sheet by standing at it. The
+    // upgrade kiosk that stood at (9.0, -3.5) is gone (docs/SHIP-PLAN-2026-09-19.md §1.4): the Shop
+    // it opened is reached from the Café card and from this desk (G.openShop), and its 1.35 m
+    // button radius overlapped oven1's standing spot, so an UPGRADE pill popped up while baking.
     { id: 'hire1',  type: 'hire',  x: -8.6, z: 1.0, rot: Math.PI / 2, fw: 1.0, fd: 1.6, builtBy: 'z_hire' },
-    { id: 'kiosk1', type: 'kiosk', x: 9.0, z: -3.5, rot: -Math.PI / 2, fw: 1.0, fd: 1.6 },
 
     // The photo wall (docs/SHIP-PLAN-2026-09-19.md §1.3): the corkboard the album fills in, hung on
     // the WEST wall between the staff desk (z 1.0) and the door (z 4.2), facing east into the room.
@@ -125,7 +139,10 @@ export const AREA1 = {
     { id: 'z_hire',      x: -6.5,  z: 2.6,  price: 300,  adds: ['hire1'],                                requires: 'z_oven2', label: 'Staff desk' },
     { id: 'z_coffee',    x: 2.0,   z: -3.2, price: 700,  adds: ['coffee1', 'barCoffee', 'pantry1'],       requires: 'z_hire',   label: 'Coffee bar' },
     { id: 'z_bowl',      x: 3.8,   z: 2.5,  price: 900,  adds: ['bowl1'],                                 requires: 'z_coffee', label: 'Pet treat bar' },
-    { id: 'z_blender',   x: -3.2,  z: -2.3, price: 1150, adds: ['blender1', 'barSmoothie', 'bush1'],      requires: 'z_bowl',   label: 'Smoothie bar' },
+    // The pad moved east with the blender (see blender1 above): it used to sit at (-3.2, -2.3), a
+    // room away from all three things it builds, so the plot said nothing about where the smoothie
+    // bar would be. It now stands in the corner itself, still >= 1.6 m from every working spot.
+    { id: 'z_blender',   x: 6.3,   z: 0.5,  price: 1150, adds: ['blender1', 'barSmoothie', 'bush1'],      requires: 'z_bowl',   label: 'Smoothie bar' },
     { id: 'z_garden',    x: 5.5,   z: 4.3,  price: 1400, adds: ['bush2', 'bush3'],                        requires: 'z_blender',label: 'Fruit garden' },
     { id: 'z_seats2',    x: -3.0,  z: 4.8,  price: 1750, adds: ['seat3', 'seat6'],                        requires: 'z_garden', label: 'Pet lounge' },
 

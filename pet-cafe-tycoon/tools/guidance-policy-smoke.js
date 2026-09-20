@@ -119,10 +119,23 @@ const out = await page.evaluate(() => {
   out.carryDestination = G.contextGuide ? G.contextGuide.caption : null;
 
   // ... and if the display fills while the owner is still walking, the guide re-answers rather
-  // than pointing at a counter that can no longer take the tray.
+  // than pointing at a counter that can no longer take the tray. With the RETURN crates deleted
+  // (docs/SHIP-PLAN-2026-09-19.md 1.4) the honest answer is "nowhere": there is no bin to send
+  // anyone to, and the load flies home by itself at the next station that needs empty hands.
   for (const st of G.world.stations.values()) if (st.type === 'display') st.stock = st.capacity;
   run(1);
   out.carryWhenFull = G.contextGuide ? G.contextGuide.kind : null;
+
+  // The replacement, driven for real: stop at a machine that cannot take what is in the hands and
+  // the hands empty themselves, with no button pressed and no coins moved.
+  const pantry = [...G.world.stations.values()].find(s => s.active && s.type === 'pantry');
+  const coinsBefore = G.coins;
+  G.P.x = pantry.front.x; G.P.z = pantry.front.z; G.P.vx = 0; G.P.vz = 0;
+  run(1.5);
+  out.autoReturn = {
+    items: G.owner.items.length, sack: G.carry.sack, fruit: G.carry.fruit | 0,
+    coinDelta: G.coins - coinsBefore,
+  };
   G.owner.clearItems(); quiet(); run(1);
   return out;
 });
@@ -144,7 +157,12 @@ expect('affordable5s', !walk(out.affordable5s), 'never a walkthrough for an affo
 expect('carry1s', none(out.carry1s), 'nothing while carrying to a known destination');
 expect('carry5s', pointer(out.carry5s), 'a pointer once the owner has stood still with full hands');
 if (!out.carryDestination) failures.push('carryDestination: the carry guide went blank while holding cookies');
-if (out.carryWhenFull !== 'return') failures.push('carryWhenFull: a full display should re-route the carry to RETURN, got ' + out.carryWhenFull);
+if (out.carryWhenFull !== null) failures.push('carryWhenFull: with every crate deleted a full display leaves nowhere to point, got ' + out.carryWhenFull);
+if (!out.autoReturn || out.autoReturn.items !== 0 || out.autoReturn.sack || out.autoReturn.fruit) {
+  failures.push('autoReturn: stopping at the pantry with a load it cannot take left ' + JSON.stringify(out.autoReturn) + ' in the hands');
+} else if (out.autoReturn.coinDelta !== 0) {
+  failures.push('autoReturn: putting a load down cost ' + (-out.autoReturn.coinDelta) + ' coins — returning is always free');
+}
 if (out.targetJumps > 3) failures.push('targetJumps: the arrow changed target ' + out.targetJumps + ' times in 4 s with two equal errands (the arc-loop flicker)');
 
 for (const [k, v] of Object.entries(out)) {

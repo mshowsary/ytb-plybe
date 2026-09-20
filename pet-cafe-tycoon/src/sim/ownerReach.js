@@ -144,6 +144,50 @@ function component(g, seed) {
   return seen;
 }
 
+/**
+ * A route the OWNER'S BODY fits through, from (fx, fz) to (tx, tz), as world-space points.
+ *
+ * The guidance trail used to be planned on the guests' 0.5 m A* grid (systems/objective.js), whose
+ * cells are sized for a 0.30 m guest and whose boxes are the sim footprints. The owner is a 0.46 m
+ * circle colliding with what is DRAWN, so on the built café the trail walked into gaps he cannot
+ * enter: following it, the 2026-09-19 playthrough failed to reach seat7, register3, coldPantry1 and
+ * seat12, and the bot wedged between two deck tables for 105-195 s a day. This plans on the same
+ * grid and the same boxes the owner's own collision uses, so a drawn trail is always walkable.
+ *
+ * Returns [] when either end is off the walkable floor or no route exists. The points are cell
+ * centres, first cell included; the caller replaces the ends with the real from/stand spots.
+ */
+export function ownerPath(grid, fx, fz, tx, tz, slack = 1.0) {
+  const from = nearestFree(grid, fx, fz, slack), to = nearestFree(grid, tx, tz, slack);
+  if (from < 0 || to < 0) return [];
+  if (from === to) return [centre(grid, to)];
+  const prev = new Int32Array(grid.w * grid.h).fill(-1);
+  prev[from] = from;
+  const queue = [from];
+  for (let q = 0; q < queue.length; q++) {
+    const k = queue[q];
+    if (k === to) break;
+    const i = k % grid.w, j = (k / grid.w) | 0;
+    for (let dj = -1; dj <= 1; dj++) {
+      for (let di = -1; di <= 1; di++) {
+        if (!di && !dj) continue;
+        const a = i + di, c = j + dj;
+        if (a < 0 || c < 0 || a >= grid.w || c >= grid.h) continue;
+        const n = c * grid.w + a;
+        if (prev[n] !== -1 || !grid.free[n]) continue;
+        // A diagonal needs both of its orthogonal cells free too, or the body clips the corner.
+        if (di && dj && (!grid.free[j * grid.w + a] || !grid.free[c * grid.w + i])) continue;
+        prev[n] = k; queue.push(n);
+      }
+    }
+  }
+  if (prev[to] === -1) return [];
+  const out = [];
+  for (let k = to; ; k = prev[k]) { out.push(centre(grid, k)); if (k === from) break; }
+  out.reverse();
+  return out;
+}
+
 // Where to put the owner so they are not stuck, or null when they are fine where they stand.
 // "Fine" means: the free cell at the owner's feet belongs to the same connected floor as the café
 // centre (OWNER_SPAWN, the rug). Otherwise the answer is the connected free cell nearest the owner.

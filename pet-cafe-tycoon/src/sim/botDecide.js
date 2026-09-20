@@ -28,7 +28,7 @@ import {
   familyOf, ensureStars, buyStar, STAR_IDS, nextStarCost,
 } from './economy.js';
 import { CONTENT_ZONE_PRICE, AFFORD_MULTIPLIER, CONTENT_SAVE_AFFORD_MULTIPLIER } from './economyConfig.js';
-import { pantryFor } from './supplies.js';
+import { pantryFor, refilledInPlace, supplyRoom } from './supplies.js';
 
 function registerNeedingService(w) {
   for (const id of w.checkouts) {
@@ -131,36 +131,30 @@ function restockTarget(w, G, phase) {
   }
   return best ? { x: best.front.x, z: best.front.z, kind: 'fetch', stationId: best.id, product: wished } : null;
 }
-// Priority 3: refill empty machines/bowls via the sack flow — carrying a sack already means the
-// pickup half is done, go drop it at the matching machine; otherwise, if something active is
-// genuinely out, fetch the sack storage needs most (mirrors systems/stations.js's own ordering).
+// Priority 3: refill what has run dry, mirroring systems/stations.js's own ordering -- the treat
+// bowl from its own bin by standing at it, the coffee machine from a bean sack fetched at the
+// pantry (carrying one already means the pickup half is done, so go and pour it).
 function refillTarget(w, G) {
   const carry = G.carry;
+  // A machine with its own bin (the treat bowl) is refilled by standing at it -- no sack, no pantry
+  // trip, no leftovers (docs/SHIP-PLAN-2026-09-19.md 1.4). Checked before the sack flow, but only
+  // with free hands, so a bot already holding beans still finishes that delivery first.
+  if (!carry || (!carry.sack && !(carry.fruit > 0) && !((G.carryCount || 0) > 0))) {
+    for (const st of w.stations.values()) {
+      if (!st.active || !refilledInPlace(st) || (st.stock | 0) > 0 || supplyRoom(st) <= 0) continue;
+      return { x: st.front.x, z: st.front.z, kind: 'refillBin', stationId: st.id };
+    }
+  }
   if (carry && carry.sack) {
     // A bean sack targets the (single) coffee machine unconditionally, no room check needed: the
-    // bot only ever fetches one when that machine's beans have hit exactly 0 (see needBeans
-    // below), so by the time it's delivered there's always a full 20 units of room — refillBeans
-    // (world.js) is capped at 20 and only consumes what's used, but that cap is never actually hit
-    // in this flow. A 20-unit kibble sack, in contrast, can easily outsize the one bowl's 10-unit
-    // capacity — targeting an already-full bowl anyway locked the owner into re-approaching it
-    // forever (the sack never empties, so it never stopped looking "needed"; measured: ~10,000 s
-    // stuck on one delivery). Only target a bowl that genuinely has room right now; with none, give
-    // up this trip (the
-    // errand ends, the leftover sack just rides along until a customer frees up bowl capacity and
-    // chores() tries again) instead of parking on an undeliverable target.
+    // bot only ever fetches one when that machine's beans have hit exactly 0 (see needBeans below),
+    // so by the time it's delivered there is always a full 20 units of room. One pour uses the
+    // whole sack (sim/carry.js useSack), so no leftover can ride along and block the next pickup --
+    // which is what the kibble sack used to do before the bowl got its own bin.
     for (const st of w.stations.values()) {
       if (!st.active) continue;
       if (carry.sack === 'beans' && st.type === 'coffee') return { x: st.front.x, z: st.front.z, kind: 'refillDrop', stationId: st.id };
-      if (carry.sack === 'kibble' && st.type === 'bowl' && st.stock < st.capacity) return { x: st.front.x, z: st.front.z, kind: 'refillDrop', stationId: st.id };
     }
-    // No active bowl has ANY room right now (the one 20-unit kibble sack routinely outsizes the
-    // single bowl's 10-unit capacity, so this isn't rare) — with nowhere left to carry it,
-    // "put the sack back" rather than let it sit occupying the carry forever: with no drop action
-    // in the base game, that would permanently block the owner from ever fetching product again
-    // (canTakeItems requires an empty carry) and, since restocking is what feeds the register in
-    // the first place, cascade into starving the whole café. Spilled kibble is a real but bounded
-    // loss (never more than one sack), a one-time cost worth paying to keep the café running.
-    if (carry.sack === 'kibble') { carry.sack = null; carry.sackLeft = 0; }
     return null;
   }
   // The carry holds sack/fruit/product items mutually exclusively (src/sim/carry.js) — a sack
@@ -168,34 +162,55 @@ function refillTarget(w, G) {
   // this check, a carry stuck holding leftover fruit (the blender's buffer near-full — see
   // harvestTarget above) kept re-issuing a pickup that could never actually succeed, forever.
   if (carry && (carry.fruit > 0 || (G.carryCount || 0) > 0)) return null;
-  let needBeans = false, needKibble = false;
+  let needBeans = false;
   for (const st of w.stations.values()) {
     if (!st.active) continue;
     if (st.type === 'coffee' && st.beans === 0) needBeans = true;
-    if (st.type === 'bowl' && st.stock === 0) needKibble = true;
   }
-  if (!needBeans && !needKibble) return null;
-  const sackKind = needBeans ? 'beans' : 'kibble';
-  // The pantry that declares this supply (sim/supplies.js), not a hard-coded id.
-  const pantry = pantryFor(w, sackKind);
+  if (!needBeans) return null;
+  // The pantry that declares this supply (sim/supplies.js), not a hard-coded id. Strict: with
+  // kibble off the pantry's list, the loose fallback would send the bot to a pantry that stocks
+  // nothing it needs.
+  const pantry = pantryFor(w, 'beans', true);
   if (!pantry) return null;
-  return { x: pantry.front.x, z: pantry.front.z, kind: 'refillPickup', stationId: pantry.id, sackKind };
+  return { x: pantry.front.x, z: pantry.front.z, kind: 'refillPickup', stationId: pantry.id, sackKind: 'beans' };
 }
-// Loop v2 Task 1: the return crate — a genuinely wedged owner (holding a product whose one
-// display has been full this whole time, or a sack/fruit with nowhere left to put it) hands it
-// back for zero coins instead of carrying it around forever, unable to pick up anything else of
-// that kind (canTakeItems in carry.js). `B` is decide()'s own per-tick bot state (G._bot) — reused
-// here to time how long something has been continuously held (B.carrySince), so a batch gets a
-// real chance to be delivered normally before this fires.
+// A genuinely wedged owner -- holding a product whose one display has been full this whole time,
+// or a sack or fruit with nowhere left to put it -- puts the load down instead of carrying it
+// forever, unable to pick up anything else (canTakeItems in carry.js). There is no RETURN crate to
+// walk to any more (docs/SHIP-PLAN-2026-09-19.md 1.4): in the live game the load flies home the
+// moment the owner STOPS at anything that needs empty hands, so the bot walks to the nearest such
+// thing (a pantry, a bush) and arriving is the whole action. `B` is decide()'s own per-tick bot
+// state (G._bot) -- reused here to time how long something has been continuously held
+// (B.carrySince), so a batch gets a real chance to be delivered normally before this fires.
 const WEDGED_SECONDS = 20;
-function returnTarget(w, G, B) {
+function stowTarget(w, G, B) {
   const holding = (G.carryCount || 0) > 0 || !!(G.carry && (G.carry.sack || G.carry.fruit > 0));
   if (!holding) { B.carrySince = null; return null; }
   if (B.carrySince == null) B.carrySince = G.time || 0;
   if ((G.time || 0) - B.carrySince < WEDGED_SECONDS) return null;
-  const crate = w.stations.get('return1');
-  if (!crate || !crate.active) return null;
-  return { x: crate.front.x, z: crate.front.z, kind: 'return', stationId: 'return1' };
+  const ref = G.P || { x: 0, z: 0 };
+  const fruit = !!(G.carry && G.carry.fruit > 0);
+  const fam = (G.carryCount || 0) > 0 ? familyOf(G.carryKey) : null;
+  // It has to be somewhere that will actually take the load, or the errand never completes: a
+  // pantry always will; a bush will not take fruit (that is what it grows); a machine will only
+  // when it cannot use what is held (systems/stations.js misplacedAt).
+  const takes = st => {
+    if (st.type === 'pantry') return true;
+    if (st.type === 'bush') return !fruit;
+    if (st.type === 'oven' || st.type === 'coffee' || st.type === 'icecream' || st.type === 'blender') {
+      if (fam) return familyOf(st.type === 'blender' ? 'smoothie' : st.product) !== fam;
+      return st.type !== 'blender' || !fruit;   // a blender drinks fruit, so it is no help here
+    }
+    return false;
+  };
+  let best = null, bestD = Infinity;
+  for (const st of w.stations.values()) {
+    if (!st.active || !st.front || !takes(st)) continue;
+    const d = (st.front.x - ref.x) ** 2 + (st.front.z - ref.z) ** 2;
+    if (d < bestD) { bestD = d; best = st; }
+  }
+  return best ? { x: best.front.x, z: best.front.z, kind: 'stow', stationId: best.id } : null;
 }
 // Priority 4: clean dirty tables — only when no cleaner is hired to handle it on its own.
 // `stickyId` — the seat already being walked toward, if any. Re-picking "nearest to G.P" from
@@ -390,8 +405,9 @@ function tryHiresAndUpgrades(w, G) {
     const r = hire(G, 'photographer');
     if (r.ok) emitWorld(w, { type: 'purchase', kind: 'hire:photographer', cost: r.cost, at: G.time || 0 });
   }
-  const kiosk = w.stations.get('kiosk1');
-  if (!kiosk || !kiosk.active) return;
+  // No kiosk gate any more: kiosk1 is deleted and the Shop these ladders live in opens from the
+  // Cafe card and the staff desk (G.openShop). kiosk1 was active from the first frame, so dropping
+  // the gate changes nothing about WHEN a ladder can be bought.
   const coins = G.coins;
   const zoneList = w.activeZoneList || activeZones(w);
   let pressing = false;
@@ -481,9 +497,13 @@ function continueLeg(w, G, kind, stationId) {
     const t = restockTarget(w, G, kind);
     return (t && kind === 'drop' && t.kind === 'fetch') ? null : t;
   }
-  if (kind === 'refillPickup' || kind === 'refillDrop') {
+  if (kind === 'refillPickup' || kind === 'refillDrop' || kind === 'refillBin') {
     const t = refillTarget(w, G);
-    return (t && kind === 'refillDrop' && t.kind === 'refillPickup') ? null : t;
+    // The second leg finishing and a brand-new errand arming look identical from here, so a leg
+    // that regresses to a first leg ends the errand instead. 'refillBin' is one leg on its own.
+    if (!t) return null;
+    if (kind === 'refillBin') return t.kind === 'refillBin' && t.stationId === stationId ? t : null;
+    return (kind === 'refillDrop' && t.kind !== 'refillDrop') ? null : t;
   }
   if (kind === 'harvest' || kind === 'blend') {
     const t = harvestTarget(w, G);
@@ -496,7 +516,7 @@ function continueLeg(w, G, kind, stationId) {
   if (kind === 'cash') return cashTarget(w);
   if (kind === 'build') return buildTarget(w, G);
   if (kind === 'register') return registerTarget(w, G); // "stay until the queue is empty"
-  if (kind === 'return') return returnTarget(w, G, G._bot || (G._bot = { kind: null, stationId: null }));
+  if (kind === 'stow') return stowTarget(w, G, G._bot || (G._bot = { kind: null, stationId: null }));
   return null;
 }
 export function decide(w, G) {
@@ -533,7 +553,7 @@ export function decide(w, G) {
   // while a photo missed is gone. It sits behind the broom bubble (a guest waiting for a table is
   // still a guest) and returns null outright once a Photographer is hired, so this only ever moves
   // the owner for poses nobody else is covering.
-  const chores = () => (guestWaitsForTable ? cleanTarget(w, G) : null) || photoTarget(w, G) || restockTarget(w, G) || returnTarget(w, G, B) || refillTarget(w, G) || cleanTarget(w, G) || standTarget(w, G) || harvestTarget(w, G);
+  const chores = () => (guestWaitsForTable ? cleanTarget(w, G) : null) || photoTarget(w, G) || restockTarget(w, G) || stowTarget(w, G, B) || refillTarget(w, G) || cleanTarget(w, G) || standTarget(w, G) || harvestTarget(w, G);
   // M3 T6 pass 2 real bug fix: build BEFORE cash, not the other way around. cashTarget only needs
   // a pile >= 20 to fire — trivially true almost every time the register has processed even one or
   // two seated customers, especially with pass 2's higher menu prices — so `cash || build` let a

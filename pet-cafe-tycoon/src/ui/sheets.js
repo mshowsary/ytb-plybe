@@ -1,6 +1,8 @@
-// Bottom sheets: the Shop, the pantry and the end-of-day card. Every one opens through ui/modal.js,
-// so the café pauses behind it whichever door opened it.
-import { beanIcon, kibbleIcon, iconFor, checkIcon, lockIcon, starIcon, calendarIcon } from './icons.js';
+// Bottom sheets: the Shop and the end-of-day card. Every one opens through ui/modal.js, so the café
+// pauses behind it whichever door opened it. The PANTRY sheet -- a bottom sheet with one or two
+// rows, for a choice the game could already make -- went with the pantry's SUPPLIES button
+// (docs/SHIP-PLAN-2026-09-19.md §1.4): stopping at the pantry now hands the sack over directly.
+import { iconFor, checkIcon, lockIcon, starIcon, calendarIcon } from './icons.js';
 import { decorCatalogue } from '../../data/decor.js';
 import { renderDaySummary } from './daySummary.js';
 import { openModal, closeModal } from './modal.js';
@@ -220,45 +222,12 @@ function renderKiosk(model, actions, onClose, door) {
   else { renderPlayerTab(rows, model, actions); renderMachinesTab(rows, model, actions); }
   return el;
 }
-// Batch 1 terrace (plan D3): a pantry offers only the supplies it declares -- the main pantry keeps
-// beans+kibble, coldPantry1 (supplies:['cream']) offers cream only. A supply's button renders iff
-// the model defines that key at all (undefined = "this pantry doesn't carry it"), so the main
-// pantry's model shape {beans, kibble} still yields exactly the same two buttons in the same order
-// it always has -- src/ui/interactionCoach.js's pantryChoiceButton() structural lookup (it finds a
-// pantry sheet by counting exactly 2 `.srows > .sbtn.buy` rows) is unchanged for that case. A
-// cream-only pantry yields exactly 1 button with dataset.supply='cream'; a future mixed pantry would
-// yield 3 in this fixed beans/kibble/cream order. See contractsForOthers for the exact contract.
-const PANTRY_SUPPLY_META = {
-  beans: { icon: beanIcon, label: 'Beans' },
-  kibble: { icon: kibbleIcon, label: 'Kibble' },
-};
-const PANTRY_SUPPLY_ORDER = ['beans', 'kibble'];
-// Pure description of which pantry buttons render, in order -- kept separate from the DOM building
-// below so the button contract (count/order/enabled) is unit-testable without a document. A supply
-// gets a button iff `model` defines that key at all (undefined = "this pantry doesn't carry it"),
-// so the main pantry's existing model shape {beans, kibble} still yields exactly the two buttons in
-// the two-button order it always has, and coldPantry1's {cream} yields exactly one.
-export function pantryButtons(model) {
-  return PANTRY_SUPPLY_ORDER.filter(kind => model[kind] !== undefined).map(kind => ({ kind, enabled: !!model[kind] }));
-}
-function renderPantry(model, actions, onClose) {
-  const el = shell('pantry', 'PANTRY', onClose); const rows = document.createElement('div'); rows.className = 'srows';
-  for (const { kind, enabled } of pantryButtons(model)) {
-    const { icon, label } = PANTRY_SUPPLY_META[kind];
-    const btn = actionButton('sbtn buy', { html: iconSpan(icon()) + `<span>${label}</span>` }, !enabled, () => actions.pick(kind));
-    // Stable action metadata is deliberately separate from visible copy/localization.
-    btn.dataset.supply = kind;
-    rows.appendChild(btn);
-  }
-  el.appendChild(rows); return el;
-}
 function renderSummary(model, actions, onClose) {
   const card = shell('summary', `Day ${model.day}`, onClose);
   return renderDaySummary(card, model, { onContinue: () => actions.continue() });
 }
 function build(kind, model, actions, onClose, door) {
   if (kind === 'kiosk') return renderKiosk(model, actions, onClose, door);
-  if (kind === 'pantry') return renderPantry(model, actions, onClose);
   if (kind === 'summary') return renderSummary(model, actions, onClose);
   throw new Error('unknown sheet kind: ' + kind);
 }

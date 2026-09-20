@@ -34,19 +34,21 @@ await page.goto('http://127.0.0.1:4178/', { waitUntil:'domcontentloaded' });
 await page.waitForFunction(() => window.__game && window.__ready && window.__interactionCoach, null, { timeout:30000 });
 await page.evaluate(() => { window.__game.intro.step = 5; window.__game.intro.active = false; });
 
-// Kiosk exists from the opening shift and is an explicit tap action, so it is the cleanest real
-// station to prove the tap coach without manufacturing inventory or unlock state.
+// The staff desk is the one explicit tap action left in the world (the upgrade kiosk went with
+// Batch C, docs/SHIP-PLAN-2026-09-19.md 1.4), so it is the station that proves the tap coach.
+// It needs its zone built first; nothing else about the opening shift is manufactured.
 await page.evaluate(() => {
-  const G = window.__game, st = G.world.stations.get('kiosk1');
+  const G = window.__game;
+  G.world.stations.get('hire1').active = true;
+  const st = G.world.stations.get('hire1');
   G.setMove(null, null); G.P.x = st.front.x; G.P.z = st.front.z; G.P.vx = 0; G.P.vz = 0;
   G.owner.group.position.set(G.P.x, 0, G.P.z);
 });
 await page.waitForFunction(() => {
   const b = document.querySelector('.fbtn');
-  // textContent concatenates the screen-reader label and the visible word ('UPGRADESUPGRADE'),
-  // so this matches rather than compares. It used to compare against 'UPGRADES' and had been
-  // timing out here — silently — since the button gained its own label span.
-  return b && !b.classList.contains('hidden') && /UPGRADE/.test(b.textContent);
+  // textContent concatenates the screen-reader label and the visible word ('STAFFHIRE'), so this
+  // matches rather than compares.
+  return b && !b.classList.contains('hidden') && /HIRE/.test(b.textContent);
 }, null, { timeout:5000 });
 
 // The coach intentionally does not flash immediately when the player merely crosses the trigger.
@@ -67,7 +69,7 @@ if (shown.coach.left < -1 || shown.coach.top < -1 || shown.coach.right > 321 || 
 const ix = Math.max(0, Math.min(shown.coach.right,shown.button.right)-Math.max(shown.coach.left,shown.button.left));
 const iy = Math.max(0, Math.min(shown.coach.bottom,shown.button.bottom)-Math.max(shown.coach.top,shown.button.top));
 if (ix * iy > 40) throw new Error(`coach covers action button: ${JSON.stringify(shown)}`);
-await page.screenshot({ path:path.join(shots,'01-kiosk-first-use.png') });
+await page.screenshot({ path:path.join(shots,'01-desk-first-use.png') });
 
 await page.locator('.fbtn').click();
 await page.waitForFunction(() => {
@@ -85,11 +87,11 @@ await page.waitForTimeout(150);
 await page.evaluate(() => { const G=window.__game; G.P.x=0; G.P.z=2.5; G.P.vx=0; G.P.vz=0; });
 await page.waitForTimeout(250);
 await page.evaluate(() => {
-  const G=window.__game, st=G.world.stations.get('kiosk1'); G.P.x=st.front.x; G.P.z=st.front.z; G.P.vx=0; G.P.vz=0;
+  const G=window.__game, st=G.world.stations.get('hire1'); G.P.x=st.front.x; G.P.z=st.front.z; G.P.vx=0; G.P.vz=0;
 });
 await page.waitForTimeout(800);
-if (await page.locator('.interaction-coach:not(.hidden)').count()) throw new Error('used kiosk coach returned in the same session');
-if (!await page.evaluate(() => window.__interactionCoach.hasSeen('kiosk'))) throw new Error('kiosk action was not marked seen');
+if (await page.locator('.interaction-coach:not(.hidden)').count()) throw new Error('used staff-desk coach returned in the same session');
+if (!await page.evaluate(() => window.__interactionCoach.hasSeen('hire'))) throw new Error('hire action was not marked seen');
 
 // Dwell-mode proof: activate the real coffee machine, empty its bean tank, give the owner a bean
 // sack and stand just OUTSIDE the 1.3m refill trigger but inside the coach's 1.75m teaching ring.

@@ -17,7 +17,7 @@ import { AREA1 } from '../data/area1.js';
 import { createWorld, payZone } from '../src/sim/world.js';
 import { insideBuildFootprint } from '../src/sim/buildIntent.js';
 import { OWNER_SPAWN, clampToArea } from '../src/sim/ownerState.js';
-import { ownerBodyBoxes, ownerPocketRescue, ownerReachGrid, moveOwnerBody, OWNER_BODY_R } from '../src/sim/ownerReach.js';
+import { ownerBodyBoxes, ownerPocketRescue, ownerReachGrid, ownerPath, moveOwnerBody, OWNER_BODY_R } from '../src/sim/ownerReach.js';
 import { BASE_SPEED } from '../src/sim/economyConfig.js';
 
 function buildThrough(throughId) {
@@ -147,7 +147,9 @@ test('the pocket is genuinely sealed: none of its floor is connected to the cafÃ
 test('an owner standing clear on the cafÃ© floor is never moved', () => {
   const w = buildThrough(AREA1.zones[AREA1.zones.length - 1].id);
   const boxes = ownerBodyBoxes(w);
-  for (const p of [OWNER_SPAWN, { x: -6, z: 0 }, { x: -2.5, z: 8.3 }, { x: -1.8, z: 13 }, { x: 8.5, z: 0.5 }, { x: 7.5, z: 12.4 }]) {
+  // (7.8, 1.4) is blender1's own standing spot in the new smoothie corner (Batch C): the fixture
+  // that used to sit at (8.5, 0.5) is inside the blender's body now, which is the point.
+  for (const p of [OWNER_SPAWN, { x: -6, z: 0 }, { x: -2.5, z: 8.3 }, { x: -1.8, z: 13 }, { x: 7.8, z: 1.4 }, { x: 7.5, z: 12.4 }]) {
     assert.ok(bodyClear(boxes, p), `fixture: (${p.x},${p.z}) is clear floor`);
     assert.equal(ownerPocketRescue(AREA1, w.built, boxes, p), null, `(${p.x},${p.z}) is connected floor`);
   }
@@ -166,4 +168,60 @@ test('the pocket check runs on every build, and the headless walk moves by the p
   assert.match(stations, /import \{[^}]*OWNER_BODY_R[^}]*\} from '\.\.\/sim\/ownerReach\.js';/);
   assert.doesNotMatch(stations, /const BODY_R = 0\.46/, 'no private copy of the body radius');
   assert.match(stations, /moveOwnerBody\(P, P\.x \+ P\.vx \* dt, P\.z \+ P\.vz \* dt, playerBoxes\(\), area, world\.built\)/);
+});
+
+// ---- the guidance trail (docs/SHIP-PLAN-2026-09-19.md 1.4) ----------------------------------
+// systems/objective.js used to plan on the GUESTS' 0.5 m grid, sized for a 0.30 m guest against
+// the sim footprints, so on the built cafe the trail walked the 0.92 m owner into gaps he cannot
+// enter (the playthrough measured seat7, register3, coldPantry1 and seat12 all unreachable by
+// following it). It plans on the owner's own grid now, and every point it emits has to be a place
+// the owner's body actually fits.
+test('the trail is planned where the owner fits, and following it arrives', () => {
+  const w = buildThrough(AREA1.zones[AREA1.zones.length - 1].id);
+  const boxes = ownerBodyBoxes(w);
+  const grid = ownerReachGrid(AREA1, w.built, boxes);
+  const spots = [];
+  for (const st of w.stations.values()) {
+    if (!st.active || st.type === 'gate' || st.type === 'decor' || st.type === 'wall') continue;
+    const spot = st.type === 'checkout' && st.serve ? st.serve : st.front;
+    if (spot) spots.push({ id: st.id, ...spot });
+  }
+  assert.ok(spots.length >= 20, `only ${spots.length} working spots on the built cafe`);
+  const unreachable = [];
+  for (const s of spots) {
+    const route = ownerPath(grid, OWNER_SPAWN.x, OWNER_SPAWN.z, s.x, s.z);
+    if (!route.length) { unreachable.push(`${s.id}: no trail at all`); continue; }
+    for (const pt of route) {
+      if (!bodyClear(boxes, pt)) { unreachable.push(`${s.id}: the trail crosses (${pt.x.toFixed(2)}, ${pt.z.toFixed(2)}), where the body does not fit`); break; }
+    }
+    // Walk it with the owner's own movement step, leg by leg, and check the arrival bar
+    // systems/objective.js itself uses (ARRIVE_METERS 1.6).
+    const P = { x: OWNER_SPAWN.x, z: OWNER_SPAWN.z, vx: 0, vz: 0 };
+    const legs = [...route.slice(1), { x: s.x, z: s.z }];
+    let wedged = false;
+    for (const pt of legs) {
+      let frames = 0;
+      while (frames++ < 160) {
+        const dx = pt.x - P.x, dz = pt.z - P.z, d = Math.hypot(dx, dz);
+        if (d < 0.28) break;
+        moveOwnerBody(P, P.x + (dx / d) * BASE_SPEED / 30, P.z + (dz / d) * BASE_SPEED / 30, boxes, AREA1, w.built);
+      }
+      if (frames >= 160) { wedged = true; break; }
+    }
+    if (wedged || Math.hypot(P.x - s.x, P.z - s.z) > 1.6) {
+      unreachable.push(`${s.id}: following the trail stopped at (${P.x.toFixed(2)}, ${P.z.toFixed(2)})`);
+    }
+  }
+  assert.deepEqual(unreachable, [], 'the trail leads somewhere the owner cannot follow: ' + unreachable.join(' | '));
+});
+
+test('the objective draws the trail from the owner grid, not the guest grid', () => {
+  // The call path from normal play: objective.update -> the 'full' walkthrough branch -> ownerPath
+  // on a grid built from ownerBodyBoxes. A regression to sim/nav.js's findPath would reintroduce
+  // the guest-sized trail, so that import must not come back either.
+  const src = fs.readFileSync(new URL('../src/systems/objective.js', import.meta.url), 'utf8');
+  assert.match(src, /import \{ ownerBodyBoxes, ownerReachGrid, ownerPath \} from '\.\.\/sim\/ownerReach\.js';/);
+  assert.match(src, /ownerPath\(walkGrid\(\), G\.P\.x, G\.P\.z, stand\.x, stand\.z\)/);
+  assert.match(src, /walkCells = ownerReachGrid\(world\.area, world\.built, ownerBodyBoxes\(world\)\)/);
+  assert.doesNotMatch(src, /from '\.\.\/sim\/nav\.js'/, 'the trail must not be planned on the guest grid again');
 });

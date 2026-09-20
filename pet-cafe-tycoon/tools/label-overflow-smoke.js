@@ -103,7 +103,7 @@ for (const [tag, width, height, dpr] of VIEWPORTS) {
   // Skip the tutorial so the objective/zone/guest labels a real shift produces actually exist, then
   // put a little stock on the counters that are open on day 1.
   //
-  // A fresh boot is a genuinely sparse café — only oven1/dispCookie/register1/kiosk1 are active and
+  // A fresh boot is a genuinely sparse café — only oven1/dispCookie/register1 are active and
   // no zones are built — so only a handful of labels are legitimately on screen. That is the game's
   // real state, not a gap in this test, and the synthetic tag below is what carries the
   // `.pet-identity` contract here: a LIVE pet tag only appears once a named pet announces, greets,

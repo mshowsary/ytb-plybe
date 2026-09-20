@@ -172,13 +172,12 @@ for (const [tag, width, height, dpr] of cases) {
     const place = async (id, point = 'front') => { await page.evaluate(({ id, point }) => { const g = window.__game, st = g.world.stations.get(id), p = st[point] || st.front; g.setMove(0, 0); g.P.x = p.x; g.P.z = p.z; g.P.vx = 0; g.P.vz = 0; }, { id, point }); await page.waitForTimeout(500); };
     const clear = () => page.evaluate(() => { const g = window.__game; g.owner.clearItems(); g.carry.sack = null; g.carry.sackLeft = 0; g.carry.fruit = 0; });
 
-    // kiosk1 still stands in the café; standing at it now opens the ONE Shop (re-themed from a
-    // dedicated upgrades list), titled "Shop" and already on the Upgrades tab. Unlike the pantry,
-    // the Shop is not anchored to a station (systems/stations.js's anchorSheet is a pantry-only
-    // call — the Shop is also reachable from the Cafe card, not tied to standing anywhere), so
-    // walking away from the kiosk no longer auto-closes it; it closes on its own chevron instead.
-    await clear(); await place('kiosk1');
-    await page.waitForFunction(() => document.querySelector('.fbtn')?.dataset.label === 'UPGRADES' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
+    // The ONE Shop, now opened only by the staff desk in the world (the upgrade kiosk is deleted,
+    // docs/SHIP-PLAN-2026-09-19.md 1.4) and by the Cafe card. The desk opens it on Staff, titled
+    // "Staff"; the Upgrades tab is one tap away inside it. The Shop is not anchored to a station,
+    // so walking away no longer closes it; it closes on its own chevron.
+    await clear(); await place('hire1');
+    await page.waitForFunction(() => document.querySelector('.fbtn')?.dataset.label === 'STAFF' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
     await page.click('.fbtn');
     await page.waitForFunction(() => !!document.querySelector('.sheet-root .sheet'));
     const shopTitle = await page.evaluate(() => document.querySelector('.stitle')?.textContent || '');
@@ -186,29 +185,35 @@ for (const [tag, width, height, dpr] of cases) {
     await page.click('.sheet .sclose');
     await page.waitForFunction(() => document.querySelector('.sheet-root').classList.contains('hidden'), null, { timeout: 3000 });
 
-    // pantry1's sheet, return1's RETURN action and the blender's fruit hand-off are all still live
-    // mechanics (systems/stations.js); none of Batch C's "hands/pickup" cuts have reached this
-    // branch yet, so these acceptances stay exactly as they were.
+    // Batch C's hands (docs/SHIP-PLAN-2026-09-19.md 1.4). Stopping at the pantry with empty hands
+    // hands over the sack the neediest machine wants -- no button, no sheet. Stopping at anything
+    // that needs empty hands flies whatever is held back to its source, for free.
+    await page.evaluate(() => { const g = window.__game; g.world.stations.get('coffee1').beans = 0; });
     await clear(); await place('pantry1');
-    await page.waitForFunction(() => document.querySelector('.fbtn')?.dataset.label === 'SUPPLIES' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
-    await page.click('.fbtn');
-    await page.waitForFunction(() => document.querySelectorAll('.sheet .sbtn').length >= 2);
-    await page.click('.sheet .sbtn');
-    await page.waitForTimeout(300);
-    const pantry = await page.evaluate(() => ({ sack: window.__game.carry.sack, guide: window.__game.contextGuide?.caption || '' }));
+    await page.waitForFunction(() => window.__game.carry.sack === 'beans', null, { timeout: 5000 });
+    const pantry = await page.evaluate(() => ({
+      sack: window.__game.carry.sack,
+      guide: window.__game.contextGuide?.caption || '',
+      button: !!document.querySelector('.fbtn:not(.hidden)'),
+      sheet: !document.querySelector('.sheet-root').classList.contains('hidden'),
+    }));
 
+    // A sack with nowhere to go: stop at a bush, which needs a free hand to be picked.
     const supplyBefore = await page.evaluate(() => window.__game.coins);
-    await place('return1');
-    await page.waitForFunction(() => document.querySelector('.fbtn')?.dataset.label === 'RETURN' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
-    await page.click('.fbtn'); await page.waitForTimeout(150);
+    await place('bush1');
+    await page.waitForFunction(() => !window.__game.carry.sack, null, { timeout: 5000 });
     const supply = await page.evaluate(b => ({ empty: !window.__game.carry.sack, delta: window.__game.coins - b }), supplyBefore);
 
+    // Harvested fruit with the blender full, put down at the pantry: still free, still no crate.
+    await clear();
     const wasteBefore = await page.evaluate(() => { const g = window.__game; g.coins = 1000; g.carry.fruit = 2; return g.coins; });
-    await place('return1');
-    await page.waitForFunction(() => document.querySelector('.fbtn')?.dataset.label === 'RETURN' && !document.querySelector('.fbtn')?.classList.contains('hidden'), null, { timeout: 5000 });
-    await page.click('.fbtn'); await page.waitForTimeout(150);
+    await place('pantry1');
+    await page.waitForFunction(() => (window.__game.carry.fruit | 0) === 0, null, { timeout: 5000 });
     const waste = await page.evaluate(b => ({ fruit: window.__game.carry.fruit, spent: b - window.__game.coins, tracked: window.__game.dayStats.wasteFees | 0 }), wasteBefore);
 
+    // Clear FIRST: a pantry the café still needs beans from hands a sack over the moment the hands
+    // come free, and a sack in hand is not fruit — the blender would fly it home instead.
+    await clear();
     await page.evaluate(() => { const g = window.__game, b = g.world.stations.get('blender1'); g.carry.fruit = 2; b.fruit = 0; b.stock = 0; });
     await place('blender1');
     await page.waitForFunction(() => { const g = window.__game, b = g.world.stations.get('blender1'); return b.fruit + b.stock > 0; }, null, { timeout: 4000 });
@@ -275,7 +280,8 @@ for (const [tag, width, height, dpr] of cases) {
   const smallBad = tag === 'small' && (
     !smallChecks || !smallChecks.pauseFrozen || !smallChecks.soundOff || !smallChecks.soundOn || smallChecks.walkPaid !== 0 || smallChecks.earlyPaid !== 0 || !(smallChecks.heldPaid > 0) ||
     !renovation || renovation.level !== 1 || renovation.spent !== 1800 || renovation.next !== 'Gallery Café' ||
-    !interaction || interaction.shopTitle !== 'Shop' || interaction.pantry.sack !== 'beans' || interaction.pantry.guide !== 'COFFEE' || !interaction.supply.empty || interaction.supply.delta !== 0 ||
+    !interaction || interaction.shopTitle !== 'Staff' || interaction.pantry.sack !== 'beans' || interaction.pantry.guide !== 'COFFEE' ||
+    interaction.pantry.button || interaction.pantry.sheet || !interaction.supply.empty || interaction.supply.delta !== 0 ||
     interaction.waste.fruit !== 0 || interaction.waste.spent !== 0 || interaction.waste.tracked !== 0 || interaction.blender.machine <= 0 ||
     interaction.cash.pile !== 0 || interaction.cash.gained !== 206 || interaction.cash.collectVisible || interaction.cash.cashLabel || interaction.cash.legacyCashLabel ||
     interaction.cleaning.dirty || interaction.cleaning.cleanVisible

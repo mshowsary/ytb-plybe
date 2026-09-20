@@ -99,9 +99,6 @@ export function selectCoachPriority({ urgent = false, stock = false, constructio
 }
 
 function d2(a, b) { return (a.x - b.x) ** 2 + (a.z - b.z) ** 2; }
-function heldAnything(G) {
-  return !!((G?.owner?.items?.length || 0) || G?.carry?.sack || (G?.carry?.fruit | 0) > 0);
-}
 
 /**
  * Stable contextual action recognition. This mirrors the station priorities using station types and
@@ -111,17 +108,17 @@ function heldAnything(G) {
 export function stableContextAction(G) {
   if (!G?.P || !G?.world?.stations) return null;
   let best = null;
-  const held = heldAnything(G);
   const offer = (st, id, radius, priority) => {
     if (!st.active || !st.front || d2(G.P, st.front) >= radius * radius) return;
     const d = d2(G.P, st.front);
     if (!best || priority > best.priority || (priority === best.priority && d < best.d)) best = { id, priority, d, stationId: st.id };
   };
+  // The staff desk is the only station that still raises a button (docs/SHIP-PLAN-2026-09-19.md
+  // §1.4): the RETURN crate and the upgrade kiosk are deleted, and the pantry hands its sack over
+  // by being stood at. Their IDs stay in MECHANIC_IDS above so an old save's proven set still
+  // normalizes, but nothing in the world offers them any more.
   for (const st of G.world.stations.values()) {
-    if (st.type === 'return' && held) offer(st, 'return', 1.05, 6);
-    else if (st.type === 'pantry') offer(st, 'pantry', 1.35, 3);
-    else if (st.type === 'kiosk') offer(st, 'kiosk', 1.35, 2);
-    else if (st.type === 'hire') offer(st, 'hire', 1.35, 2);
+    if (st.type === 'hire') offer(st, 'hire', 1.35, 2);
   }
   return best ? best.id : null;
 }

@@ -246,12 +246,20 @@ function ownerStep(dt) {
       }
       return;
     }
-    case 'return': returnAll(carry); G.carryKey = null; G.carryCount = 0; return;
+    // Arriving somewhere that needs empty hands IS the whole action: in the live game the load
+    // flies back to its source the moment the owner stops there (systems/stations.js flyBackHeld).
+    case 'stow': returnAll(carry); G.carryKey = null; G.carryCount = 0; return;
     case 'refillPickup': if (!carry.sack) takeSack(carry, target.sackKind); return;
     case 'refillDrop': {
       const st = world.stations.get(target.stationId); if (!st || !carry.sack) return;
-      if (carry.sack === 'beans') { const used = Math.min(carry.sackLeft, Math.max(0, 20 - st.beans)); refillBeans(world, st.id, used); useSack(carry, used); }
-      else { const used = refillBowl(world, st.id, carry.sackLeft); useSack(carry, used); }
+      const used = Math.min(carry.sackLeft, Math.max(0, 20 - st.beans));
+      refillBeans(world, st.id, used); useSack(carry, used);
+      return;
+    }
+    // The treat bowl's own kibble bin: standing at it fills it, no sack and no pantry trip.
+    case 'refillBin': {
+      const st = world.stations.get(target.stationId); if (!st) return;
+      refillBowl(world, st.id, Math.max(0, (st.capacity | 0) - (st.stock | 0)));
       return;
     }
     case 'harvest': {

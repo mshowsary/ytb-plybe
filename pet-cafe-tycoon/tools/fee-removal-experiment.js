@@ -325,7 +325,7 @@ function runScenario(policy, variant) {
         }
         return;
       }
-      case 'return': {
+      case 'stow': {
         const products = G.carryKey ? Array.from({ length: G.carryCount }, () => G.carryKey) : [];
         feeWaste(products, carry.fruit);
         returnAll(carry); G.carryKey = null; G.carryCount = 0;

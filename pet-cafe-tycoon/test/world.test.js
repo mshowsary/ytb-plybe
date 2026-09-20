@@ -23,14 +23,18 @@ test('initial world has only pre-built stations active', () => {
 // four deck tables instead of six (seat11/seat12 gone): 40 - 9 = 31 stations, 16 - 4 = 12 zones.
 // 2026-09-19, Batch B2 (photos at the tables, 1.3): photo1, the booth, is replaced one-for-one by
 // photoWall1, the wall the album fills in -- still 31 stations and 12 zones.
-test('AREA1 has 31 stations and 12 zones', () => {
-  assert.equal(AREA1.stations.length, 31);
+// 2026-09-20, Batch C (hands that do what the player means, 1.4): return1 and kiosk1 are deleted.
+// The crate is replaced by the load flying home on its own (systems/stations.js flyBackHeld) and
+// the kiosk by the one Shop the Cafe card and the staff desk already open: 31 - 2 = 29 stations,
+// still 12 zones.
+test('AREA1 has 29 stations and 12 zones', () => {
+  assert.equal(AREA1.stations.length, 29);
   assert.equal(AREA1.zones.length, 12);
 });
-test('exactly oven1, dispCookie, register1, kiosk1, return1 are active at start (kiosk/return need no zone)', () => {
+test('exactly oven1, dispCookie and register1 are active at start', () => {
   const w = createWorld(AREA1);
   const active = [...w.stations.values()].filter(st => st.active).map(st => st.id).sort();
-  assert.deepEqual(active, ['dispCookie', 'kiosk1', 'oven1', 'register1', 'return1']);
+  assert.deepEqual(active, ['dispCookie', 'oven1', 'register1']);
 });
 test('building the whole zone chain in order activates every station and rebuilds w.boxes', () => {
   const w = createWorld(AREA1);
@@ -41,8 +45,8 @@ test('building the whole zone chain in order activates every station and rebuild
   // gone), so the whole chain leaves every station active.
   const inactive = [...w.stations.values()].filter(st => !st.active);
   assert.deepEqual(inactive.map(st => st.id), []);
-  // 31 stations - gate1 and photoWall1 (both non-blocking, never in w.boxes) = 29.
-  assert.equal(w.boxes.length, 29);
+  // 29 stations - gate1 and photoWall1 (both non-blocking, never in w.boxes) = 27.
+  assert.equal(w.boxes.length, 27);
 });
 test('paying a zone drains and completes', () => {
   const w = createWorld(AREA1);

@@ -6,7 +6,7 @@
 // dry the arrow pointed at the dry machine and the player stood there with
 // empty hands and no idea where cream is kept. Every supply now routes through src/sim/supplies.js,
 // which is the one place that knows machine -> supply -> where you fetch it.
-import { SUPPLY_OF, isStarved, supplyKind, acceptsSupply, supplySource } from './supplies.js';
+import { SUPPLY_OF, isStarved, supplyKind, acceptsSupply, supplySource, refilledInPlace } from './supplies.js';
 
 export function refillGuideTarget(world, G = null, from = null) {
   if (!world || !world.stations) return null;
@@ -37,7 +37,10 @@ export function refillGuideTarget(world, G = null, from = null) {
   if (!starved) return null;
 
   const supply = supplyKind(starved);
-  const source = supplySource(world, supply, ref);
+  // A machine with its own bin (the treat bowl) IS the destination: there is no first leg to teach,
+  // so pointing at a pantry across the café would be pointing at nothing
+  // (docs/SHIP-PLAN-2026-09-19.md §1.4).
+  const source = refilledInPlace(starved) ? null : supplySource(world, supply, ref);
   if (source) {
     return { x: source.x, z: source.z, kind: 'supplies', stationId: source.id, supply };
   }

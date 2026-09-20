@@ -45,8 +45,12 @@ await new Promise(resolve => server.listen(PORT, '127.0.0.1', resolve));
 
 // The label each station type is allowed to claim. Anything else standing on its front spot means
 // the button belongs to a different machine.
+//
+// Batch C (docs/SHIP-PLAN-2026-09-19.md 1.4) left exactly one: the staff desk. The RETURN crate and
+// the upgrade kiosk are deleted, and the pantry hands its sack over by being stood at, so a button
+// appearing at any of the other 40-odd stations now means a regression, not a wrong label.
 const OWNED = {
-  pantry: 'SUPPLIES', return: 'RETURN', kiosk: 'UPGRADE', hire: 'HIRE',
+  hire: 'HIRE',
 };
 
 const failures = [];
@@ -98,7 +102,7 @@ async function sweep(carry) {
 for (const held of [false, true]) {
   const tag = held ? 'hands full' : 'empty-handed';
   const rows = await sweep(held);
-  check(rows.length > 30, `[${tag}] only ${rows.length} active stations — the café did not finish building`);
+  check(rows.length >= 25, `[${tag}] only ${rows.length} active stations — the café did not finish building`);
 
   for (const r of rows) {
     if (!r.word) continue;
@@ -118,8 +122,8 @@ for (const held of [false, true]) {
     }
   }
 
-  // No over-correction: the machines that own an action must still offer it.
-  const want = held ? ['pantry', 'return', 'kiosk', 'hire'] : ['pantry', 'kiosk', 'hire'];
+  // No over-correction: the one station that owns an action must still offer it, hands full or not.
+  const want = ['hire'];
   for (const type of want) {
     const any = rows.some(r => r.type === type && r.word === OWNED[type]);
     check(any, `[${tag}] no ${type} station offered its ${OWNED[type]} button when stood on`);

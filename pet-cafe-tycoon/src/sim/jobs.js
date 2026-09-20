@@ -2,6 +2,7 @@
 // bot (tools/bot.js). Reads world stations + a G-shaped state carrying { coins, customers }.
 import { activeZones } from './world.js';
 import { isStarved } from './supplies.js';
+import { familyOf } from './economy.js';
 
 export function pendingJobs(w, G) {
   const customers = (G && G.customers) || [];
@@ -59,15 +60,44 @@ function pickRegisterTarget(w) {
   }
   return best;
 }
-function pickRestockTarget(w, customers) {
+// Restocking is a two-step errand, exactly like a refill, so it points the same way
+// (sim/refillGuide.js): EMPTY HANDS point at the producer that has the stock, FULL HANDS at the
+// counter it belongs on. It used to return the empty display whatever the owner was holding — the
+// onboarding run measured 1,427 ticks of a driver being sent to an empty counter with nothing in
+// its hands, and the first post-intro walkthrough taught exactly that.
+function pickRestockTarget(w, G, customers) {
+  let want = null;
   for (const c of customers) {
     if (c.done) continue;
     if (c.state === 'queue' && c.slot === 0 && c.mood === 'wait') {
       const st = w.stations.get(c.counterId);
-      if (st) return st;
+      if (st) { want = st; break; }
     }
   }
-  return null;
+  if (!want) return null;
+  const items = (G && G.owner && G.owner.items) || null;
+  const holdingRight = !!(items && items.length
+    && familyOf(items[0]?.userData?.product) === familyOf(want.product));
+  if (holdingRight) return want;
+  const carry = G && G.carry;
+  // Hands busy with a sack or fruit: the producer is no use either, so keep pointing at the shelf
+  // that is empty — stopping at the producer would just fly the load home and lose the errand.
+  if (carry && (carry.sack || (carry.fruit | 0) > 0)) return want;
+  const source = producerWithStock(w, want.product);
+  return source || want;
+}
+// The active machine holding the most of `product`'s family right now.
+function producerWithStock(w, product) {
+  const fam = familyOf(product);
+  let best = null;
+  for (const st of w.stations.values()) {
+    if (!st.active || !(st.stock > 0)) continue;
+    const pk = st.type === 'blender' ? 'smoothie'
+      : (st.type === 'oven' || st.type === 'coffee' || st.type === 'icecream') ? st.product : null;
+    if (!pk || familyOf(pk) !== fam) continue;
+    if (!best || st.stock > best.stock) best = st;
+  }
+  return best;
 }
 function pickRefillTarget(w, ref) {
   let best = null, bestD = Infinity;
@@ -107,7 +137,7 @@ export function jobTarget(w, G) {
   const coins = (G && G.coins) || 0;
   let st = null;
   if (j.next === 'register') st = pickRegisterTarget(w);
-  else if (j.next === 'restock') st = pickRestockTarget(w, customers);
+  else if (j.next === 'restock') st = pickRestockTarget(w, G, customers);
   else if (j.next === 'refill') st = pickRefillTarget(w, ref);
   else if (j.next === 'clean') st = pickCleanTarget(w, ref);
   else if (j.next === 'harvest') st = pickHarvestTarget(w);

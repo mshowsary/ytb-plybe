@@ -128,26 +128,30 @@ test('the bowl lesson waits for a guest who actually wants a treat', () => {
   assert.equal(lesson.label, 'PET TREATS');
 });
 
-test('half credit: once the sack is taken the hand only ever routes', () => {
-  // First-timer: the pantry sheet choice and the pantry action button are still taught by tap.
-  assert.equal(refillCueMode({ half: false, sheetChoice: true }), 'tap');
-  assert.equal(refillCueMode({ half: false, pantryTapReady: true }), 'tap');
-
-  // Sack taken. No combination of pantry affordances may produce a tap again.
-  for (const sheetChoice of [false, true]) {
-    for (const pantryTapReady of [false, true]) {
-      for (const carryingSupply of [false, true]) {
-        const mode = refillCueMode({ half: true, sheetChoice, pantryTapReady, carryingSupply });
-        assert.notEqual(mode, 'tap', `half credit still tapped (sheet=${sheetChoice} btn=${pantryTapReady} carry=${carryingSupply})`);
+// Batch C (docs/SHIP-PLAN-2026-09-19.md 1.4) deleted the pantry's SUPPLIES button and the PANTRY
+// sheet behind it, so 'tap' is not a mode the refill lesson can want any more: every refill is a
+// walk, and the last step -- standing still -- is what the generic lanes already own.
+test('the refill lesson is all walking now: no tap mode survives', () => {
+  for (const carryingSupply of [false, true]) {
+    for (const nearMachine of [false, true]) {
+      for (const inPlace of [false, true]) {
+        const mode = refillCueMode({ carryingSupply, nearMachine, inPlace });
+        assert.notEqual(mode, 'tap', `still tapped (carry=${carryingSupply} near=${nearMachine} bin=${inPlace})`);
       }
     }
   }
+  // Empty-handed with a pantry to fetch from: walk there.
+  assert.equal(refillCueMode({ carryingSupply: false, hasPantry: true }), 'route');
   // Carrying the beans, still away from the machine: route to the machine, nothing else.
-  assert.equal(refillCueMode({ half: true, carryingSupply: true, nearMachine: false }), 'route');
+  assert.equal(refillCueMode({ carryingSupply: true, nearMachine: false }), 'route');
   // Standing at the machine: the hold cue owns the frame.
-  assert.equal(refillCueMode({ half: true, carryingSupply: true, nearMachine: true }), 'fall');
+  assert.equal(refillCueMode({ carryingSupply: true, nearMachine: true }), 'fall');
+  // A machine with its own bin (the treat bowl) has no pantry leg at all: walk to the machine
+  // itself with empty hands, and standing there is the refill.
+  assert.equal(refillCueMode({ inPlace: true, carryingSupply: false, nearMachine: false }), 'route');
+  assert.equal(refillCueMode({ inPlace: true, carryingSupply: false, nearMachine: true }), 'fall');
   // An open sheet is never covered by a world hand.
-  assert.equal(refillCueMode({ half: true, overlay: true, carryingSupply: true }), 'none');
+  assert.equal(refillCueMode({ overlay: true, carryingSupply: true }), 'none');
 });
 
 test('taking the right sack is half credit, and two refills prove every refill lesson', () => {

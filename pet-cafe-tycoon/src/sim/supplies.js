@@ -18,6 +18,17 @@ export const SUPPLY_OF = Object.freeze({
   blender: 'fruit',
 });
 
+// Where a supply is FETCHED from decides how much walking it costs. Two of the three come to the
+// machine rather than the other way round (docs/SHIP-PLAN-2026-09-19.md §1.4):
+//   * the treat bowl keeps its own kibble bin, so standing at the bowl refills it and nobody walks
+//     a sack across the café (the 20-unit kibble sack was bigger than the bowl's 10-unit capacity,
+//     which is where the leftovers that needed a RETURN crate came from);
+//   * the blender's fruit is harvested off the bushes, which the 'harvest' errand already owns.
+// Only beans are still carried, in one sack that one refill uses up.
+const REFILLED_IN_PLACE = Object.freeze({ bowl: true });
+/** True when this machine restocks itself from its own bin: the owner only has to stand at it. */
+export function refilledInPlace(st) { return !!st && !!REFILLED_IN_PLACE[st.type]; }
+
 // Each machine keeps its consumable in a differently named field, for historical reasons that are
 // not worth a migration; this is the translation table.
 const LEVEL = {
@@ -52,15 +63,15 @@ export function acceptsSupply(st, supply) {
 }
 
 // A pantry "supports" a supply if its DATA says so explicitly (a `supplies` list in data/area1.js)
-// or, for the classic interior pantry with no `supplies` field at all, if it is
-// one of the two original supplies. Deliberately reads `world.area.stations` — the authored data
+// or, for the classic interior pantry with no `supplies` field at all, beans — the one supply
+// still fetched from a pantry now the bowl has its own bin. Deliberately reads `world.area.stations` — the authored data
 // createWorld was built from — because createWorld copies only a fixed field list onto each runtime
 // station and `supplies` is not among them, so `st.supplies` is always undefined at runtime.
 export function pantrySupports(world, st, supply) {
   if (!st || st.type !== 'pantry') return false;
   const data = world && world.area && world.area.stations && world.area.stations.find(s => s.id === st.id);
   if (data && Array.isArray(data.supplies) && data.supplies.length) return data.supplies.includes(supply);
-  return supply === 'beans' || supply === 'kibble';
+  return supply === 'beans';
 }
 
 /**
@@ -92,10 +103,37 @@ export function ripeBush(world, from = null) {
   return best;
 }
 
-/** Where the player should go to pick this supply up, whatever kind it is. */
+const IN_PLACE_SUPPLIES = new Set(Object.keys(REFILLED_IN_PLACE).map(type => SUPPLY_OF[type]));
+/**
+ * Where the player should go to pick this supply up, or null when there is nowhere to go because
+ * the supply lives on the machine itself (kibble, in the bowl's own bin). A null answer is not a
+ * failure: it is the router's cue to point straight at the machine.
+ */
 export function supplySource(world, supply, from = null) {
   if (supply === 'fruit') return ripeBush(world, from);
+  if (IN_PLACE_SUPPLIES.has(supply)) return null;
   return pantryFor(world, supply);
+}
+
+/**
+ * The supply the pantry should hand over right now: the one wanted by the neediest machine it
+ * stocks, emptiest first. Standing at the pantry is the whole interaction — there is no sheet
+ * (docs/SHIP-PLAN-2026-09-19.md §1.4) — so this is what decides what lands in the owner's hands.
+ * Returns null when nothing the pantry stocks has room, so an idle pass-by hands over nothing.
+ */
+export function pantryHandout(world, pantry) {
+  if (!world || !world.stations || !pantry || pantry.type !== 'pantry') return null;
+  let best = null, bestFill = Infinity;
+  for (const st of world.stations.values()) {
+    const supply = supplyKind(st);
+    if (!supply || !st.active || refilledInPlace(st)) continue;
+    if (!pantrySupports(world, pantry, supply)) continue;
+    if (supplyRoom(st) <= 0) continue;
+    const cap = supplyCap(st) || 1;
+    const fill = supplyLevel(st) / cap;
+    if (fill < bestFill) { bestFill = fill; best = supply; }
+  }
+  return best;
 }
 
 /**

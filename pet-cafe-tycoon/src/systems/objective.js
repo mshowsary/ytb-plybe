@@ -3,10 +3,10 @@ import { jobTarget } from '../sim/jobs.js';
 import { refillGuideTarget } from '../sim/refillGuide.js';
 import { coachEscalationStage } from '../sim/mechanicLearning.js';
 import { createGuidePath } from '../render/guidePath.js';
-import { findPath, nearestFree, idx, cx, cz } from '../sim/nav.js';
+import { ownerBodyBoxes, ownerReachGrid, ownerPath } from '../sim/ownerReach.js';
 import {
   registerIcon, displayIcon, beanIcon, sackIcon, broomIcon, leafIcon, gearIcon, bakeIcon,
-  coinIcon, handIcon, returnIcon,
+  coinIcon, handIcon,
 } from '../ui/icons.js';
 
 // The chevron's caption used to be a verb -- Bake / Stock / Serve / Cash / Deliver / Return. It is
@@ -25,14 +25,14 @@ import {
 const CAPTION_ICON = {
   register: registerIcon, serve: registerIcon, restock: displayIcon, stock: displayIcon,
   refill: beanIcon, supplies: sackIcon, clean: broomIcon, harvest: leafIcon, build: gearIcon,
-  bake: bakeIcon, collect: coinIcon, deliver: handIcon, return: returnIcon,
+  bake: bakeIcon, collect: coinIcon, deliver: handIcon,
 };
 // The sentence each glyph replaces, for the caption's aria-label. Nothing draws these.
 const CAPTION_LABEL = {
   register: 'Serve at the register', serve: 'Serve at the register', restock: 'Restock the display',
   stock: 'Stock the display', refill: 'Refill supplies', supplies: 'Collect supplies from the pantry',
   clean: 'Clean a table', harvest: 'Pick ripe fruit', build: 'Build here', bake: 'Bake',
-  collect: 'Collect the cash', deliver: 'Deliver what you are carrying', return: 'Return what you are carrying',
+  collect: 'Collect the cash', deliver: 'Deliver what you are carrying',
 };
 const HOVER_Y = 2.6;
 const RECOMPUTE_INTERVAL = 0.25;
@@ -76,7 +76,7 @@ const MECHANIC_OF_KIND = {
   refill: 'pantry', supplies: 'pantry', clean: 'clean', harvest: 'harvest', build: 'build',
   // Carrying something to where it belongs is what the opening lesson's "stock the display" step
   // already taught, so it shares that proof rather than re-running a walkthrough on day 3.
-  collect: 'cash', deliver: 'pickup', return: 'return',
+  collect: 'cash', deliver: 'pickup',
 };
 const ARRIVE_METERS = 1.6;
 const STUCK_SECONDS = 6;
@@ -147,8 +147,20 @@ export function createObjective(G, S, ctx) {
   els.fx.appendChild(touch);
   const spawn = { x: G.P ? G.P.x : 0, z: G.P ? G.P.z : 0 };
   let moved = false;
-  const routeCells = new Int32Array(4096);
   const routePts = [];
+  // The owner-body grid, rebuilt only when the café changes shape (a zone built, a station drawn
+  // for the first time). Building it walks every cell against every drawn box, which is far too
+  // much to do on the 0.6 s replan cadence.
+  let walkCells = null, walkCellsFor = '';
+  function walkGrid() {
+    let live = 0;
+    for (const st of world.stations.values()) if (st.active) live++;
+    const key = live + ':' + world.built.size;
+    if (walkCells && walkCellsFor === key) return walkCells;
+    walkCellsFor = key;
+    walkCells = ownerReachGrid(world.area, world.built, ownerBodyBoxes(world));
+    return walkCells;
+  }
   let routeKey = '', routeT = 0, routeFromX = 0, routeFromZ = 0;
   const proven = key => !!key && typeof G.mechanicProven === 'function' && G.mechanicProven(key);
   const markProven = key => { if (key && typeof G.markMechanic === 'function') G.markMechanic(key); };
@@ -304,21 +316,22 @@ export function createObjective(G, S, ctx) {
       }
       const full = mode === 'full';
 
-      // Route the trail along the same grid the guests walk, so it goes AROUND the counters rather
-      // than through them. Replanned only when something material changed.
+      // Route the trail on the OWNER'S OWN grid (sim/ownerReach.js), not the guests' 0.5 m one:
+      // the trail is a promise that walking it gets you there, and a 0.30 m guest grid walks the
+      // 0.92 m owner into gaps he cannot enter (the playthrough measured seat7, register3,
+      // coldPantry1 and seat12 all unreachable by following it). Replanned only when something
+      // material changed.
       routeT -= dt;
       const strayed = Math.hypot(G.P.x - routeFromX, G.P.z - routeFromZ) > ROUTE_REPLAN_METERS;
       const modeKey = key + ':' + mode;
       if (modeKey !== routeKey || routeT <= 0 || strayed) {
         routeKey = modeKey; routeT = ROUTE_REPLAN_SECONDS; routeFromX = G.P.x; routeFromZ = G.P.z;
         routePts.length = 0;
-        const g = world.grid;
-        if (full && g && stand) {
-          const from = nearestFree(g, idx(g, G.P.x, G.P.z), 3), to = nearestFree(g, idx(g, stand.x, stand.z), 3);
-          const n = from >= 0 && to >= 0 ? findPath(g, from, to, 3, routeCells) : 0;
+        if (full && stand) {
+          const cells = ownerPath(walkGrid(), G.P.x, G.P.z, stand.x, stand.z);
           routePts.push({ x: G.P.x, z: G.P.z });
           // Skip the first cell (it is under the owner) and the last (the stand spot replaces it).
-          for (let i = 1; i < n - 1; i++) routePts.push({ x: cx(g, routeCells[i]), z: cz(g, routeCells[i]) });
+          for (let i = 1; i < cells.length - 1; i++) routePts.push(cells[i]);
           routePts.push({ x: stand.x, z: stand.z });
         }
         guide.show({

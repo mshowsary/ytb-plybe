@@ -41,16 +41,13 @@ export function findDeliveryTarget(world, held, from = null) {
   return from ? closest(candidates, from) : candidates[0];
 }
 
-export function findReturnStation(world, from = null) {
-  if (!world) return null;
-  const candidates = [];
-  for (const st of world.stations.values()) if (st.active && st.type === 'return') candidates.push(st);
-  if (!candidates.length) return null;
-  return from ? closest(candidates, from) : candidates[0];
-}
-
+// Where what is in the owner's hands belongs — and nothing else. There used to be a fallback to a
+// RETURN crate here, so "no display has room" resolved to "walk to the bin". The crates are gone
+// (docs/SHIP-PLAN-2026-09-19.md §1.4): with nowhere to deliver, the answer is null, and stopping at
+// anything that needs empty hands flies the load back to its source by itself
+// (systems/stations.js flyBackHeld).
 export function destinationFor(world, held, from = null) {
-  return findDeliveryTarget(world, held, from) || findReturnStation(world, from);
+  return findDeliveryTarget(world, held, from);
 }
 
 export function heldLabel(held) {
@@ -63,7 +60,6 @@ export function heldLabel(held) {
 
 export function destinationLabel(st) {
   if (!st) return '';
-  if (st.type === 'return') return 'RETURN';
   if (st.type === 'coffee') return 'COFFEE';
   if (st.type === 'blender') return 'BLENDER';
   if (st.type === 'bowl') return 'TREATS';

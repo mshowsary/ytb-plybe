@@ -94,13 +94,18 @@ test('smoothie display leaves a genuine player-width passage beside cupcakes', (
   assert.ok(gap >= 1.0, `cupcake/smoothie passage is only ${gap.toFixed(2)}m`);
 });
 
-test('pantry, return and blender are physically separated', () => {
-  const ids = ['pantry1', 'return1', 'blender1'];
-  const stations = ids.map(id => AREA1.stations.find(s => s.id === id));
-  for (let i = 0; i < stations.length; i++) for (let j = i + 1; j < stations.length; j++) {
-    const a = stations[i], b = stations[j];
-    const centreGap = Math.abs(a.x - b.x);
-    const edgeGap = centreGap - (a.fw + b.fw) / 2;
+// The production row used to hold the pantry, the RETURN crate and the blender shoulder to
+// shoulder. The crate is deleted and the blender moved east into its own corner (Batch C,
+// docs/SHIP-PLAN-2026-09-19.md 1.4), so what is left to pin is that the row's remaining neighbours
+// still leave a gap between them.
+test('the north production row leaves a gap between every neighbour', () => {
+  const row = AREA1.stations
+    .filter(s => Math.abs(s.z - (-5.2)) < 0.01 && s.fw != null)
+    .sort((a, b) => a.x - b.x);
+  assert.ok(row.length >= 4, `expected the oven/coffee/pantry row, found ${row.length}`);
+  for (let i = 1; i < row.length; i++) {
+    const a = row[i - 1], b = row[i];
+    const edgeGap = (b.x - b.fw / 2) - (a.x + a.fw / 2);
     assert.ok(edgeGap >= 0.2, `${a.id}/${b.id} edge gap is ${edgeGap.toFixed(2)}m`);
   }
 });

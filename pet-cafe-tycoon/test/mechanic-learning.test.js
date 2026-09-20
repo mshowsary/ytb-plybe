@@ -50,20 +50,20 @@ test('Task 29: object-of-booleans learning form migrates defensively', () => {
   assert.equal(REFRESH_AFTER_FAILURES, 2);
 });
 
+// Batch C (docs/SHIP-PLAN-2026-09-19.md 1.4) left exactly one station raising a button: the staff
+// desk. The pantry hands its sack over by being stood at, and the RETURN crate and the upgrade
+// kiosk are deleted outright -- so neither may claim the button even standing right on top of it.
 test('Task 29: stable contextual IDs are derived from world state, never UI copy', () => {
   const stations = new Map([
     ['desk', { id: 'desk', type: 'hire', active: true, front: { x: 0.8, z: 0 } }],
-    ['kiosk', { id: 'kiosk', type: 'kiosk', active: true, front: { x: 0.9, z: 0 } }],
-    ['pantry', { id: 'pantry', type: 'pantry', active: true, front: { x: 1, z: 0 } }],
-    ['return', { id: 'return', type: 'return', active: true, front: { x: 0.7, z: 0 } }],
+    ['pantry', { id: 'pantry', type: 'pantry', active: true, front: { x: 0.2, z: 0 } }],
   ]);
   const G = { P: { x: 0, z: 0 }, world: { stations }, carry: { sack: null, fruit: 0 }, owner: { items: [] } };
-  assert.equal(stableContextAction(G), 'pantry');
+  assert.equal(stableContextAction(G), 'hire', 'the nearer pantry must not claim a button it no longer has');
   G.owner.items.push({});
-  assert.equal(stableContextAction(G), 'return');
-  stations.get('return').active = false;
-  stations.get('pantry').active = false;
-  assert.equal(stableContextAction(G), 'hire'); // same priority as kiosk, nearest wins
+  assert.equal(stableContextAction(G), 'hire', 'and full hands do not raise one either');
+  stations.get('desk').active = false;
+  assert.equal(stableContextAction(G), null, 'with the desk gone nothing in the world offers an action');
 });
 
 test('Task 29: proven refill lesson is absent from first-use detector after reload', () => {

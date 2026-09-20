@@ -37,54 +37,64 @@ test('the whole café builds, and every supply-consuming machine is present', ()
   }
 });
 
-test('a dry machine routes to the pantry that stocks ITS supply, not just any pantry', () => {
-  const w = builtWorld();
-  const cases = [
-    ['coffee', 'beans', 'pantry1'],
-    ['bowl', 'kibble', 'pantry1'],
-  ];
-  for (const [type, supply, pantryId] of cases) {
-    drainAll(w);
-    const st = byType(w, type);
-    st[{ coffee: 'beans', bowl: 'stock' }[type]] = 0;
-    assert.equal(supplyLevel(st), 0, `${type} did not actually drain`);
-    assert.equal(isStarved(st), true, `${type} is dry but does not read as starved`);
-    assert.equal(pantryFor(w, supply).id, pantryId, `${supply} should come from ${pantryId}`);
-
-    const G = { P: { x: st.x, z: st.z }, carry: { sack: null, sackLeft: 0, fruit: 0 }, coins: 0, customers: [] };
-    const guide = refillGuideTarget(w, G);
-    assert.ok(guide, `a dry ${type} produced no guidance at all`);
-    assert.equal(guide.kind, 'supplies');
-    assert.equal(guide.stationId, pantryId, `a dry ${type} pointed at ${guide.stationId}`);
-  }
-});
-
-test('holding the supply switches the guidance to the machine that needs it', () => {
-  const w = builtWorld();
-  for (const [type, supply, field] of [['coffee', 'beans', 'beans'], ['bowl', 'kibble', 'stock']]) {
-    drainAll(w);
-    const st = byType(w, type);
-    st[field] = 0;
-    const G = { P: { x: st.x, z: st.z }, carry: { sack: supply, sackLeft: 10, fruit: 0 }, coins: 0, customers: [] };
-    const guide = refillGuideTarget(w, G);
-    assert.ok(guide, `holding ${supply} produced no guidance`);
-    assert.equal(guide.kind, 'refill');
-    assert.equal(guide.stationId, st.id, `holding ${supply} pointed at ${guide.stationId}, not the dry ${type}`);
-  }
-});
-
-test('a carried supply is deliverable to its machine, and is never routed to the RETURN crate', () => {
+test('a dry espresso machine routes to the pantry that stocks ITS supply, not just any pantry', () => {
   const w = builtWorld();
   drainAll(w);
-  for (const [supply, type] of [['beans', 'coffee'], ['kibble', 'bowl']]) {
-    const st = byType(w, type);
-    st[{ coffee: 'beans', bowl: 'stock' }[type]] = 0;
-    const held = { type: 'sack', key: supply, count: 10 };
-    assert.equal(canDeliverTo(st, held), true, `a ${supply} sack cannot be delivered to the ${type}`);
-    const dest = destinationFor(w, held, { x: st.x, z: st.z });
-    assert.equal(dest && dest.type, type, `${supply} was routed to a ${dest && dest.type}`);
-    assert.equal(heldLabel(held), supply, `a ${supply} sack is labelled "${heldLabel(held)}"`);
-  }
+  const st = byType(w, 'coffee');
+  st.beans = 0;
+  assert.equal(supplyLevel(st), 0, 'the coffee machine did not actually drain');
+  assert.equal(isStarved(st), true, 'the coffee machine is dry but does not read as starved');
+  assert.equal(pantryFor(w, 'beans').id, 'pantry1', 'beans should come from pantry1');
+
+  const G = { P: { x: st.x, z: st.z }, carry: { sack: null, sackLeft: 0, fruit: 0 }, coins: 0, customers: [] };
+  const guide = refillGuideTarget(w, G);
+  assert.ok(guide, 'a dry coffee machine produced no guidance at all');
+  assert.equal(guide.kind, 'supplies');
+  assert.equal(guide.stationId, 'pantry1', `a dry coffee machine pointed at ${guide.stationId}`);
+});
+
+// docs/SHIP-PLAN-2026-09-19.md 1.4: the treat bowl keeps its own kibble bin, so nobody walks a
+// sack across the cafe for it. There is no first leg to teach, so the guidance points straight at
+// the bowl -- and a pantry trip for kibble would now be a trip to a pantry that stocks none.
+test('a dry treat bowl points at itself: its kibble is in its own bin, not at the pantry', () => {
+  const w = builtWorld();
+  drainAll(w);
+  const bowl = byType(w, 'bowl');
+  bowl.stock = 0;
+  assert.equal(isStarved(bowl), true);
+  assert.equal(pantryFor(w, 'kibble', true), null, 'no pantry hands out kibble any more');
+  const G = { P: { x: 0, z: 0 }, carry: { sack: null, sackLeft: 0, fruit: 0 }, coins: 0, customers: [] };
+  const guide = refillGuideTarget(w, G);
+  assert.ok(guide, 'a dry treat bowl produced no guidance at all');
+  assert.equal(guide.kind, 'refill');
+  assert.equal(guide.stationId, bowl.id, `a dry bowl pointed at ${guide.stationId}`);
+});
+
+test('holding beans switches the guidance to the machine that needs them', () => {
+  const w = builtWorld();
+  drainAll(w);
+  const st = byType(w, 'coffee');
+  st.beans = 0;
+  const G = { P: { x: st.x, z: st.z }, carry: { sack: 'beans', sackLeft: 20, fruit: 0 }, coins: 0, customers: [] };
+  const guide = refillGuideTarget(w, G);
+  assert.ok(guide, 'holding beans produced no guidance');
+  assert.equal(guide.kind, 'refill');
+  assert.equal(guide.stationId, st.id, `holding beans pointed at ${guide.stationId}, not the dry machine`);
+});
+
+test('a carried sack is deliverable to its machine, and has nowhere else it could be sent', () => {
+  const w = builtWorld();
+  drainAll(w);
+  const st = byType(w, 'coffee');
+  st.beans = 0;
+  const held = { type: 'sack', key: 'beans', count: 20 };
+  assert.equal(canDeliverTo(st, held), true, 'a beans sack cannot be delivered to the coffee machine');
+  const dest = destinationFor(w, held, { x: st.x, z: st.z });
+  assert.equal(dest && dest.type, 'coffee', `beans were routed to a ${dest && dest.type}`);
+  assert.equal(heldLabel(held), 'beans');
+  // And with the machine full there is no crate left to fall back to.
+  st.beans = 20;
+  assert.equal(destinationFor(w, held, { x: st.x, z: st.z }), null);
 });
 
 test('a dry espresso machine or treat bowl is a pending job', () => {

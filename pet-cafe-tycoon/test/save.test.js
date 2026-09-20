@@ -12,9 +12,10 @@ test('createWorld(AREA1, save) with 3 built zones + partial: active set, boxes.l
   const partial = { z_coffee: 120 };
   const w1 = createWorld(AREA1, { built, partial });
 
-  // Loop v2 Task 1: dispCookie/kiosk1/register1/return1 are active from the start (no zone); the
-  // three built zones add seat1/seat2 (z_seats1), oven2 + dispCupcake (z_oven2) and register2.
-  const expectedActive = ['dispCookie', 'kiosk1', 'oven1', 'register1', 'return1', 'oven2', 'dispCupcake', 'register2', 'seat1', 'seat2'].sort();
+  // dispCookie/oven1/register1 are active from the start (no zone -- the kiosk and the RETURN
+  // crate that used to join them were deleted in Batch C); the three built zones add seat1/seat2
+  // (z_seats1), oven2 + dispCupcake (z_oven2) and register2.
+  const expectedActive = ['dispCookie', 'oven1', 'register1', 'oven2', 'dispCupcake', 'register2', 'seat1', 'seat2'].sort();
   const activeIds1 = [...w1.stations.values()].filter(st => st.active).map(st => st.id).sort();
   assert.deepEqual(activeIds1, expectedActive);
   assert.equal(w1.boxes.length, expectedActive.length);

@@ -356,13 +356,15 @@ async function showMoment(page) {
 
 // The in-world action button (.fbtn) only exists while the owner stands at a station that offers
 // one, and no other state put him there — which is how a 24 px button (the label scale shrank its
-// 48 px minimum on phones) passed every earlier run. Stand at the kiosk, which is always built,
-// empty-handed, and let the arbiter lay the frame out.
+// 48 px minimum on phones) passed every earlier run. The staff desk is the one station left that
+// offers one (Batch C, docs/SHIP-PLAN-2026-09-19.md 1.4), so it is activated and stood at,
+// empty-handed, and the arbiter lays the frame out.
 async function showActionButton(page) {
   const shown = await page.evaluate(() => {
     const G = window.__game;
-    const st = G && G.world && G.world.stations.get('kiosk1');
+    const st = G && G.world && G.world.stations.get('hire1');
     if (!st) return false;
+    st.active = true;
     if (window.__dev && window.__dev.carry) window.__dev.carry(0);
     G._force = null; G.P.x = st.front.x; G.P.z = st.front.z; G.P.vx = 0; G.P.vz = 0;
     for (let i = 0; i < 6; i++) G.update(1 / 30);
@@ -452,13 +454,13 @@ for (const vp of list) {
   // State 11: a banner from the moment queue, beside the permanent HUD.
   await measure('moment', () => showMoment(page), null);
 
-  // State 12: the action button at the kiosk, measured by the same tap floor as every control. Not
+  // State 12: the action button at the staff desk, measured by the same tap floor as every control. Not
   // shown at all is itself a violation: this state exists to measure it.
   if (await showActionButton(page)) {
     states.push({ name: 'action', audit: await runAudit() });
     if (SHOTS) await page.screenshot({ path: `shots/responsive/${vp.tag}-${vp.w}x${vp.h}-action.png` });
   } else {
-    states.push({ name: 'action', audit: { overflow: [], overlap: [], truncated: [], canvas: null, tapTarget: [{ el: '.fbtn (not shown at kiosk1)', w: 0, h: 0 }] } });
+    states.push({ name: 'action', audit: { overflow: [], overlap: [], truncated: [], canvas: null, tapTarget: [{ el: '.fbtn (not shown at hire1)', w: 0, h: 0 }] } });
   }
 
   // State 13: the day summary (it ends the day, so it goes last).

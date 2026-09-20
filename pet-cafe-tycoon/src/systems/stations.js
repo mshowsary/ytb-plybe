@@ -4,29 +4,32 @@ import {
 } from '../sim/economy.js';
 import {
   stepOvens, stepMachines, takeFromOven, takeFromMachine, putOnDisplay, collectCash,
-  refillBeans, refillBowl, harvestBush, addFruit as stationAddFruit, ownerCleanSeat,
+  refillBeans, refillBowl, harvestBush, addFruit as stationAddFruit, ownerCleanSeat, returnToMachine,
 } from '../sim/world.js';
 import { canTakeItems, takeSack, useSack, addFruit as carryAddFruit, returnAll } from '../sim/carry.js';
+import { pantryHandout, refilledInPlace, supplyKind, supplyRoom } from '../sim/supplies.js';
 import { ownerBodyBoxes, moveOwnerBody, OWNER_BODY_R } from '../sim/ownerReach.js';
-import { heldState, destinationFor, findReturnStation, heldLabel, destinationLabel } from '../sim/interaction.js';
+import { heldState, destinationFor, heldLabel, destinationLabel } from '../sim/interaction.js';
 import { itemFor } from '../render/props.js';
 import { C } from '../render/palette.js';
 import { damp } from '../core/tween.js';
 import { cue, paintCue } from '../ui/hud.js';
 import { cashVisualSpot } from './registerCash.js';
-import { handIcon, returnIcon, coffeeIcon, smoothieIcon, treatIcon, iconFor, sackIcon, gearIcon, personIcon, broomIcon } from '../ui/icons.js';
+import { handIcon, coffeeIcon, smoothieIcon, treatIcon, iconFor, personIcon, broomIcon } from '../ui/icons.js';
 
 // The floating action button's pictograms, by the label the action was authored with. The label
 // itself survives as the cue's aria text — and, through paintCue's visually-hidden span, as the
 // button's textContent, which tools/production-smoke*.js and the task25 cert read verbatim.
-const ACTION_ICON = { SUPPLIES: sackIcon, RETURN: returnIcon, UPGRADES: gearIcon, STAFF: personIcon };
+// The staff desk is the last of these: the pantry hands its sack over by being stood at, the
+// upgrade kiosk is gone and so is the RETURN crate (docs/SHIP-PLAN-2026-09-19.md §1.4).
+const ACTION_ICON = { STAFF: personIcon };
 // The owner's 2026-09-09 phone playtest: "those return, upgrade, staff labels now turned into icons
 // really do not say anything". Sentences stay banned on the play field, but a single verb under the
 // pictogram is not a sentence -- this is the ONE WORD painted by `.fbtnWord` below, entirely outside
 // the cue helper's cells argument that the guard test (test/play-field-text.test.js) inspects, so
 // the ban on worded cue cells is untouched. A label with no entry here falls back to the label
 // itself, which is already upper-case and already a single word for every action this file authors.
-const ACTION_WORD = { SUPPLIES: 'SUPPLIES', RETURN: 'RETURN', UPGRADES: 'UPGRADE', STAFF: 'HIRE' };
+const ACTION_WORD = { STAFF: 'HIRE' };
 const FBTN_STYLE_ID = 'pet-cafe-fbtn-word-style';
 function ensureFbtnStyle() {
   if (typeof document === 'undefined' || document.getElementById(FBTN_STYLE_ID)) return;
@@ -47,20 +50,21 @@ function ensureFbtnStyle() {
 // the case glyph alone would not say which one.
 function destinationIcon(st) {
   if (!st) return handIcon();
-  if (st.type === 'return') return returnIcon();
   if (st.type === 'coffee') return coffeeIcon();
   if (st.type === 'blender') return smoothieIcon();
   if (st.type === 'bowl') return treatIcon();
   if (st.type === 'display') return iconFor(st.product);
   return handIcon();
 }
-// The kiosk refusal, drawn once and reused by all six buy paths: the wallet's own coin, crossed.
-// The same coin the player is watching in the HUD, so "what I have is not enough" needs no verb.
-
 const near = (a, b, r) => (a.x - b.x) ** 2 + (a.z - b.z) ** 2 < r * r;
 const dist2 = (a, b) => (a.x - b.x) ** 2 + (a.z - b.z) ** 2;
-const DWELL_SPEED = 0.6, DWELL_TIME = 0.25, DWELL_FACING = 0.3;
-const SHEET_CLOSE_RADIUS = 2.45;
+// A STOP, not a slow walk (docs/SHIP-PLAN-2026-09-19.md §1.4). DWELL_SPEED was 0.6 m/s against a
+// 3 m/s walk, so drifting through a machine's 1.3 m circle on the way somewhere else counted: the
+// 19-day playthrough logged 482-1,576 stray pickups a day, every one of them a smoothie taken in
+// the same stop that had just delivered the fruit. 0.15 m/s is "the stick is released": the
+// velocity damp (18/s) falls from full speed to under it in ~0.17 s, so a deliberate stop still
+// hands over in about 0.4 s and feels instant, while a pass-by never does.
+const DWELL_SPEED = 0.15, DWELL_TIME = 0.25, DWELL_FACING = 0.3;
 const AUTO_CASH_RADIUS = 1.2;
 // Batch 7 (the owner's rule: "remove the chore, not the state") -- wiping is a walk-past, not an
 // errand. Widened from 1.35m so a seat gets wiped simply by the owner passing near it on the way to
@@ -77,37 +81,41 @@ const FIRST_HINT = {
   display: 'Stock shelf',
   checkout: 'Serve here',
   pantry: 'Supplies',
-  return: 'Return items',
   bush: 'Pick fruit',
   blender: 'Add fruit',
   bowl: 'Add treats',
   icecream: 'Take ice cream',
-  kiosk: 'Upgrades',
   hire: 'Staff',
 };
 const FIRST_HINT_SECONDS = 2;
 
-// The garden's ice cream machine stands directly behind its stand, both worked from one spot, so a
-// cone taken is a cone placed a step later. It hands over only what the stand can still take:
-// anything more would be cones in the owner's hands with nowhere on the deck to put them (the
-// garden has no RETURN crate). Other machines are unaffected.
-function pairedStandRoom(world, st, held) {
-  if (st.type !== 'icecream') return Infinity;
+// How many more of this machine's product the counter it feeds can still take, once everything
+// already in the owner's hands has landed on it. A machine hands over nothing when the answer is
+// 0: that is the whole reason leftovers, and the RETURN crate that swallowed them, ever existed
+// (docs/SHIP-PLAN-2026-09-19.md §1.4). A machine whose display does not exist yet (nothing else
+// in the game today) returns 0 too — items with nowhere to go are not a pickup.
+function displayRoomFor(world, st, held) {
+  const fam = familyOf(st.type === 'blender' ? 'smoothie' : st.product);
   for (const id of world.displays) {
     const d = world.stations.get(id);
-    if (d.selfServe && familyOf(d.product) === familyOf(st.product)) return d.capacity - d.stock - held;
+    if (d.active && familyOf(d.product) === fam) return d.capacity - d.stock - held;
   }
-  return Infinity;
+  return 0;
 }
 
 export function createStations(G, S, ctx) {
   ensureFbtnStyle();
   const { area, world, hud, fx, audio, input, owner, P, sheets, hints, els } = ctx;
   const carry = G.carry;
-  let takeT = 0, dropT = 0, stepT = 0, frameDt = 0;
+  let takeT = 0, dropT = 0, stepT = 0, frameDt = 0, steering = 0;
   const prevStock = new Map();
   const cleanProg = new Map();
-  const dwellT = new Map();
+  // One STOP per station: how long the owner has stood still inside its circle, and whether this
+  // stop has already handed the station an input (fruit into the blender, beans into the coffee
+  // machine). The `gave` flag is what stops the blender handing a smoothie straight back in the
+  // very stop that fed it -- every one of the 482-1,576 stray pickups a day the playthrough logged
+  // was exactly that. Walking off, or leaving the circle, ends the stop and clears both.
+  const stops = new Map();
   ctx.cleanProg = cleanProg;
   P.rot = P.rot || 0;
   // Batch 7: after this many hand wipes with no cleaner ever hired, point at the obvious fix once
@@ -134,31 +142,21 @@ export function createStations(G, S, ctx) {
     const target = destinationFor(world, held, P);
     if (!target) { G.contextGuide = null; return; }
     const label = destinationLabel(target);
-    G.contextGuide = { x: target.front.x, z: target.front.z, kind: target.type === 'return' ? 'return' : 'deliver', caption: label, captionIcon: destinationIcon(target), captionLabel: `Carry to ${label.toLowerCase()}` };
+    G.contextGuide = { x: target.front.x, z: target.front.z, kind: 'deliver', caption: label, captionIcon: destinationIcon(target), captionLabel: `Carry to ${label.toLowerCase()}` };
   }
-  function guideCarry(text = null, seconds = 4, forceReturn = false) {
+  function guideCarry(text = null, seconds = 4) {
     const held = heldState(owner.items, carry);
     if (!held) { clearGuide(); return null; }
-    const target = forceReturn ? findReturnStation(world, P) : destinationFor(world, held, P);
+    const target = destinationFor(world, held, P);
     if (!target) return null;
     const label = destinationLabel(target);
     // `caption` stays on the record: it is never drawn any more (systems/objective.js reads
     // captionIcon instead) but tools/production-smoke.js reads it as a diagnostic, and it is a
     // truthful description of where the guide is pointing.
-    G.contextGuide = { x: target.front.x, z: target.front.z, kind: target.type === 'return' ? 'return' : 'deliver', caption: label, captionIcon: destinationIcon(target), captionLabel: `Carry to ${label.toLowerCase()}` };
+    G.contextGuide = { x: target.front.x, z: target.front.z, kind: 'deliver', caption: label, captionIcon: destinationIcon(target), captionLabel: `Carry to ${label.toLowerCase()}` };
     guideT = seconds;
     guideText = text || `${heldLabel(held)} → ${label}`;
     return target;
-  }
-  function maybeGuideLeftovers(st, message) {
-    const held = heldState(owner.items, carry);
-    if (!held) { clearGuide(); return; }
-    let full = false;
-    if (st.type === 'display') full = st.stock >= st.capacity;
-    else if (st.type === 'coffee') full = st.beans >= 20;
-    else if (st.type === 'bowl') full = st.stock >= st.capacity;
-    else if (st.type === 'blender') full = st.fruit >= 9;
-    if (full) guideCarry(message || `${destinationLabel(st)} → RETURN`, 3, true);
   }
 
   function noteFirstHint(type, active) {
@@ -169,10 +167,6 @@ export function createStations(G, S, ctx) {
     ctx.firstHint.msg = text; ctx.firstHint.t = FIRST_HINT_SECONDS;
   }
 
-  let sheetAnchorId = null;
-  sheets.onClose(() => { sheetAnchorId = null; });
-
-  function anchorSheet(st) { sheetAnchorId = st ? st.id : null; }
   const markCheckpoint = reason => { if (typeof G.requestCheckpoint === 'function') G.requestCheckpoint(reason); };
   // One Shop (ui/shop.js, reached through G.openShop): the kiosk and a tapped chalkboard open it on
   // Upgrades, titled "Shop"; the staff desk opens it on Staff, titled "Staff". It owns its own buy
@@ -187,55 +181,100 @@ export function createStations(G, S, ctx) {
     audio.play('tap'); G.openShop(tab === 'workers' ? 'staff' : 'shop', tab);
   }
 
-  function openPantry(st) {
-    const held = heldState(owner.items, carry);
-    if (held) {
-      const dest = destinationFor(world, held, P);
-      const target = guideCarry(`${heldLabel(held)}${dest ? ` → ${destinationLabel(dest)}` : ''}`, 3);
-      // Both refusals are the same fact -- your hands are already full -- so both draw the same
-      // mitt-and-box. When there IS somewhere to put it the arrow and that place's own glyph follow,
-      // which is the part a sentence could never do as quickly.
-      audio.play('angry'); hud.toast(target
-        ? cue([handIcon(), '→', destinationIcon(target)], 'Finish carrying first')
-        : cue([handIcon(), '!'], 'Hands full'));
-      return;
-    }
-    audio.play('tap');
-    let bowlActive = false;
-    for (const s of world.stations.values()) if (s.type === 'bowl' && s.active) { bowlActive = true; break; }
-    anchorSheet(st);
-    // The model comes from THIS pantry's declared supplies (data/area1.js), not a fixed
-    // {beans, kibble}: a pantry that declared another supply (the retired cold pantry's cream) was
-    // offered by nothing else. A pantry that declares nothing is the
-    // main one and keeps its two historical buttons, so the coach's structural two-button lookup
-    // (ui/interactionCoach.js) sees exactly what it always has.
-    const def = area.stations.find(s => s.id === st.id);
-    const supplies = def && Array.isArray(def.supplies) && def.supplies.length ? def.supplies : ['beans', 'kibble'];
-    const pantryModel = {};
-    for (const k of supplies) pantryModel[k] = k === 'kibble' ? bowlActive : true;
-    sheets.open('pantry', pantryModel, {
-      pick(kind) {
-        if (takeSack(carry, kind)) {
-          audio.play('pop');
-          const heldNow = heldState(owner.items, carry);
-          const target = destinationFor(world, heldNow, P);
-          guideCarry(target ? `${destinationLabel(target)}` : null, 3);
-        }
-        sheets.close();
-      },
-    });
+  // Stopping at the pantry IS the interaction (docs/SHIP-PLAN-2026-09-19.md §1.4). There used to be
+  // a SUPPLIES button opening a bottom sheet with one or two rows — a menu for a choice the game
+  // could already make, and the last text sheet standing in the play field. The pantry now hands
+  // over the sack the neediest machine it stocks is waiting for, and one refill uses that sack up.
+  function handOverSack(st) {
+    const kind = pantryHandout(world, st);
+    if (!kind || !takeSack(carry, kind)) return;
+    audio.play('pop');
+    fx.burst(st.x, 1.0, st.z, C.wood, 6);
+    hints.pantry = 1;
+    const target = destinationFor(world, heldState(owner.items, carry), P);
+    guideCarry(target ? `${destinationLabel(target)}` : null, 3);
   }
 
-  function dwelling(st, radius, speed) {
-    const inZone = near(P, st.front, radius);
-    const ok = inZone && speed < DWELL_SPEED;
-    const t = ok ? (dwellT.get(st.id) || 0) + frameDt : 0;
-    dwellT.set(st.id, t);
-    if (t < DWELL_TIME) return false;
+  // Has the owner STOPPED at this station? (Not "is drifting through its circle" — see DWELL_SPEED.)
+  //
+  // Both halves matter. `speed` alone is not enough: walking into a counter makes moveOwnerBody
+  // refuse the step and zero P.vx/P.vz, so a player leaning on the stick beside a machine read as
+  // standing perfectly still and was handed its product — measured on the live probe, 8 trays
+  // collected in four passes of the treat bowl on the way past the blender. `steering` is the
+  // movement INPUT, so a stop means the player actually let go.
+  // A stop belongs to the station the owner is standing AT. Two whose circles overlap must not both
+  // answer one stop: bush1 stands 1.2 m from the blender it feeds, so without this, stopping to pick
+  // fruit also poured it into the blender from the bush's own spot and the smoothie could then be
+  // collected without ever walking over (measured on the live probe). Same rule, same band, as
+  // pickAction applies to the action button; the ice cream machine and its stand sit 0.15 m apart
+  // and still share a stop, which is the point of that pairing.
+  let nearestFrontD = Infinity;
+  function stoppedAt(st, radius, speed) {
+    let s = stops.get(st.id);
+    if (!s) { s = { t: 0, gave: false }; stops.set(st.id, s); }
+    if (steering > 0.2 || !near(P, st.front, radius) || speed >= DWELL_SPEED
+      || Math.sqrt(dist2(P, st.front)) > nearestFrontD + NEAR_BAND) { s.t = 0; s.gave = false; return false; }
+    s.t += frameDt;
+    if (s.t < DWELL_TIME) return false;
     const dx = st.x - P.x, dz = st.z - P.z, d = Math.hypot(dx, dz) || 1;
     const fx2 = Math.sin(P.rot), fz = Math.cos(P.rot);
     if ((fx2 * dx + fz * dz) / d <= DWELL_FACING) P.rot = Math.atan2(dx, dz);
     return true;
+  }
+  const stopGave = st => { const s = stops.get(st.id); return !!(s && s.gave); };
+  const markGave = st => { const s = stops.get(st.id); if (s) s.gave = true; };
+
+  // "Another machine": one that cannot take what is in the owner's hands, so stopping at it sends
+  // the load home (docs/SHIP-PLAN-2026-09-19.md §1.4). A machine that CAN take it — the right
+  // supply, the right product family — is never a mistake, even when it is momentarily full: that
+  // load is still on its way somewhere. The pantry and the bushes have their own rule below, since
+  // what they hand out must not be flown straight back out of the hands that just took it.
+  const MACHINE_TYPES = new Set(['oven', 'coffee', 'blender', 'icecream']);
+  function misplacedAt(st, held) {
+    if (!held || !MACHINE_TYPES.has(st.type)) return false;
+    if (held.type === 'product') {
+      return familyOf(held.key) !== familyOf(st.type === 'blender' ? 'smoothie' : st.product);
+    }
+    return supplyKind(st) !== (held.type === 'fruit' ? 'fruit' : held.key);
+  }
+
+  // Where a load came from, so it has somewhere to fly back TO: a product to a machine that makes
+  // its family, a sack to the pantry that hands it out, fruit to the nearest bush.
+  function sourceOf(held) {
+    if (!held) return null;
+    if (held.type === 'fruit' || held.type === 'sack') {
+      const want = held.type === 'fruit' ? 'bush' : 'pantry';
+      let best = null, bestD = Infinity;
+      for (const st of world.stations.values()) {
+        if (!st.active || st.type !== want) continue;
+        const d = dist2(P, st);
+        if (d < bestD) { bestD = d; best = st; }
+      }
+      return best;
+    }
+    const fam = familyOf(held.key);
+    for (const st of world.stations.values()) {
+      if (!st.active || !MACHINE_TYPES.has(st.type)) continue;
+      const pk = st.type === 'blender' ? 'smoothie' : st.product;
+      if (familyOf(pk) === fam) return st;
+    }
+    return null;
+  }
+
+  // The whole of "no RETURN crates": the load leaves the hands where the owner stands, and lands
+  // back where it came from, in two puffs. No fee, no button, no crate, no walk. Product goes back
+  // onto its machine's tray (returnToMachine caps it at the buffer) so the picture is true —
+  // harvested fruit and a part-used sack have no tray to go back onto and are simply put away.
+  function flyBackHeld(held) {
+    if (!held) return;
+    const src = sourceOf(held);
+    const n = Math.max(1, held.count | 0);
+    if (held.type === 'product' && src) returnToMachine(world, src.id, n);
+    owner.clearItems(); returnAll(carry);
+    clearGuide();
+    audio.play('drop');
+    fx.burst(P.x, 1.0, P.z, C.cream, 6);
+    if (src) fx.burst(src.x, 0.95, src.z, C.cream, Math.min(10, 4 + n));
   }
 
   // Legacy cash labels are created for compatibility and removed by registerCash.js.
@@ -315,16 +354,7 @@ export function createStations(G, S, ctx) {
   function triggerFloatAction() {
     const a = floatAction;
     if (!a) return;
-    const st = a.st;
-    if (a.kind === 'kiosk') openKiosk(st, 'player');
-    else if (a.kind === 'hire') openKiosk(st, 'workers');
-    else if (a.kind === 'pantry') openPantry(st);
-    else if (a.kind === 'return') {
-      const held = heldState(owner.items, carry);
-      if (!held) return;
-      returnAll(carry); owner.clearItems(); audio.play('drop');
-      clearGuide();
-    }
+    if (a.kind === 'hire') openKiosk(a.st, 'workers');
     floatAction = null; fbtn.classList.add('hidden');
   }
   fbtn.addEventListener('click', triggerFloatAction);
@@ -348,6 +378,7 @@ export function createStations(G, S, ctx) {
       }
 
       const mv = G._force || input; const sp = playerSpeed(G.up);
+      steering = Math.hypot(mv.x || 0, mv.z || 0);
       P.vx = damp(P.vx, mv.x * sp, 18, dt); P.vz = damp(P.vz, mv.z * sp, 18, dt);
       // One step of the owner's body (sim/ownerReach.js moveOwnerBody — the headless no-pockets
       // walk in test/owner-reach.test.js moves by the same function). What it does, and why:
@@ -380,11 +411,6 @@ export function createStations(G, S, ctx) {
       if (!moveOwnerBody(P, P.x + P.vx * dt, P.z + P.vz * dt, playerBoxes(), area, world.built)) { P.vx = 0; P.vz = 0; }
       owner.group.position.set(P.x, 0, P.z); owner.update(dt, P.vx, P.vz); S.follow(P.x, P.z, dt);
 
-      if (sheetAnchorId && sheets.isOpen) {
-        const anchor = world.stations.get(sheetAnchorId);
-        if (!anchor || !near(P, anchor.front, SHEET_CLOSE_RADIUS)) sheets.close();
-      }
-
       const speed = Math.hypot(P.vx, P.vz);
       if (speed > 0.05) P.rot = Math.atan2(P.vx, P.vz);
       stepT -= dt; if (speed > 0.5 && stepT <= 0) { stepT = 0.28; audio.play('step'); }
@@ -393,33 +419,47 @@ export function createStations(G, S, ctx) {
       stepMachines(world, dt, machineSpeedMult(G.machineLevels, 'coffee'));
       takeT -= dt; dropT -= dt;
       const actionCandidates = [];
-      let nearestFront = Infinity;
       cleanProg.clear();
+
+      // Nearest standing spot in the room: "am I actually at this machine" for the stop rule
+      // (stoppedAt) and for pickAction alike. It has to be known before the loop starts, or the
+      // stations visited first would be judged against a partial answer.
+      nearestFrontD = Infinity;
+      for (const st of world.stations.values()) {
+        if (!st.active || !st.front) continue;
+        const d = dist2(P, st.front);
+        if (d < nearestFrontD) nearestFrontD = d;
+      }
+      nearestFrontD = Math.sqrt(nearestFrontD);
 
       for (const st of world.stations.values()) {
         if (!st.active) continue;
-        // Nearest standing spot in the room, for pickAction's "am I actually at this machine" test.
-        if (st.front) { const d = dist2(P, st.front); if (d < nearestFront) nearestFront = d; }
 
         if (st.type === 'oven' || st.type === 'coffee' || st.type === 'blender' || st.type === 'icecream') {
           const prev = prevStock.has(st.id) ? prevStock.get(st.id) : st.stock;
           if (prev < 6 && st.stock >= 6) audio.play('ding');
           prevStock.set(st.id, st.stock);
           const productKey = st.type === 'blender' ? 'smoothie' : st.product;
-          const dwellOk = dwelling(st, 1.3, speed);
-          noteFirstHint(st.type, dwellOk);
+          const stopOk = stoppedAt(st, 1.3, speed);
+          noteFirstHint(st.type, stopOk);
 
           const held = heldState(owner.items, carry);
           const productMismatch = owner.items.length && familyOf(owner.items[0].userData.product) !== familyOf(productKey);
           const blockedBySupply = !canTakeItems(carry);
           const atFront = near(P, st.front, 1.3);
-          if (atFront && (productMismatch || blockedBySupply || owner.items.length >= carryCap(G.up))) {
+          if (stopOk && misplacedAt(st, held)) {
+            // Stopped at a machine holding something it cannot take: the load goes home by itself.
+            flyBackHeld(held);
+          } else if (atFront && (productMismatch || blockedBySupply || owner.items.length >= carryCap(G.up))) {
             const current = held || heldState(owner.items, carry);
             if (current) {
               const target = destinationFor(world, current, P);
               guideCarry(`${heldLabel(current)}${target ? ` → ${destinationLabel(target)}` : ''}`, 3);
             }
-          } else if (dwellOk && takeT <= 0 && canTakeItems(carry) && owner.items.length < carryCap(G.up) && st.stock > 0 && pairedStandRoom(world, st, owner.items.length) > 0) {
+          } else if (stopOk && takeT <= 0 && !stopGave(st) && canTakeItems(carry) && owner.items.length < carryCap(G.up)
+            && st.stock > 0 && displayRoomFor(world, st, owner.items.length) > 0) {
+            // A machine hands product over only on a genuine stop, only when the counter it feeds
+            // still has room for it, and never in the stop that just fed the machine its input.
             const first = owner.items.length === 0;
             (st.type === 'oven' ? takeFromOven : takeFromMachine)(world, st.id, 1);
             const im = itemFor(productKey); im.userData.product = productKey; owner.addItem(im);
@@ -427,25 +467,25 @@ export function createStations(G, S, ctx) {
             if (first) guideCarry(null, 2.5);
           }
 
-          if (st.type === 'coffee' && dwellOk && carry.sack === 'beans') {
+          if (st.type === 'coffee' && stopOk && carry.sack === 'beans') {
             const used = refillBeans(world, st.id, carry.sackLeft);
             if (used > 0) {
               useSack(carry, used); hints.refillCoffee = 1; audio.play('pour'); fx.burst(st.x, 0.9, st.z, C.coral, 6);
-              maybeGuideLeftovers(st);
+              markGave(st); clearGuide();
             }
           }
-          if (st.type === 'blender' && dwellOk && carry.fruit > 0) {
+          if (st.type === 'blender' && stopOk && carry.fruit > 0) {
             const added = stationAddFruit(world, st.id, carry.fruit);
             if (added > 0) {
               carry.fruit -= added; hints.blend = 1; audio.play('pour'); fx.burst(st.x, 0.9, st.z, C.plant, 6);
-              maybeGuideLeftovers(st);
+              markGave(st); if (carry.fruit <= 0) clearGuide();
             }
           }
         }
 
         if (st.type === 'display') {
-          const dwellOk = dwelling(st, 1.3, speed);
-          noteFirstHint('display', dwellOk);
+          const stopOk = stoppedAt(st, 1.3, speed);
+          noteFirstHint('display', stopOk);
           const atFront = near(P, st.front, 1.3);
           const held = heldState(owner.items, carry);
           if (owner.items.length && familyOf(owner.items[0].userData.product) !== familyOf(st.product)) {
@@ -453,13 +493,10 @@ export function createStations(G, S, ctx) {
               const target = destinationFor(world, held, P);
               guideCarry(target ? `${destinationLabel(target)}` : null, 3);
             }
-          } else if (owner.items.length && st.stock >= st.capacity) {
-            if (atFront) guideCarry('RETURN', 3, true);
-          } else if (dwellOk && dropT <= 0 && owner.items.length && st.stock < st.capacity) {
+          } else if (stopOk && dropT <= 0 && owner.items.length && st.stock < st.capacity) {
             const m = owner.popItem(); const key = m.userData.product || st.product;
             putOnDisplay(world, st.id, key, 1); dropT = 0.15; hints.counter = 1; audio.play('drop');
             fx.burst(st.x, 1.3, st.z, PRODUCTS[key].color, 4);
-            maybeGuideLeftovers(st);
           }
           // The garden stand's cash jar empties itself into the wallet as the owner passes behind the
           // counter — the same walk-past rule as a register's tray, from the spot the owner stocks it.
@@ -479,33 +516,44 @@ export function createStations(G, S, ctx) {
         }
 
         if (st.type === 'pantry') {
-          const atFront = near(P, st.front, 1.35);
-          noteFirstHint('pantry', atFront);
-          if (atFront && !sheets.isOpen) offerAction(actionCandidates, st, 'pantry', 'SUPPLIES', 3);
-        }
-
-        if (st.type === 'return') {
-          const atFront = near(P, st.front, 1.05);
-          noteFirstHint('return', atFront);
-          if (atFront && heldState(owner.items, carry) && !sheets.isOpen) offerAction(actionCandidates, st, 'return', 'RETURN', 6);
+          const stopOk = stoppedAt(st, 1.35, speed);
+          noteFirstHint('pantry', stopOk);
+          // ONE hand-over per stop, and the `gave` flag is what guarantees it: without it the
+          // pantry hands a sack over on one frame and flies it straight back out of the owner's
+          // hands on the next, because a sack is "something in the way" to a pantry.
+          if (stopOk && !sheets.isOpen && !stopGave(st)) {
+            const held = heldState(owner.items, carry);
+            if (held) {
+              // A sack still on its way somewhere is not in the way; anything else is, and goes
+              // home — leaving the hands free for the hand-over on the next frame of this stop.
+              if (!(held.type === 'sack' && destinationFor(world, held, P))) flyBackHeld(held);
+            } else { handOverSack(st); markGave(st); }
+          }
         }
 
         if (st.type === 'bowl') {
-          const dwellOk = dwelling(st, 1.3, speed);
-          noteFirstHint('bowl', dwellOk);
-          if (dwellOk && carry.sack === 'kibble') {
-            const used = refillBowl(world, st.id, carry.sackLeft);
-            if (used > 0) {
-              useSack(carry, used); hints.refillBowl = 1; audio.play('pour'); fx.burst(st.x, 0.5, st.z, C.pink, 6);
-              maybeGuideLeftovers(st);
-            }
+          const stopOk = stoppedAt(st, 1.3, speed);
+          noteFirstHint('bowl', stopOk);
+          // The treat bowl has its own kibble bin under it: standing at it scoops a bowlful, so
+          // nobody walks a sack across the café for it (docs/SHIP-PLAN-2026-09-19.md §1.4). The
+          // 20-unit kibble sack was bigger than the bowl's 10-unit capacity, which is exactly where
+          // the leftovers that needed a RETURN crate came from.
+          if (stopOk && refilledInPlace(st) && supplyRoom(st) > 0 && !heldState(owner.items, carry)) {
+            const used = refillBowl(world, st.id, supplyRoom(st));
+            if (used > 0) { hints.refillBowl = 1; audio.play('pour'); fx.burst(st.x, 0.5, st.z, C.pink, 6); }
           }
         }
 
         if (st.type === 'bush') {
-          const dwellOk = dwelling(st, 1.2, speed);
-          noteFirstHint('bush', dwellOk);
-          if (dwellOk && st.stage === 3 && canTakeItems(carry) && owner.items.length === 0 && carry.fruit < carryCap(G.up)) {
+          const stopOk = stoppedAt(st, 1.2, speed);
+          noteFirstHint('bush', stopOk);
+          const heldHere = heldState(owner.items, carry);
+          // Picking needs a free hand, so a tray or a sack flies home first and the pick happens on
+          // the next frame of the same stop. Fruit already in the basket is NOT in the way — it came
+          // off a bush and it is on its way to the blender — or a full basket would be thrown away
+          // by walking past the plant it was picked from.
+          if (stopOk && heldHere && heldHere.type !== 'fruit') flyBackHeld(heldHere);
+          else if (stopOk && st.stage === 3 && canTakeItems(carry) && owner.items.length === 0 && carry.fruit < carryCap(G.up)) {
             const first = carry.fruit === 0;
             const got = harvestBush(world, st.id);
             if (got > 0) {
@@ -538,17 +586,17 @@ export function createStations(G, S, ctx) {
           }
         }
 
-        if (st.type === 'kiosk' || st.type === 'hire') {
+        // The staff desk is the last station in the café that raises a button: everything else is
+        // now a walk-up (docs/SHIP-PLAN-2026-09-19.md §1.4). Hiring stays a deliberate tap because
+        // it spends coins, which is never something proximity should decide.
+        if (st.type === 'hire') {
           const atFront = near(P, st.front, 1.35);
-          noteFirstHint(st.type, atFront);
-          if (atFront && !sheets.isOpen) {
-            const label = st.type === 'kiosk' ? 'UPGRADES' : 'STAFF';
-            offerAction(actionCandidates, st, st.type, label, 2);
-          }
+          noteFirstHint('hire', atFront);
+          if (atFront && !sheets.isOpen) offerAction(actionCandidates, st, 'hire', 'STAFF', 2);
         }
       }
 
-      floatAction = pickAction(actionCandidates, Math.sqrt(nearestFront));
+      floatAction = pickAction(actionCandidates, nearestFrontD);
       if (floatAction && !sheets.isOpen) {
         // Anchor on the machine's FRONT FACE, halfway out to the spot the owner stands on, rather
         // than on its centre: a deep counter or a wide kiosk would otherwise throw the button a
