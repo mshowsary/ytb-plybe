@@ -6,11 +6,11 @@
 // carried entirely by naming. Residents are the cheapest honest fix: animals that are simply here,
 // asleep on the windowsill and dozing in the garden, whether or not anyone is being served.
 //
-// Strictly decorative. No navigation, no collision, no simulation, no save state of their own --
-// the walk-in "moment" below moves a group's x/y/z/rotation.y by hand over a couple of seconds, the
-// same way the CSS layer animates a toast; it never touches the nav grid, a mover, or anything
-// sim/ steps. Nothing here can affect prices, patience, spawn odds or pathing -- the same guarantee
-// sim/petBook.js makes about friendship -- so this cannot destabilise a balance pass.
+// Strictly decorative. No collision, no simulation, no save state of their own -- the walk-in
+// "moment" below moves a group's x/y/z/rotation.y by hand, the same way the CSS layer animates a
+// toast. It READS the nav grid (to walk the path a guest would) and never writes it, a mover, or
+// anything sim/ steps. Nothing here can affect prices, patience, spawn odds or pathing -- the same
+// guarantee sim/petBook.js makes about friendship -- so this cannot destabilise a balance pass.
 //
 // TASK 2.5 -- BESTIES MOVE IN (plan §3.6)
 // The five placeholder residents (species/variant/furniture all fixed at authoring time) are gone.
@@ -33,9 +33,11 @@
 // MOVE-IN MOMENT (plan §3.6: "the pet walks in on its own the next morning")
 // A pet admitted to meta.residents mid-shift does not appear immediately -- residentPets.js keeps
 // its own on-screen roster and only reconciles it against meta.residents when G.dayState.day ticks
-// over, i.e. at the next morning. A newly-noticed key gets a short scripted walk from the door to
-// its spot (gait via render/pets.js's own P.update, no pathfinding) with a nameplate
-// (ui/petMoments.js) that disappears once it settles. Pets already resident when this module boots
+// over, i.e. at the next morning. A newly-noticed key walks in from the door along the nav grid's
+// own path to its spot (gait via render/pets.js's own P.update) with a nameplate (ui/petMoments.js)
+// that disappears once it settles. It used to lerp a straight line from the door, through the south
+// fence, counters and flower beds; a home the grid cannot reach (out in the garden or the play yard)
+// now has its pet appear there in a puff instead. Pets already resident when this module boots
 // (a loaded save) settle instantly with no animation and no replay, matching the same "already-
 // earned memories appear at their settled home" rule systems/petFriendship.js follows for the wall
 // keepsake.
@@ -78,6 +80,9 @@ import { createPet } from '../render/pets.js';
 import {
   bunnyHutchMesh, catBedMesh, catTreeMesh, dogBasketMesh, windowCushionMesh,
 } from '../render/props.js';
+import { currentFx } from '../render/fx.js';
+import { LAWN_Y, playYardRect } from '../render/environment.js';
+import { findPath, nearestFree, idx, cx, cz } from '../sim/nav.js';
 import { createPetMoment } from '../ui/petMoments.js';
 import {
   PET_BESTIE_VISITS, PET_PROFILES, PET_SPECIES, parsePetKey, petKey,
@@ -89,16 +94,21 @@ import { pawBestStar } from '../sim/pawRating.js';
 // Metres. Plan §5.4: "a head turn toward the owner within 3 m".
 const LOOK_RANGE = 3;
 
-// Walk-in timing for the move-in moment: door -> spot ground point, then ground point -> perch
-// height (the final settle + sit). Both short enough to read as a beat, not a cutscene.
-const WALK_SECONDS = 2.2;
+// Walk-in timing for the move-in moment: door -> spot ground point along the path, then ground
+// point -> perch height (the final settle + sit). Both short enough to read as a beat, not a cutscene.
+const WALK_SPEED = 2.4;          // m/s, a brisk trot
+const WALK_MAX_SECONDS = 6;      // a long path is walked faster rather than dragged out
+const POP_SECONDS = 0.35;        // the puff when a home is off the grid
 const SETTLE_SECONDS = 0.6;
+// The last path cell must be this close to the home, or the final hop would cross whatever blocks
+// the grid there; farther than this and the pet appears in a puff instead.
+const PATH_REACH = 1.2;
 
 // Furniture-only spots: WHERE a resident can sit, decoupled from WHO sits there. `ry` is the
 // spot's own facing (how the furniture sits in the room); `petRy` is the pet's rest pose on that
 // specific piece of furniture (e.g. angled toward the window), independent of the pet's identity.
-// Coordinates and rotations are unchanged from the Batch 0 placeholder set -- only the species/
-// variant/clip fields that used to hardcode WHO sat here are gone.
+// Coordinates and rotations are the Batch 0 placeholder set's except where a note below says why a
+// home moved -- only the species/variant/clip fields that used to hardcode WHO sat here are gone.
 const RESIDENT_SPOTS = [
   // --- inside, all on furniture, all clear of queue lines and station footprints ---
   { furniture: windowCushionMesh, x: -5.0, y: 0, z: -6.5, ry: 0, petRy: 0.22 },
@@ -114,12 +124,15 @@ const RESIDENT_SPOTS = [
   // `paved` says where this home moves once its lawn is paved over — the middle of the deck's south
   // rail behind the fountain, which is the most open stretch of rail on the built layout (0.99 m to
   // the nearest seat, approach spot or queue spot). See relocateSpot() below.
-  { furniture: bunnyHutchMesh, x: -6.0, y: -0.44, z: 10.6, ry: 0.45, petRy: 0,
+  { furniture: bunnyHutchMesh, x: -6.0, y: LAWN_Y - 0.02, z: 10.6, ry: 0.45, petRy: 0,
     paved: { builtBy: 'z_terrace', x: -0.8, y: 0, z: 13.4, ry: Math.PI } },
-  // --- ★3-★5 slots. Placed against walls and inside the terrace deck, clear of every station
-  //     front, queue line and gate: the nav grid is 0.5m cells and Batch 1 lost pathfinding to a
-  //     lantern sitting 0.67m from a gate, so none of these sits within a metre of a doorway.
-  { furniture: catBedMesh, x: 9.05, y: 0, z: 2.6, ry: -0.25, petRy: -0.35 },
+  // --- ★3-★5 slots. Placed against walls, in the play yard and inside the terrace deck, a metre or
+  //     more from every station front and queue slot (test/resident-spots.test.js): the nav grid is
+  //     0.5m cells and Batch 1 lost pathfinding to a lantern sitting 0.67m from a gate.
+  // The ★3 bed was at (9.05, 2.6) until the smoothie bar arrived: bush1's harvest spot landed 0.54 m
+  // from it and barSmoothie's queue ran through it. It lives in the play yard now, by the water
+  // bowls, where no station can ever be built on top of it.
+  { furniture: catBedMesh, x: playYardRect(AREA1).x0 + 1.1, y: LAWN_Y, z: playYardRect(AREA1).z1 - 0.9, ry: -0.25, petRy: -0.35 },
   { furniture: windowCushionMesh, x: 5.4, y: 0, z: -6.5, ry: 0, petRy: -0.2 },
   // Was (6.6, 10.7) — chosen clear of every station at the time, and then the terrace's fix round 1
   // moved seat8 from z 9.2 to z 10.75, straight on top of it: a resident dog in a basket sitting
@@ -127,9 +140,22 @@ const RESIDENT_SPOTS = [
   // the south rail between seat11 and seat9, the most open stretch of deck that is not a walkway
   // (1.36 m to the nearest footprint edge, seat approach spot or queue spot, measured over the
   // fully built layout; tools/prop-overlap-smoke.js now checks every resident spot against every
-  // station on every run).
-  { furniture: dogBasketMesh, x: -6.2, y: 0, z: 13.2, ry: 0.3, petRy: 0.15 },
+  // station on every run). Before the deck exists that spot is lawn, so the basket sits ON the lawn
+  // until then instead of floating 0.42 m above it.
+  { furniture: dogBasketMesh, x: -6.2, y: LAWN_Y, z: 13.2, ry: 0.3, petRy: 0.15,
+    paved: { builtBy: 'z_terrace', x: -6.2, y: 0, z: 13.2, ry: 0.3 } },
 ];
+
+// Every place a resident home can stand: its own spot, and its paved spot once that build exists.
+// For tests and tools, which hold the homes to the same clearances as the stations.
+export function residentHomes() {
+  const out = [];
+  for (const s of RESIDENT_SPOTS) {
+    out.push({ x: s.x, y: s.y || 0, z: s.z, builtBy: null, pavedBy: s.paved ? s.paved.builtBy : null });
+    if (s.paved) out.push({ x: s.paved.x, y: s.paved.y || 0, z: s.paved.z, builtBy: s.paved.builtBy, pavedBy: null });
+  }
+  return out;
+}
 
 // Plan §3.6: 3 base slots, +1 per star, capped at 8. See the file header for why `stars` is always
 // 0 today and where that will change.
@@ -226,7 +252,7 @@ function buildSpot(scene, spec) {
 
   // `at` is where this home stands NOW. It starts on the spec's own placement and only ever changes
   // through placeSpot, so the shared RESIDENT_SPOTS table is never mutated.
-  const slot = { spec, spot, furniture, perch, at: null, paved: false };
+  const slot = { spec, spot, furniture, perch, at: null, paved: false, waited: false };
   placeSpot(slot, { x: spec.x, y: spec.y || 0, z: spec.z, ry: spec.ry || 0 });
   return slot;
 }
@@ -248,15 +274,26 @@ function placeSpot(slot, at) {
 // A home on open lawn moves when the lawn is paved over by a build (see the hutch's `paved` note),
 // and back again if a restore un-builds it. A settled occupant is parented under the perch, so it
 // travels with the furniture; nothing else has to follow.
-function relocateSpot(slot, built) {
+//
+// While the new floor is still being laid (environment.js's build reveal) the home waits on the
+// lawn — moved at once it would hang in the air where the boards have not landed yet — and then
+// arrives on the finished deck in a puff.
+function relocateSpot(slot, built, env) {
   const p = slot.spec.paved;
   if (!p) return;
   const want = !!(built && built.has(p.builtBy));
   if (want === slot.paved) return;
+  const region = (AREA1.regions || []).find(r => r.builtBy === p.builtBy);
+  if (want && region && env && typeof env.revealing === 'function' && env.revealing(region.id)) { slot.waited = true; return; }
   slot.paved = want;
   placeSpot(slot, want
     ? { x: p.x, y: p.y || 0, z: p.z, ry: p.ry || 0 }
     : { x: slot.spec.x, y: slot.spec.y || 0, z: slot.spec.z, ry: slot.spec.ry || 0 });
+  if (slot.waited) {
+    slot.waited = false;
+    const fx = currentFx();
+    if (fx) { fx.burst(slot.at.x, 0.4, slot.at.z, '#FFF4E6', 8); fx.dust(slot.at.x, slot.at.z, 2); }
+  }
 }
 
 // render/pets.js's react()/idleLife() read the pet's own group.position to work out how far away
@@ -346,22 +383,71 @@ export function createResidentPets(S, G, els = null) {
     booted = true;
   }
 
+  // The way in from the door to home `i`, as the guests' own grid walks it: a list of points and
+  // their total length, or null when the grid has no path that ends close enough to the home.
+  function pathHome(i) {
+    const grid = G.world && G.world.grid;
+    const door = (AREA1 && AREA1.door) || { x: -9.6, z: 4.2 };
+    const at = slots[i].at;
+    if (!grid) return null;
+    const from = nearestFree(grid, idx(grid, door.x, door.z), 3);
+    const to = nearestFree(grid, idx(grid, at.x, at.z), 3);
+    if (from < 0 || to < 0) return null;
+    const cells = new Int32Array(grid.w * grid.h);
+    const n = findPath(grid, from, to, 3, cells);
+    if (!n) return null;
+    const last = cells[n - 1];
+    if (Math.hypot(cx(grid, last) - at.x, cz(grid, last) - at.z) > PATH_REACH) return null;
+    const pts = [{ x: door.x, z: door.z }];
+    for (let k = 1; k < n; k++) pts.push({ x: cx(grid, cells[k]), z: cz(grid, cells[k]) });
+    pts.push({ x: at.x, z: at.z });
+    let len = 0;
+    for (let k = 1; k < pts.length; k++) len += Math.hypot(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z);
+    return { pts, len };
+  }
+
   function beginArrival(i, key) {
     const parsed = parsePetKey(key);
     if (!parsed) return;
     const pet = createPet(parsed.species, parsed.variant);
     pet.setBaseScale(1);
     equipAccessory(pet, G.meta && G.meta.equipped && G.meta.equipped[key]);
-    const door = (AREA1 && AREA1.door) || { x: -9.6, z: 4.2 };
-    pet.group.position.set(door.x, 0, door.z);
+    const route = pathHome(i);
+    const at = slots[i].at;
+    if (route) pet.group.position.set(route.pts[0].x, 0, route.pts[0].z);
+    else {
+      // No way to walk there: appear at home in a puff, a beat that reads as "moved in".
+      pet.group.position.set(at.x, at.y, at.z);
+      pet.group.scale.setScalar(0.001);
+      const fx = currentFx();
+      if (fx) { fx.burst(at.x, at.y + 0.4, at.z, '#FFF4E6', 10); fx.dust(at.x, at.z, 2); }
+    }
     scene.add(pet.group);
     const nameplate = els && els.fx ? createPetMoment(els, parsed.profile, null, parsed.species) : null;
     if (nameplate) nameplate.setSeated(true); // paw + name only -- no prose caption on the play field
-    arrivals.set(i, { t: 0, key, parsed, pet, nameplate, doorX: door.x, doorZ: door.z });
+    const walk = route ? Math.min(WALK_MAX_SECONDS, route.len / WALK_SPEED) : POP_SECONDS;
+    arrivals.set(i, { t: 0, key, parsed, pet, nameplate, route, walk });
+  }
+
+  // Where along the route a walk-in is after `s` metres.
+  function routePoint(route, s, out) {
+    const pts = route.pts;
+    for (let k = 1; k < pts.length; k++) {
+      const a = pts[k - 1], b = pts[k], seg = Math.hypot(b.x - a.x, b.z - a.z);
+      if (s <= seg || k === pts.length - 1) {
+        const u = seg > 1e-6 ? Math.max(0, Math.min(1, s / seg)) : 1;
+        out.x = a.x + (b.x - a.x) * u; out.z = a.z + (b.z - a.z) * u;
+        return out;
+      }
+      s -= seg;
+    }
+    out.x = pts[pts.length - 1].x; out.z = pts[pts.length - 1].z;
+    return out;
   }
 
   function finishArrival(i, arr) {
     scene.remove(arr.pet.group);
+    arr.pet.group.scale.setScalar(1);
     arr.pet.group.position.set(0, 0, 0);
     arr.pet.group.rotation.y = slots[i].spec.petRy || 0;
     arr.pet.sit();
@@ -376,22 +462,35 @@ export function createResidentPets(S, G, els = null) {
     arrivals.delete(i);
   }
 
+  const _p = { x: 0, z: 0 };
   function stepArrival(i, arr, dt) {
     arr.t += dt;
     const slot = slots[i];
     const pet = arr.pet;
-    if (arr.t <= WALK_SECONDS) {
-      const u = Math.max(0, Math.min(1, arr.t / WALK_SECONDS));
-      const x = arr.doorX + (slot.at.x - arr.doorX) * u;
-      const z = arr.doorZ + (slot.at.z - arr.doorZ) * u;
-      const dx = x - pet.group.position.x, dz = z - pet.group.position.z;
-      pet.group.position.set(x, 0, z);
-      if (Math.hypot(dx, dz) > 1e-4) pet.group.rotation.y = Math.atan2(dx, dz);
-      pet.update(dt, true);
+    if (arr.t <= arr.walk) {
+      if (arr.route) {
+        routePoint(arr.route, arr.route.len * Math.min(1, arr.t / arr.walk), _p);
+        const dx = _p.x - pet.group.position.x, dz = _p.z - pet.group.position.z;
+        pet.group.position.set(_p.x, 0, _p.z);
+        if (Math.hypot(dx, dz) > 1e-4) {
+          // Turn into each new leg quickly but not in one frame.
+          let d = Math.atan2(dx, dz) - pet.group.rotation.y; d = Math.atan2(Math.sin(d), Math.cos(d));
+          pet.group.rotation.y += d * Math.min(1, dt * 14);
+        }
+        pet.update(dt, true);
+      } else {
+        const u = Math.min(1, arr.t / arr.walk), e = 1 - Math.pow(1 - u, 3);
+        pet.group.scale.setScalar(Math.max(0.001, e * (1 + 0.18 * Math.sin(u * Math.PI))));
+        pet.update(dt, false);
+      }
     } else {
-      const u = Math.max(0, Math.min(1, (arr.t - WALK_SECONDS) / SETTLE_SECONDS));
+      pet.group.scale.setScalar(1);
+      const u = Math.max(0, Math.min(1, (arr.t - arr.walk) / SETTLE_SECONDS));
+      // From wherever the walk left the pet (the floor, or the home's own ground when it popped in)
+      // up onto the furniture's perch.
+      const fromY = arr.route ? 0 : slot.at.y;
       const perchWorldY = slot.at.y + slot.furniture.perch.y;
-      pet.group.position.set(slot.at.x, perchWorldY * u, slot.at.z);
+      pet.group.position.set(slot.at.x, fromY + (perchWorldY - fromY) * u, slot.at.z);
       const targetRy = slot.at.ry + (slot.spec.petRy || 0);
       let d = targetRy - pet.group.rotation.y; d = Math.atan2(Math.sin(d), Math.cos(d));
       pet.group.rotation.y += d * Math.min(1, dt * 6);
@@ -442,7 +541,7 @@ export function createResidentPets(S, G, els = null) {
     const step = Math.min(0.12, Math.max(0, Number(dt) || 0));
     checkForNewResidents();
     const built = G.world && G.world.built;
-    for (const slot of slots) relocateSpot(slot, built);
+    for (const slot of slots) relocateSpot(slot, built, G.environment);
 
     const owner = readOwnerFrom(G);
     const reducedMotion = !!(G.settings && G.settings.reducedMotion) || prefersReducedMotion();

@@ -1,5 +1,4 @@
 import { createFrameMetrics } from './core/frameMetrics.js';
-import { createCafeJournal } from './ui/cafeJournal.js';
 // Host-aware boot: paint recovery shell → resolve cloud save → create playable runtime → game ready.
 import { createScene } from './render/scene.js';
 import { createDaylight } from './render/daylight.js';
@@ -11,20 +10,15 @@ import { installPetFriendship } from './systems/petFriendship.js';
 import { installServiceFriction } from './systems/serviceFriction.js';
 import { createPetMess } from './systems/petMess.js';
 import { createBaristaWorker } from './systems/baristaWorker.js';
-import { createResponsivePolish } from './ui/responsive.js';
 import { createLabelLayout } from './ui/labelLayout.js';
 import { createResidentPets } from './systems/residentPets.js';
 import { createGoldenPawCeremony } from './systems/goldenPaw.js';
-import { createFranchiseBridge } from './systems/franchise.js';
 import { install as installDecor } from './systems/decor.js';
-import { installHudLayout, arrangeHud } from './ui/hudLayout.js';
-import { createPlayablesShell } from './ui/playablesShell.js';
-import { installCleanHud } from './ui/cleanHud.js';
-import { installCertificationPolish } from './ui/certificationPolish.js';
 import { createInteractionCoach } from './ui/interactionCoach.js';
-import { installReliefAttention } from './ui/reliefAttention.js';
-import { installServiceSummary } from './ui/serviceSummary.js';
 import { createPauseMenu } from './ui/pauseMenu.js';
+import { bindModalHost } from './ui/modal.js';
+import { createShop } from './ui/shop.js';
+import { momentQueue } from './ui/moments.js';
 import { createCashTrays } from './render/cashTrays.js';
 import { createCoffeePolish } from './render/coffeePolish.js';
 import { createButterflies } from './render/butterflies.js';
@@ -173,13 +167,6 @@ async function boot() {
   // Report that first visible frame promptly; gameReady remains reserved for actual playable state.
   platform.firstFrameReady();
 
-  try { installCleanHud(); }
-  catch (error) {
-    console.error('[Pet Café] HUD boot failed', error);
-    bootUi.startupFailure(() => location.reload());
-    return;
-  }
-
   let S;
   try {
     S = createScene($('c'));
@@ -243,6 +230,9 @@ function startGame(S, load, bootUi) {
   // creation site inside it (owner, customers, staff, stations) can register into it as it spawns.
   S.contactShadows = createContactShadows(S);
   const G = createGame(S, AREA1, els, platform);
+  // Before anything can open a sheet: a restored save that ended on a finished day reopens its
+  // summary during G.restore, and that sheet must pause the café like every other.
+  bindModalHost(G);
   const machineJuice = createMachineJuice(G.world, S.scene);
   const coffeePolish = createCoffeePolish(G.world, S.scene, G.owner);
   const petFriendship = installPetFriendship(G, platform);
@@ -250,15 +240,10 @@ function startGame(S, load, bootUi) {
   const petMess = createPetMess(G, S.scene);
   const baristaWorker = createBaristaWorker(G, S.scene);
   const decor = installDecor(G, S.scene, G.world);
-  const reliefAttention = installReliefAttention(G);
-  const serviceSummary = installServiceSummary(G);
-  const responsive = createResponsivePolish(G);
   const labelLayout = createLabelLayout(els, { worldPerPixel: () => S.worldPerPixel() });
   // The photo studio's ring is built inside createGame, which already ran, so it reaches the label
   // arbiter through G rather than through its constructor (see systems/photo.js's avoid hook).
   G.labelLayout = labelLayout;
-  const shell = createPlayablesShell();
-  installCertificationPolish();
   const interactionCoach = createInteractionCoach(G, S, labelLayout);
   const cashTrays = createCashTrays(G.world, S.scene);
   const butterflies = createButterflies(S.scene, {
@@ -274,18 +259,14 @@ function startGame(S, load, bootUi) {
   const residentPets = createResidentPets(S, G, els);
   // ambience and fx belong to game.js and reach here through G (see the two exposures there).
   const goldenPaw = createGoldenPawCeremony(S, G, { ambience: G.ambience, fx: G.fx, residents: residentPets });
-  // The Franchise offer (plan §3.11). Surfaced from the day summary only; never auto-opens.
-  const franchise = createFranchiseBridge(G);
   const rewardsSystem = createRewardsSystem(G, S, platform);
-  G.uiRoutes.calendar = { open: () => G.openCalendar?.(), root: '.cal-modal-root' };
-  const bonusSelectors = ['.mystery-float-chip', '.speed-build-chip', '.rare-visitor-chip', '.golden-shot-chip'];
-  const availableBonus = () => bonusSelectors
-    .map(selector => document.querySelector(selector))
-    .find(el => el && !el.classList.contains('hidden'));
-  G.uiRoutes.bonus = {
-    available: () => !!availableBonus(),
-    open: () => availableBonus()?.click(),
-  };
+  // The one Shop (ui/shop.js). The Café card opens it through this route; the staff desk opens the
+  // same sheet through G.openShop('staff') once systems/stations.js is pointed at it.
+  const shop = createShop(G);
+  G.openShop = (door, tab, focusRow) => shop.open(door, tab, focusRow);
+  G.uiRoutes.shop = { open: () => G.openShop('shop') };
+  // Tapping the wallet: "point me at what I am saving for" (the ring's zone).
+  G.hud.onWalletTap(zoneId => G.pointAtNextBuild?.(zoneId));
   const pauseOverlay = makePauseOverlay();
   // Time of day owns sun/hemi/sky/fog/grade and the after-dark interior glow. Created here (not in
   // createScene) because it needs the area for the window and pendant positions.
@@ -302,21 +283,10 @@ function startGame(S, load, bootUi) {
   // Same rule as the keepsake above: an award already in the save is a plaque that has always been
   // on the wall. This mounts it with no animation and retires the ceremony for the session.
   goldenPaw.refresh();
-  franchise.refresh();
   coffeePolish.update();
-  rewardsSystem.refresh();
-  installHudLayout(); // last stylesheet wins: this module owns HUD placement
   const pauseMenu = createPauseMenu(G, platform, G.uiRoutes);
-  const cafeJournal = createCafeJournal(G, platform);
-  window.__cafeJournal = cafeJournal;
-  // Batch 6: the wallet, followers, Pet Book and ★ chips become one resource bar. Every one of them
-  // exists by now (hud.js, meta.js and career.js all ran inside createGame), so this single call
-  // adopts them all; arrangeHud is idempotent and also runs inside installHudLayout for the pieces
-  // that already existed then.
-  arrangeHud();
   platform.sendScore(G.meta && G.meta.reputation);
   daylight.update(G.dayState.t, S.goldenHour);
-  responsive.update(); shell.refresh();
 
   const frameMetrics = createFrameMetrics();
   window.__performanceCapture = frameMetrics;
@@ -325,18 +295,15 @@ function startGame(S, load, bootUi) {
   // AND outside the YouTube Playables host, so the code-split chunk is never even requested during
   // normal play or inside the host. See src/dev/devPanel.js.
   if (new URLSearchParams(location.search).get('dev') === '1' && !platform.inPlayables) import('./dev/devPanel.js').then(m => m.installDevPanel(G, S, platform)).catch(err => console.warn('dev panel failed', err));
-  window.__franchise = franchise;
   window.__scene = S;
   window.__audio = G.audio;
   window.__pauseMenu = pauseMenu;
-  window.__playablesShell = shell;
+  window.__moments = momentQueue;
   window.__interactionCoach = interactionCoach;
   window.__petFriendship = petFriendship;
   window.__serviceFriction = serviceFriction;
   window.__petMess = petMess;
   window.__baristaWorker = baristaWorker;
-  window.__reliefAttention = reliefAttention;
-  window.__serviceSummary = serviceSummary;
   window.__coffeePolish = coffeePolish;
 
   S.render();
@@ -384,7 +351,9 @@ function startGame(S, load, bootUi) {
     const frameMs = Math.max(0, now - last);
     const dt = Math.min(0.05, frameMs / 1000); last = now;
     const paused = applyPauseState();
-    cafeJournal.update();
+    // The Café button's day badge and goal ring, paused or not: the card opened over the café still
+    // shows the button's state underneath it.
+    pauseMenu.update();
 
     if (!paused) {
       G.update(dt);
@@ -398,7 +367,6 @@ function startGame(S, load, bootUi) {
       butterflies.update(dt);
       residentPets.update(dt);
       goldenPaw.update(dt);
-      franchise.update();
       rewardsSystem.update(dt);
       // After rewardsSystem: it is what moves S.goldenHour, and Golden Hour is a boost layered on
       // top of the current time-of-day keyframe rather than a palette of its own.
@@ -407,8 +375,6 @@ function startGame(S, load, bootUi) {
       // character, pet or station (reads their up-to-date world positions).
       S.contactShadows.update(dt);
       const uiStart = frameMetrics.running ? performance.now() : 0;
-      responsive.update();
-      shell.update();
       interactionCoach.update(dt);
       // Must run last: it reads what every label system just wrote and resolves overlap/overflow.
       labelLayout.update();

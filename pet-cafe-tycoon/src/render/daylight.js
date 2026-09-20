@@ -16,6 +16,8 @@
 
 import * as THREE from 'three';
 import { DAY_LENGTH } from '../sim/day.js';
+import { stringGaps } from './ambience.js';
+import { regionBuiltState } from './regionState.js';
 
 // Colours are authored in sRGB hex. THREE.Color stores linear-sRGB internally (ColorManagement is
 // on by default in three r15x+), so `.lerp` between two of these interpolates in LINEAR space —
@@ -189,7 +191,7 @@ function radialTexture(size = 64) {
 // with five additive draw calls that are hidden outright while the sun is up.
 function buildNightLayer(S, area) {
   const scene = S && S.scene;
-  if (!scene) return { set() {}, dispose() {} };
+  if (!scene) return { set() {}, syncGates() {}, dispose() {} };
 
   const W = (area && area.size && area.size.w) || 20;
   const D = (area && area.size && area.size.d) || 14;
@@ -276,6 +278,11 @@ function buildNightLayer(S, area) {
   // at z = −D/2 + 0.25, so this overlay hovers 20 mm in front of it, facing the room.
   const paneGlow = instanced(paneGeo, paneMat, [-5, 0, 5].map(x => [x, 1.7, -D / 2 + 0.27, 1]), flat);
 
+  // ambience.js takes the bulbs out of a gate gap once that gate opens; their glow goes with them.
+  const gapBulbs = area && area.size ? stringGaps(area, stringBulbs) : [];
+  const stringScale = stringBulbs.map(e => e[3]);
+  let gateVersion = -1;
+
   // The camera never rotates (scene.js pins yaw/pitch and only translates), so the sprite
   // orientation is computed once instead of every frame.
   let orientedAt = -1;
@@ -293,6 +300,15 @@ function buildNightLayer(S, area) {
   }
 
   return {
+    // Cheap to call every frame: it only rewrites the sprites when a gate has actually changed.
+    syncGates() {
+      const state = regionBuiltState(area);
+      if (state.version === gateVersion) return;
+      gateVersion = state.version;
+      stringBulbs.forEach((e, i) => { e[3] = stringScale[i]; });
+      for (const gap of gapBulbs) if (state.built.has(gap.id)) for (const i of gap.bulbs) stringBulbs[i][3] = 0;
+      if (orientedAt >= 0) orient();
+    },
     set(lights, interior) {
       const L = clamp01(lights), I = clamp01(interior);
       const on = L > 0.012 || I > 0.012;
@@ -357,6 +373,7 @@ export function createDaylight(S, area) {
     // Cheap per-frame guard: a shift second is 1/240th of the day, so re-applying only every
     // ~0.3 s of sim time is imperceptible and skips the sky repaint on ~19 of every 20 frames.
     update(t, golden = 0) {
+      night.syncGates();
       const g = clamp01(Number(golden) || 0);
       const time = Number.isFinite(t) ? t : 0;
       if (!dirty && Math.abs(time - lastT) < 0.3 && Math.abs(g - lastGolden) < 0.01) return api;

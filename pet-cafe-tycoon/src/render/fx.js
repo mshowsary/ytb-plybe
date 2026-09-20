@@ -4,6 +4,11 @@ import { heartGeo } from './pets.js';
 import { emissiveMaterial } from './palette.js';
 import { presentationScheduler } from '../core/presentationScheduler.js';
 const _v = new THREE.Vector3(), _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3(), _c = new THREE.Color();
+// The live fx system, for render code game.js builds BEFORE createFx runs and hands no fx to — the
+// environment's terrace reveal throws its dust through this. Same module-singleton shape as
+// contactShadows.js's currentContactShadows(). Null until the game creates its fx (and in tests).
+let CURRENT = null;
+export function currentFx() { return CURRENT; }
 export function createFx(scene, camera, layer, walletEl) {
   const MAXP = 300; const parts = [];
   const pm = new THREE.InstancedMesh(new THREE.SphereGeometry(0.07, 6, 4), new THREE.MeshBasicMaterial({ toneMapped: false }), MAXP);
@@ -67,5 +72,6 @@ export function createFx(scene, camera, layer, walletEl) {
     for (let i = hearts.length - 1; i >= 0; i--) { const h = hearts[i]; h.life -= dt; if (h.life <= 0) { scene.remove(h.m); hearts.splice(i, 1); continue; }
       h.m.position.y += dt * 0.9; h.m.position.x += h.vx * dt; h.m.scale.setScalar(0.18 * Math.min(1, h.life * 2)); h.m.lookAt(camera.position); }
   };
+  CURRENT = F;
   return F;
 }

@@ -14,6 +14,9 @@
 //   node tools/scene-cost.mjs --url http://localhost:5190/   # measure a running dev server
 //   node tools/scene-cost.mjs --calls 170 --tris 180000      # gate (exit 1 when exceeded)
 //   node tools/scene-cost.mjs --json out.json                # machine-readable sample
+//   node tools/scene-cost.mjs --peak --gpu                   # ship-plan PEAK: every zone but the spa,
+//                                                            # on the real GPU so p95 means something
+//   node tools/scene-cost.mjs --dist ../other/dist           # serve a different build
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -35,12 +38,21 @@ const MAX_STATIC_TRIS = Number(arg('--static-tris', 0)) || 0;
 const MAX_ACTOR_CALLS = Number(arg('--actor-calls', 0)) || 0;   // draw calls per human or pet, shadow pass included
 const JSON_OUT = arg('--json', null);
 const EXTERNAL = arg('--url', null);
-const PORT = 4207;
+const PORT = Number(arg('--port', 4207)) || 4207;
+// The ship plan's budget (§1.9) is set at PEAK: the whole frame with everything the catalogue sells
+// built, not the day-12 chain below. The spa chain is retired by the same plan, so it is skipped
+// whether or not the catalogue still carries it.
+const PEAK = process.argv.includes('--peak');
+const RETIRED = ['z_spa', 'z_groom', 'z_bath', 'z_boutique', 'z_photographer'];
+// Headless chromium defaults to SwiftShader, which runs this game at a few fps: draw calls and
+// triangles are still exact, but frame times are not. --gpu asks ANGLE for the real adapter.
+const GPU = process.argv.includes('--gpu');
+const DIST = arg('--dist', 'dist');
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
 let srv = null;
 if (!EXTERNAL) {
-  const dist = path.resolve('dist');
+  const dist = path.resolve(DIST);
   if (!fs.existsSync(path.join(dist, 'index.html'))) {
     console.error('dist/index.html missing — run `npm run build` first, or pass --url for a dev server');
     process.exit(2);
@@ -62,7 +74,7 @@ const base = EXTERNAL || `http://127.0.0.1:${PORT}/`;
 const CHAIN = ['z_seats1', 'z_oven2', 'z_register2', 'z_hire', 'z_coffee', 'z_bowl', 'z_blender',
   'z_garden', 'z_seats2', 'z_terrace', 'z_photo', 'z_terraceSeats'];
 
-const browser = await chromium.launch();
+const browser = await chromium.launch(GPU ? { args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist'] } : {});
 const page = await browser.newPage({ viewport: { width: 852, height: 393 }, isMobile: true, hasTouch: true });
 const errors = [];
 page.on('pageerror', e => errors.push(String(e.message || e).slice(0, 200)));
@@ -70,8 +82,18 @@ await page.goto(base, { waitUntil: 'load' });
 await page.waitForFunction(() => !!window.__game, null, { timeout: 30000 });
 await new Promise(r => setTimeout(r, 1200));
 
-await page.evaluate(chain => {
+await page.evaluate(({ chain, peak, retired }) => {
   const G = window.__game;
+  if (peak) {
+    // Every zone the catalogue offers, in an order payZone accepts: a zone whose prerequisite is
+    // not built yet waits for a later pass.
+    chain = [];
+    const zones = G.world.area.zones.filter(z => !retired.includes(z.id));
+    const have = new Set();
+    for (let pass = 0; pass < zones.length && chain.length < zones.length; pass++) {
+      for (const z of zones) if (!have.has(z.id) && (!z.requires || have.has(z.requires))) { have.add(z.id); chain.push(z.id); }
+    }
+  }
   // The tutorial keeps guests away and the HUD reduced; a cost measurement of the tutorial is a
   // measurement of an empty room.
   if (G.intro) { G.intro.step = 5; G.intro.active = false; G.intro.target = null; }
@@ -91,7 +113,7 @@ await page.evaluate(chain => {
     if (i % 40 === 0) for (const d of shelves) d.stock = d.capacity;
     G.update(0.05);
   }
-}, CHAIN);
+}, { chain: CHAIN, peak: PEAK, retired: RETIRED });
 await new Promise(r => setTimeout(r, 800));
 
 const sample = await page.evaluate(async () => {

@@ -1,8 +1,11 @@
-// Bottom sheets: upgrades, pantry and end-of-shift card.
-import { beanIcon, kibbleIcon, creamIcon, iconFor, checkIcon } from './icons.js';
+// Bottom sheets: the Shop, the pantry and the end-of-day card. Every one opens through ui/modal.js,
+// so the café pauses behind it whichever door opened it.
+import { beanIcon, kibbleIcon, creamIcon, iconFor, checkIcon, lockIcon, starIcon, calendarIcon } from './icons.js';
 import { decorCatalogue } from '../../data/decor.js';
-import { presentationScheduler } from '../core/presentationScheduler.js';
 import { renderDaySummary } from './daySummary.js';
+import { openModal, closeModal } from './modal.js';
+import { SHOP_TABS, normalizeShopTab } from './models.js';
+import { zoneGlyph } from './hud.js';
 const COIN_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9.5" fill="#FFD84D" stroke="#C98A00" stroke-width="1.5"/></svg>';
 const CHEVRON_DOWN_SVG = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const fmt = n => Math.round(n).toLocaleString('en-US');
@@ -12,7 +15,7 @@ function makeClose(onClose) {
   b.innerHTML = CHEVRON_DOWN_SVG; b.addEventListener('click', () => onClose('close')); return b;
 }
 function shell(kind, titleText, onClose) {
-  const el = document.createElement('div'); const isCard = kind === 'end' || kind === 'summary';
+  const el = document.createElement('div'); const isCard = kind === 'summary';
   el.className = isCard ? 'card' : 'sheet'; el.appendChild(makeClose(onClose));
   const title = document.createElement('div'); title.className = isCard ? 'ctitle' : 'stitle'; title.textContent = titleText; el.appendChild(title); return el;
 }
@@ -36,7 +39,40 @@ function levelSubrow(name, lv, onBuy) {
   return sub;
 }
 
-const TABS = [{ key: 'player', label: 'Player' }, { key: 'workers', label: 'Workers' }, { key: 'machines', label: 'Machines' }, { key: 'decor', label: 'Décor' }];
+const TAB_LABEL = { staff: 'Staff', upgrades: 'Upgrades', decor: 'Décor' };
+// Titled by the door that opened it: the staff desk opens "Staff", everything else "Shop". The door
+// is fixed when the sheet opens, so switching tabs never renames the sheet under the player's thumb.
+export function shopTitle(door) { return door === 'staff' ? 'Staff' : 'Shop'; }
+
+// ---- the locked teaser -------------------------------------------------------------------------
+// One per tab: the next thing on that shelf, greyed, with a padlock and a picture of what opens it —
+// a build (that zone's own glyph), a day number, or a Café Star. No sentence.
+function unlockCells(unlock) {
+  if (!unlock) return '';
+  if (unlock.kind === 'zone') return iconSpan(zoneGlyph(unlock.zoneId));
+  if (unlock.kind === 'day') return `${iconSpan(calendarIcon())}<span class="teaser-num">${unlock.day}</span>`;
+  if (unlock.kind === 'star') return `${iconSpan(starIcon())}<span class="teaser-num">${unlock.star}</span>`;
+  return '';
+}
+function unlockAria(unlock) {
+  if (!unlock) return 'locked';
+  if (unlock.kind === 'zone') return 'unlocks with a new build';
+  if (unlock.kind === 'day') return `unlocks on day ${unlock.day}`;
+  if (unlock.kind === 'star') return `unlocks at Café Star ${unlock.star}`;
+  return 'locked';
+}
+function teaserRow(teaser, art) {
+  const row = document.createElement('div'); row.className = 'srow srow-locked';
+  row.setAttribute('role', 'img');
+  row.setAttribute('aria-label', `${teaser.label || 'Next item'}, ${unlockAria(teaser.unlock)}`);
+  const info = document.createElement('div'); info.className = 'srow-info srow-teaser-info';
+  if (art) info.innerHTML = `<span class="teaser-art">${art}</span>`;
+  if (teaser.label) { const label = document.createElement('div'); label.className = 'srow-label'; label.textContent = teaser.label; info.appendChild(label); }
+  const lock = document.createElement('div'); lock.className = 'teaser-lock';
+  lock.innerHTML = iconSpan(lockIcon()) + unlockCells(teaser.unlock);
+  row.append(info, lock);
+  return row;
+}
 
 // --- decor tab (plan 3.12) --------------------------------------------------------------------
 // Decor is the 60-900 coin filler that fixes the measured "nothing to buy on days 2-6" gap. Its
@@ -54,6 +90,8 @@ const DECOR_CSS = [
   '.decor-card .sbtn{min-width:74px;justify-content:center}',
   '.decor-check{width:26px;height:26px;display:block}',
   '.decor-check svg{width:100%;height:100%;display:block}',
+  '.decor-card.is-locked{background:rgba(59,46,42,.06);box-shadow:none}',
+  '.decor-card.is-locked .decor-art{opacity:.35;filter:grayscale(1)}',
 ].join('\n');
 let decorCssInjected = false;
 function ensureDecorCss() {
@@ -82,6 +120,7 @@ export function decorRows(model) {
 function renderDecorTab(rows, model, actions) {
   ensureDecorCss();
   const grid = document.createElement('div'); grid.className = 'decor-grid';
+  const teaser = model.decorTeaser;
   for (const r of decorRows(model)) {
     const card = document.createElement('div');
     card.className = 'decor-card' + (r.owned ? ' is-owned' : '');
@@ -100,6 +139,12 @@ function renderDecorTab(rows, model, actions) {
       btn.dataset.decorBuy = r.id;
       card.appendChild(btn);
     }
+    grid.appendChild(card);
+  }
+  if (teaser) {
+    const card = document.createElement('div'); card.className = 'decor-card is-locked';
+    card.setAttribute('role', 'img'); card.setAttribute('aria-label', `Next décor, ${unlockAria(teaser.unlock)}`);
+    card.innerHTML = `<span class="decor-art">${teaser.icon}</span><span class="teaser-lock">${iconSpan(lockIcon())}${unlockCells(teaser.unlock)}</span>`;
     grid.appendChild(card);
   }
   rows.appendChild(grid);
@@ -144,6 +189,7 @@ function renderWorkersTab(rows, model, actions) {
     }
     row.append(info, actionButton('sbtn buy', r.hireMaxed ? 'FULL' : priceContent(r.hireCost), r.hireDisabled, () => actions.hire(r.kind))); rows.appendChild(row);
   }
+  if (model.staffTeaser) rows.appendChild(teaserRow(model.staffTeaser, null));
 }
 function renderMachinesTab(rows, model, actions) {
   let focusEl = null;
@@ -155,16 +201,23 @@ function renderMachinesTab(rows, model, actions) {
     const maxed = r.cost === null;
     row.append(info, actionButton('sbtn buy', maxed ? 'MAX' : priceContent(r.cost), r.disabled, () => actions.buyStar(r.key))); rows.appendChild(row);
   }
-  if (focusEl) presentationScheduler.afterFrames(() => focusEl.scrollIntoView({ block: 'center' }), 2);
+  if (model.machineTeaser) rows.appendChild(teaserRow(model.machineTeaser, model.machineTeaser.product ? iconFor(model.machineTeaser.product) : null));
+  // A plain frame, not the presentation scheduler: the sheet is a modal, and the modal pauses that.
+  if (focusEl) requestAnimationFrame(() => requestAnimationFrame(() => focusEl.scrollIntoView({ block: 'center' })));
 }
-function renderKiosk(model, actions, onClose) {
-  const el = shell('kiosk', 'UPGRADES', onClose); const tabs = document.createElement('div'); tabs.className = 'stabs';
-  for (const t of TABS) { const b = document.createElement('button'); b.type = 'button'; b.className = 'stab' + (model.tab === t.key ? ' active' : ''); b.textContent = t.label; b.addEventListener('click', () => actions.setTab(t.key)); tabs.appendChild(b); }
+function renderKiosk(model, actions, onClose, door) {
+  const tab = normalizeShopTab(model.tab);
+  const el = shell('kiosk', shopTitle(door), onClose); const tabs = document.createElement('div'); tabs.className = 'stabs';
+  tabs.setAttribute('role', 'tablist');
+  for (const key of SHOP_TABS) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'stab' + (tab === key ? ' active' : '');
+    b.textContent = TAB_LABEL[key]; b.dataset.tab = key; b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(tab === key));
+    b.addEventListener('click', () => actions.setTab(key)); tabs.appendChild(b);
+  }
   el.appendChild(tabs); const rows = document.createElement('div'); rows.className = 'srows'; el.appendChild(rows);
-  if (model.tab === 'workers') renderWorkersTab(rows, model, actions);
-  else if (model.tab === 'machines') renderMachinesTab(rows, model, actions);
-  else if (model.tab === 'decor') renderDecorTab(rows, model, actions);
-  else renderPlayerTab(rows, model, actions);
+  if (tab === 'staff') renderWorkersTab(rows, model, actions);
+  else if (tab === 'decor') renderDecorTab(rows, model, actions);
+  else { renderPlayerTab(rows, model, actions); renderMachinesTab(rows, model, actions); }
   return el;
 }
 // Batch 1 terrace (plan D3): a pantry offers only the supplies it declares -- the main pantry keeps
@@ -200,34 +253,21 @@ function renderPantry(model, actions, onClose) {
   }
   el.appendChild(rows); return el;
 }
-function summaryRow(label, value) {
-  const row = document.createElement('div'); row.className = 'srow-sub'; row.textContent = `${label}: ${value}`; return row;
-}
 function renderSummary(model, actions, onClose) {
-  // One composed card (src/ui/daySummary.js) whenever game.js hands over the full day model. The
-  // plain two-row body below is kept only for any caller still passing the old shape.
-  if (model && model.v === 2) {
-    const card = shell('summary', `Day ${model.day}`, onClose);
-    return renderDaySummary(card, model, { onContinue: () => actions.continue() });
-  }
-  const el = shell('summary', `Day ${model.day} ✓`, onClose); const body = document.createElement('div'); body.className = 'cbody';
-  body.append(summaryRow('Gross sales', fmt(model.earnings)), summaryRow('Served', model.served));
-  if(model.serviceFees>0)body.append(summaryRow('Service recovery / refunds', '−'+fmt(model.serviceFees)),summaryRow('Sales less service recovery',fmt(Math.max(0,model.earnings-model.serviceFees))));
-  const deductions = (model.serviceFees | 0) + (model.wasteFees | 0);
-  body.setAttribute('aria-label', `Earnings ${fmt(model.earnings)} coins. Served ${model.served}. Lost ${model.lost}. Deductions ${fmt(deductions)} coins.`);
-  el.append(body, actionButton('sbtn continue', 'CONTINUE', false, () => actions.continue())); return el;
+  const card = shell('summary', `Day ${model.day}`, onClose);
+  return renderDaySummary(card, model, { onContinue: () => actions.continue() });
 }
-function renderEnd(model, actions, onClose) {
-  const el = shell('end', model.title, onClose); const body = document.createElement('div'); body.className = 'cbody'; body.textContent = model.body;
-  el.append(body, actionButton('sbtn continue', 'CONTINUE', false, () => actions.continue())); return el;
-}
-function build(kind, model, actions, onClose) {
-  if (kind === 'kiosk') return renderKiosk(model, actions, onClose);
+function build(kind, model, actions, onClose, door) {
+  if (kind === 'kiosk') return renderKiosk(model, actions, onClose, door);
   if (kind === 'pantry') return renderPantry(model, actions, onClose);
-  if (kind === 'end') return renderEnd(model, actions, onClose);
   if (kind === 'summary') return renderSummary(model, actions, onClose);
   throw new Error('unknown sheet kind: ' + kind);
 }
+
+// The last sheet host created. Pet Café is a single-runtime SPA with one sheet host (game.js makes
+// it); ui/shop.js opens the Shop into that same host from the Café card.
+let sharedHost = null;
+export function activeSheets() { return sharedHost; }
 
 export function createSheets(root = document.body) {
   const wrap = document.createElement('div'); wrap.className = 'sheet-root hidden'; const backdrop = document.createElement('div'); backdrop.className = 'backdrop'; wrap.appendChild(backdrop); root.appendChild(wrap);
@@ -235,13 +275,15 @@ export function createSheets(root = document.body) {
   const close = () => {
     if (!current) return;
     const { el, kind } = current; current = null;
+    closeModal('sheet');
     if (kind === 'summary') {
       el.remove(); wrap.classList.add('hidden');
       for (const cb of closeCbs) cb();
       return;
     }
     el.classList.remove('show');
-    presentationScheduler.schedule(() => { el.remove(); if (!current) wrap.classList.add('hidden'); }, 220);
+    // A plain timer: the slide-out must finish even while another sheet holds presentation paused.
+    setTimeout(() => { el.remove(); if (!current) wrap.classList.add('hidden'); }, 220);
     for (const cb of closeCbs) cb();
   };
   const requestClose = (source = 'close') => {
@@ -255,21 +297,22 @@ export function createSheets(root = document.body) {
     if (!hasExplicitDismiss() || e.target !== backdrop) return;
     requestClose('backdrop'); e.preventDefault(); e.stopImmediatePropagation();
   }, true);
-  window.addEventListener('keydown', e => {
-    if (e.key !== 'Escape' || !hasExplicitDismiss()) return;
-    requestClose('escape'); e.preventDefault(); e.stopImmediatePropagation();
-  }, true);
   backdrop.addEventListener('click', () => requestClose('backdrop'));
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && current) requestClose('escape'); });
   const open = (kind, model, actions) => {
     if (current) { current.el.remove(); current = null; }
-    const el = build(kind, model, actions, requestClose); wrap.appendChild(el); wrap.classList.remove('hidden'); current = { kind, el, actions };
-    presentationScheduler.afterFrames(() => { if (current && current.el === el) el.classList.add('show'); }, 2);
+    // The Shop keeps the door it was opened by. The world's doors pass none: the staff desk is the
+    // one that opens on the staff tab.
+    const door = kind === 'kiosk' ? (model.door || (normalizeShopTab(model.tab) === 'staff' ? 'staff' : 'shop')) : null;
+    const el = build(kind, model, actions, requestClose, door); wrap.appendChild(el); wrap.classList.remove('hidden'); current = { kind, el, actions, door };
+    openModal('sheet', { close: requestClose });
+    requestAnimationFrame(() => requestAnimationFrame(() => { if (current && current.el === el) el.classList.add('show'); }));
   };
   const refresh = model => {
     if (!current) return; const scroller = current.el.querySelector('.srows'); const scrollTop = scroller ? scroller.scrollTop : 0;
-    const { kind, actions, el: oldEl } = current; const wasShown = oldEl.classList.contains('show'); const el = build(kind, model, actions, requestClose); oldEl.replaceWith(el);
-    if (wasShown) el.classList.add('show'); current = { kind, el, actions }; const newScroller = el.querySelector('.srows'); if (newScroller) newScroller.scrollTop = scrollTop;
+    const { kind, actions, door, el: oldEl } = current; const wasShown = oldEl.classList.contains('show'); const el = build(kind, model, actions, requestClose, door); oldEl.replaceWith(el);
+    if (wasShown) el.classList.add('show'); current = { kind, el, actions, door }; const newScroller = el.querySelector('.srows'); if (newScroller) newScroller.scrollTop = scrollTop;
   };
-  return { open, close, refresh, get isOpen() { return !!current; }, onClose: cb => { closeCbs.push(cb); } };
+  const host = { open, close, refresh, get isOpen() { return !!current; }, get kind() { return current ? current.kind : null; }, onClose: cb => { closeCbs.push(cb); } };
+  sharedHost = host;
+  return host;
 }

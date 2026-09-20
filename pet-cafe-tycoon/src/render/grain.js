@@ -159,9 +159,10 @@ function paintWood(ctx, rnd) {
 }
 
 // Floor tile: a stone speckle, a slight tone shift per quarter so the four sub-tiles are not
-// clones, and a grout cross. Authored at m = 1.0 against buildStatic's 1 m floor slabs, so each
-// slab reads as four 0.5 m tiles and the slab's own geometric gap doubles as the outer joint —
-// which is why the grout is drawn only through the middle and not around the edge.
+// clones, and a grout cross. Authored at m = 1.0 against buildStatic's 1 m floor tiles, so each
+// reads as four 0.5 m tiles. The outer joint is drawn too, HALF of it along each edge, so two flush
+// neighbours meet in one full joint: the floor used to leave a 2 cm geometric gap for it, which the
+// depth-outline pass turned into lines crawling across the room (props.js tileFloor).
 function paintTile(ctx, rnd) {
   ctx.fillStyle = grey(0.995); ctx.fillRect(0, 0, S, S);
   for (let q = 0; q < 4; q++) {
@@ -180,6 +181,13 @@ function paintTile(ctx, rnd) {
   // the room turning into a grid.
   ctx.fillStyle = grey(0.78);
   ctx.fillRect(S / 2 - 2, 0, 4, S); ctx.fillRect(0, S / 2 - 2, S, 4);    // the joint itself
+  // The outer half-joints, run out across the bleed margin so a sample that strays past the
+  // addressed rect still lands on joint colour.
+  const E = BLEED_PX;
+  ctx.fillStyle = grey(0.88);
+  ctx.fillRect(0, 0, S, E + 5); ctx.fillRect(0, S - E - 5, S, E + 5); ctx.fillRect(0, 0, E + 5, S); ctx.fillRect(S - E - 5, 0, E + 5, S);
+  ctx.fillStyle = grey(0.78);
+  ctx.fillRect(0, 0, S, E + 2); ctx.fillRect(0, S - E - 2, S, E + 2); ctx.fillRect(0, 0, E + 2, S); ctx.fillRect(S - E - 2, 0, E + 2, S);
 }
 
 // Fabric: a real plain weave — warp threads under, weft threads over, alternating cell by cell.

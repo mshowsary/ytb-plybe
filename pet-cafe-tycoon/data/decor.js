@@ -109,12 +109,24 @@ const stringLightIcon = () => '<svg viewBox="0 0 24 24" aria-hidden="true">'
 // rather than inside it: they are the late-game half of "always something to buy", and each set
 // only appears once its star is awarded. Every item is +1 reputation, so the catalogue is worth
 // exactly 39 reputation in total — meaningful, but far below what shift ratings pay.
+//
+// RE-SLOTTED 2026-09-19 (ship plan §1.9: "décor slots never clip"). tools/prop-overlap-smoke.js now
+// owns every piece at five stars and holds them to station bodies, fronts, queue slots, open gates,
+// the door and resident homes. It found: the wheel inside register2, the pet fountain in the
+// doorway, the paw sign over the door jamb, the wand inside the corner plant, the first cat tree on
+// barSmoothie's front and queue, a lantern in the terrace gate lane, the first feeder inside the
+// north-west cat bed, the bicycle inside the door-corner dog basket, a star-4 lantern in the kiosk
+// cat tree, the three umbrellas on queue columns and in the pool, and three wall pieces "mounted" on
+// the 0.9 m east FENCE, floating in the air. The café's floor is nearly full, so the moved pieces go
+// to the few places nothing walks: between machines behind the kitchen row, the kitchen's north-west
+// pocket, the fence end of the lounge and the east fence behind the fruit bushes; the wall pieces go
+// to the west wall.
 export const DECOR = Object.freeze([
-  { id: 'd_play_wand', price: 180, rep: 1, region: 'interior', kind: 'play', slot: { x: 8.85, y: 0, z: 5.8, rot: -0.3 }, icon: catTreeIcon() },
-  { id: 'd_play_wheel', price: 360, rep: 1, region: 'interior', kind: 'play', slot: { x: -8.9, y: 0, z: -1.5, rot: 0.6 }, icon: rugIcon('#80977C', '#FFF1D8') },
-  { id: 'd_play_fountain', price: 640, rep: 1, region: 'interior', kind: 'play', slot: { x: -9, y: 0, z: 4, rot: 0 }, icon: feederIcon() },
+  { id: 'd_play_wand', price: 180, rep: 1, region: 'interior', kind: 'play', slot: { x: 1.9, y: 0, z: -6.2, rot: 0 }, icon: catTreeIcon() },
+  { id: 'd_play_wheel', price: 360, rep: 1, region: 'interior', kind: 'play', slot: { x: -7.35, y: 0, z: -6.1, rot: 0 }, icon: rugIcon('#80977C', '#FFF1D8') },
+  { id: 'd_play_fountain', price: 640, rep: 1, region: 'interior', kind: 'play', slot: { x: 8.25, y: 0, z: 6.35, rot: 0 }, icon: feederIcon() },
   // -- interior, cheap tier (days 2-6 always have one of these in reach) --
-  { id: 'd_paw_sign',    price: 60,  rep: 1, region: 'interior', kind: 'sign',    slot: { x: -9.7,  y: 1.55, z: 5.7,  rot: Math.PI / 2 },  icon: pawSignIcon() },
+  { id: 'd_paw_sign',    price: 60,  rep: 1, region: 'interior', kind: 'sign',    slot: { x: -9.7,  y: 1.55, z: 5.9,  rot: Math.PI / 2 },  icon: pawSignIcon() },
   { id: 'd_rug_door',    price: 70,  rep: 1, region: 'interior', kind: 'rug',     slot: { x: -7.4,  y: 0.02, z: 4.2,  rot: 0 },            icon: rugIcon('#E4694F', '#F5C784') },
   { id: 'd_art_cat',     price: 85,  rep: 1, region: 'interior', kind: 'art',     slot: { x: -2.5,  y: 2.05, z: -6.76, rot: 0 },           icon: wallArtIcon('#B9834A', '#FFF1D8', '#F5A25D') },
   { id: 'd_plant_hang_a',price: 100, rep: 1, region: 'interior', kind: 'hanging', slot: { x: -9.62, y: 2.15, z: 0.0,  rot: Math.PI / 2 },  icon: hangingPlantIcon('#E4694F') },
@@ -123,18 +135,18 @@ export const DECOR = Object.freeze([
   { id: 'd_rug_lounge',  price: 150, rep: 1, region: 'interior', kind: 'rug',     slot: { x: -3.6,  y: 0.02, z: 3.2,  rot: 0 },            icon: rugIcon('#8B7CF6', '#D5CDF7') },
   { id: 'd_plant_hang_b',price: 170, rep: 1, region: 'interior', kind: 'hanging', slot: { x: -9.62, y: 2.15, z: -2.6, rot: Math.PI / 2 },  icon: hangingPlantIcon('#FFB3C1') },
   // -- interior, mid tier --
-  { id: 'd_lantern_b',   price: 190, rep: 1, region: 'interior', kind: 'lantern', slot: { x: -2.0,  y: 0,    z: 6.7,  rot: 0 },            icon: lanternIcon('#FF8A80') },
+  { id: 'd_lantern_b',   price: 190, rep: 1, region: 'interior', kind: 'lantern', slot: { x: -9.3,  y: 0,    z: -1.9, rot: 0 },            icon: lanternIcon('#FF8A80') },
   { id: 'd_art_bunny',   price: 215, rep: 1, region: 'interior', kind: 'art',     slot: { x: -8.3,  y: 1.95, z: -6.76, rot: 0 },           icon: wallArtIcon('#B9834A', '#FFF4E6', '#E8B4B8') },
-  { id: 'd_feeder_a',    price: 240, rep: 1, region: 'interior', kind: 'feeder',  slot: { x: -8.9,  y: 0,    z: -4.3, rot: 0 },            icon: feederIcon() },
+  { id: 'd_feeder_a',    price: 240, rep: 1, region: 'interior', kind: 'feeder',  slot: { x: 3.3,   y: 0,    z: 6.3,  rot: 0 },            icon: feederIcon() },
   { id: 'd_rug_hearth',  price: 270, rep: 1, region: 'interior', kind: 'rug',     slot: { x: 3.2,   y: 0.02, z: 2.2,  rot: 0 },            icon: rugIcon('#7BC47F', '#DDF0CE') },
   { id: 'd_plant_hang_c',price: 300, rep: 1, region: 'interior', kind: 'hanging', slot: { x: -9.62, y: 2.15, z: 2.2,  rot: Math.PI / 2 },  icon: hangingPlantIcon('#6EC6FF') },
-  { id: 'd_lantern_c',   price: 340, rep: 1, region: 'interior', kind: 'lantern', slot: { x: -4.4,  y: 0,    z: 6.75, rot: 0 },            icon: lanternIcon('#8B7CF6') },
+  { id: 'd_lantern_c',   price: 340, rep: 1, region: 'interior', kind: 'lantern', slot: { x: -9.35, y: 0,    z: 6.45, rot: 0 },            icon: lanternIcon('#8B7CF6') },
   { id: 'd_menu_board',  price: 380, rep: 1, region: 'interior', kind: 'board',   slot: { x: -9.2,  y: 0,    z: -0.4, rot: -Math.PI / 2 }, icon: menuBoardIcon() },
-  { id: 'd_cat_tree_a',  price: 430, rep: 1, region: 'interior', kind: 'cattree', slot: { x: 8.9,   y: 0,    z: -0.5, rot: 0 },            icon: catTreeIcon() },
+  { id: 'd_cat_tree_a',  price: 430, rep: 1, region: 'interior', kind: 'cattree', slot: { x: -0.85, y: 0,    z: -6.25, rot: 0 },           icon: catTreeIcon() },
   // -- interior, aspirational tier --
   { id: 'd_feeder_b',    price: 490, rep: 1, region: 'interior', kind: 'feeder',  slot: { x: -9.1,  y: 0,    z: -6.1, rot: 0 },            icon: feederIcon() },
   { id: 'd_art_mural',   price: 560, rep: 1, region: 'interior', kind: 'mural',   slot: { x: 7.6,   y: 1.95, z: -6.76, rot: 0 },           icon: muralIcon() },
-  { id: 'd_bicycle',     price: 650, rep: 1, region: 'interior', kind: 'bicycle', slot: { x: -9.25, y: 0,    z: 2.6,  rot: 0 },            icon: bicycleIcon() },
+  { id: 'd_bicycle',     price: 650, rep: 1, region: 'interior', kind: 'bicycle', slot: { x: 7.7,   y: 0,    z: -6.5, rot: 0 },            icon: bicycleIcon() },
   { id: 'd_cat_tree_b',  price: 780, rep: 1, region: 'interior', kind: 'cattree', slot: { x: 5.4,   y: 0,    z: 4.4,  rot: 0 },            icon: catTreeIcon() },
 
   // -- star sets (plan 3.4): one authored set per Paw Rating star, gated on the RATCHET
@@ -149,7 +161,7 @@ export const DECOR = Object.freeze([
   { id: 'd_star1_lantern',  price: 210, rep: 1, region: 'interior', kind: 'lantern', star: 1, slot: { x: -6.75, y: 0,    z: 6.85,  rot: 0 },            icon: lanternIcon('#FFE08A') },
   // Star 2 -- greenhouse: foliage on both long walls plus a garden mat by the treat bar.
   { id: 'd_star2_plant_w',  price: 260, rep: 1, region: 'interior', kind: 'hanging', star: 2, slot: { x: -9.62, y: 2.15, z: -4.6,  rot: Math.PI / 2 },  icon: hangingPlantIcon('#7BC47F') },
-  { id: 'd_star2_plant_e',  price: 310, rep: 1, region: 'interior', kind: 'hanging', star: 2, slot: { x: 9.62,  y: 2.15, z: 6.2,   rot: -Math.PI / 2 }, icon: hangingPlantIcon('#C98A00') },
+  { id: 'd_star2_plant_e',  price: 310, rep: 1, region: 'interior', kind: 'hanging', star: 2, slot: { x: -9.62, y: 2.15, z: 6.6,   rot: Math.PI / 2 },  icon: hangingPlantIcon('#C98A00') },
   { id: 'd_star2_rug',      price: 360, rep: 1, region: 'interior', kind: 'rug',     star: 2, slot: { x: 5.6,   y: 0.02, z: 1.0,   rot: 0 },            icon: rugIcon('#5EA463', '#E4F2D6') },
   // Star 3 -- portrait wall: the north wall fills in as a gallery of the pets that visit.
   { id: 'd_star3_art_a',    price: 420, rep: 1, region: 'interior', kind: 'art',     star: 3, slot: { x: -6.9,  y: 2.05, z: -6.76, rot: 0 },           icon: wallArtIcon('#8E6236', '#FFF4E6', '#F5A25D') },
@@ -157,17 +169,21 @@ export const DECOR = Object.freeze([
   { id: 'd_star3_art_c',    price: 520, rep: 1, region: 'interior', kind: 'art',     star: 3, slot: { x: 4.9,   y: 2.05, z: -6.76, rot: 0 },           icon: wallArtIcon('#8E6236', '#FFF1D8', '#6EC6FF') },
   // Star 4 -- lantern walk: the two dark corners get light, and the cats get a third tree.
   { id: 'd_star4_lantern_a',price: 600, rep: 1, region: 'interior', kind: 'lantern', star: 4, slot: { x: 5.75,  y: 0,    z: 6.85,  rot: 0 },            icon: lanternIcon('#FFB74D') },
-  { id: 'd_star4_lantern_b',price: 660, rep: 1, region: 'interior', kind: 'lantern', star: 4, slot: { x: 9.4,   y: 0,    z: -5.7,  rot: 0 },            icon: lanternIcon('#FF8A80') },
+  { id: 'd_star4_lantern_b',price: 660, rep: 1, region: 'interior', kind: 'lantern', star: 4, slot: { x: 9.5,   y: 0,    z: 3.9,   rot: 0 },            icon: lanternIcon('#FF8A80') },
   { id: 'd_star4_cat_tree', price: 720, rep: 1, region: 'interior', kind: 'cattree', star: 4, slot: { x: -9.3,  y: 0,    z: -3.0,  rot: Math.PI / 2 },  icon: catTreeIcon() },
   // Star 5 -- golden paw: the pieces a five-star cafe is recognisable by from the door.
-  { id: 'd_star5_sign',     price: 800, rep: 1, region: 'interior', kind: 'sign',    star: 5, slot: { x: 9.94,  y: 1.55, z: -1.0,  rot: -Math.PI / 2 }, icon: pawSignIcon() },
-  { id: 'd_star5_mural',    price: 850, rep: 1, region: 'interior', kind: 'mural',   star: 5, slot: { x: 9.94,  y: 1.95, z: 4.6,   rot: -Math.PI / 2 }, icon: muralIcon() },
+  { id: 'd_star5_sign',     price: 800, rep: 1, region: 'interior', kind: 'sign',    star: 5, slot: { x: -9.7,  y: 1.55, z: -5.7,  rot: Math.PI / 2 },  icon: pawSignIcon() },
+  { id: 'd_star5_mural',    price: 850, rep: 1, region: 'interior', kind: 'mural',   star: 5, slot: { x: -9.66, y: 1.95, z: -1.3,  rot: Math.PI / 2 },  icon: muralIcon() },
   { id: 'd_star5_lights',   price: 900, rep: 1, region: 'interior', kind: 'lights',  star: 5, slot: { x: 5.0,   y: 2.6,  z: -0.4,  rot: 0 },            icon: stringLightIcon() },
 
   // -- terrace: INERT until Batch 1 builds z_terrace (see TERRACE_ZONE above) --
-  { id: 'd_umbrella_a',  price: 300, rep: 1, region: 'terrace', kind: 'umbrella', requires: TERRACE_ZONE, slot: { x: -4.5, y: 0, z: 10.4, rot: 0 }, icon: umbrellaIcon('#FF8A80') },
-  { id: 'd_umbrella_b',  price: 420, rep: 1, region: 'terrace', kind: 'umbrella', requires: TERRACE_ZONE, slot: { x: 0.0,  y: 0, z: 10.4, rot: 0 }, icon: umbrellaIcon('#6EC6FF') },
-  { id: 'd_umbrella_c',  price: 560, rep: 1, region: 'terrace', kind: 'umbrella', requires: TERRACE_ZONE, slot: { x: 4.5,  y: 0, z: 10.4, rot: 0 }, icon: umbrellaIcon('#7BC47F') },
+  // Table parasols: each umbrella's pole stands through the centre of a deck table (seat7, seat8,
+  // seat9), so the canopy shades the guests and the pole is inside furniture nobody walks through.
+  // Standing free at z 10.4 they were on register3's and barIce's queue columns and in the pool.
+  // A terrace re-layout that moves those tables must move these three slots with them.
+  { id: 'd_umbrella_a',  price: 300, rep: 1, region: 'terrace', kind: 'umbrella', requires: TERRACE_ZONE, slot: { x: -3.9, y: 0, z: 9.4,   rot: 0 }, icon: umbrellaIcon('#FF8A80') },
+  { id: 'd_umbrella_b',  price: 420, rep: 1, region: 'terrace', kind: 'umbrella', requires: TERRACE_ZONE, slot: { x: 3.9,  y: 0, z: 9.4,   rot: 0 }, icon: umbrellaIcon('#6EC6FF') },
+  { id: 'd_umbrella_c',  price: 560, rep: 1, region: 'terrace', kind: 'umbrella', requires: TERRACE_ZONE, slot: { x: -6.5, y: 0, z: 9.4,   rot: 0 }, icon: umbrellaIcon('#7BC47F') },
   { id: 'd_terrace_lights', price: 900, rep: 1, region: 'terrace', kind: 'lights', requires: TERRACE_ZONE, slot: { x: 0.0, y: 2.6, z: 9.2, rot: 0 }, icon: stringLightIcon() },
 ]);
 

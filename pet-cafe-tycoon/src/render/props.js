@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { part, mesh, merge } from './geo.js';
 import { C, toonMaterial, emissiveMaterial, gradientMap } from './palette.js';
-import { grainAtlas } from './grain.js';
+import { grainAtlas, TILES } from './grain.js';
 import { PRODUCTS } from '../sim/economy.js';
 import { Spring } from '../core/tween.js';
 import { regionEdge } from '../sim/nav.js';
@@ -30,15 +30,71 @@ export const AWNING_SETS = Object.freeze([
   [C.coin, '#4A3B72'],      // ★5 — gold on plum: the Golden Paw
 ].map(set => Object.freeze(set)));
 
+// The paved ground around the café, as rectangles: {x0, x1, z0, z1, top}. buildStatic draws them
+// and environment.js keeps its lawn, tufts, beds and trees off them, so the two can never disagree
+// about where the street is (a tuft used to poke up through the west street, a flower bed sat on it).
+//   north     runs on past the east lot into the fog instead of stopping mid-lawn at x 14
+//   west      runs down past the terrace to the garden fence (z 17.6) instead of stopping at z 11
+//   sidewalk  at y 0, the café floor's own level, from the north corner to the terrace's south edge:
+//             guests spawn at x -11.5 and walk at y 0, and the street top is -0.25, so every arrival
+//             used to hover 25 cm above the pavement
+export function groundCutouts(area) {
+  const W = area.size.w, D = area.size.d;
+  const terrace = (area.regions || []).find(r => r.id === 'terrace');
+  const walkEnd = Math.max(D / 2 + 0.3, terrace ? terrace.z1 + 0.35 : 0);
+  return {
+    plinth: { x0: -W / 2 - 0.3, x1: W / 2 + 0.3, z0: -D / 2 - 0.3, z1: D / 2 + 0.3, top: 0 },
+    north: { x0: -W / 2 - 6, x1: 46, z0: -D / 2 - 6, z1: -D / 2, top: -0.25 },
+    west: { x0: -W / 2 - 6, x1: -W / 2, z0: -D / 2, z1: 17.2, top: -0.25 },
+    sidewalk: { x0: -W / 2 - 2.2, x1: -W / 2, z0: -D / 2, z1: walkEnd, top: 0 },
+  };
+}
+const slab = (r, h, hex) => part('box', [r.x1 - r.x0, h, r.z1 - r.z0], hex, { x: (r.x0 + r.x1) / 2, y: r.top - h / 2, z: (r.z0 + r.z1) / 2 });
+
+// The café floor: flat quads, one per 1 m tile, lying FLUSH on one slab. They used to be 280 boxes
+// with 2 cm gaps between them, and at play distance a gap is narrower than a pixel: the depth-outline
+// pass (post.js) caught it on some rows and not others, so thin diagonal lines crawled across the
+// floor whenever the camera moved a centimetre. With no gap there is no depth step to find. The joint
+// is in the texture now (grain.js paintTile draws half of it along every edge), where mipmapping
+// blends it instead of aliasing it. 560 triangles, against 3,360 for the boxes.
+function tileFloor(W, D) {
+  const n = W * D * 6, t = TILES.tile;
+  const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = new Float32Array(n * 3), uv = new Float32Array(n * 2);
+  const cA = new THREE.Color(C.floorA), cB = new THREE.Color(C.floorB);
+  let k = 0;
+  const put = (x, z, u, v, c) => {
+    pos[k * 3] = x; pos[k * 3 + 2] = z; nor[k * 3 + 1] = 1;
+    col[k * 3] = c.r; col[k * 3 + 1] = c.g; col[k * 3 + 2] = c.b;
+    uv[k * 2] = t.u0 + u * t.du; uv[k * 2 + 1] = t.v0 + v * t.dv; k++;
+  };
+  for (let i = 0; i < W; i++) for (let j = 0; j < D; j++) {
+    const x0 = i - W / 2, z0 = j - D / 2, x1 = x0 + 1, z1 = z0 + 1, c = (i + j) & 1 ? cA : cB;
+    put(x0, z0, 0, 0, c); put(x0, z1, 0, 1, c); put(x1, z1, 1, 1, c);
+    put(x0, z0, 0, 0, c); put(x1, z1, 1, 1, c); put(x1, z0, 1, 0, c);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  return g;
+}
+
 export function buildStatic(area) {
   const W = area.size.w, D = area.size.d, P = [];
   P.push(part('box', [90, 0.2, 90], '#CDE9B8', { y: -0.6 }));                                             // ground slab (sky never in frame at this pitch)
-  // floor tiles (1 m checker) — merged
-  for (let x = 0; x < W; x++) for (let z = 0; z < D; z++)
-    P.push(part('box', [0.98, 0.3, 0.98], (x + z) & 1 ? C.floorA : C.floorB, { x: x - W / 2 + 0.5, y: -0.15, z: z - D / 2 + 0.5, tex: 'tile' }));
+  // The floor slab stops 2 mm under the tiles, so its top is never drawn against them.
+  P.push(part('box', [W, 0.3, D], C.floorB, { y: -0.152 }));
+  P.push(tileFloor(W, D));
   P.push(part('rbox', [W + 0.6, 0.5, D + 0.6, 0.12], C.wood, { y: -0.45, tex: 'wood' }));                         // wooden plinth
-  P.push(part('box', [W + 8, 0.2, 6], C.street, { y: -0.35, z: -D / 2 - 3 }));                        // street north
-  P.push(part('box', [6, 0.2, D + 8], C.street, { x: -W / 2 - 3, y: -0.35 }));                          // street west
+  const ground = groundCutouts(area);
+  P.push(slab(ground.north, 0.2, C.street));
+  P.push(slab(ground.west, 0.2, C.street));
+  // Pale paving on a deep base, so its street side reads as a kerb, and a kerb stone 1 cm proud of
+  // the paving along the road edge.
+  const walk = ground.sidewalk;
+  P.push(slab(walk, 0.47, '#ECE5DA'));
+  P.push(part('box', [0.16, 0.34, walk.z1 - walk.z0], '#D6CEC2', { x: walk.x0 + 0.06, y: -0.16, z: (walk.z0 + walk.z1) / 2 }));
   // north wall with three windows, west wall with a door gap
   P.push(part('box', [W, 3, 0.4], C.wall, { y: 1.5, z: -D / 2, tex: 'plaster' }));
   for (const x of [-5, 0, 5]) { P.push(part('box', [1.8, 1.3, 0.5], '#DDF6FF', { x, y: 1.7, z: -D / 2 })); P.push(part('box', [2.0, 0.12, 0.6], C.cream, { x, y: 1.0, z: -D / 2 })); }
@@ -48,9 +104,13 @@ export function buildStatic(area) {
   P.push(part('box', [0.4, 0.6, 2.4], C.wall, { x: -W / 2, y: 2.7, z: area.door.z }));                   // lintel
   P.push(part('box', [0.3, 3.2, 0.3], C.woodDark, { x: -W / 2, y: 1.6, z: area.door.z - 1.3 }));
   P.push(part('box', [0.3, 3.2, 0.3], C.woodDark, { x: -W / 2, y: 1.6, z: area.door.z + 1.3 }));
-  P.push(part('box', [0.4, 0.5, (dz - 1.2) + D / 2], C.wallDark, { x: -W / 2, y: 0.25, z: ((dz - 1.2) + (-D / 2)) / 2 }));  // skirting north part
-  P.push(part('box', [0.4, 0.5, D / 2 - (dz + 1.2)], C.wallDark, { x: -W / 2, y: 0.25, z: ((dz + 1.2) + D / 2) / 2 }));    // skirting south part
-  P.push(part('box', [W, 0.5, 0.4], C.wallDark, { y: 0.25, z: -D / 2 }));
+  // Skirting stands 2 cm proud of the wall's faces: at the wall's own 0.4 m those faces were exactly
+  // coplanar with the plaster's, in a different colour. Its ends step 2 cm the same way — past the
+  // wall's end where it meets the fence, and 2 cm SHORT of the door jambs, so none of it reaches into
+  // the doorway.
+  P.push(part('box', [0.44, 0.5, (dz - 1.2) + D / 2], C.wallDark, { x: -W / 2, y: 0.25, z: ((dz - 1.2) + (-D / 2)) / 2 - 0.02 }));  // skirting north part
+  P.push(part('box', [0.44, 0.5, D / 2 - (dz + 1.2)], C.wallDark, { x: -W / 2, y: 0.25, z: ((dz + 1.2) + D / 2) / 2 + 0.02 }));    // skirting south part
+  P.push(part('box', [W + 0.04, 0.5, 0.44], C.wallDark, { y: 0.25, z: -D / 2 }));
   // Low fence on the east and south edges, each with a gate gap.
   //
   // Batch 1 put a gate in the SOUTH fence and hard-coded its half-width as a local 1.2 — a copy of
@@ -91,6 +151,7 @@ export function buildStatic(area) {
     P.push(part('sph', [0.55, 10], C.plant, { x, y: 0.95, z })); P.push(part('sph', [0.38, 10], C.plantDark, { x: x + 0.25, y: 1.25, z: z - 0.1 }));
   }
   const g = new THREE.Group(); g.add(mesh(P));
+  g.name = 'static';   // tools/prop-overlap-smoke.js checks its poles, arms and plants against stations
   // Gate infill: starts CLOSED (matching the pre-region look — a solid, seamless fence) and is
   // hidden by setOpen(true) once that region's zone is bought. A separate small mesh per gate so
   // neither ever requires rebuilding the one big merged geometry above.
@@ -130,7 +191,21 @@ export function buildStatic(area) {
   const aw = new THREE.Group(); aw.add(awA, awB);
   aw.position.set(awMid, 2.9, -D / 2 + 1.2); aw.rotation.x = 0.35; g.add(aw);
   g.awning = { setSet(idx) { const set = AWNING_SETS[Math.max(0, Math.min(AWNING_SETS.length - 1, idx))]; matA.color.set(set[0]); matB.color.set(set[1]); } };
-  for (const x of [awX0 + 1, awX1 - 1]) { const pole = mesh([part('cyl', [0.06, 0.06, 2.9, 8], C.metal)]); pole.position.set(x, 1.45, -D / 2 + 2.2); g.add(pole); }
+  // Hung from the wall on folding arms, not stood on poles. The poles came down at x -5 and 7, one
+  // through oven1's worktop and one through the blender, and any pole on that row lands in front of
+  // SOME machine as the kitchen grows. Each arm runs from a plate high on the wall — above the
+  // windows, the framed art and the bunting line — out to the awning's front bar, just under the
+  // fabric, at x positions clear of the three windows and of the pennants either side.
+  const arms = [];
+  const wallZ = -D / 2 + 0.2, plateY = 2.62;
+  const frontZ = aw.position.z + Math.cos(aw.rotation.x) * 1.0;
+  const frontY = aw.position.y - Math.sin(aw.rotation.x) * 1.0 - 0.07;
+  for (const x of [awX0 + 0.2, awMid + 0.35, awX1 - 0.2]) {
+    arms.push(part('box', [0.12, 0.34, 0.05], C.metal, { x, y: plateY + 0.1, z: wallZ + 0.025 }));
+    const dy = frontY - plateY, dzA = frontZ - wallZ, len = Math.hypot(dy, dzA);
+    arms.push(part('cyl', [0.028, 0.028, len, 6], C.metal, { x, y: (plateY + frontY) / 2, z: (wallZ + frontZ) / 2, rx: Math.atan2(dzA, dy) }));
+  }
+  g.add(mesh(arms, { cast: false }));
   return g;
 }
 
@@ -232,25 +307,6 @@ export function hireDeskMesh() {
     part('cyl', [0.05, 0.05, 1.5, 8], C.woodDark, { x: 0.3, y: 1.65, z: -0.55 }),   // sign post
     part('box', [0.7, 0.5, 0.05], C.cream, { x: 0.3, y: 2.2, z: -0.55, tex: 'paper' }),           // sign board
     part('box', [0.7, 0.12, 0.06], C.coral, { x: 0.3, y: 2.4, z: -0.545 }),         // coral header stripe
-  ]));
-  return g;
-}
-// photoDesk1 — where the photographer is hired. It shared hireDeskMesh with the staff desk, so the
-// spa had an anonymous second staff desk in it: "a table that explains nothing". Same desk, but the
-// post carries a big camera instead of the paper sign board.
-export function photographerDeskMesh() {
-  const g = new THREE.Group();
-  g.add(mesh([
-    part('rbox', [1.0, 0.9, 1.6, 0.08], C.wood, { y: 0.45, tex: 'wood' }),
-    part('box', [1.05, 0.08, 1.65], C.woodDark, { y: 0.94, tex: 'wood' }),
-    part('box', [0.28, 0.02, 0.2], '#FFFFFF', { x: -0.12, y: 1.0, z: 0.45 }),          // a print
-    part('box', [0.24, 0.02, 0.18], '#FFE6EE', { x: -0.05, y: 1.015, z: 0.2, ry: 0.3 }),
-    part('cyl', [0.05, 0.05, 1.1, 8], C.woodDark, { x: 0.3, y: 1.45, z: -0.55 }),     // post
-    part('rbox', [0.56, 0.38, 0.3, 0.06], '#3B2E2A', { x: 0.3, y: 2.12, z: -0.55 }),   // camera
-    part('cyl', [0.14, 0.15, 0.2, 14], '#2B2B2B', { x: 0.3, y: 2.12, z: -0.35, rx: Math.PI / 2 }),
-    part('cyl', [0.1, 0.1, 0.02, 14], '#9BF6FF', { x: 0.3, y: 2.12, z: -0.24, rx: Math.PI / 2 }),
-    part('box', [0.18, 0.1, 0.14], '#FFFFFF', { x: 0.44, y: 2.36, z: -0.55 }),         // flash
-    part('box', [0.12, 0.06, 0.1], '#FF8A80', { x: 0.14, y: 2.33, z: -0.55 }),         // shutter
   ]));
   return g;
 }
@@ -478,38 +534,10 @@ export function bunnyHutchMesh() {
   return g;
 }
 // Task 4 carry props — small enough to sit on the owner/runner stack alongside (never mixed with,
-// per the carry-slot rules in src/sim/carry.js) product items.
-// What the player is carrying has to be legible from the wide camera, and until now two of the four
-// real supply kinds rendered as NOTHING: data/area1.js's coldPantry1 hands out 'cream' and
-// waterTank1 hands out 'water', and render/owner.js only knew 'beans' and 'kibble' — so a player
-// fetching milk for the ice-cream machine or water for the bath walked back empty-handed on screen.
-// Each kind now has its own silhouette, because "I do not know what it is carrying" is a fair
-// complaint about a sack that looks like every other sack.
+// per the carry-slot rules in src/sim/carry.js) product items. Beans and kibble are the whole list
+// (src/sim/supplies.js): the ice cream machine drinks nothing and the spa's water left with it.
 export function sackMesh(kind = 'beans') {
   const g = new THREE.Group();
-  if (kind === 'cream') {
-    // A milk churn: a metal can with a shoulder, a lid and a cream band. Reads as dairy at a glance.
-    g.add(mesh([
-      part('cyl', [0.15, 0.15, 0.3, 12], C.metal, { y: 0.15, tex: 'metal' }),
-      part('cyl', [0.15, 0.1, 0.09, 12], C.metal, { y: 0.34 }),           // shoulder
-      part('cyl', [0.1, 0.1, 0.05, 12], '#E9EEF2', { y: 0.41 }),          // lid
-      part('cyl', [0.152, 0.152, 0.07, 12], '#FFF8EC', { y: 0.17 }),      // cream band
-      part('box', [0.05, 0.02, 0.02], C.metal, { x: 0.16, y: 0.3 }),      // handle nub
-    ]));
-    return g;
-  }
-  if (kind === 'water') {
-    // A jug: rounded body, a spout neck and a handle, in the splash-pool blue so it pairs with the
-    // bath it feeds.
-    g.add(mesh([
-      part('rbox', [0.24, 0.28, 0.2, 0.08], '#8FD3E8', { y: 0.16 }),
-      part('cyl', [0.055, 0.07, 0.1, 10], '#8FD3E8', { y: 0.34 }),        // neck
-      part('cyl', [0.07, 0.07, 0.03, 10], '#5FA9C4', { y: 0.4 }),         // cap
-      part('box', [0.03, 0.14, 0.03], '#5FA9C4', { x: 0.14, y: 0.2 }),    // handle
-      part('box', [0.2, 0.06, 0.005], '#EAF7FC', { y: 0.12, z: 0.101 }),  // level window
-    ]));
-    return g;
-  }
   const color = kind === 'kibble' ? C.wood : C.woodDark;
   const parts = [
     part('sph', [0.16, 8], color, { y: 0.16, sy: 1.25, tex: 'paper' }),
@@ -679,9 +707,9 @@ export function zoneRing() {
 }
 // ── The terrace deck (plan 3.1/7.1) ─────────────────────────────────────────────────────────────
 // buildRegion(area, region, palette) renders a bought region's floor. It is deliberately generic
-// over `region` (any future region reuses it) rather than hard-coded to the terrace, even though
-// only the terrace exists this batch. One merged mesh (cheap: a border ring, a base slab, N plank
-// strips, four corner planters and a gate arch — well under a hundred triangles per plank row).
+// over `region` (any future region reuses it) rather than hard-coded to the terrace. One merged mesh
+// (cheap: a border ring, a base slab, N plank strips, a gate threshold, corner planters, the gate
+// arch and — terrace only — the street entrance's arch and hedge).
 //
 // SEASONS. `palette` is optional and is one of environment.js's paletteForSeason(id) objects. It
 // exists because, once the terrace is bought, this deck IS most of the default camera's frame:
@@ -691,6 +719,33 @@ export function zoneRing() {
 // today's deck — the seasonal values live in environment.js's palette table, not here, so this
 // file still owns no garden colour of its own.
 export function buildRegion(area, region, palette = null) {
+  const pieces = regionPieces(area, region, palette);
+  const g = new THREE.Group();
+  g.add(mesh([...pieces.base, ...pieces.rows.flatMap(r => r.parts), ...pieces.extras]));
+  return g;
+}
+
+// The same floor, split the way the build reveal lays it (environment.js): the base (stone border,
+// gap slab and the gate threshold), one merged geometry per plank row ordered outward from the gate,
+// and the furniture that stands on it. Built only when a region is bought during play.
+export function regionRevealPieces(area, region, palette = null) {
+  const pieces = regionPieces(area, region, palette);
+  return {
+    base: merge(pieces.base),
+    rows: pieces.rows.map(r => ({ geometry: merge(r.parts), along: r.along, cross: r.cross })),
+    extras: pieces.extras.length ? merge(pieces.extras) : null,
+    axis: pieces.axis,
+  };
+}
+
+// Where the terrace's own street entrance is. data/area1.js authors it (plan §1.2); until it does,
+// the plan's coordinates.
+export function terraceDoorOf(area) {
+  const d = area && area.terraceDoor;
+  return d && Number.isFinite(d.x) && Number.isFinite(d.z) ? d : { x: -9.6, z: 12.6 };
+}
+
+function regionPieces(area, region, palette) {
   const P = palette || {};
   const pick0 = (arr, fallback) => (Array.isArray(arr) && arr.length ? arr[0] : fallback);
   const border = P.deckBorder || '#E6E0D6';
@@ -706,51 +761,64 @@ export function buildRegion(area, region, palette = null) {
 
   const x0 = region.x0, x1 = region.x1, z0 = region.z0, z1 = region.z1;
   const w = x1 - x0, d = z1 - z0, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
-  const parts = [];
-  // Stone border, a wide flat ring under the whole floor.
-  parts.push(part('rbox', [w + 0.7, 0.42, d + 0.7, 0.1], border, { x: cx, y: -0.24, z: cz }));
+  const edge = regionEdge(region, area);
+  const axis = edge ? edge.axis : 'z';
+  const baseParts = [], rows = [], extras = [];
+  // The WALKING SURFACE IS y = 0, like the café floor. Everything else in the game — actors, contact
+  // shadows, furniture feet, the photo pose mat, build outlines — already treats y 0 as the floor;
+  // the planks used to stand 4.5 cm proud of it, so feet sank into them, every contact shadow lay
+  // under the boards and the gate had a trench and a lip across the busiest path in the café.
+  // Stone border, a wide flat ring under the whole floor, 8.5 cm below the walking surface and
+  // 1.5 cm below the gap slab it runs under, so the two never share a depth.
+  baseParts.push(part('rbox', [w + 0.7, 0.42, d + 0.7, 0.1], border, { x: cx, y: -0.295, z: cz }));
   // Gap-colour base slab, then the surface on top. `region.floor` picks which surface: 'deck' is
-  // the terrace's plank strips (unchanged, so the terrace renders byte-identically); 'tile' is the
-  // spa's — a 1 m checker, echoing buildStatic's own interior floor so the spa reads as ROOM
-  // rather than as a second deck, at the same one-merged-mesh cost.
-  parts.push(part('box', [w, 0.05, d], base, { x: cx, y: -0.05, z: cz }));
+  // the terrace's plank strips; 'tile' is a 1 m checker echoing buildStatic's interior floor.
+  baseParts.push(part('box', [w, 0.05, d], base, { x: cx, y: -0.095, z: cz }));
+  let firstEdge, gap;
   if (region.floor === 'tile') {
     const cols = Math.max(1, Math.round(w)), rowsT = Math.max(1, Math.round(d));
     const tw = w / cols, td = d / rowsT;
-    for (let i = 0; i < cols; i++) {
-      for (let j = 0; j < rowsT; j++) {
+    gap = 0.025;
+    const lines = axis === 'x' ? cols : rowsT, across = axis === 'x' ? rowsT : cols;
+    for (let a = 0; a < lines; a++) {
+      const parts = [];
+      for (let b = 0; b < across; b++) {
+        const i = axis === 'x' ? a : b, j = axis === 'x' ? b : a;
         parts.push(part('box', [tw - 0.05, 0.09, td - 0.05], (i + j) & 1 ? plank : border,
-          { x: x0 + (i + 0.5) * tw, y: 0.0, z: z0 + (j + 0.5) * td, tex: 'tile' }));
+          { x: x0 + (i + 0.5) * tw, y: -0.045, z: z0 + (j + 0.5) * td, tex: 'tile' }));
       }
+      rows.push({ parts, along: axis === 'x' ? x0 + (a + 0.5) * tw : z0 + (a + 0.5) * td, cross: axis === 'x' ? cz : cx });
     }
+    firstEdge = axis === 'x' ? x0 + 0.025 : z0 + 0.025;
   } else {
-    const plankD = 0.42, gap = 0.06, step = plankD + gap;
-    const rows = Math.max(1, Math.floor((d + gap) / step));
-    const usedD = rows * step - gap;
+    const plankD = 0.42;
+    gap = 0.06;
+    const step = plankD + gap;
+    const nRows = Math.max(1, Math.floor((d + gap) / step));
+    const usedD = nRows * step - gap;
     const startZ = cz - usedD / 2 + plankD / 2;
-    for (let i = 0; i < rows; i++) {
-      parts.push(part('box', [w - 0.06, 0.09, plankD], plank, { x: cx, y: 0.0, z: startZ + i * step, tex: 'wood' }));
+    for (let i = 0; i < nRows; i++) {
+      const z = startZ + i * step;
+      rows.push({ parts: [part('box', [w - 0.06, 0.09, plankD], plank, { x: cx, y: -0.045, z, tex: 'wood' })], along: z, cross: cx });
     }
+    firstEdge = startZ - plankD / 2;
   }
+  // A south region's planks run parallel to its gate, so the reveal lays them away from it; the
+  // rows come back ordered by distance from the gate line either way.
+  if (edge) rows.sort((a, b) => Math.abs(a.along - edge.line) - Math.abs(b.along - edge.line));
+
   // Corner planters, echoing buildStatic's own corner planters above. The three blooms on top are
   // new with the seasonal pass: the crowns alone are two green spheres that read the same in every
   // season, and the west pair of these planters is in frame from the deck in both orientations.
   // Skipped entirely when no palette is supplied, so the un-palettised deck is byte-identical.
   //
-  // SKIPPED ENTIRELY on a tile floor (the spa). These pots are render-only — they contribute no
-  // nav or collision box — so a station authored near a corner sits straight through one. The
-  // terrace's corners happen to be empty; the spa's north-west corner is bath1. Rather than
-  // authoring the spa's stations around invisible geometry, the spa gets a real `planters` STATION
-  // (blocking, in the lounge corner) and this loop stands down.
-  //
-  // ...and "the terrace's corners happen to be empty" stopped being true. Every later terrace build
-  // that went into a corner — the ice cream machine (north-east), the corner table (south-west),
-  // the restroom (south-east) — was authored after these pots and stands straight through one.
-  // Walking the built deck: a potted shrub growing up through a table, and a shrub swallowing the
-  // ice cream machine so completely that the machine read as a small grey box beside a bush
-  // (tools/prop-overlap-smoke.js measured 100, 98 and 147 of the pots' vertices inside those three
-  // footprints). A corner that has a station authored in it — built yet or not — gets no pot:
-  // an empty corner until the lane arrives beats a pot the lane is later built through.
+  // SKIPPED ENTIRELY on a tile floor. These pots are render-only — they contribute no nav or
+  // collision box — so a station authored near a corner sits straight through one. Every terrace
+  // build that went into a corner — the ice cream machine (north-east), the corner table
+  // (south-west), the restroom (south-east) — was authored after these pots and stood straight
+  // through one (tools/prop-overlap-smoke.js measured 100, 98 and 147 of the pots' vertices inside
+  // those three footprints). A corner that has a station authored in it — built yet or not — gets
+  // no pot: an empty corner until the lane arrives beats a pot the lane is later built through.
   const inset = 0.9;
   const POT_REACH = 0.55;   // the crown's radius plus a little air
   const occupied = (px, pz) => (area && area.stations || []).some(st => {
@@ -763,43 +831,73 @@ export function buildRegion(area, region, palette = null) {
   const cornerPots = region.floor === 'tile' ? [] : [[x0 + inset, z0 + inset], [x1 - inset, z0 + inset], [x0 + inset, z1 - inset], [x1 - inset, z1 - inset]]
     .filter(([px, pz]) => !occupied(px, pz));
   for (const [px, pz] of cornerPots) {
-    parts.push(part('cyl', [0.3, 0.24, 0.46, 10], potBody, { x: px, y: 0.19, z: pz }));
-    parts.push(part('sph', [0.5, 9], crownA, { x: px, y: 0.82, z: pz }));
-    parts.push(part('sph', [0.35, 9], crownB, { x: px + 0.22, y: 1.08, z: pz - 0.1 }));
+    extras.push(part('cyl', [0.3, 0.24, 0.46, 10], potBody, { x: px, y: 0.19, z: pz }));
+    extras.push(part('sph', [0.5, 9], crownA, { x: px, y: 0.82, z: pz }));
+    extras.push(part('sph', [0.35, 9], crownB, { x: px + 0.22, y: 1.08, z: pz - 0.1 }));
     if (bloom) {
       for (let i = 0; i < 3; i++) {
         const a = 0.6 + i * 2.1;
-        parts.push(part('sph', [0.13, 6], i === 1 ? (bloomAlt || bloom) : bloom,
+        extras.push(part('sph', [0.13, 6], i === 1 ? (bloomAlt || bloom) : bloom,
           { x: px + Math.cos(a) * 0.3, y: 1.12 + (i & 1) * 0.12, z: pz + Math.sin(a) * 0.3, sy: 0.75 }));
       }
     }
   }
-  // Gate arch, straddling this region's own gate. Batch 4b: derived from regionEdge rather than
-  // hard-coded to "x 0, just north of z0", so the spa's arch stands across the EAST fence facing
-  // west with no second copy of this block. halfGate is the walkable gap plus 0.15 m of post, so
-  // the posts land just OUTSIDE the lane instead of inside it — at the shipped literal 1.35 they
-  // stood in the middle of a 2.4 m half-gap and actors walked straight through them.
-  const edge = regionEdge(region, area);
+  // Gate arch, straddling this region's own gate, derived from regionEdge. halfGate is the walkable
+  // gap plus 0.15 m of post, so the posts land just OUTSIDE the lane instead of inside it.
   const archH = 2.5;
   if (edge) {
     const halfGate = edge.gapHalf + 0.15;
     if (edge.axis === 'z') {
       const gateX = edge.gapCentre, gateZ = z0 - 0.2;
-      parts.push(part('cyl', [0.1, 0.12, archH, 8], postColor, { x: gateX - halfGate, y: archH / 2 - 0.1, z: gateZ }));
-      parts.push(part('cyl', [0.1, 0.12, archH, 8], postColor, { x: gateX + halfGate, y: archH / 2 - 0.1, z: gateZ }));
-      parts.push(part('box', [halfGate * 2 + 0.3, 0.18, 0.18], postColor, { x: gateX, y: archH - 0.1, z: gateZ }));
-      parts.push(part('box', [halfGate * 2 + 0.2, 0.4, 0.05], archColor, { x: gateX, y: archH + 0.05, z: gateZ }));
+      extras.push(part('cyl', [0.1, 0.12, archH, 8], postColor, { x: gateX - halfGate, y: archH / 2 - 0.1, z: gateZ }));
+      extras.push(part('cyl', [0.1, 0.12, archH, 8], postColor, { x: gateX + halfGate, y: archH / 2 - 0.1, z: gateZ }));
+      extras.push(part('box', [halfGate * 2 + 0.3, 0.18, 0.18], postColor, { x: gateX, y: archH - 0.1, z: gateZ }));
+      extras.push(part('box', [halfGate * 2 + 0.2, 0.4, 0.05], archColor, { x: gateX, y: archH + 0.05, z: gateZ }));
     } else {
       const gateZ = edge.gapCentre, gateX = x0 + 0.2;
-      parts.push(part('cyl', [0.1, 0.12, archH, 8], postColor, { x: gateX, y: archH / 2 - 0.1, z: gateZ - halfGate }));
-      parts.push(part('cyl', [0.1, 0.12, archH, 8], postColor, { x: gateX, y: archH / 2 - 0.1, z: gateZ + halfGate }));
-      parts.push(part('box', [0.18, 0.18, halfGate * 2 + 0.3], postColor, { x: gateX, y: archH - 0.1, z: gateZ }));
-      parts.push(part('box', [0.05, 0.4, halfGate * 2 + 0.2], archColor, { x: gateX, y: archH + 0.05, z: gateZ }));
+      extras.push(part('cyl', [0.1, 0.12, archH, 8], postColor, { x: gateX, y: archH / 2 - 0.1, z: gateZ - halfGate }));
+      extras.push(part('cyl', [0.1, 0.12, archH, 8], postColor, { x: gateX, y: archH / 2 - 0.1, z: gateZ + halfGate }));
+      extras.push(part('box', [0.18, 0.18, halfGate * 2 + 0.3], postColor, { x: gateX, y: archH - 0.1, z: gateZ }));
+      extras.push(part('box', [0.05, 0.4, halfGate * 2 + 0.2], archColor, { x: gateX, y: archH + 0.05, z: gateZ }));
+    }
+    // The threshold: the floor runs through the gate at y 0, from the fence line to the first row,
+    // over the café plinth and the stone border that used to show there as a trench with a lip.
+    // It stops a board's gap short of the first row, like every other row, and never overlaps the
+    // café tiles (they end exactly on the fence line), so nothing in it is coplanar with anything.
+    const depth = firstEdge - gap - edge.line;
+    if (depth > 0.05) {
+      const span = halfGate * 2, mid = edge.line + depth / 2;
+      baseParts.push(edge.axis === 'z'
+        ? part('box', [span, 0.09, depth], region.floor === 'tile' ? border : plank, { x: edge.gapCentre, y: -0.045, z: mid, tex: 'wood' })
+        : part('box', [depth, 0.09, span], region.floor === 'tile' ? border : plank, { x: mid, y: -0.045, z: edge.gapCentre, tex: 'wood' }));
     }
   }
-  const g = new THREE.Group();
-  g.add(mesh(parts));
-  return g;
+  // The terrace's own street entrance (plan §1.2): a garden arch in the deck's WEST edge, facing the
+  // sidewalk, with a low clipped hedge along the rest of that edge so the opening is the one way in
+  // and the edge beside the sidewalk — the same height as the deck now — does not read as open.
+  if (region.id === 'terrace') {
+    const door = terraceDoorOf(area);
+    const half = 1.0, hx = x0 - 0.25;
+    const lo = Math.max(z0, door.z - half), hi = Math.min(z1, door.z + half);
+    // From the café's south fence post (z 7.07) to the border's south end.
+    for (const [a, b] of [[z0 - 0.33, lo - 0.12], [hi + 0.12, z1 + 0.3]]) {
+      if (b - a < 0.3) continue;
+      extras.push(part('box', [0.4, 0.42, b - a], crownB, { x: hx, y: 0.21, z: (a + b) / 2 }));
+      extras.push(part('box', [0.34, 0.14, b - a - 0.06], crownA, { x: hx, y: 0.47, z: (a + b) / 2 }));
+    }
+    const dz = (lo + hi) / 2, postZ = [lo - 0.08, hi + 0.08], topY = 2.3;
+    for (const z of postZ) extras.push(part('cyl', [0.08, 0.1, topY, 8], postColor, { x: hx, y: topY / 2, z }));
+    extras.push(part('box', [0.14, 0.14, hi - lo + 0.36], postColor, { x: hx, y: topY, z: dz }));
+    // A swag of leaves and blooms along the crossbar, so it reads as a garden arch from the sidewalk.
+    for (let i = 0; i <= 8; i++) {
+      const t = i / 8, z = lo - 0.05 + t * (hi - lo + 0.1), y = topY + 0.08 - 0.16 * Math.sin(Math.PI * t);
+      extras.push(part('sph', [0.13, 6], i & 1 ? crownB : crownA, { x: hx, y, z, sy: 0.8 }));
+      if (bloom && (i === 2 || i === 6)) extras.push(part('sph', [0.08, 6], i === 2 ? bloom : (bloomAlt || bloom), { x: hx + 0.1, y: y + 0.04, z }));
+    }
+    // A coir mat across the opening, 1.2 cm proud of the sidewalk and the planks either side of it.
+    extras.push(part('box', [0.95, 0.03, hi - lo - 0.2], '#C9795C', { x: x0 - 0.02, y: -0.003, z: dz, tex: 'fabric' }));
+  }
+  return { base: baseParts, rows, extras, axis };
 }
 // ── Terrace station meshes (plan 3.1/7.2) ───────────────────────────────────────────────────────
 // icecream1 mirrors coffeeMesh's shape/scale (a counter-height machine) but in ice-cream pastels
@@ -847,87 +945,6 @@ export function icecreamMesh() {
   g.add(mesh(P));
   return g;
 }
-// coldPantry1 — a chest freezer, which is what the cream actually comes out of. White body, a pale
-// blue lid with frost along the seam and icicles hanging off every edge (icicles say COLD from any
-// side, where a snowflake sign would be edge-on to the camera half the time), and a cream tub
-// standing on the lid as its topper, heaped with a swirl.
-export function coldPantryMesh() {
-  const g = new THREE.Group();
-  const P = [];
-  P.push(part('rbox', [1.1, 0.72, 0.84, 0.07], '#F4FAFF', { y: 0.38 }));                  // body
-  P.push(part('box', [1.12, 0.1, 0.86], '#8FD3EE', { y: 0.07 }));                          // kick band
-  P.push(part('rbox', [1.14, 0.1, 0.88, 0.04], '#BFEFFA', { y: 0.79 }));                   // lid
-  P.push(part('box', [0.36, 0.05, 0.06], C.metal, { y: 0.7, z: 0.45 }));                   // handle
-  for (const x of [-0.42, -0.14, 0.18, 0.44]) P.push(part('sph', [0.07, 6], '#FFFFFF', { x, y: 0.76, z: 0.43, sy: 0.5 }));
-  // icicles along all four lid edges
-  for (const [x, z] of [[-0.4, 0.45], [-0.05, 0.45], [0.32, 0.45], [-0.25, -0.45], [0.2, -0.45], [0.57, 0.1], [0.57, -0.25], [-0.57, -0.1], [-0.57, 0.25]]) {
-    P.push(part('cone', [0.035, 0.14, 6], '#E4F7FF', { x, y: 0.66, z, rx: Math.PI }));
-  }
-  // the tub, heaped
-  P.push(part('cyl', [0.25, 0.21, 0.32, 14], C.cream, { y: 1.0, tex: 'paper' }));
-  P.push(part('cyl', [0.255, 0.255, 0.07, 14], '#FF9DBB', { y: 1.04 }));
-  P.push(part('sph', [0.23, 12], '#FFFAF2', { y: 1.2, sy: 0.55 }));
-  P.push(part('sph', [0.15, 10], '#FFFAF2', { y: 1.31, sy: 0.6 }));
-  P.push(part('cone', [0.07, 0.14, 8], '#FFFAF2', { y: 1.42 }));
-  g.add(mesh(P));
-  return g;
-}
-// photo1 — a little portrait studio: a starry pink backdrop on posts at the back, a mat where the
-// pet poses, a camera on a tripod pointing at it, and a softbox light. It used to be a closed pink
-// cabinet with a lens on the front — "a photograph stand" nobody could read, and closed, so there
-// was nothing to show a pet being photographed in.
-export function photoBoothMesh() {
-  const g = new THREE.Group();
-  const P = [];
-  P.push(part('box', [1.3, 1.8, 0.08], '#F7B7C8', { y: 0.98, z: -0.9, tex: 'fabric' }));   // backdrop
-  P.push(part('rbox', [1.38, 0.14, 0.14, 0.05], C.woodDark, { y: 1.92, z: -0.9, tex: 'wood' }));
-  for (const x of [-0.64, 0.64]) P.push(part('cyl', [0.04, 0.05, 1.95, 8], C.woodDark, { x, y: 0.97, z: -0.9 }));
-  for (const [x, y] of [[-0.35, 1.45], [0.3, 1.2], [-0.1, 0.82], [0.42, 1.66], [-0.46, 0.55], [0.18, 0.42], [-0.5, 1.7]]) {
-    P.push(part('sph', [0.075, 6], '#FFFFFF', { x, y, z: -0.85, sz: 0.3 }));
-  }
-  P.push(part('cyl', [0.52, 0.52, 0.03, 18], '#FFE6EE', { y: 0.015, z: -0.3 }));            // pose mat
-  const cz = 0.62;
-  for (const a of [0.3, 2.4, 4.5]) {
-    const lx = Math.sin(a) * 0.16, lz = Math.cos(a) * 0.16;
-    P.push(part('cyl', [0.018, 0.024, 1.18, 6], C.ink, { x: lx, y: 0.58, z: cz + lz, rx: lz * 0.8, rz: -lx * 0.8 }));
-  }
-  P.push(part('rbox', [0.36, 0.25, 0.22, 0.04], '#3B2E2A', { y: 1.27, z: cz }));            // camera
-  P.push(part('cyl', [0.095, 0.105, 0.16, 12], '#2B2B2B', { y: 1.27, z: cz - 0.18, rx: Math.PI / 2 }));
-  P.push(part('cyl', [0.065, 0.065, 0.02, 12], '#9BF6FF', { y: 1.27, z: cz - 0.265, rx: Math.PI / 2 }));
-  P.push(part('box', [0.13, 0.09, 0.11], '#FFFFFF', { x: 0.09, y: 1.44, z: cz }));          // flash
-  P.push(part('cyl', [0.02, 0.025, 1.5, 6], C.ink, { x: 0.58, y: 0.75, z: 0.05 }));        // light stand
-  P.push(part('box', [0.38, 0.38, 0.1], '#FFFFFF', { x: 0.58, y: 1.56, z: 0.05, ry: -0.55 })); // softbox
-  g.add(mesh(P));
-  return g;
-}
-// wc1 — a garden restroom hut: mint walls, a coral pyramid roof with a vent pipe, and a wooden door
-// with the crescent-moon cut-out that cartoons the world over use for "restroom". A round window
-// with a heart on the side the camera sees, so the hut is never a blank box from the deck. It was:
-// the only door faced the deck side-on and everything else was plain plaster, which is how guests
-// pairing up at it read as "customers step back and forth at a stand, and nothing happens".
-export function restroomMesh() {
-  const g = new THREE.Group();
-  const P = [];
-  const doorC = '#E8B77F';
-  P.push(part('box', [1.4, 1.72, 1.2], '#CDEBDD', { y: 0.86, tex: 'plaster' }));           // hut
-  P.push(part('box', [1.46, 0.08, 1.26], '#FFFFFF', { y: 0.04 }));                          // plinth
-  P.push(part('box', [1.5, 0.1, 1.3], '#FFFFFF', { y: 1.74 }));                             // eave
-  P.push(part('cone', [1.12, 0.72, 4], C.coral, { y: 2.15, ry: Math.PI / 4 }));             // roof
-  P.push(part('cyl', [0.06, 0.06, 0.4, 8], C.metal, { x: 0.3, y: 2.3, z: -0.2 }));          // vent pipe
-  P.push(part('cyl', [0.09, 0.09, 0.05, 8], C.metal, { x: 0.3, y: 2.5, z: -0.2 }));
-  P.push(part('rbox', [0.62, 1.34, 0.06, 0.05], doorC, { y: 0.72, z: 0.62, tex: 'wood' }));  // door
-  P.push(part('cyl', [0.13, 0.13, 0.02, 16], '#5A3A2A', { x: -0.02, y: 1.16, z: 0.655, rx: Math.PI / 2 }));
-  P.push(part('cyl', [0.12, 0.12, 0.024, 16], doorC, { x: 0.06, y: 1.19, z: 0.66, rx: Math.PI / 2 }));
-  P.push(part('sph', [0.04, 8], C.metal, { x: 0.22, y: 0.7, z: 0.68 }));                    // knob
-  // The same crescent cut into both side walls: the camera sees these huts side-on as often as not
-  // (wc1 faces the deck, west, and the camera looks north), so the icon has to be on the sides too.
-  for (const sx of [-1, 1]) {
-    P.push(part('cyl', [0.19, 0.19, 0.02, 18], '#5A3A2A', { x: sx * 0.705, y: 1.2, rz: Math.PI / 2 }));
-    P.push(part('cyl', [0.175, 0.175, 0.024, 18], '#CDEBDD', { x: sx * 0.708, y: 1.24, z: 0.1, rz: Math.PI / 2 }));
-  }
-  g.add(mesh(P));
-  return g;
-}
 // fountain1 (decor, pre-splash) — a tiered stone fountain. z_splash later adds splash1 in the same
 // spot as a play pool (plan 3.1); the render/systems layer that toggles which one is visible when
 // both zones are built is outside this task's scope (props.js only supplies the two meshes).
@@ -943,16 +960,6 @@ export function fountainMesh() {
   ]));
   return g;
 }
-// splash1 — a low play pool for pets, replacing fountain1's spot once z_splash is built.
-export function splashPoolMesh() {
-  const g = new THREE.Group();
-  g.add(mesh([
-    part('cyl', [1.15, 1.2, 0.2, 20], '#E6E0D6', { y: 0.1 }),
-    part('cyl', [0.95, 0.95, 0.1, 20], '#A8DCEF', { y: 0.2 }),
-    part('cyl', [0.5, 0.5, 0.03, 16], '#D8F0FA', { y: 0.26 }),
-  ]));
-  return g;
-}
 // ── Spa station meshes (plan 3.9) ────────────────────────────────────────────────────────────────
 // All five are authored in LOCAL space with +z forward (the same convention every other station
 // mesh here uses, so systems/visuals.js's existing rot handling applies unchanged), and all are
@@ -960,143 +967,6 @@ export function splashPoolMesh() {
 // silhouette matches the footprint nav actually blocks — the mismatch that made Batch 1's décor
 // look walkable when it wasn't.
 
-// groom1 — a raised grooming table with a brush resting on it and a hose coil beneath. The brush
-// is the read: it is the verb (plan 3.9's "brush hold"), and it is the one part high enough and
-// coloured strongly enough to be legible at the play camera's pitch.
-export function groomTableMesh() {
-  const g = new THREE.Group();
-  g.add(mesh([
-    part('rbox', [1.3, 0.12, 0.9, 0.04], '#EAF6FF', { y: 0.86, tex: 'fabric' }),                 // padded top
-    part('box', [1.24, 0.06, 0.84], '#CFE7F5', { y: 0.93, tex: 'fabric' }),                      // wipe-clean mat
-    part('cyl', [0.09, 0.11, 0.8, 8], C.metal, { y: 0.4 }),                       // column
-    part('cyl', [0.42, 0.42, 0.07, 12], C.metal, { y: 0.04 }),                    // base plate
-    part('rbox', [0.3, 0.09, 0.13, 0.03], C.wood, { x: 0.42, y: 1.0, z: 0.2, ry: 0.35 }),  // brush back
-    ...[-0.09, 0, 0.09].map(o => part('box', [0.2, 0.07, 0.02], C.ink, { x: 0.42 + o * 0.34, y: 0.94, z: 0.2 + o, ry: 0.35 })), // bristles
-    part('cyl', [0.19, 0.19, 0.08, 12], '#7FB8D8', { y: 0.2, z: -0.3, rx: Math.PI / 2 }),   // hose coil
-    // The grooming arm — the tall L of chrome every real grooming table has, and the one shape that
-    // says "grooming table" rather than "table" from across the spa.
-    part('cyl', [0.035, 0.035, 1.3, 8], C.metal, { x: -0.55, y: 1.55, z: -0.34 }),
-    part('cyl', [0.035, 0.035, 0.62, 8], C.metal, { x: -0.25, y: 2.19, z: -0.34, rz: Math.PI / 2 }),
-    part('sph', [0.05, 8], C.metal, { x: -0.55, y: 2.19, z: -0.34 }),
-    // ...and hanging from it, a big pink dryer: the topper.
-    part('cyl', [0.02, 0.02, 0.24, 6], C.ink, { x: 0.02, y: 2.05, z: -0.34 }),
-    part('cyl', [0.11, 0.11, 0.34, 12], '#FF9DBB', { x: 0.02, y: 1.86, z: -0.28, rx: Math.PI / 2 }),
-    part('cyl', [0.08, 0.06, 0.1, 10], '#FF7AA2', { x: 0.02, y: 1.86, z: -0.08, rx: Math.PI / 2 }),
-    part('rbox', [0.07, 0.2, 0.08, 0.03], '#FF7AA2', { x: 0.02, y: 1.72, z: -0.4 }),
-  ]));
-  return g;
-}
-// bath1 — an open tub on legs with a foam line and a raised tap. Deliberately NOT a closed box:
-// the pet has to be visible sitting in it once the content agents put one there.
-export function bathTubMesh() {
-  const g = new THREE.Group();
-  const p = [
-    part('cyl', [0.56, 0.5, 0.5, 14], '#EAF6FF', { y: 0.55, tex: 'ceramic' }),                    // tub body
-    part('cyl', [0.5, 0.5, 0.06, 14], '#8FD3EE', { y: 0.72 }),                    // water
-    part('cyl', [0.46, 0.46, 0.05, 14], '#FFFFFF', { y: 0.76 }),                  // foam
-    part('cyl', [0.6, 0.6, 0.06, 14], C.metal, { y: 0.8, tex: 'metal' }),                       // rim
-    part('cyl', [0.05, 0.05, 0.42, 8], C.metal, { y: 1.0, z: -0.52 }),            // tap riser
-    part('box', [0.06, 0.06, 0.26], C.metal, { y: 1.19, z: -0.4 }),               // spout
-    part('sph', [0.09, 8], '#FFFFFF', { x: 0.22, y: 0.92, z: 0.12, sy: 0.85 }),   // a stray suds blob
-  ];
-  for (const x of [-0.36, 0.36]) for (const z of [-0.36, 0.36]) {
-    p.push(part('cyl', [0.05, 0.05, 0.6, 6], C.metal, { x, y: 0.3, z }));         // legs
-  }
-  // The topper: a column of bubbles rising off the foam, smallest highest, a hint of blue in each.
-  for (const [x, y, z, r] of [[-0.12, 1.12, 0.05, 0.14], [0.14, 1.36, -0.06, 0.11], [-0.05, 1.6, 0.02, 0.09], [0.1, 1.82, 0.04, 0.07], [-0.08, 2.02, -0.02, 0.05]]) {
-    p.push(part('sph', [r, 10], '#F2FBFF', { x, y, z }));
-    p.push(part('sph', [r * 0.3, 6], '#FFFFFF', { x: x - r * 0.4, y: y + r * 0.4, z: z + r * 0.6 }));
-  }
-  g.add(mesh(p));
-  return g;
-}
-// waterTank1 — a banded blue water butt with a tap and a bucket under it, and a big water drop on
-// the lid for its topper. It was a pale cylinder the size of a bin, and read as one.
-export function waterTankMesh() {
-  const g = new THREE.Group();
-  const P = [];
-  P.push(part('cyl', [0.44, 0.48, 0.1, 14], C.metal, { y: 0.05, tex: 'metal' }));           // plinth
-  P.push(part('cyl', [0.4, 0.4, 0.9, 16], '#9FDDF2', { y: 0.55, tex: 'metal' }));           // tank
-  for (const y of [0.25, 0.85]) P.push(part('cyl', [0.415, 0.415, 0.05, 16], C.metal, { y }));
-  P.push(part('cyl', [0.43, 0.43, 0.06, 16], C.metal, { y: 1.03 }));                        // lid
-  P.push(part('cyl', [0.05, 0.05, 0.22, 8], C.metal, { y: 0.4, z: 0.46, rx: Math.PI / 2 })); // tap
-  P.push(part('box', [0.18, 0.05, 0.05], '#FF8A80', { y: 0.48, z: 0.52 }));
-  P.push(part('cyl', [0.13, 0.1, 0.16, 10], '#DCEFF7', { y: 0.08, z: 0.47 }));             // bucket
-  P.push(part('sph', [0.25, 14], '#4FB8E8', { y: 1.4 }));                                    // the drop
-  P.push(part('cone', [0.18, 0.34, 14], '#4FB8E8', { y: 1.7 }));
-  P.push(part('sph', [0.065, 8], '#FFFFFF', { x: -0.1, y: 1.48, z: 0.18 }));
-  g.add(mesh(P));
-  return g;
-}
-// boutique1 — a shop rack: a frame, two hanging rails of accessory swatches and a shelf of boxes.
-// Its own colour block (coral/violet swatches) is what separates it from the spa's blue-and-white
-// wet stations from across the hall.
-export function boutiqueRackMesh() {
-  const g = new THREE.Group();
-  const p = [
-    part('box', [1.9, 0.09, 0.7], C.wood, { y: 0.06, tex: 'wood' }),                           // base
-    part('box', [1.9, 0.08, 0.7], C.wood, { y: 0.92, tex: 'wood' }),                           // shelf
-    part('cyl', [0.05, 0.05, 1.9, 8], C.woodDark, { x: -0.9, y: 0.95 }),
-    part('cyl', [0.05, 0.05, 1.9, 8], C.woodDark, { x: 0.9, y: 0.95 }),
-    part('cyl', [0.03, 0.03, 1.8, 8], C.metal, { y: 1.5, rz: Math.PI / 2 }),      // hanging rail
-  ];
-  const swatch = ['#F08AA8', '#B48CF2', '#6EC6FF', '#FFD166', '#8FD3EE'];
-  swatch.forEach((hex, i) => {
-    const x = -0.72 + i * 0.36;
-    p.push(part('box', [0.26, 0.42, 0.04], hex, { x, y: 1.24, tex: 'fabric' }));                 // hanging item
-    p.push(part('cyl', [0.05, 0.05, 0.02, 8], C.metal, { x, y: 1.48, rx: Math.PI / 2 }));  // hook
-  });
-  for (let i = 0; i < 3; i++) p.push(part('rbox', [0.4, 0.24, 0.4, 0.04], i & 1 ? C.cream : C.coral, { x: -0.6 + i * 0.6, y: 1.08 }));
-  g.add(mesh(p));
-  return g;
-}
-// planters — the spa's décor cluster (three pots of different heights). A STATION, not part of
-// buildRegion's floor, precisely so it blocks: buildRegion's own corner pots are render-only and a
-// station can be authored on top of one, which is why the tile floor skips them (see buildRegion).
-export function planterClusterMesh() {
-  const g = new THREE.Group();
-  const p = [];
-  for (const [x, z, s] of [[-0.26, -0.1, 1.0], [0.26, 0.12, 0.78], [0.02, 0.34, 0.6]]) {
-    p.push(part('cyl', [0.24 * s, 0.19 * s, 0.42 * s, 10], '#A9764E', { x, y: 0.21 * s, z }));
-    p.push(part('cyl', [0.26 * s, 0.26 * s, 0.06 * s, 10], '#C08A56', { x, y: 0.44 * s, z }));
-    p.push(part('sph', [0.34 * s, 8], C.plant, { x, y: 0.72 * s, z, tex: 'leaf' }));
-    p.push(part('sph', [0.22 * s, 8], C.plantDark, { x: x + 0.16 * s, y: 0.92 * s, z: z - 0.07 * s }));
-  }
-  g.add(mesh(p));
-  return g;
-}
-// spaSeat1-3 — a lounge seat for the owner waiting while their pet is pampered: a low bench with a
-// cushion and a side table, in place of the café's round table. Same local convention as
-// tableMesh (the human sits at +z 1.05, the pet waits at right 0.6), so seat.pair geometry and
-// every seated-guest system read it exactly as they read an interior table.
-// spaSeat1-3 — a lounge bench with a side table. The owner read them as "long chairs, and dirty
-// dishes left on the chair". The dishes were real in two ways. Clean, the side table had a CREAM
-// top with a blue glass of water standing on it, and from the top-down camera a cream disc with a
-// blue dot on it is a plate with food on it, at the head of every bench. Dirty, the bussed-table
-// prop was drawn where it is drawn for every seat — on what is, here, the cushion. So the table top
-// is wood now, dressed with a rolled towel and a succulent (spa, not food), and the mesh publishes
-// `dirtyAnchor` so systems/visuals.js stacks the plates on the SIDE TABLE when the seat is used.
-export function spaLoungeMesh() {
-  const g = new THREE.Group();
-  const p = [
-    part('rbox', [1.3, 0.16, 0.66, 0.05], C.wood, { y: 0.42, tex: 'wood' }),                   // bench slab
-    part('rbox', [1.24, 0.12, 0.6, 0.05], '#EAF6FF', { y: 0.55, tex: 'fabric' }),                // cushion
-    part('rbox', [1.3, 0.5, 0.12, 0.04], C.wood, { y: 0.75, z: -0.3, tex: 'wood' }),           // low back
-    part('cyl', [0.26, 0.24, 0.5, 10], C.woodDark, { x: 0.82, y: 0.25, z: 0.2 }), // side table
-    part('cyl', [0.3, 0.3, 0.06, 12], C.wood, { x: 0.82, y: 0.53, z: 0.2, tex: 'wood' }),   // its top, wood
-    part('cyl', [0.055, 0.055, 0.26, 10], '#FFFFFF', { x: 0.74, y: 0.62, z: 0.02, rz: Math.PI / 2, tex: 'fabric' }), // towel
-    part('cyl', [0.07, 0.06, 0.1, 8], '#A9764E', { x: 0.98, y: 0.61, z: 0.02 }),  // succulent pot
-    part('sph', [0.07, 7], C.plant, { x: 0.98, y: 0.7, z: 0.02, sy: 0.8 }),
-    part('cyl', [0.1, 0.13, 0.06, 12], C.pink, { x: 0.6, y: 0.03, z: 1.05 }),     // pet bowl, matching seat.pair.pet
-  ];
-  for (const x of [-0.52, 0.52]) for (const z of [-0.22, 0.22]) {
-    p.push(part('box', [0.1, 0.36, 0.1], C.woodDark, { x, y: 0.16, z }));         // legs
-  }
-  g.add(mesh(p));
-  // Where a used seat's plates go: centred on the side table's top face.
-  g.dirtyAnchor = new THREE.Vector3(0.82, 0.57, 0.24);
-  return g;
-}
 
 export function cashPile(max = 60) {
   const geo = new THREE.BoxGeometry(0.32, 0.04, 0.18); const mat = new THREE.MeshToonMaterial({ color: new THREE.Color(C.cash) });

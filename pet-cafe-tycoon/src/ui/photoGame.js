@@ -20,6 +20,8 @@
 import {
   photoRingScale, photoJudgeQuality, PHOTO_TARGET_SCALE, PHOTO_PERFECT_BAND, PHOTO_GOOD_BAND,
 } from '../sim/petPose.js';
+import { runMoment } from './moments.js';
+import { presentationScheduler } from '../core/presentationScheduler.js';
 
 // Injected, not in style.css (see the header). Two rules: the corner polaroid that every photo
 // after a pet's first gets, and its reduced-motion form.
@@ -65,9 +67,6 @@ export function createPhotoGame({ project, els, onResolve, renderPortrait, avoid
 
   let session = null; // { subjectId, t, flown, poseId, petKeyStr }
   const tmp = { sx: 0, sy: 0, visible: true };
-  // The card queue: every polaroid waits here for pump() to run it, one at a time. A photo is a
-  // moment, and a moment drawn behind a sheet is a moment nobody had.
-  const held = [];
 
   function place(subject) {
     if (typeof project !== 'function') return;
@@ -126,16 +125,15 @@ export function createPhotoGame({ project, els, onResolve, renderPortrait, avoid
   // day-19 playthrough measured as a full-screen white wash 3-5 times a day. Every later photo of
   // a pet already in the album is the small corner card below, with no flash at all.
   const REVEAL_HOLD_MS = 1500;
-  function revealPolaroid(poseId, petKeyStr, info) {
-    const timers = [], extra = [];
+  function revealPolaroid(poseId, petKeyStr, info, done) {
     const calm = !!(typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
     if (!calm) {
-      const flash = document.createElement('div'); flash.className = 'photoFlash';
-      document.body.appendChild(flash); extra.push(flash);
-      timers.push(setTimeout(() => flash.remove(), 420));
+      const flash = document.createElement('div'); flash.className = 'photoFlash moment';
+      document.body.appendChild(flash);
+      presentationScheduler.schedule(() => flash.remove(), 420);
     }
     const card = document.createElement('div');
-    card.className = 'photoReveal';
+    card.className = 'photoReveal moment';
     const frame = document.createElement('div'); frame.className = 'photoRevealFrame developing';
     portraitInto(frame, petKeyStr, poseId);
     const name = document.createElement('div'); name.className = 'photoRevealName';
@@ -154,26 +152,24 @@ export function createPhotoGame({ project, els, onResolve, renderPortrait, avoid
       card.classList.add('shown');
       frame.classList.remove('developing');
     }));
-    timers.push(setTimeout(() => {
+    presentationScheduler.schedule(() => {
       const rect = chipRect();
       if (rect) {
         card.style.left = (rect.left + rect.width / 2) + 'px';
         card.style.top = (rect.top + rect.height / 2) + 'px';
       }
       card.classList.add('stowing');
-    }, REVEAL_HOLD_MS));
-    timers.push(setTimeout(() => { card.remove(); bumpChip(); }, REVEAL_HOLD_MS + 650));
-    return { el: card, extra, timers, life: REVEAL_HOLD_MS + 700 };
+    }, REVEAL_HOLD_MS);
+    presentationScheduler.schedule(() => { card.remove(); bumpChip(); done(); }, REVEAL_HOLD_MS + 650);
   }
 
   // Every photo after a pet's first: a small polaroid slides in under the collection chip, holds,
   // and slides back out as the chip bumps. No flash, no screen wash, nothing over the floor —
   // "another one for the album", not an event.
   const CORNER_HOLD_MS = 1400;
-  function cornerPolaroid(poseId, petKeyStr) {
-    const timers = [];
+  function cornerPolaroid(poseId, petKeyStr, done) {
     const card = document.createElement('div');
-    card.className = 'photoCorner';
+    card.className = 'photoCorner moment';
     const frame = document.createElement('div'); frame.className = 'photoCornerFrame';
     portraitInto(frame, petKeyStr, poseId);
     card.appendChild(frame);
@@ -181,30 +177,15 @@ export function createPhotoGame({ project, els, onResolve, renderPortrait, avoid
     if (rect) { card.style.left = rect.left + 'px'; card.style.top = (rect.bottom + 8) + 'px'; }
     document.body.appendChild(card);
     requestAnimationFrame(() => requestAnimationFrame(() => card.classList.add('shown')));
-    timers.push(setTimeout(() => { card.classList.remove('shown'); card.classList.add('stowing'); }, CORNER_HOLD_MS));
-    timers.push(setTimeout(() => { card.remove(); bumpChip(); }, CORNER_HOLD_MS + 420));
-    return { el: card, extra: [], timers, life: CORNER_HOLD_MS + 470 };
+    presentationScheduler.schedule(() => { card.classList.remove('shown'); card.classList.add('stowing'); }, CORNER_HOLD_MS);
+    presentationScheduler.schedule(() => { card.remove(); bumpChip(); done(); }, CORNER_HOLD_MS + 420);
   }
 
-  // ONE card at a time, and never on top of something the player opened. Every card goes through
-  // this queue, including one already playing when a sheet or the day summary opens on top of it:
-  // that card is taken down and put back at the head of the queue, so the moment is postponed
-  // rather than drawn behind (or over) the thing the player is reading. The day-19 playthrough
-  // caught exactly that — a polaroid on top of the Day 14 summary, hiding its rows.
-  let playing = null;
-  function cancelPlaying(requeue) {
-    if (!playing) return;
-    for (const t of playing.timers) clearTimeout(t);
-    for (const el of [playing.el, ...playing.extra]) if (el && el.parentNode) el.remove();
-    if (requeue) held.unshift(playing.job);
-    playing = null;
-  }
-  function runCard(job) {
-    const card = job();
-    playing = { job, ...card };
-    playing.timers.push(setTimeout(() => { if (playing && playing.el === card.el) playing = null; }, card.life));
-  }
-
+  // ONE card at a time, and never on top of something the player opened: both cards are items in
+  // the game's single moment queue (ui/moments.js), which starts nothing while a sheet, the day
+  // summary or a collection page is open, hides what is on screen when one opens (body.modal-open
+  // .moment) and freezes its timers with the presentation clock. The day-19 playthrough caught the
+  // failure this replaces: a polaroid drawn on top of the Day 14 summary, hiding its rows.
   return {
     // `poseId` (cats loaf, dogs sit-tilt, bunnies ear-up, hamsters cheeks) and `petKeyStr` are
     // captured now, while the sim session that named them is still fresh, rather than re-read later
@@ -241,18 +222,12 @@ export function createPhotoGame({ project, els, onResolve, renderPortrait, avoid
         const poseId = session.poseId, petKeyStr = session.petKeyStr;
         // Queued, never drawn straight away: pump() runs it on the very next frame unless a sheet
         // or an overlay is up, in which case it waits for that to close.
-        if (s.reveal) held.push(() => revealPolaroid(poseId, petKeyStr, { name: s.petName, rank: s.rank }));
-        else held.push(() => cornerPolaroid(poseId, petKeyStr));
+        const info = { name: s.petName, rank: s.rank };
+        runMoment('photo', `photo:${petKeyStr}:${s.rank | 0}:${poseId || ''}`, done => (s.reveal
+          ? revealPolaroid(poseId, petKeyStr, info, done)
+          : cornerPolaroid(poseId, petKeyStr, done)));
         root.classList.add('hidden');
       }
-    },
-    // Called every frame by systems/photo.js: runs the card queue. Nothing is drawn while a sheet,
-    // the day summary or a full-screen collection page is open, and anything already on screen when
-    // one opens is taken down and put back in the queue.
-    pump() {
-      if (typeof isBlocked === 'function' && isBlocked()) { cancelPlaying(true); return; }
-      if (playing || !held.length) return;
-      runCard(held.shift());
     },
     stop() {
       session = null;
@@ -260,8 +235,6 @@ export function createPhotoGame({ project, els, onResolve, renderPortrait, avoid
     },
     destroy() {
       hit.removeEventListener('pointerdown', onPointerDown);
-      cancelPlaying(false);
-      held.length = 0;
       root.remove();
     },
   };

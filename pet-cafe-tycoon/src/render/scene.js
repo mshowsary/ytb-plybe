@@ -22,7 +22,11 @@ export function createScene(canvas) {
   // look any more: daylight.update() owns sun/hemi/fog/sky/grade from the first frame of a shift.
   // These values only decide what one pre-game render (the renderer smoke test in main.js) shows.
   scene.fog = new THREE.Fog('#F2F6F9', 42, 88);
-  const camera = new THREE.PerspectiveCamera(FOV, 1, 0.5, 200);
+  // Near plane 2.5, not 0.5: depth precision goes with near / z², so this alone buys 5x. The camera
+  // only ever looks down at the owner from S.dist (8.7 m at the widest phone, 844x390, even inside
+  // the 0.84 build punch), and the nearest thing it can frame is the awning's front edge, ~2.9 m out
+  // at a 3:1 ultra-wide during the punch — 2.5 keeps that in frame with margin.
+  const camera = new THREE.PerspectiveCamera(FOV, 1, 2.5, 200);
 
   // The sky is a two-colour vertex gradient on a back-faced sphere. It used to be baked once; the
   // colour attribute is now repainted on demand so time of day can move it (325 verts, ~4 KB).

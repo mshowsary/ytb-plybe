@@ -37,13 +37,12 @@ export function createOwner(shirtHex = C.coral, contactShadows = currentContactS
   // Task 4: a sack (beans/kibble) or a fruit basket rides the stack the same as product items —
   // built once each, lazily, and just toggled visible (never both/product items at once, per the
   // carry-slot rules in src/sim/carry.js, so there's never a stacking-order question to solve).
-  // 'cream' (coldPantry1) and 'water' (waterTank1) are real supply kinds in data/area1.js and were
-  // missing here, so fetching milk for the ice-cream machine or water for the bath showed an
-  // empty-handed character walking back across the café.
-  const sackByKind = { beans: null, kibble: null, cream: null, water: null };
+  // Beans and kibble are the only supplies left (src/sim/supplies.js): the ice cream machine
+  // drinks nothing and the spa's water went with it.
+  const sackByKind = { beans: null, kibble: null };
   let fruitM = null;
   O.setCarryProps = (sackKind, fruitN) => {
-    for (const kind of ['beans', 'kibble', 'cream', 'water']) {
+    for (const kind of ['beans', 'kibble']) {
       const on = sackKind === kind;
       if (on && !sackByKind[kind]) { sackByKind[kind] = sackMesh(kind); sackByKind[kind].position.set(0, 0.1, 0); stack.add(sackByKind[kind]); }
       if (sackByKind[kind]) sackByKind[kind].visible = on;

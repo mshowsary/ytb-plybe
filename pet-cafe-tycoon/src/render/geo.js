@@ -119,7 +119,10 @@ export function merge(parts) {
 // ever miss. Batch 8 measured 110 casters in a built day-12 café; furniture and bodies are what the
 // eye reads as grounded, and Batch 8's contact shadows now anchor everything else for one draw call
 // in total. Callers that genuinely need a small caster can still pass `cast: true` explicitly.
-const SHADOW_MIN_RADIUS = 0.28;
+// 0.4, up from 0.28 (ship plan §1.9 budget): the shadow pass was 87 of the static scene's 184 draw
+// calls, and a prop smaller than a chair seat — a sack, a basket of fruit, a sign — still reads as
+// grounded on its contact shadow.
+const SHADOW_MIN_RADIUS = 0.4;
 
 export function mesh(parts, opts = {}) {
   const g = merge(parts);

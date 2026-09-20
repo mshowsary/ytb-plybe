@@ -32,6 +32,7 @@ import { beanIcon, kibbleIcon, sackIcon, coffeeIcon, treatIcon } from './icons.j
 // `undefined`, so this file works whether it runs before or after that lands. sackIcon is the
 // fallback both before it lands and for any future supply that never gets its own glyph.
 import * as ICONS_NS from './icons.js';
+import { isModalOpen } from './modal.js';
 const creamIcon = () => (typeof ICONS_NS.creamIcon === 'function' ? ICONS_NS.creamIcon() : sackIcon());
 import {
   MECHANIC_LEARNING_VERSION,
@@ -126,17 +127,16 @@ function injectStyle() {
     @keyframes coachDot{0%,100%{opacity:.25;transform:translateY(0)}50%{opacity:.9;transform:translateY(-1px)}}
     .interaction-coach.coach-fade,.interaction-coach.coach-fade.route-mode,.interaction-coach.coach-fade.hold-mode{opacity:0}
     .interaction-coach.coach-fade .coach-caption{opacity:0}
-    body.game-paused .interaction-coach,body.host-paused .interaction-coach,body.meta-summary-open .interaction-coach{display:none!important}
+    body.game-paused .interaction-coach,body.host-paused .interaction-coach,body.modal-open .interaction-coach{display:none!important}
     @media(max-width:200px){.interaction-coach{width:32px;height:32px;opacity:.66}.interaction-coach .coach-caption{top:33px;font-size:8px}}
     @media(prefers-reduced-motion:reduce){.interaction-coach .coach-ring,.interaction-coach .coach-hand,.interaction-coach .coach-hold-dot{animation:none!important}.interaction-coach .coach-ring{opacity:.58;transform:scale(.82)}}
   `;
   document.head.appendChild(s);
 }
 
+// Any sheet (ui/modal.js knows them all, whichever door opened them) or the host's pause overlay.
 function overlayOpen() {
-  return !!document.querySelector(
-    '.sheet-root:not(.hidden),.career-root:not(.hidden),.meta-book-root:not(.hidden),.party-root:not(.hidden),.pause-root:not(.hidden),.host-pause:not(.hidden)'
-  );
+  return isModalOpen() || !!document.querySelector('.host-pause:not(.hidden)');
 }
 
 function buttonVisible(btn) {

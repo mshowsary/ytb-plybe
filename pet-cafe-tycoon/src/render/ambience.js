@@ -11,6 +11,8 @@
 // low teens after, same pixels either way.
 import * as THREE from 'three';
 import { part, mesh, colorize } from './geo.js';
+import { regionEdge } from '../sim/nav.js';
+import { regionBuiltState } from './regionState.js';
 
 const toon = color => new THREE.MeshToonMaterial({ color });
 const basic = (color, opacity = 1) => new THREE.MeshBasicMaterial({
@@ -63,6 +65,24 @@ function makePawSign(color = '#FF89A6', opacity = 0.94) {
   const m = mesh(P, { cast: false, receive: false, material: mat });
   m.userData.glowMaterial = mat;
   return m;
+}
+
+// For every region that opens through a fence line, which of `bulbs` ([x, y, z] on the fence
+// lines) hang inside its gate gap or against its arch posts (buildRegion: the gap plus 0.15 m, 0.12
+// thick). Shared with daylight.js, whose after-dark glow sits on exactly these bulbs.
+export function stringGaps(area, bulbs) {
+  const W = area.size.w, D = area.size.d, out = [];
+  for (const reg of area.regions || []) {
+    const e = regionEdge(reg, area);
+    if (!e) continue;
+    const reach = e.gapHalf + 0.35, idx = [];
+    bulbs.forEach(([x, , z], i) => {
+      const onLine = e.axis === 'z' ? Math.abs(z - D / 2) < 0.3 : Math.abs(x - W / 2) < 0.3;
+      if (onLine && Math.abs((e.axis === 'z' ? x : z) - e.gapCentre) < reach) idx.push(i);
+    });
+    if (idx.length) out.push({ id: reg.id, bulbs: idx });
+  }
+  return out;
 }
 
 export function createAmbience(area) {
@@ -141,6 +161,25 @@ export function createAmbience(area) {
   const mx = new THREE.Matrix4();
   bulbs.forEach((p, i) => { mx.makeTranslation(p[0], p[1], p[2]); lights.setMatrixAt(i, mx); });
   lights.instanceMatrix.needsUpdate = true; group.add(lights);
+  // Once a region's gate opens, the bulbs strung across its gap would hang in mid-air over the path
+  // everyone walks, so the string skips an OPEN gap — its arch posts included. environment.js records
+  // which gates are open (regionState.js); a closed gate is just fence and keeps its bulbs.
+  const gapBulbs = stringGaps(area, bulbs);
+  let gateVersion = -1;
+  function syncGates() {
+    const state = regionBuiltState(area);
+    if (state.version === gateVersion) return;
+    gateVersion = state.version;
+    const open = new Set();
+    for (const gap of gapBulbs) if (state.built.has(gap.id)) for (const i of gap.bulbs) open.add(i);
+    bulbs.forEach((p, i) => {
+      mx.makeTranslation(p[0], p[1], p[2]);
+      if (open.has(i)) mx.scale(new THREE.Vector3(0, 0, 0));
+      lights.setMatrixAt(i, mx);
+    });
+    lights.instanceMatrix.needsUpdate = true;
+  }
+  syncGates();
 
   // Reputation level 1 — greenery makes the room feel owned instead of freshly spawned. Four
   // placements, never touched again: one merged mesh instead of 4 x 3 = 12 draws (see plantParts
@@ -292,6 +331,7 @@ export function createAmbience(area) {
 
   function update(dt) {
     t += dt;
+    syncGates();
     const a = dustGeo.getAttribute('position');
     for (let i = 0; i < COUNT; i++) {
       let y = a.getY(i) + speed[i] * dt;

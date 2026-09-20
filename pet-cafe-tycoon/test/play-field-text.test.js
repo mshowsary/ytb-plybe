@@ -35,13 +35,12 @@ const SRC = process.env.PLAY_FIELD_SRC
 const PLAY_FIELD_FILES = [
   'game.js',
   'ui/hud.js',
+  'ui/moments.js',
   'ui/meta.js',
   'systems/objective.js',
-  'systems/petSocials.js',
   'systems/rewardsSystem.js',
   'systems/economyExperience.js',
   'systems/stations.js',
-  'systems/partyOrders.js',
   'systems/customers.js',
   'systems/petFriendship.js',
 ];
@@ -193,11 +192,10 @@ test('B. a cue draws only pictograms, numerals, punctuation and proper nouns', (
 // The world-anchored controls: a floating button over a guest, over the party crate, the Pet Social
 // launcher, the Mystery Gift chip, the objective caption, the party-order HUD chip. Each is named
 // by the variable or class its own file uses, so this survives the file being reformatted.
+// Batch D removed the Pet Social launcher, the party-order chip and its collect pill, and the
+// Mystery Gift chip with the rest of their UI; the objective caption is the one left.
 const WORLD_CONTROLS = [
   ['systems/objective.js', ['caption']],
-  ['systems/petSocials.js', ['launch']],
-  ['systems/partyOrders.js', ['collect', 'btn', 'party-order-progress']],
-  ['systems/rewardsSystem.js', ['mysteryChip']],
 ];
 
 // Every `.textContent =` / `.innerHTML =` in a file, with the receiver text that precedes it and
@@ -269,9 +267,15 @@ test('D. no emoji reach a banner, a toast or a world-anchored control', () => {
 test('E. the accessible name survives every conversion', () => {
   // The rule is about what is DRAWN. A screen reader must still hear every sentence, so the two
   // shared sinks stay live regions and the cue renderer must keep emitting the hidden text span.
+  // Batch D moved both sinks into the moment queue (ui/moments.js), which creates them in one place.
+  const moments = read('ui/moments.js');
+  assert.match(moments, /which === 'banner'\) \{ el\.id = 'banner';/, 'the banner sink is created by the queue');
+  assert.match(moments, /else \{ el\.className = 'toast moment hidden'; toastEl = el; \}/, 'the toast sink is created by the queue');
+  assert.match(moments, /el\.setAttribute\('role', 'status'\); el\.setAttribute\('aria-live', 'polite'\);/, 'both sinks are live regions');
+  assert.match(moments, /paintCue\(el, value\)/, 'both sinks paint through the cue renderer');
   const hud = read('ui/hud.js');
-  assert.match(hud, /bannerEl\.setAttribute\('role', 'status'\)/);
-  assert.match(hud, /toastEl\.setAttribute\('role', 'status'\)/);
+  assert.match(hud, /H\.banner = showBanner;/, 'hud.banner is the queued banner');
+  assert.match(hud, /H\.toast = showToast;/, 'hud.toast is the queued toast');
   assert.match(hud, /class="cueSr"/, 'the visually-hidden sentence must still be emitted');
   assert.match(hud, /setAttribute\('aria-label', value\.aria\)/);
 

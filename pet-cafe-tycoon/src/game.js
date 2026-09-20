@@ -1,7 +1,6 @@
 import { normalizeServicePolicy, prepareServicePolicy, recordOrdinaryServiceShift } from './sim/servicePolicy.js';
 import { applySeatMiss } from './sim/serviceQuality.js';
 import { normalizeSocials } from './sim/petSocials.js';
-import { createPetSocials } from './systems/petSocials.js';
 import { cafeCompletion } from './sim/completion.js';
 import { summaryClaimedForShift, inShiftClaimedForShift, markRewardedClaim, interstitialDueAfterShift, summaryBonusAmount } from './sim/adPacing.js';
 import { specialForDaySeasoned, saleMatchesTheme, specialProgress, specialReward, goldenHourForDay, createGoldenHourState, stepGoldenHour, goldenHourMult } from './sim/specialDays.js';
@@ -26,14 +25,13 @@ import { snapshotStationState, restoreStationState } from './sim/stationState.js
 import { snapshotOwnerState, restoreOwnerState } from './sim/ownerState.js';
 import { reliefClaimKey } from './sim/relief.js';
 import { ensurePartyOrders, clonePartyOrders } from './sim/partyOrders.js';
-import { createDay, stepDay, nextDay, phaseFrac, isWeekend, isHoliday, tipMult } from './sim/day.js';
-import { ensureReputation, reputationLevel, reputationProgress, reputationTitle, REPUTATION_TITLES } from './sim/reputation.js';
+import { createDay, stepDay, nextDay, isWeekend, isHoliday, tipMult } from './sim/day.js';
+import { ensureReputation, reputationLevel } from './sim/reputation.js';
 import { ensurePetBook, discoverPet, petBookProgress, allPetCards } from './sim/petBook.js';
 import {
-  ensureCareer, chooseCareerGoal, careerGoalLabel, careerGoalProgress,
-  recordRecipeOrder, masteryMultiplier, allMasteryProgress,
-  weeklyCupState, weekdayIndex, renovationState, buyRenovation,
-  LEGENDARY_REPUTATION,
+  ensureCareer, chooseCareerGoal,
+  recordRecipeOrder, masteryMultiplier,
+  weekdayIndex, renovationState, buyRenovation,
 } from './sim/career.js';
 import { settleShift, cloneSettlement, recordPaidGuest } from './sim/settlement.js';
 import { createCarry } from './sim/carry.js';
@@ -59,7 +57,6 @@ import { createPawSheet } from './ui/pawSheet.js';
 import {
   pawRatingState, applyPawRatchet, recordPawSeatDay, pawAwningSetIndex, pawBestStar,
 } from './sim/pawRating.js';
-import { createCareerUI } from './ui/career.js';
 import { createRenovationUI } from './ui/renovation.js';
 import { createAudio } from './audio/synth.js';
 import { createStations } from './systems/stations.js';
@@ -72,7 +69,6 @@ import { createStaff } from './systems/staff.js';
 import { createVisuals } from './systems/visuals.js';
 import { createRegisterCash } from './systems/registerCash.js';
 import { createEconomyExperience } from './systems/economyExperience.js';
-import { createPartyOrders } from './systems/partyOrders.js';
 import { createObjective } from './systems/objective.js';
 import { createIntro } from './systems/intro.js';
 import { jobTarget } from './sim/jobs.js';
@@ -115,6 +111,8 @@ export function createGame(S, area, els, platform = null) {
   // The summary's follower chip reports the GAIN, so it needs the reading this shift started from.
   // Taken here rather than in freshDayStats(), which has no access to meta.
   G.dayStats.followersStart = G.meta.followers | 0;
+  // ...and the new-pets chip reports today's discoveries the same way.
+  G.dayStats.petsStart = G.meta.petDiscoveries | 0;
   G.goal = chooseCareerGoal(1, G.meta, G);
 
   let updateInProgress = false;
@@ -163,11 +161,8 @@ export function createGame(S, area, els, platform = null) {
 
   const input = createInput(els.joy, els.joyKnob); const hud = createHud(); const metaUI = createMetaUI();
   G.hud = hud;
-  const careerUI = createCareerUI(); const renovationUI = createRenovationUI();
-  const pawUI = createPawSheet();
-  // Attached after createCareerUI() has finished with the HUD so the two openers cannot race for
-  // the same element; see the note in ui/career.js about which control opens what.
-  pawUI.attachOpener(document.querySelector('.meta-reputation'));
+  // Café Stars first: the renovation block mounts inside it.
+  const pawUI = createPawSheet(); const renovationUI = createRenovationUI();
   // G.fx is also read by systems/rewardsSystem.js, which has been reading an undefined value.
   const fx = createFx(scene, S.camera, els.fx, hud.walletEl); G.fx = fx; const sheets = createSheets(); const audio = createAudio();
   G.audio = audio; input.onFirstInput(() => audio.unlock()); audio.setSfx(G.settings.sfx); audio.setMusic(G.settings.music);
@@ -189,8 +184,7 @@ export function createGame(S, area, els, platform = null) {
     G.requestCheckpoint('renovation'); return true;
   }
   function syncReputationPresentation() {
-    ensureReputation(G.meta); const progress = reputationProgress(G.meta); const level = reputationLevel(G.meta); ambience.setPrestige(level);
-    metaUI.setReputation({ rep: G.meta.reputation, title: reputationTitle(G.meta), frac: progress.frac, nextTitle: REPUTATION_TITLES[level + 1] || null });
+    ensureReputation(G.meta); ambience.setPrestige(reputationLevel(G.meta));
   }
   function syncPetBookPresentation() {
     ensurePetBook(G.meta); const progress = petBookProgress(G.meta); const cards = allPetCards(G.meta);
@@ -226,14 +220,9 @@ export function createGame(S, area, els, platform = null) {
   function syncPawPresentation() {
     pawUI.refresh(pawRatingState({ meta: G.meta, stats: G.stats, built: world.built, area: world.area }));
   }
+  // The renovation, Café Stars' one purchase (the Journey sheet it used to share is gone).
   function syncCareerPresentation() {
-    const career = ensureCareer(G.meta), rep = reputationProgress(G.meta), level = reputationLevel(G.meta), week = weeklyCupState(G.meta, G.dayState.day);
-    careerUI.setModel({
-      day: G.dayState.day, completion: cafeCompletion(G),
-      rank: { rep: G.meta.reputation | 0, title: reputationTitle(G.meta), nextTitle: REPUTATION_TITLES[level + 1] || null, current: rep.current, needed: rep.needed, frac: rep.frac },
-      week: { ...week, currentIndex: weekdayIndex(G.dayState.day) }, trophies: { ...career.trophies }, masteries: allMasteryProgress(G.meta),
-      legendaryTarget: LEGENDARY_REPUTATION, legendary: (G.meta.reputation | 0) >= LEGENDARY_REPUTATION,
-    });
+    const career = ensureCareer(G.meta);
     renovationDecor.setLevel(career.renovationLevel | 0); renovationUI.setModel({ ...renovationState(G.meta, G.coins), coins: G.coins, onBuy: buyNextRenovation });
   }
   syncReputationPresentation(); syncPetBookPresentation(); syncCareerPresentation(); syncPawPresentation();
@@ -260,6 +249,8 @@ export function createGame(S, area, els, platform = null) {
   };
   const ctx = { area, world, scene, hud, fx, sheets, audio, input, owner, P, price, els, vis: new Map(), hints: { oven: 0, counter: 0, cash: 0, zone: 0, refillCoffee: 0, refillBowl: 0, harvest: 0, blend: 0, clean: 0 }, firstHint: { msg: null, t: 0 } };
   ctx.syncPetBook = syncPetBookPresentation;
+  // systems/petFriendship.js re-sends the Pet Book after a level-up, so the chip's "new" dot sees it.
+  G.syncPetBook = syncPetBookPresentation;
   // The portrait renderer needs the game's single WebGLRenderer, which only main.js's createScene
   // owns — passed as a callback so systems/photo.js never imports the render layer directly.
   ctx.renderPortrait = (petKeyStr, poseId) => renderPetPortrait(S.renderer, {
@@ -275,19 +266,16 @@ export function createGame(S, area, els, platform = null) {
   const photoStudio = createPhotoStudio(G, S, ctx);
   const visuals = createVisuals(G, S, ctx); const registerCash = createRegisterCash(G, S, ctx); const economyExperience = createEconomyExperience(G, S, ctx, platform);
   G.meta.servicePolicy = normalizeServicePolicy(G.meta.servicePolicy);
-  const petSocials = createPetSocials(G, S, ctx); const partyOrders = createPartyOrders(G, S, ctx, platform); const objective = createObjective(G, S, ctx); const intro = createIntro(G, S, ctx);
+  const objective = createObjective(G, S, ctx); const intro = createIntro(G, S, ctx);
 
-  // Deliberate destinations for the compact Café menu. Presentation entry points live here so the
-  // menu never has to fake clicks on HUD controls that are intentionally hidden during gameplay.
+  // The Café card's tiles (ui/pauseMenu.js). Café Stars repaints from live evidence as it opens: the
+  // guests-served row moves all day, and the renovation's price may have become affordable.
   G.uiRoutes = {
-    pets: { open: () => metaUI.openBook(), root: '.meta-book-root' },
-    journey: { open: () => careerUI.open(), root: '.career-root' },
-    paw: { open: () => pawUI.open(), root: '.paw-root' },
-    party: { open: () => partyOrders.open(), root: '.party-root', available: () => partyOrders.available },
-    social: { open: () => petSocials.open(), root: '.social-root', available: () => petSocials.available },
+    pets: { open: () => metaUI.openBook() },
+    paw: { open: () => { syncPawPresentation(); syncCareerPresentation(); pawUI.open(); } },
   };
 
-  let careerRefreshT = 0, dayTransitionPromise = null; hud.show();
+  let dayTransitionPromise = null; hud.show();
   G.finishActorStep = () => endActorStep(world);
   G.update = dt => {
     updateInProgress = true;
@@ -299,7 +287,7 @@ export function createGame(S, area, els, platform = null) {
     // constant reassuring, cleaning and recovering reads as nagging rather than challenge; a
     // pink banner promising future fines was the loudest piece of that.
     G.time += dt; world.servicePolicyActive = prepareServicePolicy(G);
-    petSocials.update(); input.update(); stations.update(dt); zones.update(dt);
+    input.update(); stations.update(dt); zones.update(dt);
     customers.prepare(dt); staff.prepare();
     const barista = G.baristaWorker?.prepare();
     ownerActor.mover.x = P.x; ownerActor.mover.z = P.z; ownerActor.mover.vx = P.vx; ownerActor.mover.vz = P.vz;
@@ -309,7 +297,7 @@ export function createGame(S, area, els, platform = null) {
     // frame. tools/bot.js keeps the identical order.
     customers.update(dt); photoStudio.update(dt); staff.update(dt); intro.update(dt);
     ambience.update(dt); renovationDecor.update(dt);
-    { const night = S.daylight ? S.daylight.lights : 0; ambience.setNight(night); environment.setNight(night); environment.updateFireflies(dt); } visuals.update(dt); registerCash.update(dt); objective.update(dt); economyExperience.update(dt); partyOrders.update(dt); fx.update(dt); hud.update();
+    { const night = S.daylight ? S.daylight.lights : 0; ambience.setNight(night); environment.setNight(night); environment.updateFireflies(dt); } visuals.update(dt); registerCash.update(dt); objective.update(dt); economyExperience.update(dt); fx.update(dt); hud.update();
 
     G.serviceStreak.t = Math.max(0, G.serviceStreak.t - dt);
     for (const e of world.events) {
@@ -321,7 +309,6 @@ export function createGame(S, area, els, platform = null) {
         if (G.special && order.some(p => saleMatchesTheme(G.special, p, familyOf))) {
           G.dayStats.specialServed = (G.dayStats.specialServed || 0) + 1;
         }
-        partyOrders.onSale(order); petSocials.onSale(order);
         const levelUps = recordRecipeOrder(G.meta, order);
         // Mastery is per RECIPE, so the recipe's own icon is the subject -- the same glyph that pastry
         // wears in the wish bubble, on the chalkboard and in the display case. Star = the level
@@ -341,8 +328,6 @@ export function createGame(S, area, els, platform = null) {
         G.requestCheckpoint('seat-missed');
       }
     }
-    metaUI.setStreak(G.serviceStreak.count, G.serviceStreak.t);
-    careerRefreshT -= dt; if (careerUI.isOpen && careerRefreshT <= 0) { careerRefreshT = 1; syncCareerPresentation(); }
 
     const dayEvents = stepDay(G.dayState, dt);
     for (const e of dayEvents) {
@@ -351,14 +336,9 @@ export function createGame(S, area, els, platform = null) {
       if (e.type === 'phase') { if (e.phase === 'rush') hud.banner(cue([stopwatchIcon()], 'Rush hour')); else if (e.phase === 'closing') hud.banner(cue([moonIcon()], 'Closing')); }
       else if (e.type === 'dayEnd') openDaySummary();
     }
-    hud.setDay(G.dayState.day, G.dayState.phase, phaseFrac(G.dayState)); hud.setContract(G.goal, G.dayStats, G.dayState.day);
-    hud.setFollowers(G.meta.followers);
     // The wallet's "saving for" ring. hud.js can reach neither the zone catalogue nor the built
     // set, so both are forwarded and the target rule itself stays in hud.js.
     hud.setSavingFor(world.area.zones, world.built);
-    // Pass the goal itself, not only its sentence: the pill renders a glyph plus the numeral
-    // rather than "Rival · Serve 24". The text stays as the fallback for any unmapped kind.
-    hud.setGoal(G.goal ? `${careerGoalLabel(G.goal)} · ${careerGoalProgress(G.goal, G.dayStats)}/${G.goal.target}` : null, G.goal || null);
     // The awning is a Paw Rating reward now (plan §3.4, one set per star), not a café-star one.
     // Deliberate consequence: a save with 10 café stars and no paw stars drops back to the coral
     // set. Keeping both rules would mean the awning no longer tells you anything in particular.
@@ -391,7 +371,7 @@ export function createGame(S, area, els, platform = null) {
     for (const st of world.stations.values()) if (st.type === 'seat' && st.dirty) cleanSeat(world, st.id);
     const { settlement, fresh } = settleShift(G);
     const completedDay = settlement.day, goal = settlement.goal, goalProgressNow = goal.progress, met = goal.met;
-    const rating = settlement.rating, repResult = settlement.reputation, cupAward = settlement.cup;
+    const cupAward = settlement.cup;
     hud.setCoins(G.coins);
     if (fresh && cupAward && cupAward.awarded) { hud.bump(); audio.play('chime'); }
     if (G.special) {
@@ -409,7 +389,7 @@ export function createGame(S, area, els, platform = null) {
     // idempotent per day, which matters because restoring a terminal save re-runs openDaySummary.
     recordPawSeatDay(G.meta, completedDay, G.dayStats.missedSeats | 0);
     applyPawRatchet({ meta: G.meta, stats: G.stats, built: world.built, area: world.area });
-    const repProgress = reputationProgress(G.meta), repLevel = reputationLevel(G.meta); syncReputationPresentation(); syncCareerPresentation(); syncPawPresentation();
+    syncReputationPresentation(); syncCareerPresentation(); syncPawPresentation();
     // The rewarded bonus is a third of today's takings (sim/adPacing.js summaryBonusAmount), whether
     // or not the contract was met: one rule, one number, worth the thirty seconds it asks for.
     const rewardAmount = summaryBonusAmount(settlement.stats.earned);
@@ -417,14 +397,11 @@ export function createGame(S, area, els, platform = null) {
     const rewardVisible = !rewardClaimed && !!platform && (platform.rewardedAvailable || !platform.inPlayables) && platform.canRequestAd?.('rewarded') !== false;
     if (rewardVisible) platform.noteAdEligible?.('rewarded', `summary:${completedDay}`);
     const summaryModel = buildServiceSummaryModel(G.dayStats, G.meta);
-    metaUI.lockSummary(true);
     sheets.open('summary', {
       v: 2, day: completedDay, earned: settlement.stats.earned,
-      served: summaryModel.served, lost: summaryModel.lost, followers: summaryModel.followers, photos: summaryModel.photos,
-      contract: { kind: goal.kind, target: goal.target, progress: goalProgressNow, met, reward: goal.reward, rival: !!goal.rival },
-      rating,
-      reputation: { awarded: repResult.awarded, levelUp: repResult.levelUp, title: reputationTitle(G.meta), nextTitle: REPUTATION_TITLES[repLevel + 1] || null, frac: repProgress.frac },
-      week: { ...weeklyCupState(G.meta, completedDay), award: cupAward && cupAward.awarded ? cupAward : null },
+      served: summaryModel.served, newPets: summaryModel.newPets, photos: summaryModel.photos,
+      contract: { kind: goal.kind, target: goal.target, progress: goalProgressNow, met, reward: goal.reward },
+      stars: pawRatingState({ meta: G.meta, stats: G.stats, built: world.built, area: world.area }),
       bonus: rewardVisible ? {
         amount: rewardAmount, claimed: rewardClaimed, liveAd: !!platform.rewardedAvailable,
         onClaim: async () => {
@@ -449,7 +426,7 @@ export function createGame(S, area, els, platform = null) {
     const run = (async () => {
       // Close presentation immediately so rapid input cannot create a second visible exit path. The
       // promise guard below remains authoritative while an interstitial is resolving.
-      metaUI.lockSummary(false); sheets.close();
+      sheets.close();
       if (platform && interstitialDueAfterShift(completedDay)) {
         try { if (platform.canRequestAd?.('interstitial') !== false) { platform.noteAdEligible?.('interstitial', `continue:${completedDay}`); await platform.requestInterstitialAd(); } }
         catch (err) { console.warn('Pet Café interstitial failed during day transition; continuing without it.', err); }
@@ -457,7 +434,7 @@ export function createGame(S, area, els, platform = null) {
       // A single guarded transition owns the terminal -> next-morning mutation. If external code
       // already changed the day while an ad was up, do not advance again.
       if (G.dayState.day !== completedDay || !G.dayState._ended) return false;
-      nextDay(G.dayState); G.dayStats = freshDayStats(); G.dayStats.followersStart = G.meta.followers | 0; G.serviceStreak = { count: 0, t: 0 }; G.shiftBestStreak = 0; G.goal = chooseCareerGoal(G.dayState.day, G.meta, G);
+      nextDay(G.dayState); G.dayStats = freshDayStats(); G.dayStats.followersStart = G.meta.followers | 0; G.dayStats.petsStart = G.meta.petDiscoveries | 0; G.serviceStreak = { count: 0, t: 0 }; G.shiftBestStreak = 0; G.goal = chooseCareerGoal(G.dayState.day, G.meta, G);
       G.golden = createGoldenHourState(); G.special = specialFor(G.dayState.day);
       // One season per career week. The re-tint fires only on a true rollover, so the garden is
       // never rebuilt on an ordinary morning; meta.season is REPLACED, never mutated, because
@@ -466,7 +443,7 @@ export function createGame(S, area, els, platform = null) {
         G.meta.season = deriveSeasonMeta(G.dayState.day);
         environment.setSeason(seasonForDay(G.dayState.day).id);
       }
-      syncCareerPresentation(); partyOrders.sync(false);
+      syncCareerPresentation();
       const d = G.dayState.day;
       // Three day-flavour banners, three unmistakably different silhouettes: a trophy (the Weekly
       // Cup is judged today), a calendar with its last cells lit (weekend), a garland (holiday). A
@@ -547,7 +524,7 @@ export function createGame(S, area, els, platform = null) {
     if (!restoreStationState(world, canonical.stationState, G.stars)) return false;
     if (!restoreOwnerState(P, G.carry, owner, canonical.ownerState, area, G.up, itemFor, world)) return false;
     owner.group.position.set(P.x, 0, P.z); owner.group.rotation.y = P.rot || 0; S.snap(P.x, P.z); G._force = null; G.contextGuide = null;
-    visuals.syncAll(); registerCash.syncAll(); zones.syncAll(); hud.setCoins(G.coins); syncReputationPresentation(); syncPetBookPresentation(); syncCareerPresentation(); syncPawPresentation(); partyOrders.sync(true);
+    visuals.syncAll(); registerCash.syncAll(); zones.syncAll(); hud.setCoins(G.coins); syncReputationPresentation(); syncPetBookPresentation(); syncCareerPresentation(); syncPawPresentation();
     // AFTER world.built is rebuilt above, not before: the first version of this call sat ahead of
     // world.built.clear() and read the pre-restore build set, so a returning player with the terrace
     // saw bare lawn until the next build event. Probed: the region built, its host visible false

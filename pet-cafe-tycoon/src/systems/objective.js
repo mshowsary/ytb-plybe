@@ -195,6 +195,18 @@ export function createObjective(G, S, ctx) {
     pointerT = 0; pointerRest = 0;
   }
 
+  // The wallet asks (ui/hud.js, wired in main.js): "point me at what I am saving for". The build pad
+  // its ring names gets one pointer's worth of arrow — the same arrow a stalled player gets, for
+  // POINTER_SECONDS, whatever the lane was doing — and it clears early once the pad is built, the
+  // owner reaches it, or the opening lesson takes the lane.
+  let asked = null;
+  G.pointAtNextBuild = zoneId => {
+    const zone = (world.area.zones || []).find(z => z.id === zoneId);
+    if (!zone || world.built.has(zone.id)) return false;
+    asked = { target: { kind: 'build', id: zone.id, x: zone.x, z: zone.z }, left: POINTER_SECONDS };
+    return true;
+  };
+
   return {
     update(dt) {
       t += dt;
@@ -219,6 +231,12 @@ export function createObjective(G, S, ctx) {
           commitJobTarget(next, RECOMPUTE_INTERVAL);
         }
         target = committed;
+      }
+      if (asked) {
+        const a = asked.target;
+        asked.left -= dt;
+        if (asked.left <= 0 || world.built.has(a.id) || (G.intro && G.intro.active) || Math.hypot(G.P.x - a.x, G.P.z - a.z) < ARRIVE_METERS) asked = null;
+        else { target = a; guided = true; }
       }
 
       // Publish the actionable world class before deciding which visual owns the lane. Lower-priority
@@ -270,6 +288,7 @@ export function createObjective(G, S, ctx) {
       const intro = !!(G.intro && G.intro.active);
       let mode;
       if (intro) mode = 'full';
+      else if (asked && target === asked.target) mode = 'beacon';   // a pointer, never a lesson
       else if (mech && !proven(mech)) mode = 'full';        // the one lesson, once, ever
       else mode = pointerMode(guided ? CARRY_STUCK_SECONDS : STUCK_SECONDS, dt);
 

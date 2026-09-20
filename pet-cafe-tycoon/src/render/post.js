@@ -95,8 +95,10 @@ void main() {
   // whole frame in grey. The second derivative cancels any linear gradient and leaves only genuine
   // depth discontinuities — which is exactly what a silhouette is.
   float lap = abs(4.0 * dc - d1 - d2 - d3 - d4);
-  // Relative to centre depth so a distant silhouette carries the same weight as a near one.
-  float edge = smoothstep(edgeLo, edgeHi, lap / max(dc, 0.0015));
+  // Relative to centre depth so a distant silhouette carries the same weight as a near one. The
+  // divisor is the true view distance (linDepth measures from the NEAR plane, so it gets near back),
+  // which keeps edgeLo/edgeHi meaning the same thing whatever scene.js sets the near plane to.
+  float edge = smoothstep(edgeLo, edgeHi, lap / max(dc + cameraNear / (cameraFar - cameraNear), 0.0015));
   if (debugMode > 1.5) { gl_FragColor = vec4(vec3(edge), 1.0); return; }
   if (debugMode > 0.5) { gl_FragColor = vec4(vec3(fract(dc * 40.0)), 1.0); return; }
   col = mix(col, outlineColor, edge * outlineStrength);
@@ -170,7 +172,11 @@ export function createPostFX(renderer, scene, camera) {
   const sceneRT = new THREE.WebGLRenderTarget(1, 1, rtOpts);
   sceneRT.texture.colorSpace = THREE.NoColorSpace; // stay linear until the composite tone-maps
   sceneRT.depthTexture = new THREE.DepthTexture(1, 1);
-  sceneRT.depthTexture.type = THREE.UnsignedShortType;
+  // 24-bit, not 16. This is the scene's ONLY depth buffer, so its precision is the whole game's: at
+  // 16 bits surfaces under ~5 mm apart in landscape (~27 mm in portrait, 30 m out) fought each
+  // other, which was the diagonal hatching on the lawn and across the paw rug. UnsignedIntType is
+  // DEPTH_COMPONENT24 on WebGL2 (three's WebGLTextures), guaranteed by the spec on every device.
+  sceneRT.depthTexture.type = THREE.UnsignedIntType;
 
   const bloomOpts = { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, type: hdrType, depthBuffer: false, stencilBuffer: false };
   const brightRT = new THREE.WebGLRenderTarget(1, 1, bloomOpts);
@@ -211,8 +217,11 @@ export function createPostFX(renderer, scene, camera) {
       // colouring-book risk the task warned about -- but the gain on pets is modest, not dramatic,
       // at this magnitude. Left conservative on purpose; a bigger swing risks the scenery to chase a
       // pet win this approach can only partially deliver without a real per-object mask.
-      edgeLo: { value: 0.010 },
-      edgeHi: { value: 0.048 },
+      // Re-expressed when the divisor became the true view distance (see COMPOSITE_FRAG): at the
+      // landscape camera (~12.5 m) the old metric divided by distance-minus-0.5 m, so these are the
+      // old 0.010 / 0.048 scaled by (12.5 - 0.5) / 12.5 — the same edges on the same frame.
+      edgeLo: { value: 0.0096 },
+      edgeHi: { value: 0.046 },
       debugMode: { value: 0 },
     },
   });

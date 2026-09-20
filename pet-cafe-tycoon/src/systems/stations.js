@@ -1,8 +1,6 @@
 // Owner movement, station interactions, carry guidance and contextual actions.
 import {
-  PRODUCTS, familyOf, playerSpeed, carryCap, buyUpgrade, hire as hireStaff,
-  buyWorkerUpgrade, buyMachineUpgrade, machineSpeedMult, buyStar, STAR_IDS,
-  buyDecor,
+  PRODUCTS, familyOf, playerSpeed, carryCap, machineSpeedMult, STAR_IDS,
 } from '../sim/economy.js';
 import {
   stepOvens, stepMachines, takeFromOven, takeFromMachine, putOnDisplay, collectCash,
@@ -14,9 +12,8 @@ import { heldState, destinationFor, findReturnStation, heldLabel, destinationLab
 import { itemFor } from '../render/props.js';
 import { C } from '../render/palette.js';
 import { damp } from '../core/tween.js';
-import { buildKioskModel } from '../ui/models.js';
 import { cue, paintCue } from '../ui/hud.js';
-import { coinIcon, crossIcon, handIcon, returnIcon, coffeeIcon, smoothieIcon, treatIcon, iconFor, sackIcon, gearIcon, personIcon, broomIcon } from '../ui/icons.js';
+import { handIcon, returnIcon, coffeeIcon, smoothieIcon, treatIcon, iconFor, sackIcon, gearIcon, personIcon, broomIcon } from '../ui/icons.js';
 
 // The floating action button's pictograms, by the label the action was authored with. The label
 // itself survives as the cue's aria text — and, through paintCue's visually-hidden span, as the
@@ -58,7 +55,6 @@ function destinationIcon(st) {
 }
 // The kiosk refusal, drawn once and reused by all six buy paths: the wallet's own coin, crossed.
 // The same coin the player is watching in the HUD, so "what I have is not enough" needs no verb.
-const NOT_ENOUGH_COINS = () => cue([coinIcon(), crossIcon()], 'Not enough coins');
 
 const near = (a, b, r) => (a.x - b.x) ** 2 + (a.z - b.z) ** 2 < r * r;
 const dist2 = (a, b) => (a.x - b.x) ** 2 + (a.z - b.z) ** 2;
@@ -120,7 +116,7 @@ export function createStations(G, S, ctx) {
 
   let guideT = 0, guideText = null, guideRefreshT = 0;
   function clearGuide() {
-    guideT = 0; guideText = null; guideRefreshT = 0; G.contextGuide = null; hud.setHandsFull(null);
+    guideT = 0; guideText = null; guideRefreshT = 0; G.contextGuide = null;
   }
   // Where what you are holding belongs, RE-ANSWERED while you carry it rather than frozen at the
   // moment you picked it up. The owner's report: "carrying cookies to a FULL cookie counter shows a
@@ -151,7 +147,6 @@ export function createStations(G, S, ctx) {
     G.contextGuide = { x: target.front.x, z: target.front.z, kind: target.type === 'return' ? 'return' : 'deliver', caption: label, captionIcon: destinationIcon(target), captionLabel: `Carry to ${label.toLowerCase()}` };
     guideT = seconds;
     guideText = text || `${heldLabel(held)} → ${label}`;
-    hud.setHandsFull(guideText);
     return target;
   }
   function maybeGuideLeftovers(st, message) {
@@ -173,68 +168,22 @@ export function createStations(G, S, ctx) {
     ctx.firstHint.msg = text; ctx.firstHint.t = FIRST_HINT_SECONDS;
   }
 
-  let currentTab = 'player';
-  let currentFocusRow = null;
   let sheetAnchorId = null;
   sheets.onClose(() => { sheetAnchorId = null; });
 
   function anchorSheet(st) { sheetAnchorId = st ? st.id : null; }
-  function refreshOpen() { if (sheets.isOpen) sheets.refresh(buildKioskModel(G, world, currentTab, currentFocusRow)); }
   const markCheckpoint = reason => { if (typeof G.requestCheckpoint === 'function') G.requestCheckpoint(reason); };
-  function doBuy(key) {
-    const r = buyUpgrade(G, key);
-    if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); markCheckpoint('player-upgrade'); }
-    else { audio.play('angry'); hud.toast(NOT_ENOUGH_COINS()); }
-  }
-  function doHire(kind) {
-    const r = hireStaff(G, kind);
-    if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); markCheckpoint('staff-hire'); }
-    else { audio.play('angry'); hud.toast(NOT_ENOUGH_COINS()); }
-  }
-  function doBuyWorker(kind, key) {
-    const r = buyWorkerUpgrade(G, kind, key);
-    if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); markCheckpoint('worker-upgrade'); }
-    else { audio.play('angry'); hud.toast(NOT_ENOUGH_COINS()); }
-  }
-  function doBuyMachine(key) {
-    const r = buyMachineUpgrade(G, key);
-    if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); markCheckpoint('machine-upgrade'); }
-    else { audio.play('angry'); hud.toast(NOT_ENOUGH_COINS()); }
-  }
-  function doBuyStar(stationId) {
-    const r = buyStar(G, world, stationId);
-    if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); markCheckpoint('station-star'); }
-    else { audio.play('angry'); hud.toast(NOT_ENOUGH_COINS()); }
-  }
-  function doBuyDecor(id) {
-    const r = buyDecor(G, id);
-    if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); markCheckpoint('decor-buy'); }
-    else { audio.play('angry'); hud.toast(NOT_ENOUGH_COINS()); }
-  }
-  function doSetTab(tab) { currentTab = tab; currentFocusRow = null; refreshOpen(); }
-  function doAssignRunner(index, displayId) {
-    const runners = G.staffList.filter(s => s.kind === 'runner');
-    const s = runners[index];
-    if (!s) return;
-    s.assign = displayId; audio.play('tap'); refreshOpen();
-  }
-  const sheetActions = {
-    buy: doBuy, hire: doHire, buyWorker: doBuyWorker, buyMachine: doBuyMachine,
-    buyStar: doBuyStar, setTab: doSetTab, assignRunner: doAssignRunner, buyDecor: doBuyDecor,
-  };
-
+  // One Shop (ui/shop.js, reached through G.openShop): the kiosk and a tapped chalkboard open it on
+  // Upgrades, titled "Shop"; the staff desk opens it on Staff, titled "Staff". It owns its own buy
+  // actions and pauses the café like every sheet, so nothing here needs to follow the owner away.
   function doOpenKioskFocused(stationId) {
     if (!STAR_IDS.includes(stationId) || sheets.isOpen) return;
-    const st = world.stations.get(stationId);
-    audio.play('tap'); currentTab = 'machines'; currentFocusRow = stationId;
-    anchorSheet(st);
-    sheets.open('kiosk', buildKioskModel(G, world, currentTab, currentFocusRow), sheetActions);
+    audio.play('tap'); G.openShop('shop', 'upgrades', stationId);
   }
   ctx.openKioskFocused = doOpenKioskFocused;
 
   function openKiosk(st, tab) {
-    audio.play('tap'); currentTab = tab; currentFocusRow = null; anchorSheet(st);
-    sheets.open('kiosk', buildKioskModel(G, world, currentTab), sheetActions);
+    audio.play('tap'); G.openShop(tab === 'workers' ? 'staff' : 'shop', tab);
   }
 
   function openPantry(st) {
@@ -394,7 +343,7 @@ export function createStations(G, S, ctx) {
         // that is still true. The four-second timer only ever governed the HUD's hands-full line.
         guideRefreshT -= dt;
         if (guideRefreshT <= 0) { guideRefreshT = 0.5; refreshGuideDestination(); }
-        if (guideT <= 0 && guideText) { guideText = null; hud.setHandsFull(null); }
+        if (guideT <= 0 && guideText) guideText = null;
       }
 
       const mv = G._force || input; const sp = playerSpeed(G.up);
@@ -624,8 +573,6 @@ export function createStations(G, S, ctx) {
         fbtn.classList.toggle('hidden', !fbtnTmp.visible);
       } else fbtn.classList.add('hidden');
 
-      if (guideT > 0 && guideText) hud.setHandsFull(guideText);
-      else if (!G.contextGuide) hud.setHandsFull(null);
       owner.setCarryProps(carry.sack, carry.fruit);
     },
   };

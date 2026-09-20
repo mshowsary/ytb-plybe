@@ -1,11 +1,11 @@
-import { createContractBadge } from './contractBadge.js';
+// src/ui/hud.js — the play field's permanent HUD: the wallet and its saving ring. The Pet Book chip
+// is ui/meta.js's, the Café button ui/pauseMenu.js's, and every banner and toast is a moment in
+// ui/moments.js's queue. Nothing else is permanent (ship plan §1.5).
 import {
-  sunIcon, moonIcon, sunriseIcon, sunsetIcon, personIcon, coinIcon, streakIcon, heartIcon,
-  cupcakeIcon, coffeeIcon, smoothieIcon, treatIcon, icecreamIcon, leafIcon, gearIcon, pawIcon,
-  waterIcon,
+  sunIcon, personIcon, coinIcon, cupcakeIcon, coffeeIcon, smoothieIcon, treatIcon, icecreamIcon,
+  leafIcon, gearIcon, pawIcon, waterIcon, photoIcon,
 } from './icons.js';
-// src/ui/hud.js
-import { presentationScheduler } from '../core/presentationScheduler.js';
+import { showBanner, showToast } from './moments.js';
 
 // ---- play-field cues ---------------------------------------------------------------------------
 // Program rule 5: no English prose is DRAWN over the 3D world. Banners, toasts, floating buttons
@@ -126,17 +126,6 @@ export function createWalletRoll() {
   };
 }
 
-// The polaroid that flies to the Pet Book (src/ui/photoGame.js's .polaroid). Duplicated from
-// src/ui/serviceSummary.js for the reason stated there: src/ui/icons.js belongs to another task in
-// this batch, and all copies should collapse into one icons.js export as soon as it is free.
-function photoIcon() {
-  return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">'
-    + '<rect x="3.6" y="3.4" width="16.8" height="17.4" rx="1.8" fill="#FFFDF8" stroke="#7A583A" stroke-width="1.4"/>'
-    + '<rect x="5.9" y="5.7" width="12.2" height="9.4" rx="1" fill="#E9DFCE"/>'
-    + '<circle cx="12" cy="10.4" r="2.7" fill="#C97A3A"/>'
-    + '</svg>';
-}
-
 // Keyed by zone id -- the only stable handle data/area1.js gives a purchase. An id this table has
 // never heard of (anything a designer adds later) falls back to the build
 // gear, so a new zone degrades to a vague-but-honest glyph instead of breaking the ring.
@@ -149,39 +138,13 @@ const ZONE_ICON = {
   // shows one build at a time, so the reuse never collides on screen.
   z_restroom: waterIcon, z_splash: waterIcon,
 };
+// The glyph that stands for a build, wherever a build is the answer: the wallet's ring here, and the
+// Shop's locked teasers (ui/sheets.js), which say "this opens with that build" as its picture.
+export function zoneGlyph(id) { return (ZONE_ICON[id] || gearIcon)(); }
 
-const RING_STYLE_ID = 'pet-cafe-wallet-ring';
-function ensureRingStyle() {
-  if (document.getElementById(RING_STYLE_ID)) return;
-  const s = document.createElement('style'); s.id = RING_STYLE_ID;
-  // conic-gradient + an inner disc, the same construction src/ui/contractBadge.js's .contract-ring
-  // already uses, so the two progress rings in this HUD are visibly the same device.
-  //
-  // The ring used to wrap the wallet's own .coin. On an actual phone (owner playtest) a four-digit
-  // balance sits close enough to that coin that the ring reads as circling the NUMBER ("1,018
-  // people") rather than a separate target glyph. It now lives in its own slot straight after
-  // #walletNum instead -- "[coin] 1,018 [ring]" -- built and hidden/shown entirely by
-  // H.setSavingFor below. Sized in `em` off #wallet's own (viewport-scaled, see hudLayout.js)
-  // font-size, same reasoning as `#wallet .coin`'s own em sizing in src/style.css.
-  s.textContent = `
-    .wallet-target{display:inline-flex;align-items:center;justify-content:center;flex:none;
-      width:1.55em;height:1.55em;margin-left:.2em}
-    .wallet-ring{width:100%;height:100%;border-radius:50%;display:none;place-items:center;
-      background:conic-gradient(var(--accent) var(--wallet-progress,0%),#00000021 0)}
-    #wallet.saving .wallet-ring{display:grid}
-    /* Full ring = you can buy it now. Green rather than the coral used for urgency elsewhere: this
-       is an invitation, not a warning. */
-    #wallet.saving-ready .wallet-ring{background:#4FB98A}
-    .wallet-ring-ico{width:74%;height:74%;border-radius:50%;background:var(--cream,#FFF4E6);
-      display:grid;place-items:center}
-    .wallet-ring-ico svg{width:74%;height:74%;display:block}
-  `;
-  document.head.appendChild(s);
-}
 
 export function createHud() {
-  const $ = id => document.getElementById(id);
-  const hud = $('hud'), num = $('walletNum'), wallet = $('wallet'), hint = $('hint'), crowd = $('crowd'), crowdNum = $('crowdNum');
+  const hud = document.getElementById('hud'), num = document.getElementById('walletNum'), wallet = document.getElementById('wallet');
   const roll = createWalletRoll();
   const exact = n => Math.round(n).toLocaleString('en-US');
   const fmt = n => {
@@ -191,29 +154,11 @@ export function createHud() {
     return `${(value / 1_000_000).toFixed(value < 10_000_000 ? 1 : 0).replace(/\.0$/, '')}m`;
   };
   const H = { walletEl: wallet, coins: 0 };
-  // "Hands full · <product>" tag under the crowd pill — shown while the owner dwells at a
-  // different product's station with a non-empty single-product carry (systems/stations.js).
-  const handsFullEl = document.createElement('div'); handsFullEl.className = 'pill hidden'; handsFullEl.id = 'handsFull'; hud.appendChild(handsFullEl);
-  H.setHandsFull = text => { if (!text) { handsFullEl.classList.add('hidden'); return; } if (handsFullEl.textContent !== text) handsFullEl.textContent = text; handsFullEl.classList.remove('hidden'); };
 
-  // Followers pill (plan 3.3): icon + numeral only, no prose. Placement comes entirely from
-  // hudLayout.js's arrangeHud(), which re-parents this pill into the shared resource bar, so this
-  // file only creates the element and its content.
-  const followersEl = document.createElement('div'); followersEl.className = 'pill'; followersEl.id = 'followers';
-  followersEl.innerHTML = '<span class="picon">' + heartIcon() + '</span><span class="followersNum">0</span>';
-  hud.appendChild(followersEl);
-  const followersNum = followersEl.querySelector('.followersNum');
-  let lastFollowers = -1;
-  H.setFollowers = n => {
-    const v = Math.max(0, Math.min(1_000_000, Math.trunc(n) || 0));
-    if (v !== lastFollowers) { lastFollowers = v; followersNum.textContent = v.toLocaleString('en-US'); }
-  };
-
-  // ---- the "saving for" ring (rule and styles at the top of this file) --------------------------
-  ensureRingStyle();
-  // Its own slot AFTER the numeral, not on the coin (see ensureRingStyle's WHY above). Starts
-  // hidden: "nothing reachable left" and "no target computed yet" both look like an honest plain
-  // wallet, which is the whole point of this ring existing at all.
+  // ---- the "saving for" ring (rule at the top of this file, styles in style.css's HUD section) --
+  // Its own slot AFTER the numeral, not on the coin: on a phone a four-digit balance sits close
+  // enough to the coin that a ring around it reads as circling the NUMBER. Starts hidden: "nothing
+  // reachable left" and "no target computed yet" both look like an honest plain wallet.
   const targetEl = document.createElement('span'); targetEl.className = 'wallet-target hidden';
   const ringEl = document.createElement('div'); ringEl.className = 'wallet-ring'; ringEl.setAttribute('aria-hidden', 'true');
   const ringIco = document.createElement('span'); ringIco.className = 'wallet-ring-ico';
@@ -229,11 +174,9 @@ export function createHud() {
     wallet.classList.toggle('saving-ready', pct >= 100);
   };
   // Takes the catalogue and the built set as arguments because hud.js can reach neither: the rule
-  // lives here (pickSavingTarget above) so the ring's WHY stays with the ring, and the call site
-  // only forwards `world.area.zones` and `world.built`. See this task's wiringNeeded.
+  // lives here (pickSavingTarget above) and game.js only forwards `world.area.zones`/`world.built`.
   H.setSavingFor = (zones, built) => {
-    // The answer can only change when something is built, and this is called from the frame loop --
-    // re-deriving it every frame would sort the zone list 60 times a second for one stable answer.
+    // Called every frame; the answer can only change when something is built.
     const size = (built && typeof built.size === 'number') ? built.size : -1;
     if (size === lastBuiltSize) return;
     lastBuiltSize = size;
@@ -241,9 +184,20 @@ export function createHud() {
     const id = t ? t.id : null;
     if (id === savingId) return;
     savingId = id; savingPrice = t ? t.price : 0; ringPct = -1; ringSettled = false;
-    if (t) { ringIco.innerHTML = (ZONE_ICON[t.id] || gearIcon)(); wallet.classList.add('saving'); targetEl.classList.remove('hidden'); }
+    if (t) { ringIco.innerHTML = zoneGlyph(t.id); wallet.classList.add('saving'); targetEl.classList.remove('hidden'); }
     else { ringIco.innerHTML = ''; wallet.classList.remove('saving', 'saving-ready'); targetEl.classList.add('hidden'); }
   };
+
+  // ---- tap the wallet: "point me at what I am saving for" -----------------------------------
+  // The wallet is the only number on screen that moves, and the ring says what it is FOR; tapping
+  // it asks the game to point at that build pad (G.pointAtNextBuild, wired by main.js). A wallet
+  // with no ring (the café is finished) has nothing to point at, so it does nothing.
+  let walletAction = null;
+  wallet.setAttribute('role', 'button'); wallet.tabIndex = 0;
+  const tapWallet = () => { if (walletAction && savingId) walletAction(savingId); };
+  wallet.addEventListener('click', tapWallet);
+  wallet.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tapWallet(); } });
+  H.onWalletTap = fn => { walletAction = typeof fn === 'function' ? fn : null; };
 
   H.setCoins = n => {
     roll.set(n, performance.now()); ringSettled = false;
@@ -252,117 +206,18 @@ export function createHud() {
   };
   // Coin changes already roll numerically. A second scale bounce competes with gameplay.
   H.bump = () => {};
-  H.hint = text => { if (!text) { hint.classList.add('hidden'); return; } if (hint.textContent !== text) hint.textContent = text; hint.classList.remove('hidden'); };
-  let lastN = -1, lastMax = -1, lastUrgent = null;
-  // M3 T5: the crowd pill turns coral with a '!' badge while any customer's patience is under 4s.
-  const bang = document.createElement('span'); bang.className = 'bang hidden'; bang.textContent = '!'; crowd.appendChild(bang);
-  H.setCrowd = (n, max, urgent) => {
-    if (n !== lastN || max !== lastMax) { lastN = n; lastMax = max; crowdNum.textContent = `${n}/${max}`; }
-    if (urgent !== lastUrgent) { lastUrgent = urgent; crowd.classList.toggle('urgent', !!urgent); bang.classList.toggle('hidden', !urgent); }
-  };
-  // Loop v2 Task 3: "Day 3 · Rush" pill with a thin phase-progress bar, and a small goal-text pill
-  // just below it — both created here (same pattern as handsFullEl above) rather than in
-  // index.html, so this file stays the single source of truth for what's actually in the HUD.
-  const dayPillEl = document.createElement('div'); dayPillEl.className = 'pill'; dayPillEl.id = 'dayPill';
-  const dayTop = document.createElement('div'); dayTop.className = 'dayTop';
-  const dayLabel = document.createElement('span'); dayLabel.id = 'dayLabel';
-  dayTop.appendChild(dayLabel);
-  const dayBar = document.createElement('div'); dayBar.className = 'dayBar';
-  const dayBarFill = document.createElement('div'); dayBarFill.className = 'dayBarFill'; dayBarFill.style.width = '0%';
-  dayBar.appendChild(dayBarFill);
-  dayPillEl.append(dayTop, dayBar); hud.appendChild(dayPillEl);
-  const contract = createContractBadge(dayPillEl);
-  H.setContract = (goal, stats, day) => contract.update(goal, stats, day);
-  const goalPillEl = document.createElement('div'); goalPillEl.className = 'pill'; goalPillEl.id = 'goalPill'; hud.appendChild(goalPillEl);
-  // "Day 3 · Rush" was the longest permanently-visible string in the game and the widest thing in
-  // the HUD, which is what pushed the day pill into the pause button on short viewports. The phase
-  // is a picture of the sky instead, and the day is just its number -- numerals read in every
-  // language, so nothing is lost in translation and the pill is roughly a third the width.
-  const PHASE_ICON = { morning: sunriseIcon, rush: sunIcon, afternoon: sunsetIcon, closing: moonIcon };
-  let lastDayKey = '', lastGoalKey = '', lastFrac = -1;
-  H.setDay = (day, phase, frac) => {
-    const key = `${day}:${phase}`;
-    if (key !== lastDayKey) {
-      lastDayKey = key;
-      const icon = (PHASE_ICON[phase] || sunIcon)();
-      dayLabel.innerHTML = `<span class="dayIcon">${icon}</span><span class="dayNum">${day}</span>`;
-    }
-    const pct = Math.max(0, Math.min(1, frac)) * 100;
-    if (pct !== lastFrac) { lastFrac = pct; dayBarFill.style.width = pct + '%'; }
-  };
-  // Contracts are one of three verbs, each with a natural picture: guests served, coins earned,
-  // service streak. The target is a number, so the whole pill becomes glyph + numeral.
-  const GOAL_ICON = { serve: personIcon, earn: coinIcon, streak: streakIcon };
-  H.setGoal = (text, goal = null) => {
-    if (!text && !goal) { goalPillEl.classList.add('hidden'); return; }
-    const kind = goal && goal.kind;
-    const key = goal ? `${kind}:${goal.target}:${goal.rival ? 1 : 0}` : text;
-    if (key !== lastGoalKey) {
-      lastGoalKey = key;
-      if (kind && GOAL_ICON[kind]) {
-        const rival = goal.rival ? '<span class="goalRival"></span>' : '';
-        goalPillEl.innerHTML = `${rival}<span class="goalIcon">${GOAL_ICON[kind]()}</span><span class="goalNum">${goal.target}</span>`;
-      } else {
-        goalPillEl.textContent = text;
-      }
-    }
-    goalPillEl.classList.remove('hidden');
-  };
-  // Loop v2 Task 3: a large top-centre banner ("RUSH HOUR" / "WEEKEND" / "HOLIDAY" / "CLOSING") —
-  // slides in, holds for `ms` (default 2500), slides out. A later call while one is showing simply
-  // replaces the text and restarts the hold (day-start banners can fire two in a row on a
-  // weekend-holiday day; each gets its own full visible window rather than being dropped).
-  const bannerEl = document.createElement('div'); bannerEl.className = 'pill hidden'; bannerEl.id = 'banner';
-  // The banner draws glyphs now, so its words only exist for assistive tech -- which means it has
-  // to be a live region or they would never be announced at all.
-  bannerEl.setAttribute('role', 'status'); bannerEl.setAttribute('aria-live', 'polite');
-  hud.appendChild(bannerEl);
-  let bannerT = null;
-  H.banner = (text, ms = 2500) => {
-    if (bannerT) presentationScheduler.cancel(bannerT);
-    paintCue(bannerEl, text);
-    bannerEl.classList.remove('hidden');
-    void bannerEl.offsetWidth;
-    bannerEl.classList.add('show');
-    bannerT = presentationScheduler.schedule(() => {
-      bannerEl.classList.remove('show');
-      bannerT = presentationScheduler.schedule(() => { bannerEl.classList.add('hidden'); bannerT = null; }, 400);
-    }, ms);
-  };
   H.show = () => hud.classList.remove('hidden');
   // I8: only touch the DOM while the roll has something to draw (createWalletRoll above) — once it
   // settles, the number is already correct and there's nothing left to (re)format every frame.
-  // The ring rides the rolled value, not the target, so it sweeps in step with the numeral rather
-  // than snapping ahead of it; a new saving target (setSavingFor) repaints it once from the settled
-  // value.
+  // The ring rides the rolled value, not the target, so it sweeps in step with the numeral.
   H.update = () => {
     const v = roll.frame(performance.now());
     if (v != null) { num.textContent = fmt(v); paintRing(v); }
     else if (!ringSettled) { ringSettled = true; paintRing(roll.shown); }
   };
-  wallet.style.transition = 'transform .12s';
 
-  // toast: a fading pill above the hint, shown for ~1.5 s; at most one pending while one is showing.
-  // Remaining display time is preserved across both host and user pauses.
-  const toastEl = document.createElement('div'); toastEl.className = 'toast hidden';
-  toastEl.setAttribute('role', 'status'); toastEl.setAttribute('aria-live', 'polite');
-  hud.appendChild(toastEl);
-  let toastBusy = false, toastPending = null, toastT = null;
-  function runToast(text) {
-    toastBusy = true;
-    paintCue(toastEl, text);
-    toastEl.classList.remove('hidden');
-    void toastEl.offsetWidth; // restart the transition
-    toastEl.classList.add('show');
-    toastT = presentationScheduler.schedule(() => {
-      toastEl.classList.remove('show');
-      toastT = presentationScheduler.schedule(() => {
-        toastEl.classList.add('hidden');
-        toastBusy = false; toastT = null;
-        if (toastPending !== null) { const next = toastPending; toastPending = null; runToast(next); }
-      }, 200);
-    }, 1300);
-  }
-  H.toast = text => { if (toastBusy) toastPending = text; else runToast(text); };
+  // Both sinks are moments now: queued one at a time and held while a sheet is open.
+  H.banner = showBanner;
+  H.toast = showToast;
   return H;
 }

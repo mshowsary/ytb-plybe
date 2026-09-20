@@ -355,3 +355,48 @@ export function cameraIcon() {
     + '<circle cx="12" cy="13" r="2.1" fill="#6EC6FF"/>'
     + '<rect x="16.6" y="9.2" width="2.4" height="1.5" rx=".6" fill="#FFD84D"/></svg>';
 }
+
+// ---- Batch D: the one simple menu -----------------------------------------------------------
+// Café Stars, the long track. The same five-point star repIcon draws, because reputation is one of
+// the tracks Café Stars absorbs — the player sees the star they already know.
+export function starIcon() { return repIcon(); }
+// The developed polaroid that files itself into the Pet Book. Used to be duplicated in hud.js and
+// serviceSummary.js while this file belonged to another task.
+export function photoIcon() {
+  return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">'
+    + '<rect x="3.6" y="3.4" width="16.8" height="17.4" rx="1.8" fill="#FFFDF8" stroke="#7A583A" stroke-width="1.4"/>'
+    + '<rect x="5.9" y="5.7" width="12.2" height="9.4" rx="1" fill="#E9DFCE"/>'
+    + '<circle cx="12" cy="10.4" r="2.7" fill="#C97A3A"/></svg>';
+}
+// The Shop: a paper shopping bag with a paw on it.
+export function shopIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.2 8h13.6l-1 12.2a1 1 0 0 1-1 .9H7.2a1 1 0 0 1-1-.9z" fill="#E8896F" stroke="#7A583A" stroke-width="1.3" stroke-linejoin="round"/>'
+    + '<path d="M9 10V6.6a3 3 0 0 1 6 0V10" fill="none" stroke="#7A583A" stroke-width="1.6" stroke-linecap="round"/>'
+    + '<ellipse cx="12" cy="16.4" rx="2" ry="1.6" fill="#FFF4E6"/><circle cx="9.8" cy="13.8" r=".9" fill="#FFF4E6"/><circle cx="12" cy="13" r=".9" fill="#FFF4E6"/><circle cx="14.2" cy="13.8" r=".9" fill="#FFF4E6"/></svg>';
+}
+// Sound on / off: one speaker, with waves or with a cross. Music and effects are one switch.
+export function speakerIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.6 9.2h3.6L12 5v14l-4.8-4.2H3.6z" fill="#7A583A"/>'
+    + '<path d="M15.2 9a4.2 4.2 0 0 1 0 6M17.8 6.6a7.6 7.6 0 0 1 0 10.8" fill="none" stroke="#80977C" stroke-width="1.8" stroke-linecap="round"/></svg>';
+}
+export function speakerOffIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.6 9.2h3.6L12 5v14l-4.8-4.2H3.6z" fill="#7A583A" opacity=".55"/>'
+    + '<path d="M15.4 9.4l5.2 5.2M20.6 9.4l-5.2 5.2" stroke="#D98C82" stroke-width="2" stroke-linecap="round"/></svg>';
+}
+// Reduced motion: a ball with speed lines — the lines are what the setting takes away.
+export function motionIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="15.5" cy="12" r="5" fill="#8B7CF6"/>'
+    + '<path d="M2.8 8.6h6M1.8 12h6.4M2.8 15.4h6" stroke="#B7ACFB" stroke-width="1.8" stroke-linecap="round"/></svg>';
+}
+// "Wear nothing" in the outfit picker: an empty ring with a slash.
+export function noneIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7.6" fill="none" stroke="#7A583A" stroke-width="1.8" opacity=".6"/>'
+    + '<path d="M6.8 17.2L17.2 6.8" stroke="#7A583A" stroke-width="1.8" stroke-linecap="round" opacity=".6"/></svg>';
+}
+// The fourth species. catIcon/dogIcon/bunnyIcon already exist; the Pet Book's locked cards need
+// all four so a "?" card still says which kind of pet it is.
+export function hamsterIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="8" r="2.4" fill="#D9A066"/><circle cx="17" cy="8" r="2.4" fill="#D9A066"/>'
+    + '<ellipse cx="12" cy="14" rx="7.6" ry="6.4" fill="#F0C48A"/><ellipse cx="12" cy="16.2" rx="4" ry="3" fill="#FFF4E6"/>'
+    + '<circle cx="9.4" cy="12.6" r="1.1" fill="#4A3B32"/><circle cx="14.6" cy="12.6" r="1.1" fill="#4A3B32"/><ellipse cx="12" cy="14.8" rx="1" ry=".7" fill="#E27D60"/></svg>';
+}

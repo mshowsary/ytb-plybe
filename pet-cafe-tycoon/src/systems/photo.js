@@ -146,7 +146,6 @@ export function createPhotoStudio(G, S, ctx) {
         game.stop();
       }
       // Reveals held back while a sheet was open get their moment as soon as it closes.
-      game.pump();
     },
   };
 }

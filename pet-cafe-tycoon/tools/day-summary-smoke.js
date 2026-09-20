@@ -9,6 +9,8 @@
 // Pins, at 390x844, 852x393 and the certification extremes 218x418, 418x218 and 183x416:
 //   - the card sits wholly inside the viewport and does not scroll sideways
 //   - the hero counts up to exactly the day's earnings, and every figure appears once
+//   - Batch D: the rows are today's goal and Café Stars (the reputation and cup rows are gone), and
+//     nothing on the card scolds — no "left" chip, no stock-up tip
 //   - Continue and the bonus are both visible without scrolling and at least 48 px tall
 //   - the close chevron overlaps no row
 //   - the bonus is about a third of the day (sim/adPacing.js summaryBonusAmount)
@@ -30,7 +32,7 @@ const server = http.createServer((req, res) => {
     res.end(b);
   });
 });
-const PORT = 4197;
+const PORT = Number(process.env.SMOKE_PORT) || 4197;
 server.on('error', e => {
   if (e.code !== 'EADDRINUSE') throw e;
   console.error('day-summary-smoke: port ' + PORT + ' is already in use — an environment problem, not a game regression.');
@@ -90,6 +92,8 @@ for (const [w, h] of [[390, 844], [852, 393], [218, 418], [418, 218], [183, 416]
       // buttons is simply how a scrolling card works.)
       actionsOverRows: (() => { const top = card.scrollTop; card.scrollTop = card.scrollHeight; const last = rows[rows.length - 1]; const n = last ? overlap(r(card.querySelector('.ds-actions')), r(last)) : 0; card.scrollTop = top; return n; })(),
       contractShown: rows.some(row => row.classList.contains('ds-contract')),
+      starsShown: rows.some(row => row.classList.contains('ds-stars')),
+      scolding: /left|stock before the rush/i.test(text),
       truncatedLabels: [...card.querySelectorAll('.ds-title')].filter(el => getComputedStyle(el.closest('.ds-row')).display !== 'none' && el.scrollWidth > el.clientWidth + 1).map(el => el.textContent),
       servedMentions: (text.match(/\b36\b/g) || []).length,
       rows: rows.length,
@@ -101,9 +105,12 @@ for (const [w, h] of [[390, 844], [852, 393], [218, 418], [418, 218], [183, 416]
   check(m.cardInView, 'the card is not wholly inside the viewport ' + JSON.stringify(m.card));
   check(m.poking.length === 0, 'elements poke out past the card sideways: ' + m.poking.join(', '));
   check(m.earned === EARNED.toLocaleString('en-US'), 'the hero shows ' + m.earned + ', not the day\'s ' + EARNED);
-  // Every row is shown except in the tiniest landscape (418x218), where only the contract fits.
-  check(m.contractShown, 'the contract row is not shown');
-  check(m.rows === (h <= 260 && w / h >= 1.25 ? 1 : 3), 'unexpected number of visible rows: ' + m.rows);
+  // Both rows are shown except in the tiniest landscape (418x218), where only the goal fits.
+  const tinyLandscape = h <= 260 && w / h >= 1.25;
+  check(m.contractShown, 'the goal row is not shown');
+  check(tinyLandscape || m.starsShown, 'the Café Stars row is not shown');
+  check(m.rows === (tinyLandscape ? 1 : 2), 'unexpected number of visible rows: ' + m.rows);
+  check(!m.scolding, 'the card scolds the player');
   check(m.actionsOverRows < 1, 'the pinned buttons cover ' + Math.round(m.actionsOverRows) + ' px² of the rows');
   check(m.truncatedLabels.length === 0, 'row titles are cut off: ' + m.truncatedLabels.join(', '));
   check(m.servedMentions === 1, '"36" guests appears ' + m.servedMentions + ' times on the card');

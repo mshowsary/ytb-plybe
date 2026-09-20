@@ -1,11 +1,26 @@
-// Bottom-sheet view models built from live game state.
+// Shop view models built from live game state.
+//
+// The Shop has three tabs — Staff, Upgrades (the player's own upgrades and the machines' stars)
+// and Décor — and each shows only what can be bought NOW, plus ONE locked teaser: the next thing on
+// that shelf, with a padlock and what opens it. It used to list every role and machine with prose
+// gates ("Day 5+ · … Build Coffee first"), which read as a wall of things you cannot have.
 import {
   UPGRADES, upgradeCost, hireCost, STAFF,
-  WORKER_UPGRADES, MACHINE_UPGRADES, workerUpgradeCost, machineUpgradeCost,
+  WORKER_UPGRADES, workerUpgradeCost,
   STAR_IDS, nextStarCost, ensureStars,
 } from '../sim/economy.js';
 import { BARISTA, baristaHireState } from '../sim/barista.js';
 import { pawBestStar } from '../sim/pawRating.js';
+import { DECOR, decorUnlocked } from '../../data/decor.js';
+
+export const SHOP_TABS = Object.freeze(['staff', 'upgrades', 'decor']);
+// The old five-tab keys still arrive from the world's doors (systems/stations.js opens the kiosk on
+// 'player' and the staff desk on 'workers'); they land on the tab that now holds those rows.
+export function normalizeShopTab(tab) {
+  if (tab === 'workers' || tab === 'staff') return 'staff';
+  if (tab === 'decor') return 'decor';
+  return 'upgrades';
+}
 
 const PLAYER_ROWS = [
   { key: 'speed',  label: 'Speed',  effect: '+15% per tier' },
@@ -24,66 +39,70 @@ const WORKER_KINDS = [
   { kind: 'runner',  label: 'Runner',  desc: 'Carries treats from production to displays.', hasCarry: true },
   { kind: 'cashier', label: 'Cashier', desc: 'Mans a register so customers can pay.', hasCarry: false },
   { kind: 'cleaner', label: 'Cleaner', desc: 'Clears dirty tables after customers leave.', hasCarry: false },
-  { kind: 'barista', label: 'Barista', desc: `Day ${BARISTA.unlockDay}+ · refills beans and keeps the Coffee Bar stocked.`, hasCarry: false, noLevels: true },
-  { kind: 'photographer', label: 'Photographer', desc: 'Auto-takes Good shots at the Photo Studio.', hasCarry: false, noLevels: true },
+  { kind: 'barista', label: 'Barista', desc: 'Refills beans and keeps the Coffee Bar stocked.', hasCarry: false },
+  { kind: 'photographer', label: 'Photographer', desc: 'Takes the photos for you.', hasCarry: false },
 ];
+const zoneAdding = (world, stationId) => (world.area && world.area.zones || []).find(z => (z.adds || []).includes(stationId)) || null;
 function levelRow(key, tier, cost, coins) {
   return { tier, maxTier: WORKER_UPGRADES[key].length, cost, disabled: cost == null || coins < cost };
+}
+// Why a role cannot be hired yet, or null when it can. The first locked role (in WORKER_KINDS
+// order) is the tab's teaser.
+function roleLock(G, world, kind, count) {
+  if (kind === 'barista') {
+    const gate = baristaHireState(G.dayState && G.dayState.day, world.built, G.coins, count);
+    if (gate.reason === 'coffee') return { kind: 'zone', zoneId: 'z_coffee' };
+    if (gate.reason === 'day') return { kind: 'day', day: BARISTA.unlockDay };
+    return null;
+  }
+  if (kind === 'photographer') {
+    const booth = world.stations.get('photo1');
+    if (booth && booth.active) return null;
+    const zone = zoneAdding(world, 'photo1');
+    return zone ? { kind: 'zone', zoneId: zone.id } : { kind: 'hidden' };
+  }
+  return null;
 }
 function buildWorkerRows(G, world) {
   const desk = world.stations.get('hire1');
   const deskBuilt = !!(desk && desk.active);
   const activeDisplays = (world.displays || []).map(id => world.stations.get(id)).filter(st => st && st.active).map(st => ({ id: st.id, product: st.product }));
   const runnerList = (G.staffList || []).filter(s => s.kind === 'runner').map((s, i) => ({ index: i, assign: s.assign || null }));
-  // The Photographer only has work once the photo booth exists, so its row does not exist before
-  // then either: a row the player cannot use yet is a promise with no way to act on it.
-  const booth = world.stations.get('photo1');
-  const boothBuilt = !!(booth && booth.active);
-  return WORKER_KINDS.filter(w => w.kind !== 'photographer' || boothBuilt).map(w => {
+  const rows = [];
+  let teaser = null;
+  // No staff desk yet: nobody can be hired, so the whole tab is the one teaser pointing at the desk.
+  if (!deskBuilt) return { rows, teaser: { kind: 'desk', label: 'Staff desk', unlock: { kind: 'zone', zoneId: 'z_hire' } } };
+  for (const w of WORKER_KINDS) {
     const count = G.staff[w.kind] | 0;
-    if (w.kind === 'barista') {
-      const gate = baristaHireState(G.dayState && G.dayState.day, world.built, G.coins, count);
-      let desc = w.desc;
-      if (!gate.unlocked && gate.reason === 'coffee') desc += ' Build Coffee first.';
-      else if (!gate.unlocked && gate.reason === 'day') desc += ` Available on Day ${BARISTA.unlockDay}.`;
-      return {
-        kind: w.kind, label: w.label, desc,
-        count, cap: BARISTA.cap,
-        hireCost: gate.cost == null ? BARISTA.cost : gate.cost,
-        hireMaxed: gate.reason === 'full',
-        hireDisabled: !deskBuilt || !gate.available,
-        showLevels: false, speed: null, carry: null, runners: null, displays: null,
-      };
+    const lock = roleLock(G, world, w.kind, count);
+    if (lock) {
+      if (!teaser && lock.kind !== 'hidden') teaser = { kind: w.kind, label: w.label, unlock: lock };
+      continue;
     }
-    if (w.kind === 'photographer') {
-      // Hired at the staff desk like every role; the row itself is only listed once photo1 is
-      // active (the filter above). No level row: there is no staffLevels.photographer ladder, and
-      // letting this kind reach the generic path below would read G.staffLevels[w.kind].speed off
-      // an undefined key and throw.
-      const pCost = hireCost(w.kind, G.staff);
-      return {
-        kind: w.kind, label: w.label, desc: w.desc,
-        count, cap: STAFF.photographer.costs.length,
-        hireCost: pCost, hireMaxed: pCost === null,
-        hireDisabled: !deskBuilt || pCost == null || G.coins < pCost,
-        showLevels: false, speed: null, carry: null, runners: null, displays: null,
-      };
-    }
-    const cost = hireCost(w.kind, G.staff);
-    const speedCost = workerUpgradeCost(w.kind, 'speed', G.staffLevels);
-    const carryCost = w.hasCarry ? workerUpgradeCost(w.kind, 'carry', G.staffLevels) : null;
-    return {
+    const cost = w.kind === 'barista'
+      ? baristaHireState(G.dayState && G.dayState.day, world.built, G.coins, count).cost
+      : hireCost(w.kind, G.staff);
+    const base = {
       kind: w.kind, label: w.label, desc: w.desc,
       count, cap: STAFF[w.kind].costs.length,
-      hireCost: cost, hireMaxed: cost === null,
-      hireDisabled: !deskBuilt || cost == null || G.coins < cost,
-      showLevels: count >= 1,
-      speed: levelRow('speed', G.staffLevels[w.kind].speed | 0, speedCost, G.coins),
-      carry: w.hasCarry ? levelRow('carry', G.staffLevels[w.kind].carry | 0, carryCost, G.coins) : null,
-      runners: w.kind === 'runner' ? runnerList : null,
-      displays: w.kind === 'runner' ? activeDisplays : null,
+      hireCost: cost, hireMaxed: cost == null,
+      hireDisabled: cost == null || G.coins < cost,
+      showLevels: false, speed: null, carry: null, runners: null, displays: null,
     };
-  });
+    // Only the three original roles have level ladders (G.staffLevels); the Barista and the
+    // Photographer are hire-only.
+    if (G.staffLevels && G.staffLevels[w.kind]) {
+      const speedCost = workerUpgradeCost(w.kind, 'speed', G.staffLevels);
+      const carryCost = w.hasCarry ? workerUpgradeCost(w.kind, 'carry', G.staffLevels) : null;
+      base.showLevels = count >= 1;
+      base.speed = levelRow('speed', G.staffLevels[w.kind].speed | 0, speedCost, G.coins);
+      base.carry = w.hasCarry ? levelRow('carry', G.staffLevels[w.kind].carry | 0, carryCost, G.coins) : null;
+      base.runners = w.kind === 'runner' ? runnerList : null;
+      base.displays = w.kind === 'runner' ? activeDisplays : null;
+    }
+    rows.push(base);
+  }
+  return { rows, teaser };
 }
 
 const STATION_LABEL = {
@@ -101,9 +120,15 @@ function starEffect(stationType, stationId, tier) {
 function buildMachineRows(G, world) {
   ensureStars(G, world);
   const rows = [];
+  let teaser = null;
   for (const id of STAR_IDS) {
     const st = world.stations.get(id);
-    if (!st || !st.active) continue;
+    if (!st) continue;
+    if (!st.active) {
+      const zone = zoneAdding(world, id);
+      if (!teaser && zone) teaser = { kind: 'machine', key: id, label: STATION_LABEL[id] || id, product: st.product || null, unlock: { kind: 'zone', zoneId: zone.id } };
+      continue;
+    }
     const tier = (G.stars && G.stars[id]) || 1;
     const cost = nextStarCost(world.area, id, tier);
     rows.push({
@@ -111,18 +136,33 @@ function buildMachineRows(G, world) {
       tier, maxTier: 3, cost, disabled: cost == null || G.coins < cost,
     });
   }
-  return rows;
+  return { rows, teaser };
 }
 
-export function buildKioskModel(G, world, tab = 'player', focusRow = null) {
+// The next piece of décor the café has not unlocked: the next star's set first — that is the Café
+// Stars reward the player is working toward — else the first piece waiting on a build.
+export function decorTeaser(built, bestStar) {
+  const locked = DECOR.filter(item => !decorUnlocked(item, built, bestStar));
+  const nextStar = (bestStar | 0) + 1;
+  const item = locked.find(i => i.star === nextStar && (!i.requires || (built && built.has && built.has(i.requires))))
+    || locked.find(i => !i.star && i.requires);
+  if (!item) return null;
+  return { id: item.id, icon: item.icon, price: item.price, unlock: item.star ? { kind: 'star', star: item.star } : { kind: 'zone', zoneId: item.requires } };
+}
+
+export function buildKioskModel(G, world, tab = 'upgrades', focusRow = null, door = null) {
+  const workers = buildWorkerRows(G, world);
+  const machines = buildMachineRows(G, world);
+  const pawBest = pawBestStar(G.meta);
   return {
-    coins: G.coins, tab, focusRow,
+    coins: G.coins, tab: normalizeShopTab(tab), focusRow, door,
     player: buildPlayerRows(G),
-    workers: buildWorkerRows(G, world),
-    machines: buildMachineRows(G, world),
+    workers: workers.rows, staffTeaser: workers.teaser,
+    machines: machines.rows, machineTeaser: machines.teaser,
     decorOwned: (G.meta && Array.isArray(G.meta.decor)) ? G.meta.decor : [],
     built: world.built,
     // The ratchet, so the decor tab lists a star set the moment it is earned.
-    pawBest: pawBestStar(G.meta),
+    pawBest,
+    decorTeaser: decorTeaser(world.built, pawBest),
   };
 }

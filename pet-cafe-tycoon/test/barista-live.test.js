@@ -34,15 +34,21 @@ test('normal hire transaction can buy exactly one Barista', () => {
   assert.equal(hire(G, 'barista').ok, false);
 });
 
-test('Workers sheet gates Barista behind Day 5 and Coffee build', () => {
+// Batch D: the Staff tab lists only the roles that can be hired now, plus ONE locked teaser that says
+// with a picture what opens the next one. The gate itself is unchanged: Day 5 AND the Coffee bar.
+test('Staff tab gates Barista behind Day 5 and Coffee build, as its locked teaser', () => {
   let G = state(4, 9999);
-  let row = buildKioskModel(G, world(), 'workers').workers.find(r => r.kind === 'barista');
-  assert.equal(row.hireDisabled, true); assert.match(row.desc, /Day 5/);
+  let m = buildKioskModel(G, world(), 'workers');
+  assert.equal(m.workers.some(r => r.kind === 'barista'), false, 'no hire row before Day 5');
+  assert.deepEqual(m.staffTeaser && { kind: m.staffTeaser.kind, unlock: m.staffTeaser.unlock }, { kind: 'barista', unlock: { kind: 'day', day: 5 } });
 
   G = state(5, 9999);
-  row = buildKioskModel(G, world({ coffee: false }), 'workers').workers.find(r => r.kind === 'barista');
-  assert.equal(row.hireDisabled, true); assert.match(row.desc, /Build Coffee/);
+  m = buildKioskModel(G, world({ coffee: false }), 'workers');
+  assert.equal(m.workers.some(r => r.kind === 'barista'), false, 'no hire row without the Coffee bar');
+  assert.deepEqual(m.staffTeaser && m.staffTeaser.unlock, { kind: 'zone', zoneId: 'z_coffee' });
 
-  row = buildKioskModel(G, world({ coffee: true }), 'workers').workers.find(r => r.kind === 'barista');
+  m = buildKioskModel(G, world({ coffee: true }), 'workers');
+  const row = m.workers.find(r => r.kind === 'barista');
   assert.equal(row.hireDisabled, false); assert.equal(row.hireCost, 2300); assert.equal(row.showLevels, false);
+  assert.notEqual(m.staffTeaser && m.staffTeaser.kind, 'barista', 'an open role is never also the teaser');
 });

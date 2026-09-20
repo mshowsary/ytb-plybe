@@ -11,10 +11,15 @@
 // +z and +x — was empty. So that is where the content goes.
 //
 // LAYOUT RULES
-//   near  (z 7.5..14)  low only: grass, beds, path, pond, agility toys. Anything tall here sits
-//                      between the camera and the café and would occlude the game.
+//   near  (z 7.5..14)  low only: grass, beds, the paw path. Anything tall here sits between the
+//                      camera and the café and would occlude the game. The terrace deck replaces
+//                      this band, so everything here is garden content (see `underDeck`).
+//   yard  (east lot)   the pet play yard: pond, agility course, benches, a low picket. PERMANENT —
+//                      it used to live in the near band and buying the terrace deleted it.
 //   mid   (z 14..24)   trees and hedges, tall enough to read as a world, far enough not to block.
 //   far   (z 24..40)   town silhouette, no detail, pure depth cue.
+// The ground under all of it is ONE vertex-coloured plane (lawnPlane below), and nothing stands on
+// the paving props.js lays (groundCutouts).
 //
 // TRIANGLE BUDGET (garden)
 // The near band is static, merged and permanently on screen, so it is both the cheapest place to
@@ -28,8 +33,12 @@
 // identical on every device and across reloads.
 
 import * as THREE from 'three';
-import { part, mesh, colorize } from './geo.js';
-import { buildRegion } from './props.js';
+import { part, mesh, colorize, blankUV } from './geo.js';
+import { buildRegion, regionRevealPieces, groundCutouts } from './props.js';
+import { toonMaterial } from './palette.js';
+import { currentFx } from './fx.js';
+import { setRegionBuiltState } from './regionState.js';
+import { regionEdge } from '../sim/nav.js';
 
 // Small deterministic PRNG (mulberry32). A fixed layout matters: screenshots, the visual-reference
 // workflow and the responsive audit all compare frames across runs.
@@ -216,6 +225,13 @@ export function paletteForSeason(id) {
 // Three size classes, exactly as the garden spec calls for.
 const BLOOM_SCALES = [0.78, 1.0, 1.26];
 
+// The window boxes on the café's south fence: one per bay between the festoon poles (x ±5.5, ±8.5
+// and the gate arch's posts), so no pole runs through a planter and nothing stands in the gate lane.
+// Shared with the fireflies, which hover over them after dark.
+export const WINDOW_BOXES = Object.freeze([
+  { x: -9.3, w: 1.2 }, { x: -7.0, w: 1.5 }, { x: -4.0, w: 1.5 }, { x: 4.0, w: 1.5 }, { x: 7.0, w: 1.5 }, { x: 9.3, w: 1.2 },
+]);
+
 // Keeps scenery clear of the café slab, its plinth and the pavements already drawn by props.js.
 function insideCafe(x, z) { return x > -14 && x < 13 && z > -11 && z < 7.4; }
 
@@ -312,6 +328,73 @@ function litterFleck(out, hex, len, wide, x, y, z, yaw) {
 // swap can never move a bulb.
 function sagY(top, amp, t) { return top - amp * Math.sin(Math.PI * t); }
 
+const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+const hash2 = (x, z) => { const v = Math.sin(x * 127.1 + z * 311.7) * 43758.5453; return v - Math.floor(v); };
+// Does the box [x0,x1]x[z0,z1] overlap rectangle `r`?
+const hits = (r, x0, x1, z0, z1) => x1 > r.x0 && x0 < r.x1 && z1 > r.z0 && z0 < r.z1;
+// How far (x, z) lies outside rectangle `r`; 0 inside it.
+const outside = (r, x, z) => Math.hypot(Math.max(r.x0 - x, 0, x - r.x1), Math.max(r.z0 - z, 0, z - r.z1));
+
+// ---- The lawn ------------------------------------------------------------------------------------
+// ONE ground plane under the whole world, its colour carried in the vertices: soft patches, mowing
+// stripes where the grass is kept, a whisper of noise. It replaced 170 overlapping boxes whose tops
+// sat 0-20 mm apart and fought each other in the depth buffer as diagonal hatching across every
+// outdoor view. The grid is 1.5 x 2.5 m where the camera goes and coarse out in the fog, and skips
+// what the café and the paving cover, so it costs fewer triangles than the boxes did.
+export const LAWN_Y = -0.42;
+const STRIPE = 1.5;   // metres: one mowing stripe per grid column
+function axisLines(lead, from, to, step, tail) {
+  const out = [...lead];
+  for (let v = from; v <= to + 1e-6; v += step) out.push(Math.round(v * 1000) / 1000);
+  return out.concat(tail);
+}
+const LAWN_XS = axisLines([-46, -38, -30, -24], -20, 30, STRIPE, [34, 40, 48]);
+const LAWN_ZS = axisLines([-30, -24, -19], -15, 25, 2.5, [31, 38, 46]);
+
+function lawnPlane(P, patches, holes, kept) {
+  const nx = LAWN_XS.length, nz = LAWN_ZS.length;
+  const base = new THREE.Color(P.grass[0]), c = new THREE.Color(), pc = new THREE.Color();
+  // One colour per grid vertex, shared by the four quads that meet there, so neighbours agree.
+  const vc = new Float32Array(nx * nz * 3);
+  for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) {
+    const x = LAWN_XS[i], z = LAWN_ZS[j];
+    c.copy(base);
+    for (const p of patches) {
+      const u = Math.max(Math.abs(x - p.x) / (p.w / 2), Math.abs(z - p.z) / (p.d / 2));
+      if (u < 1.3) c.lerp(pc.set(p.col), (1 - smooth(0.55, 1.3, u)) * 0.8);
+    }
+    // Stripes alternate column by column, so each quad is one light-to-dark ramp: a soft mown band
+    // that cannot alias the way a hard-edged stripe would.
+    const stripe = (i & 1 ? 1 : -1) * 0.1 * kept(x, z);
+    c.multiplyScalar(1 + 0.03 * (hash2(x, z) * 2 - 1) + stripe);
+    const k = (i * nz + j) * 3;
+    vc[k] = c.r; vc[k + 1] = c.g; vc[k + 2] = c.b;
+  }
+  const pos = [], col = [];
+  const vert = (i, j) => { pos.push(LAWN_XS[i], LAWN_Y, LAWN_ZS[j]); const k = (i * nz + j) * 3; col.push(vc[k], vc[k + 1], vc[k + 2]); };
+  for (let i = 0; i < nx - 1; i++) for (let j = 0; j < nz - 1; j++) {
+    const mx = (LAWN_XS[i] + LAWN_XS[i + 1]) / 2, mz = (LAWN_ZS[j] + LAWN_ZS[j + 1]) / 2;
+    if (holes.some(h => mx > h.x0 && mx < h.x1 && mz > h.z0 && mz < h.z1)) continue;
+    vert(i, j); vert(i, j + 1); vert(i + 1, j + 1);
+    vert(i, j); vert(i + 1, j + 1); vert(i + 1, j);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(new Float32Array(pos.length).map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  return blankUV(g);
+}
+
+// ---- The pet play yard ---------------------------------------------------------------------------
+// The lot east of the café fence, between the north street and the line of the café's south fence.
+// The pond, the agility course and the benches used to stand in the near-band garden, which is
+// exactly where the terrace deck goes: buying the terrace deleted the prettiest scenery in the game.
+// Here they are permanent, so the terrace ADDS a room instead of replacing a garden.
+export function playYardRect(area) {
+  const W = area.size.w, D = area.size.d;
+  return { x0: W / 2 + 0.3, x1: W / 2 + 7.6, z0: -D / 2 + 0.2, z1: D / 2 };
+}
+
 // ---- One plant ----------------------------------------------------------------------------------
 // Three species, so a bed varies in silhouette and not only in hue, and so the average cost lands
 // under the 40-triangle ceiling: the tulip is very cheap and pays for the cluster, which is not.
@@ -390,35 +473,52 @@ function buildScenery(area, seasonId) {
   const solid = [];      // merged toon geometry — ALWAYS visible (mid/far rings, and any near-band
                           // content that falls outside the terrace's own footprint)
   const bright = [];     // merged unlit geometry (flowers, water sparkle) — always visible
-  // Batch 1 — the regions engine (plan 7.1/3.1). Content whose footprint the terrace physically
-  // occupies (x -10..10, z 7.4..14) goes here instead of `solid`/`bright`: it is the GARDEN that
-  // gets replaced by the deck, so it must be possible to hide as one group without touching the
-  // always-visible content above. Everything else (the broader lawn outside that footprint, the
-  // mid ring of hedges/trees, the far town ring) is unaffected by buying the terrace and stays in
-  // `solid`/`bright` exactly as before.
+  // Batch 1 — the regions engine (plan 7.1/3.1). Garden content the terrace deck replaces goes here
+  // instead of `solid`/`bright`, so it can be hidden as one group without touching the always-visible
+  // content around it.
   const regions = area.regions || [];
   const terrace = regions.find(reg => reg.id === 'terrace') || null;
   const gSolid = [], gBright = [];
-  const inTerrace = (x, z) => !!terrace && x >= terrace.x0 && x <= terrace.x1 && z >= terrace.z0 && z <= terrace.z1;
-  // Batch 4b: the far east flank of the tree ring used to start at the café wall (east + 4). The
-  // spa reaches to x 17.5, so trees seeded from x 14 now grow up through its tile floor. The ring
-  // starts east of the FURTHEST region edge instead — derived, so the plan's fourth space pushes
-  // it again for free. This shifts those 12 trees' x only; the rng stream is untouched (same draws
-  // in the same order), so every other piece of seeded garden layout is bit-identical.
-  const eastRing = regions.reduce((m, reg) => Math.max(m, reg.x1), east);
+  // Classified by FOOTPRINT, not by centre point: a piece whose body comes within half a metre of
+  // the deck belongs to the garden the deck replaces. By centre point, the end flower beds and a
+  // bench centred just past x ±10 stayed behind after the build, half on the deck's stone border
+  // with blooms growing out of the planks.
+  const DECK_MARGIN = 0.5;
+  const deckZone = terrace && { x0: terrace.x0 - DECK_MARGIN, x1: terrace.x1 + DECK_MARGIN, z0: terrace.z0 - DECK_MARGIN, z1: terrace.z1 + DECK_MARGIN };
+  const underDeck = (x, z, rx, rz = rx) => !!deckZone && hits(deckZone, x - rx, x + rx, z - rz, z + rz);
+  // Nothing grows through the paving, and nothing stands on it. Pieces that land there are still
+  // generated into `lost` — every random draw has to happen in the same order, or every later bed,
+  // bloom and tree in the seeded layout moves — and then simply never drawn.
+  const ground = groundCutouts(area);
+  const paving = [ground.plinth, ground.north, ground.west, ground.sidewalk];
+  const onPaving = (x, z, rx, rz = rx) => paving.some(p => hits(p, x - rx, x + rx, z - rz, z + rz));
+  const lost = [];
+  const yard = playYardRect(area);
+  // The yard is dressed only on open ground: a region built over the east lot (the retired spa, in
+  // a catalogue that still carries it) owns that ground instead.
+  const yardFree = !regions.some(reg => hits(reg, yard.x0, yard.x1, yard.z0, yard.z1));
+  // Batch 4b: the east flank of the tree ring starts past the FURTHEST thing out there — a region's
+  // edge or the yard's picket — so a tree never grows up through either.
+  const eastRing = regions.reduce((m, reg) => Math.max(m, reg.x1), yardFree ? yard.x1 : east);
 
   const pick = arr => arr[(r() * arr.length) | 0];
 
   // ---- Ground cover -----------------------------------------------------------------------------
-  // Broad, slightly varied patches instead of one flat colour. Overlapping quads at tiny height
-  // offsets read as mown grass without a texture or a single extra draw call.
+  // The 170 patches the old lawn was built from, now only COLOUR: soft blobs painted into the one
+  // ground plane below. Same draws in the same order, so the seeded layout after them is unchanged.
+  const patches = [];
   for (let i = 0; i < 170; i++) {
     const x = -34 + r() * 68, z = -20 + r() * 58;
     if (insideCafe(x, z)) continue;
     const w = 2 + r() * 6, d = 2 + r() * 6;
-    const arr = inTerrace(x, z) ? gSolid : solid;
-    arr.push(part('box', [w, 0.12, d], pick(P.grass), { x, y: -0.48 + r() * 0.05, z }));
+    const col = pick(P.grass);
+    r();   // was the slab's height jitter
+    patches.push({ x, z, w, d, col });
   }
+  // Mowing stripes where the grass is kept: the garden in front of the café and the play yard.
+  const kept = [{ x0: -20, x1: 22, z0: south + 0.4, z1: south + 10.6 }];
+  if (yardFree) kept.push(yard);
+  solid.push(lawnPlane(P, patches, paving, (x, z) => Math.max(...kept.map(k => 1 - smooth(0, 2.5, outside(k, x, z))))));
 
   // Grass tufts and pebbles. Small vertical detail is what stops a lawn reading as a painted plane;
   // they are concentrated in the near band because that is the only part at legible scale.
@@ -426,29 +526,35 @@ function buildScenery(area, seasonId) {
     const x = -22 + r() * 44, z = south + 0.6 + r() * 13;
     if (insideCafe(x, z)) continue;
     const h = 0.16 + r() * 0.22;
-    const arr = inTerrace(x, z) ? gSolid : solid;
+    const arr = onPaving(x, z, 0.14) ? lost : underDeck(x, z, 0.14) ? gSolid : solid;
     arr.push(part('cone', [0.09 + r() * 0.05, h, 4], pick(P.foliage), { x, y: -0.5 + h / 2, z }));
   }
   for (let i = 0; i < 46; i++) {
     const x = -20 + r() * 40, z = south + 1.0 + r() * 12;
     if (insideCafe(x, z)) continue;
     const s0 = 0.12 + r() * 0.16;
-    const arr = inTerrace(x, z) ? gSolid : solid;
+    const arr = onPaving(x, z, s0) ? lost : underDeck(x, z, s0) ? gSolid : solid;
     arr.push(part('sph', [s0, 5], r() < 0.5 ? P.pebble[0] : P.pebble[1], { x, y: -0.48, z, sy: 0.55 }));
   }
 
   // ---- Near garden: the foreground the player stares at all game (until the terrace is bought) --
   // A paw-print path curving away from the café gate, so the eye has somewhere to travel. Half as
   // many prints as before, smaller and a shade darker: at 26 near-white discs the path competed
-  // with the flower beds for attention, and the beds should win.
-  for (let i = 0; i < 13; i++) {
-    const t = i / 12;
-    const x = -6 + t * 15 + Math.sin(t * 4.2) * 1.7;
-    const z = south + 1.1 + t * 9.5;
-    const arr = inTerrace(x, z) ? gSolid : solid;
-    arr.push(part('cyl', [0.27, 0.27, 0.07, 9], P.pathStone, { x, y: -0.44, z, sz: 0.78 }));
-    for (const [ox, oz] of [[-0.17, 0.23], [0.0, 0.27], [0.17, 0.23]]) {
-      arr.push(part('cyl', [0.082, 0.082, 0.06, 6], P.pathStoneToe, { x: x + ox, y: -0.44, z: z + oz }));
+  // with the flower beds for attention, and the beds should win. It leads from the gate, so it goes
+  // with the garden as ONE piece: split by position, the prints south of the deck stayed behind
+  // after the build, a trail of stepping stones into a fence with no gap.
+  {
+    const stones = [];
+    for (let i = 0; i < 13; i++) {
+      const t = i / 12;
+      stones.push([-6 + t * 15 + Math.sin(t * 4.2) * 1.7, south + 1.1 + t * 9.5]);
+    }
+    const arr = stones.some(([x, z]) => underDeck(x, z, 0.3)) ? gSolid : solid;
+    for (const [x, z] of stones) {
+      arr.push(part('cyl', [0.27, 0.27, 0.07, 9], P.pathStone, { x, y: -0.44, z, sz: 0.78 }));
+      for (const [ox, oz] of [[-0.17, 0.23], [0.0, 0.27], [0.17, 0.23]]) {
+        arr.push(part('cyl', [0.082, 0.082, 0.06, 6], P.pathStoneToe, { x: x + ox, y: -0.44, z: z + oz }));
+      }
     }
   }
 
@@ -467,9 +573,10 @@ function buildScenery(area, seasonId) {
   for (let i = 0; i < 14; i++) {
     const bx = -13 + i * 2.15 + r() * 0.5;
     const bz = south + 0.9 + r() * 0.5;
-    bedAnchors.push({ x: bx, z: bz });
-    const garden = inTerrace(bx, bz);
-    const sArr = garden ? gSolid : solid, bArr = garden ? gBright : bright;
+    const paved = onPaving(bx, bz, 1.04, 0.6);
+    const garden = !paved && underDeck(bx, bz, 1.04, 0.6);
+    if (!paved) bedAnchors.push({ x: bx, z: bz, garden });
+    const sArr = paved ? lost : garden ? gSolid : solid, bArr = paved ? lost : garden ? gBright : bright;
     sArr.push(part('box', [2.0, 0.34, 1.15], P.planterBody, { x: bx, y: -0.36, z: bz }));
     sArr.push(part('box', [1.75, 0.16, 0.92], P.soil, { x: bx, y: -0.2, z: bz }));
     // Wooden edge: two long boards, two short boards, four corner posts standing slightly proud.
@@ -487,76 +594,104 @@ function buildScenery(area, seasonId) {
     for (let f = 0; f < 8; f++) {
       const fx = bx - 0.72 + r() * 1.44, fz = bz - 0.32 + r() * 0.64;
       addPlant(P, PETAL_SETS, sArr, bArr, r, fx, fz, soilY);
-      blooms++;
+      if (!paved) blooms++;
     }
   }
 
+  // ---- The pet play yard (see playYardRect) --------------------------------------------------------
+  // Laid out for the camera that looks at it: from the south-east, over the kitchen's east end. The
+  // benches line the north picket facing in, the agility course runs across the middle and the pond
+  // sits in the near corner; only low pieces stand near the café fence, and the two trees stand at
+  // the far east picket, where they can never come between the camera and the café.
+  const ySolid = yardFree ? solid : lost, yBright = yardFree ? bright : lost;
   // A pond. Water is the cheapest way to break a field of green, and ducks aside, pets drink here.
-  // Its footprint sits inside the terrace, so it is exactly what the deck (and the ice cream lane
-  // built on it) replaces — garden content.
+  // Rim, deep water and shallows step UP 1-1.5 cm each, never closer: every layer is its own depth.
   {
-    const px = 9.5, pz = south + 6.2;
-    const sArr = inTerrace(px, pz) ? gSolid : solid, bArr = inTerrace(px, pz) ? gBright : bright;
-    sArr.push(part('cyl', [3.1, 3.1, 0.18, 14], P.pondRim, { x: px, y: -0.5, z: pz, sz: 0.72 }));
-    sArr.push(part('cyl', [2.72, 2.72, 0.16, 14], P.pondDeep, { x: px, y: -0.45, z: pz, sz: 0.72 }));
-    bArr.push(part('cyl', [2.3, 2.3, 0.05, 14], P.pondShallow, { x: px, y: -0.4, z: pz, sz: 0.72 }));
+    const px = yard.x0 + 4.4, pz = yard.z1 - 3.3, k = 0.72;
+    ySolid.push(part('cyl', [2.3, 2.3, 0.18, 14], P.pondRim, { x: px, y: LAWN_Y - 0.07, z: pz, sz: k }));
+    ySolid.push(part('cyl', [2.0, 2.0, 0.16, 14], P.pondDeep, { x: px, y: LAWN_Y - 0.03, z: pz, sz: k }));
+    yBright.push(part('cyl', [1.7, 1.7, 0.05, 14], P.pondShallow, { x: px, y: LAWN_Y + 0.04, z: pz, sz: k }));
     for (let i = 0; i < 5; i++) {
-      const a = r() * Math.PI * 2, rad = 0.5 + r() * 1.5;
-      sArr.push(part('cyl', [0.3 + r() * 0.16, 0.3, 0.045, 7], P.lily,
-        { x: px + Math.cos(a) * rad, y: -0.37, z: pz + Math.sin(a) * rad * 0.72, sz: 0.8 }));
+      const a = r() * Math.PI * 2, rad = 0.4 + r() * 1.1;
+      ySolid.push(part('cyl', [0.24 + r() * 0.12, 0.24, 0.045, 7], P.lily,
+        { x: px + Math.cos(a) * rad, y: LAWN_Y + 0.06, z: pz + Math.sin(a) * rad * k, sz: 0.8 }));
     }
     // Three reeds on the far lip: vertical accents against a horizontal disc of water, which is the
     // only thing the pond was missing. 17 triangles each.
-    for (const [rx, rz] of [[-2.35, -0.55], [-2.05, -1.05], [2.5, -0.5]]) {
+    for (const [rx, rz] of [[-1.75, -0.45], [-1.5, -0.8], [1.85, -0.4]]) {
       const rh = 0.85 + r() * 0.45;
-      const bxr = px + rx, bzr = pz + rz * 0.72;
-      stalk(sArr, P.reedStem, 0.035, rh, bxr, -0.46, bzr, (r() - 0.5) * 0.16);
-      dome(bArr, P.reedHead, 0.055, 4, bxr, -0.46 + rh + 0.08, bzr, 2.6);
-      leafBlade(sArr, P.reedStem, 1.5, bxr, -0.46, bzr, r() * 6.28, 0.9);
-      leafBlade(sArr, P.reedStem, 1.5, bxr, -0.46, bzr, r() * 6.28, 1.25);
+      const bxr = px + rx, bzr = pz + rz * k;
+      stalk(ySolid, P.reedStem, 0.035, rh, bxr, LAWN_Y - 0.04, bzr, (r() - 0.5) * 0.16);
+      dome(yBright, P.reedHead, 0.055, 4, bxr, LAWN_Y - 0.04 + rh + 0.08, bzr, 2.6);
+      leafBlade(ySolid, P.reedStem, 1.5, bxr, LAWN_Y - 0.04, bzr, r() * 6.28, 0.9);
+      leafBlade(ySolid, P.reedStem, 1.5, bxr, LAWN_Y - 0.04, bzr, r() * 6.28, 1.25);
     }
   }
 
-  // Pet agility course. Pure theme: the café's garden is a place pets visibly play in. Its anchor
-  // sits inside the terrace footprint, so the whole course is garden content.
+  // Pet agility course. Pure theme: the café's garden is a place pets visibly play in.
   {
-    const gx = -6.5, gz = south + 5.4;
-    const arr = inTerrace(gx, gz) ? gSolid : solid;
-    // hoop
-    arr.push(part('cyl', [0.09, 0.09, 1.5, 8], P.hoopPost, { x: gx - 0.85, y: 0.25, z: gz }));
-    arr.push(part('cyl', [0.09, 0.09, 1.5, 8], P.hoopPost, { x: gx + 0.85, y: 0.25, z: gz }));
-    arr.push(part('cyl', [0.86, 0.86, 0.13, 20], P.hoopRing, { x: gx, y: 0.78, z: gz, rx: Math.PI / 2, sz: 1 }));
-    arr.push(part('cyl', [0.72, 0.72, 0.15, 20], P.hoopInner, { x: gx, y: 0.78, z: gz, rx: Math.PI / 2, sz: 1 }));
+    const gx = yard.x0 + 2.2, gz = yard.z0 + 3.9;
+    const G0 = LAWN_Y;
+    // hoop, its ring face-on to the camera
+    ySolid.push(part('cyl', [0.09, 0.09, 1.5, 8], P.hoopPost, { x: gx - 0.85, y: G0 + 0.67, z: gz }));
+    ySolid.push(part('cyl', [0.09, 0.09, 1.5, 8], P.hoopPost, { x: gx + 0.85, y: G0 + 0.67, z: gz }));
+    ySolid.push(part('cyl', [0.86, 0.86, 0.13, 20], P.hoopRing, { x: gx, y: G0 + 1.2, z: gz, rx: Math.PI / 2, sz: 1 }));
+    ySolid.push(part('cyl', [0.72, 0.72, 0.15, 20], P.hoopInner, { x: gx, y: G0 + 1.2, z: gz, rx: Math.PI / 2, sz: 1 }));
     // low ramp
-    arr.push(part('box', [2.3, 0.14, 1.3], P.ramp, { x: gx + 4.4, y: 0.0, z: gz + 0.6, rz: 0.2 }));
-    arr.push(part('box', [0.16, 0.5, 1.3], P.rampLeg, { x: gx + 5.4, y: -0.2, z: gz + 0.6 }));
-    // tunnel
+    ySolid.push(part('box', [2.3, 0.14, 1.3], P.ramp, { x: gx + 2.2, y: G0 + 0.42, z: gz + 0.4, rz: 0.2 }));
+    ySolid.push(part('box', [0.16, 0.5, 1.3], P.rampLeg, { x: gx + 3.2, y: G0 + 0.22, z: gz + 0.4 }));
+    // tunnel, running away from the camera just inside the east picket
     for (let i = 0; i < 5; i++) {
-      arr.push(part('cyl', [0.62, 0.62, 0.22, 14], i % 2 ? P.tunnelA : P.tunnelB,
-        { x: gx + 8.6, y: 0.12, z: gz - 0.9 + i * 0.5, rx: Math.PI / 2 }));
+      ySolid.push(part('cyl', [0.62, 0.62, 0.22, 14], i % 2 ? P.tunnelA : P.tunnelB,
+        { x: gx + 4.2, y: G0 + 0.54, z: gz - 1.0 + i * 0.5, rx: Math.PI / 2 }));
     }
-    // two bowls
-    for (const ox of [10.6, 11.3]) {
-      arr.push(part('cyl', [0.26, 0.2, 0.16, 12], P.bowl, { x: gx + ox, y: -0.32, z: gz + 1.4 }));
+    // two bowls by the café fence, where a pet let out of the café would find them first
+    for (const ox of [0.0, 0.7]) {
+      ySolid.push(part('cyl', [0.26, 0.2, 0.16, 12], P.bowl, { x: yard.x0 + 0.9 + ox, y: G0 + 0.08, z: yard.z1 - 3.0 }));
     }
   }
 
-  // Benches facing the café, so the garden reads as somewhere people sit rather than empty lawn.
-  for (const [bx, bz] of [[2.2, south + 3.0], [-10.5, south + 2.4]]) {
-    const arr = inTerrace(bx, bz) ? gSolid : solid;
-    arr.push(part('rbox', [1.9, 0.14, 0.6, 0.05], P.benchSeat, { x: bx, y: 0.05, z: bz }));
-    arr.push(part('rbox', [1.9, 0.5, 0.13, 0.05], P.benchSeat, { x: bx, y: 0.3, z: bz - 0.24 }));
-    for (const ox of [-0.75, 0.75]) arr.push(part('box', [0.13, 0.42, 0.5], P.benchLeg, { x: bx + ox, y: -0.16, z: bz }));
+  // Benches along the north picket, facing into the yard: somewhere people sit and watch pets play.
+  for (const bx of [yard.x0 + 1.9, yard.x0 + 5.1]) {
+    const bz = yard.z0 + 0.75, G0 = LAWN_Y;
+    ySolid.push(part('rbox', [1.9, 0.14, 0.6, 0.05], P.benchSeat, { x: bx, y: G0 + 0.47, z: bz }));
+    ySolid.push(part('rbox', [1.9, 0.5, 0.13, 0.05], P.benchSeat, { x: bx, y: G0 + 0.72, z: bz - 0.24 }));
+    for (const ox of [-0.75, 0.75]) ySolid.push(part('box', [0.13, 0.42, 0.5], P.benchLeg, { x: bx + ox, y: G0 + 0.21, z: bz }));
+  }
+
+  // The yard's own low picket: east side, north side along the street, and south side on the line of
+  // the café's own south fence, so the whole east lot reads as a kept, fenced place.
+  {
+    const G0 = LAWN_Y, pH = 0.66;
+    const run = (x0, z0, x1, z1) => {
+      const len = Math.hypot(x1 - x0, z1 - z0), n = Math.max(1, Math.round(len / 0.85));
+      for (let i = 0; i <= n; i++) {
+        const t = i / n;
+        ySolid.push(part('box', [0.12, pH, 0.12], P.picket, { x: x0 + (x1 - x0) * t, y: G0 + pH / 2, z: z0 + (z1 - z0) * t }));
+      }
+      const alongX = Math.abs(x1 - x0) > Math.abs(z1 - z0);
+      for (const yy of [0.2, 0.5]) {
+        ySolid.push(part('box', alongX ? [len, 0.08, 0.06] : [0.06, 0.08, len], P.picket, { x: (x0 + x1) / 2, y: G0 + yy, z: (z0 + z1) / 2 }));
+      }
+    };
+    run(yard.x0 + 0.1, yard.z0, yard.x1, yard.z0);
+    run(yard.x1, yard.z0, yard.x1, yard.z1);
+    run(yard.x0 + 0.1, yard.z1, yard.x1, yard.z1);
   }
 
   // ---- Mid ring: hedges and trees (always visible — outside the terrace footprint) --------------
+  // A tree whose trunk would stand on paving, in the café, on the deck or inside the yard is still
+  // drawn from the stream, into `lost`, so no other tree moves.
   const treeAt = (x, z, scale) => {
+    const blocked = insideCafe(x, z) || onPaving(x, z, 0.4) || underDeck(x, z, 0.6)
+      || (yardFree && hits(yard, x - 0.6, x + 0.6, z - 0.6, z + 0.6));
+    const out = blocked ? lost : solid;
     const h = (1.5 + r() * 1.3) * scale;
-    solid.push(part('cyl', [0.17 * scale, 0.23 * scale, h, 5], P.trunk, { x, y: -0.5 + h / 2, z }));
+    out.push(part('cyl', [0.17 * scale, 0.23 * scale, h, 5], P.trunk, { x, y: -0.5 + h / 2, z }));
     const crown = pick(P.foliage);
-    solid.push(part('sph', [0.95 * scale, 7], crown, { x, y: -0.5 + h + 0.5 * scale, z, sy: 1.12 }));
-    solid.push(part('sph', [0.66 * scale, 6], crown, { x: x + 0.42 * scale, y: -0.5 + h + 1.05 * scale, z: z - 0.2 * scale }));
-    solid.push(part('sph', [0.55 * scale, 6], pick(P.foliage), { x: x - 0.46 * scale, y: -0.5 + h + 0.85 * scale, z: z + 0.22 * scale }));
+    out.push(part('sph', [0.95 * scale, 7], crown, { x, y: -0.5 + h + 0.5 * scale, z, sy: 1.12 }));
+    out.push(part('sph', [0.66 * scale, 6], crown, { x: x + 0.42 * scale, y: -0.5 + h + 1.05 * scale, z: z - 0.2 * scale }));
+    out.push(part('sph', [0.55 * scale, 6], pick(P.foliage), { x: x - 0.46 * scale, y: -0.5 + h + 0.85 * scale, z: z + 0.22 * scale }));
   };
 
   // White picket line at the garden edge: a bright horizontal that separates near garden from the
@@ -590,11 +725,19 @@ function buildScenery(area, seasonId) {
     const x = -30 + r() * 62, z = south + 13.5 + r() * 10;
     treeAt(x, z, 0.85 + r() * 0.6);
   }
-  // East flank: fills the right edge in landscape, past whatever the world stops at out there
-  // (the café wall at x = 10 before Batch 4b, the spa's own east edge at 17.5 after it).
+  // East flank: fills the right edge in landscape, past whatever the world stops at out there.
   for (let i = 0; i < 12; i++) treeAt(eastRing + 4 + r() * 14, -14 + r() * 26, 0.8 + r() * 0.55);
   // A few behind the north wall so the roofline is not the last thing in the frame.
   for (let i = 0; i < 10; i++) treeAt(-30 + r() * 60, -18 - r() * 8, 0.9 + r() * 0.6);
+  // Two trees for the yard's far corners, placed rather than seeded: the east flank starts beyond
+  // the yard's picket, and without these the lot reads as fenced-off nothing from the café.
+  if (yardFree) {
+    for (const [x, z, s] of [[yard.x1 - 0.7, yard.z0 + 0.8, 1.05], [yard.x1 - 0.6, yard.z1 - 1.0, 0.9]]) {
+      solid.push(part('cyl', [0.17 * s, 0.23 * s, 2.1 * s, 5], P.trunk, { x, y: LAWN_Y + 1.05 * s, z }));
+      solid.push(part('sph', [0.95 * s, 7], P.foliage[0], { x, y: LAWN_Y + 2.6 * s, z, sy: 1.12 }));
+      solid.push(part('sph', [0.62 * s, 6], P.foliage[2], { x: x - 0.4 * s, y: LAWN_Y + 3.1 * s, z: z + 0.2 * s }));
+    }
+  }
 
   // ---- Far ring: town silhouette ----------------------------------------------------------------
   // No detail at all, only massing and pale colour. Depth, not scenery.
@@ -637,11 +780,17 @@ function buildScenery(area, seasonId) {
   // and above the window boxes' blooms below, so the fence reads as three stacked bands rather than
   // one clotted one.
   const FESTOON_TOP = 1.72;
-  // The fence posts stand every 1.5 m from x = -10, so the festoon poles land ON six of them and
-  // the string reads as tied to the fence rather than floating. The gate lane is left empty: guests
-  // walk through |x| < 1.2 and the gate arch already occupies that airspace.
-  const FESTOON_POLES = [-8.5, -5.5, -2.5, 2, 5, 8];
-  const FESTOON_SPANS = [[-9.7, -8.5], [-8.5, -5.5], [-5.5, -2.5], [2, 5], [5, 8], [8, 9.7]];
+  // The gate lane is EMPTY at every body height: it is the terrace region's own gap (gateHalfW 2.4,
+  // data/area1.js), not the 1.2 this dressing was first placed for — a pole stood at x 2 and half of
+  // two window boxes stood in the lane, and guests walked knee-deep through the planters. The string
+  // ends at the gate arch's posts instead (buildRegion: the gap plus 0.15 m): a slim pole stands
+  // there before the terrace is built and the arch post sheaths it afterwards.
+  const gateEdge = terrace ? regionEdge(terrace, area) : null;
+  const gateC = gateEdge && gateEdge.axis === 'z' ? gateEdge.gapCentre : 0;
+  const ARCH_X = (gateEdge && gateEdge.axis === 'z' ? gateEdge.gapHalf : 2.4) + 0.15;
+  const ARCH_Z = terrace ? terrace.z0 - 0.2 : FESTOON_Z;
+  const FESTOON_POLES = [-8.5, -5.5, 5.5, 8.5];
+  const FESTOON_SPANS = [[-9.7, -8.5], [-8.5, -5.5], [-5.5, gateC - ARCH_X], [gateC + ARCH_X, 5.5], [5.5, 8.5], [8.5, 9.7]];
   // Bunting hues: one per petal family plus the season's foliage, so the four seasons get four
   // genuinely different four-colour sets rather than four shades of one hue --
   //   blossom pink/yellow/violet/leaf-green · splash coral/amber/cyan/teal ·
@@ -650,9 +799,16 @@ function buildScenery(area, seasonId) {
 
   for (const px of FESTOON_POLES) {
     // Pole runs from below ground so it plants in the lawn before the terrace and hides inside
-    // buildRegion's stone border (y -0.45 .. -0.03, z 7.05 .. 14.35) after it. 12 triangles.
+    // buildRegion's stone border (y -0.5 .. -0.085, z 7.05 .. 14.35) after it. 12 triangles.
     const g = new THREE.CylinderGeometry(0.05, 0.055, 2.22, 6, 1, true);
     g.translate(px, 0.61, FESTOON_Z);
+    solid.push(finish(g, P.planterPost));
+  }
+  // The two gate poles, on the arch posts' own centres and thinner than them (0.08 against 0.10),
+  // so once the terrace is built the arch swallows them whole and the string hangs from the arch.
+  for (const px of [gateC - ARCH_X, gateC + ARCH_X]) {
+    const g = new THREE.CylinderGeometry(0.075, 0.08, 2.22, 6, 1, true);
+    g.translate(px, 0.61, ARCH_Z);
     solid.push(finish(g, P.planterPost));
   }
 
@@ -689,22 +845,27 @@ function buildScenery(area, seasonId) {
   // below the pennants at 1.42, so the fence line reads as three clean bands.
   const BOX_Z = FENCE_Z + 0.24;
   const BOX_SOIL = 0.50;
-  // Symmetric, 1.7 m apart, and the innermost pair starts at |x| = 2.4 so a 1.5 m box still leaves
-  // 1.65 m of clearance from the gate centreline and clears buildRegion's arch posts at |x| = 1.35.
-  for (const bx of [-9.2, -7.5, -5.8, -4.1, -2.4, 2.4, 4.1, 5.8, 7.5, 9.2]) {
-    solid.push(part('box', [1.5, 0.28, 0.30], P.planterBody, { x: bx, y: 0.34, z: BOX_Z }));
-    solid.push(part('box', [1.34, 0.10, 0.22], P.soil, { x: bx, y: 0.45, z: BOX_Z }));
-    solid.push(part('box', [1.58, 0.07, 0.36], P.planterRim, { x: bx, y: 0.485, z: BOX_Z }));
+  // One box per bay between the festoon poles (WINDOW_BOXES), so no pole goes through a planter and
+  // the innermost box starts well outside the gate lane and the arch posts. The bays used to hold ten;
+  // the four dropped still draw their blooms from the stream, into `lost`, so the deck dressing
+  // generated after them keeps its layout.
+  const boxes = WINDOW_BOXES.map(b => ({ ...b }));
+  while (boxes.length < 10) boxes.push({ x: 0, w: 1.5, lost: true });
+  for (const { x: bx, w, lost: gone } of boxes) {
+    const out = gone ? lost : solid, outB = gone ? lost : bright;
+    out.push(part('box', [w, 0.28, 0.30], P.planterBody, { x: bx, y: 0.34, z: BOX_Z }));
+    out.push(part('box', [w - 0.16, 0.10, 0.22], P.soil, { x: bx, y: 0.45, z: BOX_Z }));
+    out.push(part('box', [w + 0.08, 0.07, 0.36], P.planterRim, { x: bx, y: 0.485, z: BOX_Z }));
     // Two brackets under the box, not behind it: they have to be visible for the box to read as
     // bolted to the fence rather than balanced on thin air before the deck exists.
-    for (const ox of [-0.62, 0.62]) {
-      solid.push(part('box', [0.07, 0.22, 0.28], P.planterPost, { x: bx + ox, y: 0.11, z: BOX_Z - 0.03 }));
+    for (const ox of [-(w / 2 - 0.13), w / 2 - 0.13]) {
+      out.push(part('box', [0.07, 0.22, 0.28], P.planterPost, { x: bx + ox, y: 0.11, z: BOX_Z - 0.03 }));
     }
     // Three blooms, not the beds' eight: a box is 0.3 m deep and the silhouette has to stay legible
     // against the café behind it rather than turning into a hedge.
     for (let f = 0; f < 3; f++) {
-      addPlant(P, PETAL_SETS, solid, bright, r, bx - 0.5 + f * 0.5 + (r() - 0.5) * 0.16, BOX_Z + (r() - 0.5) * 0.1, BOX_SOIL);
-      blooms++;
+      addPlant(P, PETAL_SETS, out, outB, r, bx - 0.5 * (w / 1.5) + f * 0.5 * (w / 1.5) + (r() - 0.5) * 0.16, BOX_Z + (r() - 0.5) * 0.1, BOX_SOIL);
+      if (!gone) blooms++;
     }
   }
 
@@ -714,7 +875,7 @@ function buildScenery(area, seasonId) {
   const dSolid = [], dBright = [];
   if (terrace) {
     const cx0 = terrace.x0, cx1 = terrace.x1, cz0 = terrace.z0, cz1 = terrace.z1;
-    const DECK_Y = 0.06;      // plank tops are y 0.045
+    const DECK_Y = 0.006;     // 6 mm above the planks, whose tops are the floor, y 0
     const litter = P.litter;
 
     // Fallen petals / leaves / frost. WHY THESE BANDS: the deck is the biggest thing in frame and a
@@ -771,11 +932,11 @@ function buildScenery(area, seasonId) {
     // fountain in this spot later (outer radius 1.2).
     for (const [ox, oz] of [[-1.05, -1.05], [1.05, -1.05], [-1.05, 1.05], [1.05, 1.05]]) {
       const px = ox, pz = 10.6 + oz;
-      dSolid.push(part('cyl', [0.24, 0.19, 0.32, 8], P.planterBody, { x: px, y: 0.21, z: pz }));
-      dSolid.push(part('cyl', [0.27, 0.27, 0.06, 8], P.planterRim, { x: px, y: 0.375, z: pz }));
+      dSolid.push(part('cyl', [0.24, 0.19, 0.32, 8], P.planterBody, { x: px, y: 0.165, z: pz }));
+      dSolid.push(part('cyl', [0.27, 0.27, 0.06, 8], P.planterRim, { x: px, y: 0.325, z: pz }));
       for (let f = 0; f < 3; f++) {
         const a = f * 2.1 + 0.4;
-        addPlant(P, PETAL_SETS, dSolid, dBright, r, px + Math.cos(a) * 0.11, pz + Math.sin(a) * 0.11, 0.40);
+        addPlant(P, PETAL_SETS, dSolid, dBright, r, px + Math.cos(a) * 0.11, pz + Math.sin(a) * 0.11, 0.355);
         blooms++;
       }
     }
@@ -803,6 +964,9 @@ function buildScenery(area, seasonId) {
     }
   }
 
+  // Somewhere for the daytime insects once the terrace has paved the middle beds over: the yard's
+  // pond and its reeds.
+  if (yardFree) bedAnchors.push({ x: yard.x0 + 4.4, z: yard.z1 - 3.3 }, { x: yard.x0 + 2.8, z: yard.z1 - 3.9 }, { x: yard.x0 + 6.0, z: yard.z1 - 3.1 });
   return { solid, bright, gSolid, gBright, dSolid, dBright, blooms, terrace, bedAnchors };
 }
 
@@ -849,7 +1013,7 @@ export function buildEnvironment(area, seasonId = SEASON_IDS[0]) {
   // Where the flower beds currently are. buildScenery rebuilds them on every season change and their
   // positions are seeded per season, so this is refreshed rather than captured once — the insects
   // read group.bedAnchors live, and would otherwise work a bed layout that no longer exists.
-  let bedAnchors = [];
+  let bedAnchors = [], visibleAnchors = [];
 
   const garden = new THREE.Group();
   garden.name = 'garden';
@@ -892,6 +1056,11 @@ export function buildEnvironment(area, seasonId = SEASON_IDS[0]) {
   let dSolidNode = null, dBrightNode = null;
   const floorNodes = new Map();   // region id -> the buildRegion Group currently in its group
   let currentSeason = null;
+  const builtState = new Map();   // region id -> built, as game.js last said
+  // The insects' beds: every bed until the terrace is built, then only the ones the deck left.
+  const refreshAnchors = () => {
+    visibleAnchors = builtState.get('terrace') ? bedAnchors.filter(b => !b.garden) : bedAnchors;
+  };
 
   function disposeLit(node) { if (node) node.geometry.dispose(); } // shares toonMaterial() — never dispose that
   function disposeBright(node) { if (node) { node.geometry.dispose(); node.material.dispose(); } }
@@ -950,17 +1119,18 @@ export function buildEnvironment(area, seasonId = SEASON_IDS[0]) {
       deck.add(dSolidNode);
       deck.add(dBrightNode);
     }
+    refreshAnchors();
   }
   applySeason(seasonId);
   // Consumed by whoever owns src/sim/seasons.js's day->season mapping (see this task's
   // wiringNeeded) once per day rollover. Cheap to over-call: no-ops when the id hasn't changed.
   // Fireflies over the flowers, after dark — the owner's request. An EFFECT layer, so it lives in its
   // own child group rather than as a lit mesh of the scenery: two clouds, both on things the in-frame
-  // pass put in front of the camera — the ten window boxes on the fence's south face (whose x centres
+  // pass put in front of the camera — the window boxes on the fence's south face (whose x centres
   // skip the gate gap, so nothing here enters the lane a body walks through) and the four planted pots
   // on the fountain's diagonals. A fixed-seed LCG rather than Math.random so the layout is identical
   // every load, and independent of the garden's own seeded stream so adding these moves nothing else.
-  const BOX_XS = [-9.2, -7.5, -5.8, -4.1, -2.4, 2.4, 4.1, 5.8, 7.5, 9.2];
+  const BOX_XS = WINDOW_BOXES.map(b => b.x);
   const FLY_COUNT = 56;
   const flyPos = new Float32Array(FLY_COUNT * 3);
   const flyCol = new Float32Array(FLY_COUNT * 3);
@@ -1009,13 +1179,145 @@ export function buildEnvironment(area, seasonId = SEASON_IDS[0]) {
     flies.material.opacity = 0.8 * v;
     flies.visible = v > 0.02;
   };
-  // The 14 bed positions buildScenery placed for the CURRENT season. Surfaced on the group so
-  // render/butterflies.js anchors the daytime insects to real planting rather than copied numbers.
-  // A getter, not a copied value, so a season change cannot leave the insects on a stale layout.
-  Object.defineProperty(group, 'bedAnchors', { get: () => bedAnchors, enumerable: true });
-  // A slow drift, only while visible: sinusoidal per-point offsets from the seeded base, so the cloud
-  // breathes without ever wandering off the flowers.
+  // The bed positions buildScenery placed for the CURRENT season, less the ones the terrace paved
+  // over, plus the play yard's pond. Surfaced on the group so render/butterflies.js anchors the
+  // daytime insects to real planting rather than copied numbers. A getter, not a copied value, so a
+  // season change or a build cannot leave the insects on a stale layout.
+  Object.defineProperty(group, 'bedAnchors', { get: () => visibleAnchors, enumerable: true });
+
+  // ---- The build reveal ---------------------------------------------------------------------------
+  // A region bought DURING PLAY is laid, not swapped in: the garden sinks into the lawn under dust,
+  // the stone base rises, then the planks drop in row by row outward from the gate, each landing
+  // with a squash and a puff of dust, and last the arch, the planters and the season's dressing grow
+  // up through the boards. On load, on a restore and under reduced motion the floor is simply there.
+  //
+  // "During play" is the one thing this file can tell by itself. game.js steps the environment
+  // (updateFireflies, below) earlier in the same G.update that answers a fresh 'built' event with
+  // setRegionBuilt; a load or a restore calls setRegionBuilt outside any step. So a step marks
+  // itself live until the current task ends.
+  let inStep = false;
+  const markStep = () => {
+    if (inStep) return;
+    inStep = true;
+    queueMicrotask(() => { inStep = false; });
+  };
+  const reducedMotion = () => {
+    try { return !!matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (_) { return false; }
+  };
+  const ROW_FROM = 0.12, ROW_SPAN = 0.62, DROP = 0.16, SETTLE = 0.35, GROW = 0.3, SINK = 0.32;
+  const reveals = new Map();   // region id -> the live reveal
+
+  function startReveal(regionId) {
+    const reg = allRegions.find(r => r.id === regionId), host = regionGroups.get(regionId);
+    if (!reg || !host) return;
+    const pieces = regionRevealPieces(area, reg, paletteForSeason(currentSeason));
+    const temp = new THREE.Group();
+    temp.name = 'reveal:' + regionId;
+    const make = geometry => {
+      const m = new THREE.Mesh(geometry, toonMaterial());
+      m.receiveShadow = true; m.castShadow = false;
+      temp.add(m);
+      return m;
+    };
+    const base = make(pieces.base);
+    const n = pieces.rows.length;
+    const rows = pieces.rows.map((row, i) => {
+      // Each row centred on its own origin, so its squash happens in place.
+      const ox = pieces.axis === 'x' ? row.along : row.cross, oz = pieces.axis === 'x' ? row.cross : row.along;
+      row.geometry.translate(-ox, 0, -oz);
+      const m = make(row.geometry);
+      m.position.set(ox, 0, oz);
+      m.visible = false;
+      const t0 = ROW_FROM + (n > 1 ? i / (n - 1) : 0) * ROW_SPAN;
+      return { m, ox, oz, t0, land: t0 + DROP, landed: false };
+    });
+    const extras = pieces.extras ? make(pieces.extras) : null;
+    const lastLand = rows.length ? rows[rows.length - 1].land : ROW_FROM;
+    host.add(temp);
+    host.visible = true;
+    const R = { t: 0, reg, host, temp, base, rows, extras, grow: lastLand - 0.05, end: lastLand + SETTLE, axis: pieces.axis };
+    if (regionId === 'terrace') {
+      garden.visible = true;
+      // Dust over every bed the deck is about to replace, the moment it is bought.
+      const fx = currentFx();
+      if (fx) for (const b of bedAnchors) if (b.garden) { fx.dust(b.x, b.z, 2); fx.dust(b.x + 0.5, b.z, 2); fx.burst(b.x, 0.2, b.z, '#E9DCC5', 5); }
+    }
+    reveals.set(regionId, R);
+    applyReveal(regionId, R);
+  }
+
+  function applyReveal(regionId, R) {
+    const t = R.t, fx = currentFx();
+    const floor = floorNodes.get(regionId);
+    if (floor) floor.visible = false;
+    // The stone base comes up as the garden goes down, never ahead of it, so no plant is left
+    // poking up through fresh stone.
+    const u = Math.max(0, Math.min(1, (t - 0.05) / 0.3));
+    R.base.position.y = -0.45 * Math.pow(1 - u, 2);
+    for (const row of R.rows) {
+      if (t < row.t0) { row.m.visible = false; continue; }
+      row.m.visible = true;
+      if (t < row.land) {
+        const p = (t - row.t0) / DROP;
+        row.m.position.y = 0.6 * (1 - p * p);
+        row.m.scale.set(1, 1, 1);
+        continue;
+      }
+      row.m.position.y = 0;
+      const k = t - row.land, s = Math.exp(-11 * k) * Math.cos(24 * k);
+      row.m.scale.y = Math.max(0.35, 1 - 0.5 * s);
+      const across = 1 + 0.16 * s;
+      if (R.axis === 'x') row.m.scale.x = across; else row.m.scale.z = across;
+      if (!row.landed) {
+        row.landed = true;
+        if (fx) {
+          const b = R.reg;
+          if (R.axis === 'x') for (let z = b.z0 + 1; z < b.z1; z += 4.5) fx.dust(row.ox, z, 2);
+          else for (let x = b.x0 + 1; x < b.x1; x += 4.5) fx.dust(x, row.oz, 2);
+        }
+      }
+    }
+    // The arch, the planters and the season's dressing grow up through the boards once they are down.
+    const g = t < R.grow ? 0 : Math.min(1, (t - R.grow) / GROW);
+    const rise = -2.7 * Math.pow(1 - g, 3);
+    if (R.extras) { R.extras.visible = g > 0; R.extras.position.y = rise; }
+    if (regionId === 'terrace') {
+      for (const node of [dSolidNode, dBrightNode]) if (node) { node.visible = g > 0; node.position.y = rise; }
+      // The garden sinks into the lawn: a small lift first, then flattened onto the grass.
+      const s = t < SINK ? (t < 0.08 ? 1 + 0.06 * (t / 0.08) : 1.06 * (1 - Math.pow((t - 0.08) / (SINK - 0.08), 2))) : 0;
+      garden.visible = s > 0.001;
+      garden.scale.y = Math.max(0.001, s);
+      garden.position.y = LAWN_Y * (1 - garden.scale.y);
+    }
+  }
+
+  function finishReveal(regionId) {
+    const R = reveals.get(regionId);
+    if (!R) return;
+    reveals.delete(regionId);
+    R.host.remove(R.temp);
+    R.temp.traverse(o => { if (o.geometry) o.geometry.dispose(); });   // the material is the shared toon one
+    const floor = floorNodes.get(regionId);
+    if (floor) floor.visible = true;
+    for (const node of [dSolidNode, dBrightNode]) if (node) { node.visible = true; node.position.y = 0; }
+    if (regionId === 'terrace') { garden.scale.y = 1; garden.position.y = 0; garden.visible = !builtState.get('terrace'); }
+  }
+
+  function stepReveals(dt) {
+    for (const [id, R] of reveals) {
+      R.t += Math.max(0, Number(dt) || 0);
+      if (R.t >= R.end) finishReveal(id);
+      else applyReveal(id, R);
+    }
+  }
+
+  // The environment's one per-step hook from game.js. Besides the fireflies it marks the step live
+  // (see the reveal notes above) and advances any reveal, before the fireflies' own early-out.
+  // The drift itself is slow and only runs while visible: sinusoidal per-point offsets from the
+  // seeded base, so the cloud breathes without ever wandering off the flowers.
   group.updateFireflies = dt => {
+    markStep();
+    if (reveals.size) stepReveals(dt);
     if (!flies.visible) return;
     flyT += dt;
     const p = flyGeo.attributes.position.array;
@@ -1033,21 +1335,25 @@ export function buildEnvironment(area, seasonId = SEASON_IDS[0]) {
     tintFireflies(paletteForSeason(SEASON_IDS.includes(id) ? id : SEASON_IDS[0]));
   };
 
-  // For the same visual "pop" every other station build gets, animate deck.scale with
-  // src/render/buildReveal.js's buildRevealScale the way systems/visuals.js already does; that
-  // per-frame hookup lives outside this file.
-  const builtState = new Map();
   // Batch 4b: the generic form. `garden` (the near-band scenery the deck replaces) is the
-  // TERRACE's own pre-build state, so only the terrace toggles it — the spa replaces open lawn out
-  // east, which nothing in `garden` occupies (see buildScenery's eastRing note).
+  // TERRACE's own pre-build state, so only the terrace toggles it. A purchase made during play is
+  // revealed (see above); every other call just sets the state.
   group.setRegionBuilt = (regionId, built) => {
     built = !!built;
     if (builtState.get(regionId) === built) return;
+    const live = builtState.has(regionId) && inStep && built && !reducedMotion();
     builtState.set(regionId, built);
+    // ambience.js and daylight.js read this to take their string lights out of an opened gate.
+    setRegionBuiltState(area, regionId, built);
+    finishReveal(regionId);
     const host = regionGroups.get(regionId);
     if (host) host.visible = built;
     if (regionId === 'terrace') garden.visible = !built;
+    refreshAnchors();
+    if (live) startReveal(regionId);
   };
+  // True while a region's floor is still being laid; for probes and tests.
+  group.revealing = regionId => reveals.has(regionId);
   group.setTerraceBuilt = built => group.setRegionBuilt('terrace', built);
   return group;
 }

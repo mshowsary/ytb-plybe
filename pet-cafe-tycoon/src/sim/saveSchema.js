@@ -67,7 +67,7 @@ const STAT_KEYS = ['served', 'lifetimeEarned', 'serviceFees', 'wasteFees', 'rewa
 // 'missedSeats' (task 0.6, dirty tables), 'specialServed' (special-day progress, game.js) and
 // 'returnActions' (systems/serviceFriction.js, read back by ui/serviceSummary.js) all have to be
 // listed: a player who reloads mid-shift keeps the shift they actually played.
-const SHIFT_STAT_KEYS = ['photos', 'followersStart', 'served', 'lost', 'earned', 'serviceFees', 'serviceMisses', 'wasteFees', 'bestStreak', 'missedSeats', 'specialServed', 'returnActions'];
+const SHIFT_STAT_KEYS = ['photos', 'followersStart', 'petsStart', 'served', 'lost', 'earned', 'serviceFees', 'serviceMisses', 'wasteFees', 'bestStreak', 'missedSeats', 'specialServed', 'returnActions'];
 // A settlement record is authored by sim/settlement.js snapshotStats(); restore must reproduce
 // EXACTLY those fields or a reloaded end-of-shift summary stops deep-equalling the live one it is
 // supposed to be. So the settlement key list is pinned separately from the live dayStats list.

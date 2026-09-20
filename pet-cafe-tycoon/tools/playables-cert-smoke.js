@@ -19,7 +19,8 @@ const server = http.createServer((req, res) => {
     res.end(b);
   });
 });
-await new Promise(resolve => server.listen(4176, '127.0.0.1', resolve));
+const PORT = Number(process.env.SMOKE_PORT) || 4176;
+await new Promise(resolve => server.listen(PORT, '127.0.0.1', resolve));
 
 const browser = await chromium.launch({ headless: true, args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });
 const cases = [
@@ -62,7 +63,8 @@ async function snapshot(page, selector = null) {
       return { left:r.left, top:r.top, right:r.right, bottom:r.bottom, width:r.width, height:r.height,
         fits:r.left >= -1 && r.top >= -1 && r.right <= innerWidth + 1 && r.bottom <= innerHeight + 1 };
     };
-    const permanent = ['#wallet','.pause-btn','#dayPill','#crowd.urgent','.meta-reputation','.meta-pawbook','.party-order-btn']
+    // Batch D: the permanent HUD is exactly the wallet, the Pet Book chip and the Café button.
+    const permanent = ['#wallet','.meta-pawbook','.pause-btn']
       .map(q => [q, fits(document.querySelector(q))]).filter(([,r]) => r);
     const chosen = sel ? fits(document.querySelector(sel)) : null;
     return {
@@ -78,13 +80,27 @@ async function visibleTargets(page, rootSelector = 'body') {
   return page.evaluate(rootSel => {
     const root = document.querySelector(rootSel) || document.body;
     const out = [];
+    // A sheet may scroll (the Shop's rows, the Pet Book's grid): a control its scroller has moved out
+    // of view is not on screen, and one half-scrolled is judged by the part that shows.
+    const scrollClip = el => {
+      let r = el.getBoundingClientRect(); r = { left:r.left, top:r.top, right:r.right, bottom:r.bottom };
+      for (let n = el.parentElement; n && n !== document.body; n = n.parentElement) {
+        const oy = getComputedStyle(n).overflowY;
+        if (oy !== 'auto' && oy !== 'scroll') continue;
+        const c = n.getBoundingClientRect();
+        r = { left:r.left, top:Math.max(r.top, c.top), right:r.right, bottom:Math.min(r.bottom, c.bottom) };
+      }
+      return r;
+    };
     for (const el of root.querySelectorAll('button,[role="button"]')) {
       const cs = getComputedStyle(el);
       if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) === 0 || el.closest('[aria-hidden="true"]')) continue;
       const r = el.getBoundingClientRect();
       if (r.width < 1 || r.height < 1) continue;
+      const shown = scrollClip(el);
+      if (shown.bottom - shown.top < 1) continue; // scrolled out of view inside its sheet
       out.push({ cls:el.className || el.id || el.tagName, text:(el.textContent || '').trim().slice(0,40), width:r.width, height:r.height,
-        fits:r.left>=-1 && r.top>=-1 && r.right<=innerWidth+1 && r.bottom<=innerHeight+1 });
+        fits:shown.left>=-1 && shown.top>=-1 && shown.right<=innerWidth+1 && shown.bottom<=innerHeight+1 });
     }
     return out;
   }, rootSelector);
@@ -116,7 +132,7 @@ for (const [tag,width,height] of cases) {
   page.on('pageerror', e => errors.push(String(e)));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   await page.route('https://www.youtube.com/game_api/v1', route => route.fulfill({ status:200, contentType:'text/javascript', body:mockSdk() }));
-  await page.goto('http://127.0.0.1:4176/', { waitUntil:'domcontentloaded' });
+  await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil:'domcontentloaded' });
   await page.waitForFunction(() => window.__game && window.__platform && window.__yt.gameReady && document.getElementById('loading').classList.contains('hidden'), null, { timeout:30000 });
   await page.waitForTimeout(300);
 
@@ -197,36 +213,33 @@ for (const [tag,width,height] of cases) {
       collectOrClean:/^(COLLECT|CLEAN TABLE)/.test(f?.textContent || '') && !f?.classList.contains('hidden'),
       cashLabel:!!document.querySelector('.register-money-badge'),
       legacyCashLabel:!!document.querySelector('.cash-tray-badge'),
-      hint:visible('#hint'), hands:visible('#handsFull'), goal:visible('#goalPill'),
+      // The prose pills are not merely hidden any more: they do not exist.
+      retired:['#hint','#handsFull','#goalPill','#dayPill','#crowd','.meta-reputation','.meta-streak'].filter(sel => document.querySelector(sel)),
     };
   });
-  if (flowUi.dirty || flowUi.collectOrClean || flowUi.cashLabel || flowUi.legacyCashLabel || flowUi.hint || flowUi.hands || flowUi.goal) throw new Error(`${tag}: prose/auto-flow regression ${JSON.stringify(flowUi)}`);
+  if (flowUi.dirty || flowUi.collectOrClean || flowUi.cashLabel || flowUi.legacyCashLabel || flowUi.retired.length) throw new Error(`${tag}: prose/auto-flow regression ${JSON.stringify(flowUi)}`);
   await page.screenshot({ path:path.join(shots, `02b-${tag}-clean-gameplay.png`) });
 
-  // Deep menus may scroll vertically but must remain inside the tiny viewport with tappable controls.
-  // Batch 3: the ★ chip opens the Paw Rating now (a star for the star goal); Café Journey moved
-  // to the day pill, which is the control that already means 'the days so far'.
-  await page.click('.pause-btn');
-  await page.getByRole('button', { name:'Journey', exact:true }).click();
-  await page.getByRole('button', { name:/Caf. Journey/ }).click();
-  await page.waitForFunction(() => !document.querySelector('.career-root').classList.contains('hidden'));
-  const journey = await snapshot(page, '.career-card'); validateLayout(journey, `${tag} journey`);
-  validateTargets(await visibleTargets(page, '.career-card'), `${tag} journey`);
-  await page.screenshot({ path:path.join(shots, `03-${tag}-journey.png`) });
-  await page.click('.career-close');
-  await page.waitForFunction(() => !document.querySelector('.pause-root').classList.contains('hidden'));
-  await page.click('[data-action="resume"]');
-
-  await page.click('.pause-btn');
-  await page.getByRole('button', { name:'Pets', exact:true }).click();
-  await page.getByRole('button', { name:/Pet Visitor Book/ }).click();
-  await page.waitForFunction(() => !document.querySelector('.meta-book-root').classList.contains('hidden'));
-  const book = await snapshot(page, '.meta-book'); validateLayout(book, `${tag} book`);
-  validateTargets(await visibleTargets(page, '.meta-book'), `${tag} book`);
-  await page.screenshot({ path:path.join(shots, `04-${tag}-book.png`) });
-  await page.click('.meta-book-close');
-  await page.waitForFunction(() => !document.querySelector('.pause-root').classList.contains('hidden'));
-  await page.click('[data-action="resume"]');
+  // Every sheet behind the Café card may scroll vertically but must stay inside the tiny viewport
+  // with tappable controls, and must keep the café paused. Closing a sheet returns to play,
+  // whichever door opened it (Batch D: one modal helper, one rule).
+  const sheetResults = {};
+  for (const [tile, root, card, close] of [
+    ['stars', '.paw-root', '.paw-card', '.paw-close'],
+    ['pets', '.meta-book-root', '.meta-book', '.meta-book-close'],
+    ['shop', '.sheet-root', '.sheet', '.sheet .sclose'],
+  ]) {
+    await page.click('.pause-btn');
+    await page.click(`[data-tile="${tile}"]`);
+    await page.waitForFunction(sel => !document.querySelector(sel).classList.contains('hidden') && window.__game.userPaused === true, root);
+    await page.waitForTimeout(300);
+    const layout = await snapshot(page, card); validateLayout(layout, `${tag} ${tile}`);
+    validateTargets(await visibleTargets(page, card), `${tag} ${tile}`);
+    await page.screenshot({ path:path.join(shots, `03-${tag}-${tile}.png`) });
+    await page.click(close);
+    await page.waitForFunction(() => !window.__game.userPaused && document.querySelector('.pause-root').classList.contains('hidden'));
+    sheetResults[tile] = layout.chosen;
+  }
 
   // Resize in-place (no reload) and prove state survives orientation/aspect changes.
   const marker = await page.evaluate(() => ({ day:window.__game.dayState.day, coins:window.__game.coins }));
@@ -237,7 +250,7 @@ for (const [tag,width,height] of cases) {
   if (stateAfterResize.day !== marker.day || stateAfterResize.coins !== marker.coins) throw new Error(`${tag}: game state changed on resize`);
 
   if (errors.length) throw new Error(`${tag}: browser errors: ${errors.join(' | ')}`);
-  report.push({ tag, boot, bootTargets, userPause, hostPause, flowCash, flowUi, journey:journey.chosen, book:book.chosen, resized:resized.viewport });
+  report.push({ tag, boot, bootTargets, userPause, hostPause, flowCash, flowUi, sheets:sheetResults, resized:resized.viewport });
   await ctx.close();
 }
 

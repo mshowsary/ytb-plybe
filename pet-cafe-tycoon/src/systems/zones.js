@@ -221,7 +221,6 @@ export function createZones(G, S, ctx) {
         }
       }
 
-      hud.hint(null);
       if (ctx.firstHint.t > 0) ctx.firstHint.t = Math.max(0, ctx.firstHint.t - dt);
     },
   };

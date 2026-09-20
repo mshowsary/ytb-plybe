@@ -1,6 +1,8 @@
 // Real-world ultra-narrow portrait regression test. The 218px publisher fixture is useful, but
-// browser/device emulation can expose the playable at ~183 CSS px wide. Keep the two-control HUD
-// and temporary celebrations non-overlapping there, including a real Day-3 Party Order event.
+// browser/device emulation can expose the playable at ~183 CSS px wide. Keep the permanent HUD
+// (wallet, Pet Book chip, Café button) and a celebration banner non-overlapping there. Batch D
+// removed the party orders this used to drive; the banner is now the real Rush-hour one, queued
+// through the moment queue like every celebration.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -21,7 +23,8 @@ const server = http.createServer((req, res) => {
     res.end(b);
   });
 });
-await new Promise(resolve => server.listen(4177, '127.0.0.1', resolve));
+const PORT = Number(process.env.SMOKE_PORT) || 4177;
+await new Promise(resolve => server.listen(PORT, '127.0.0.1', resolve));
 
 const mockSdk = `
 window.ytgame={IN_PLAYABLES_ENV:true,game:{firstFrameReady(){},gameReady(){window.__ready=true},async loadData(){return ''},async saveData(){return true}},system:{isAudioEnabled(){return true},onAudioEnabledChange(){},onPause(){},onResume(){},getLanguage(){return 'en'}},engagement:{sendScore(){}},ads:{}};
@@ -31,31 +34,24 @@ const browser = await chromium.launch({ headless:true, args:['--use-gl=swiftshad
 const ctx = await browser.newContext({ viewport:{ width:183, height:416 }, deviceScaleFactor:1, hasTouch:true });
 const page = await ctx.newPage();
 await page.route('https://www.youtube.com/game_api/v1', route => route.fulfill({ status:200, contentType:'text/javascript', body:mockSdk }));
-await page.goto('http://127.0.0.1:4177/', { waitUntil:'domcontentloaded' });
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil:'domcontentloaded' });
 await page.waitForFunction(() => window.__game && window.__ready && document.getElementById('loading').classList.contains('hidden'), null, { timeout:30000 });
 
-// Match the screenshot that exposed the bug: Day 3 is when Party Orders first become active. Let
-// the real party-order system create its chip AND its temporary "NEW PET PARTY ORDER" celebration.
+// The day's own celebration: the morning turns into the rush and game.js raises its banner.
 await page.evaluate(() => {
   window.__game.intro.step = 5; window.__game.intro.active = false;
-  window.__game.dayState.day = 3; window.__game.dayState.t = 8; window.__game.dayState.phase = 'morning';
+  window.__game.dayState.day = 3; window.__game.dayState.t = 59.5; window.__game.dayState.phase = 'morning';
 });
 await page.waitForFunction(() => {
-  const el = document.querySelector('.party-order-btn');
-  // The order is active, while its old floating opener stays suppressed by the Café menu.
-  return el && !el.classList.contains('hidden');
-}, null, { timeout:5000 });
-await page.waitForFunction(() => {
   const el = document.querySelector('#banner');
-  // The banner draws a pictogram now (Batch 4a.1); its textContent is the visually-hidden aria
-  // sentence ('New pet party order'), so match it case-insensitively.
-  return el && el.classList.contains('show') && /pet party order/i.test(el.textContent || '');
-}, null, { timeout:5000 });
+  // The banner draws a pictogram; its textContent is the visually-hidden aria sentence.
+  return el && el.classList.contains('show') && /rush hour/i.test(el.textContent || '');
+}, null, { timeout:15000 });
 // Let the banner finish its 350ms entrance transition before measuring final geometry.
 await page.waitForTimeout(420);
 
 const layout = await page.evaluate(() => {
-  const permanentSelectors = ['#wallet','.pause-btn'];
+  const permanentSelectors = ['#wallet','.meta-pawbook','.pause-btn'];
   const rectFor = sel => {
     const el = document.querySelector(sel); if (!el) return null;
     const cs = getComputedStyle(el); if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) === 0) return null;
@@ -67,10 +63,10 @@ const layout = await page.evaluate(() => {
   return { viewport:[innerWidth,innerHeight], bodyWidth:document.body.scrollWidth, permanent, banner, bannerText:document.querySelector('#banner')?.textContent || '' };
 });
 
-const required = new Set(['#wallet','.pause-btn']);
+const required = new Set(['#wallet','.meta-pawbook','.pause-btn']);
 for (const [sel] of layout.permanent) required.delete(sel);
 if (required.size) throw new Error(`183x416 expected visible controls missing: ${[...required].join(', ')}`);
-if (!layout.banner || !/pet party order/i.test(layout.bannerText)) throw new Error('183x416 Party Order celebration banner was not measurable');
+if (!layout.banner || !/rush hour/i.test(layout.bannerText)) throw new Error('183x416 Rush-hour celebration banner was not measurable');
 
 function overlap(a,b) {
   return Math.min(a.right,b.right)-Math.max(a.left,b.left)>2 && Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top)>2;

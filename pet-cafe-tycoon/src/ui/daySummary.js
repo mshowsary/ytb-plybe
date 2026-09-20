@@ -8,20 +8,24 @@
 // day's income — the one number the whole shift was about — was the smallest text on the card,
 // "36 served" appeared twice, and three kinds of star stacked up (2026-09-17).
 //
-// One card, one hierarchy:
-//   hero     what today earned, counting up, with the guests, followers and photos behind it
-//   rows     the contract (and what it paid), today's stars and the reputation they fed, the week
+// One card, one hierarchy (ship plan §1.5):
+//   hero     what today earned, counting up, with chips for the guests served, the new pets met and
+//            the photos taken
+//   rows     today's goal (and what it paid), and the Café Stars bar
 //   actions  the bonus, when there is one, and Continue — pinned, so they never scroll away
+//
+// Batch D took out the rest: the reputation title row and the Weekly Cup row (Café Stars is the one
+// long track now), and the coral "n left" chip with its stock-up tip line — a correction delivered
+// when nothing can be done about it.
 //
 // Contract with the rest of the game, kept deliberately:
 //   - `.continue` is the Continue button (tools/shift-transition-regression.js clicks it).
-//   - A hidden `.meta-reward` marker ends the rows. systems/goldenPaw.js and systems/franchise.js
-//     insert their own rows immediately before `.meta-reward`, so they land among the rows rather
-//     than between the bonus and Continue.
-//   - The card keeps `.card` and `.ctitle` so sheets.js's shell, the close chevron and every
-//     playables-shell size rule still apply.
-import { coinIcon, personIcon, heartIcon, trophyIcon, streakIcon, checkIcon, giftIcon, medalIcon } from './icons.js';
-import { photoIcon } from './serviceSummary.js';
+//   - A hidden `.meta-reward` marker ends the rows. systems/goldenPaw.js inserts its award row
+//     immediately before `.meta-reward`, so it lands among the rows rather than between the bonus
+//     and Continue.
+//   - The card keeps `.card` and `.ctitle` so sheets.js's shell and its close chevron still apply.
+import { coinIcon, personIcon, streakIcon, checkIcon, giftIcon, pawIcon, photoIcon, starIcon } from './icons.js';
+import { pawSheetModel } from './pawSheet.js';
 
 const STYLE_ID = 'pet-cafe-day-summary-style';
 const fmt = n => Math.round(Math.max(0, Number(n) || 0)).toLocaleString('en-US');
@@ -47,29 +51,24 @@ function ensureStyle() {
     .ds-chips{display:flex;flex-wrap:wrap;justify-content:center;gap:6px}
     .ds-chip{display:inline-flex;align-items:center;gap:5px;min-height:30px;padding:0 11px;border-radius:999px;background:#0000000b;font:900 14px/1 system-ui,sans-serif}
     .ds-chip i{width:17px;height:17px;display:inline-flex}.ds-chip i svg{width:100%;height:100%;display:block}
-    .ds-chip.ok{background:#7fd69a2e}.ds-chip.attn{background:#ffb45f33}
-    .ds-tip{font:700 12px/1.35 system-ui,sans-serif;opacity:.68;max-width:300px}
+    .ds-chip.ok{background:#7fd69a2e}
     .ds-rows{width:100%;display:flex;flex-direction:column;gap:7px}
     .ds-row{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:4px 10px;min-height:50px;box-sizing:border-box;padding:8px 12px;border-radius:15px;background:#ffffffb8;text-align:left}
     .ds-row .ds-ico{width:26px;height:26px;display:flex;align-items:center;justify-content:center}
     .ds-row .ds-ico svg{width:100%;height:100%;display:block}
-    .ds-row .ds-ico.stars{font-size:13px;letter-spacing:-.08em;color:#E7A92F;width:28px}
     .ds-main{min-width:0;display:flex;flex-direction:column;gap:5px}
     .ds-label{display:flex;align-items:baseline;gap:6px;min-width:0;font:900 14px/1.15 system-ui,sans-serif}
-    /* The title never truncates — "Neighborhood Favorite" wraps before it is cut — and only the side note gives way. */
+    /* The title never truncates — it wraps before it is cut — and only the side note gives way. */
     .ds-label .ds-title{flex:0 1 auto;min-width:0;overflow-wrap:break-word}
     .ds-label small{flex:1 1 0;min-width:0;font:750 11px/1 system-ui,sans-serif;opacity:.55;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .ds-bar{position:relative;height:7px;border-radius:999px;background:#0000000f;overflow:visible}
     .ds-bar>b{position:absolute;left:0;top:0;bottom:0;border-radius:999px;background:var(--accent,#8B7CF6);transition:width .6s cubic-bezier(.2,.8,.2,1)}
     .ds-bar.gold>b{background:linear-gradient(90deg,#F7C963,#E7A92F)}
-    .ds-bar>u{position:absolute;top:-2px;width:2px;height:11px;border-radius:2px;background:#3B2E2A33;text-decoration:none}
     .ds-right{font:950 14px/1 system-ui,sans-serif;white-space:nowrap;display:flex;align-items:center;gap:5px}
     .ds-right i{width:16px;height:16px;display:inline-flex}.ds-right i svg{width:100%;height:100%;display:block}
     .ds-row.won{background:linear-gradient(90deg,#e9f8ee,#ffffffc8)}
     .ds-row.won .ds-right{color:#2f8a4f}
-    .ds-rank{grid-column:2/4;justify-self:start;font:950 10px/1 system-ui,sans-serif;letter-spacing:.1em;color:#fff;background:#E7A92F;border-radius:6px;padding:4px 6px}
-    .ds-award{grid-column:2/4;justify-self:start;display:flex;align-items:center;gap:6px;font:950 12px/1 system-ui,sans-serif;color:#8a6516}
-    .ds-award i{width:18px;height:18px;display:inline-flex}.ds-award i svg{width:100%;height:100%;display:block}
+    .ds-stars-pips{display:inline-flex;gap:1px}.ds-stars-pips i{width:12px;height:12px;display:inline-flex}.ds-stars-pips i svg{width:100%;height:100%;display:block}.ds-stars-pips i.off{opacity:.25;filter:grayscale(1)}
     .ds-card .meta-reward.ds-anchor{display:none!important}
     .ds-actions{position:sticky;bottom:0;width:100%;margin:2px 0 0;box-sizing:border-box;padding:10px 0 calc(18px + var(--sab,0px));display:flex;flex-direction:column;gap:8px;background:linear-gradient(180deg,#0000 0,var(--cream,#FFF4E6) 12px)}
     .ds-bonus{width:100%;min-height:58px;border:0;border-radius:16px;display:flex;align-items:center;justify-content:center;gap:10px;cursor:pointer;color:#fff;font:950 22px/1 system-ui,sans-serif;background:linear-gradient(180deg,#9A8CFA,#6F60DC);box-shadow:0 5px 0 #5145AE}
@@ -101,11 +100,14 @@ function ensureStyle() {
       .ds-bonus{min-height:48px;font-size:17px}
     }
     /* ...and in a landscape that short, the close chevron and the buttons leave room beside the hero
-       for exactly one row: the contract, which is what the day was judged on. Reputation and the
-       week cup stay one tap away on the Café menu's Journey page. */
-    @media(max-height:260px) and (min-aspect-ratio:5/4){.ds-card .ds-week,.ds-card .ds-rep{display:none}.ds-card .ds-rows{align-self:start;margin-top:58px}}
-    @media(max-width:250px){.ds-label{font-size:11px}.ds-earned{font-size:30px;gap:6px}.ds-earned .ds-coin{width:26px;height:26px}.ds-bonus{gap:6px;font-size:18px}.ds-bonus i{display:none}.ds-row{grid-template-columns:20px minmax(0,1fr) auto;gap:4px 6px;padding:6px 7px}.ds-row .ds-ico{width:20px;height:20px}.ds-row .ds-ico.stars{font-size:9px;width:20px}.ds-row .ds-right{font-size:12px}.ds-row .ds-right i{display:none}.ds-card .ctitle.ds-kicker{font-size:11px;margin:6px 50px 0 0;text-align:left}}
+       for exactly one row: the goal, which is what the day was about. Café Stars stays one tap away
+       in the Café card. */
+    @media(max-height:260px) and (min-aspect-ratio:5/4){.ds-card .ds-stars{display:none}.ds-card .ds-rows{align-self:start;margin-top:58px}}
+    @media(max-width:250px){.ds-label{font-size:11px}.ds-stars-pips{display:none}.ds-earned{font-size:30px;gap:6px}.ds-earned .ds-coin{width:26px;height:26px}.ds-bonus{gap:6px;font-size:18px}.ds-bonus i{display:none}.ds-row{grid-template-columns:20px minmax(0,1fr) auto;gap:4px 6px;padding:6px 7px}.ds-row .ds-ico{width:20px;height:20px}.ds-row .ds-right{font-size:12px}.ds-row .ds-right i{display:none}.ds-card .ctitle.ds-kicker{font-size:11px;margin:6px 50px 0 0;text-align:left}}
     @media(max-width:340px){.ds-earned{font-size:36px}.ds-row{grid-template-columns:24px minmax(0,1fr) auto;padding:7px 9px}.ds-label small{display:none}}
+    /* A short landscape gives the goal row one line; the target note beside the title is the
+       first thing to go rather than be ellipsised into "20 gu..." (the number is on the right). */
+    @media(max-height:360px){.ds-label small{display:none}}
     @media(prefers-reduced-motion:reduce){.ds-earned.bump{animation:none}.ds-bar>b{transition:none}}
   `;
   document.head.appendChild(s);
@@ -138,14 +140,14 @@ function contractRow(c) {
   const row = el('div', 'ds-row ds-contract' + (c.met ? ' won' : ''));
   row.setAttribute('role', 'group');
   row.setAttribute('aria-label', c.met
-    ? `Contract met: ${fmt(c.target)} ${unit}. Paid ${fmt(c.reward)} coins.`
-    : `Contract: ${fmt(c.progress)} of ${fmt(c.target)} ${unit}.`);
+    ? `Today's goal met: ${fmt(c.target)} ${unit}. Paid ${fmt(c.reward)} coins.`
+    : `Today's goal: ${fmt(c.progress)} of ${fmt(c.target)} ${unit}.`);
   row.append(el('span', 'ds-ico', kindIcon));
   const main = el('div', 'ds-main');
-  main.append(el('div', 'ds-label', `<span class="ds-title">Contract</span><small>${fmt(c.target)} ${unit}${c.rival ? ' · rival' : ''}</small>`));
+  main.append(el('div', 'ds-label', `<span class="ds-title">Today's goal</span><small>${fmt(c.target)} ${unit}</small>`));
   if (!c.met) {
-    // Progress, not a verdict. The owner's rule: never punish. A missed contract is simply a bar
-    // that did not fill today, with tomorrow's contract already waiting.
+    // Progress, not a verdict. The owner's rule: never punish. A missed goal is simply a bar that
+    // did not fill today, with tomorrow's already waiting.
     const bar = el('div', 'ds-bar');
     const fill = el('b'); fill.style.width = '0%'; bar.append(fill);
     requestAnimationFrame(() => { fill.style.width = `${Math.min(100, Math.round((c.progress / Math.max(1, c.target)) * 100))}%`; });
@@ -158,43 +160,28 @@ function contractRow(c) {
   return row;
 }
 
-function reputationRow(rating, rep) {
-  const r = Math.max(0, Math.min(3, rating | 0));
-  const row = el('div', 'ds-row ds-rep');
+// Café Stars: the stars held, and a bar toward the next one — the mean of its requirement bars, the
+// same rows the Café Stars sheet draws. Read generically from pawRatingState(), so Batch E's new rows
+// fill this bar without a change here.
+function starsRow(state) {
+  const m = pawSheetModel(state);
+  const frac = m.complete ? 1 : (m.rows.length ? m.rows.reduce((a, r) => a + r.frac, 0) / m.rows.length : 0);
+  const row = el('div', 'ds-row ds-stars');
   row.setAttribute('role', 'group');
-  row.setAttribute('aria-label', `Service ${r} of 3 stars. ${rep.title}${rep.nextTitle ? `, ${Math.round(rep.frac * 100)} percent toward ${rep.nextTitle}` : ''}.`);
-  row.append(el('span', 'ds-ico stars', '★'.repeat(r) + '<span style="opacity:.28">' + '★'.repeat(3 - r) + '</span>'));
+  row.setAttribute('aria-label', m.complete
+    ? `Café Stars ${m.best} of ${m.total}, all earned.`
+    : `Café Stars ${m.best} of ${m.total}, ${Math.round(frac * 100)} percent toward star ${m.next}.`);
+  row.append(el('span', 'ds-ico', starIcon()));
   const main = el('div', 'ds-main');
-  main.append(el('div', 'ds-label', `<span class="ds-title">${rep.title}</span>${rep.nextTitle ? `<small>next: ${rep.nextTitle}</small>` : ''}`));
+  let pips = '';
+  for (let i = 0; i < m.total; i++) pips += `<i class="${i < m.best ? '' : 'off'}">${starIcon()}</i>`;
+  main.append(el('div', 'ds-label', `<span class="ds-title">Café Stars</span><span class="ds-stars-pips" aria-hidden="true">${pips}</span>`));
   const bar = el('div', 'ds-bar gold');
   const fill = el('b'); fill.style.width = '0%'; bar.append(fill);
-  requestAnimationFrame(() => { fill.style.width = `${rep.nextTitle ? Math.round(Math.max(0, Math.min(1, rep.frac)) * 100) : 100}%`; });
+  requestAnimationFrame(() => { fill.style.width = `${Math.round(frac * 100)}%`; });
   main.append(bar);
   row.append(main);
-  row.append(el('span', 'ds-right', rep.awarded > 0 ? `+${rep.awarded}` : ''));
-  if (rep.levelUp) row.append(el('span', 'ds-rank', 'NEW RANK'));
-  return row;
-}
-
-// The medal thresholds from src/sim/career.js weeklyCupState: bronze 14, silver 20, gold 24.
-const CUP_MAX = 24, CUP_TICKS = [14, 20];
-function weekRow(w) {
-  const row = el('div', 'ds-row ds-week');
-  row.setAttribute('role', 'group');
-  row.setAttribute('aria-label', `Week ${w.week} cup: ${w.points} of ${CUP_MAX} points after ${w.played} of 7 days. Bronze at 14, silver at 20, gold at 24.`);
-  row.append(el('span', 'ds-ico', trophyIcon()));
-  const main = el('div', 'ds-main');
-  main.append(el('div', 'ds-label', `<span class="ds-title">Week ${w.week} cup</span><small>day ${Math.max(1, Math.min(7, w.played))} of 7</small>`));
-  const bar = el('div', 'ds-bar gold');
-  const fill = el('b'); fill.style.width = '0%'; bar.append(fill);
-  for (const t of CUP_TICKS) { const u = el('u'); u.style.left = `${(t / CUP_MAX) * 100}%`; bar.append(u); }
-  requestAnimationFrame(() => { fill.style.width = `${Math.round(Math.min(1, w.points / CUP_MAX) * 100)}%`; });
-  main.append(bar);
-  row.append(main);
-  row.append(el('span', 'ds-right', `${w.points}/${CUP_MAX}`));
-  if (w.award && w.award.awarded) {
-    row.append(el('span', 'ds-award', `${icon(medalIcon(w.award.tier === 'gold' ? 3 : w.award.tier === 'silver' ? 2 : 1))}${w.award.tier.toUpperCase()} CUP · +${fmt(w.award.reward)}`));
-  }
+  row.append(el('span', 'ds-right', `${m.best}/${m.total}`));
   return row;
 }
 
@@ -212,27 +199,28 @@ export function renderDaySummary(card, model, { onContinue }) {
   // `.cbody` so the pre-existing playables-shell rules and anchors that look for it still find one.
   const hero = el('section', 'ds-hero cbody');
   const guests = `${fmt(model.served)} ${model.served === 1 ? 'guest' : 'guests'} served`;
-  hero.setAttribute('aria-label', `Earned ${fmt(model.earned)} coins today. ${guests}.${model.lost > 0 ? ` ${model.lost} left without buying.` : ''}`);
+  hero.setAttribute('aria-label', `Earned ${fmt(model.earned)} coins today. ${guests}.`
+    + (model.newPets > 0 ? ` ${model.newPets} new ${model.newPets === 1 ? 'pet' : 'pets'} met.` : '')
+    + (model.photos > 0 ? ` ${model.photos} ${model.photos === 1 ? 'photo' : 'photos'} taken.` : ''));
   const earned = el('div', 'ds-earned');
   earned.append(el('span', 'ds-coin', coinIcon()));
   const num = el('span', 'ds-earned-num', '0');
   earned.append(num);
   hero.append(earned);
   const chips = el('div', 'ds-chips');
-  chips.append(el('span', 'ds-chip' + (model.lost === 0 ? ' ok' : ''), `${icon(personIcon())}${fmt(model.served)}`));
-  if (model.followers > 0) chips.append(el('span', 'ds-chip ok', `${icon(heartIcon())}+${fmt(model.followers)}`));
+  chips.append(el('span', 'ds-chip ok', `${icon(personIcon())}${fmt(model.served)}`));
+  // Gains only, and only when known and non-zero: a "0 photos" chip before the camera exists is
+  // furniture, not news.
+  if (model.newPets > 0) chips.append(el('span', 'ds-chip ok', `${icon(pawIcon())}+${fmt(model.newPets)}`));
   if (model.photos > 0) chips.append(el('span', 'ds-chip ok', `${icon(photoIcon())}${fmt(model.photos)}`));
-  if (model.lost > 0) chips.append(el('span', 'ds-chip attn', `${fmt(model.lost)} left`));
   hero.append(chips);
-  if (model.lost > 0) hero.append(el('div', 'ds-tip', 'A little more stock before the rush keeps them in the queue.'));
   card.append(hero);
   countUp(num, 0, model.earned);
 
   // ---- rows ---------------------------------------------------------------------------------
   const rows = el('div', 'ds-rows');
   rows.append(contractRow(model.contract));
-  rows.append(reputationRow(model.rating, model.reputation));
-  rows.append(weekRow(model.week));
+  if (model.stars) rows.append(starsRow(model.stars));
   const anchor = el('div', 'meta-reward ds-anchor'); anchor.hidden = true;
   rows.append(anchor);
   card.append(rows);

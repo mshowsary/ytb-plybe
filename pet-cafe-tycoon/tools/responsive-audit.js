@@ -4,10 +4,11 @@
 // UI that overlaps, clips, escapes the viewport, or blocks gameplay. This audit reproduces that pass
 // automatically and fails the build with evidence instead of relying on eyeballing screenshots.
 //
-// Usage:  node tools/responsive-audit.js [--keep] [--shots] [--only=WxH]
+// Usage:  node tools/responsive-audit.js [--keep] [--shots] [--only=WxH[,WxH...]] [--port=N]
 //   --keep   leave the static server running for manual inspection
 //   --shots  write a PNG per viewport into shots/responsive/
-//   --only   audit a single viewport (e.g. --only=320x480)
+//   --only   audit only these viewports (e.g. --only=320x480,380x670)
+//   --port   serve on this port (default 4176; parallel worktrees each need their own)
 //
 // Exit code 0 = certification-clean, 1 = violations found.
 
@@ -20,7 +21,8 @@ import { chromium } from 'playwright';
 const args = process.argv.slice(2);
 const KEEP = args.includes('--keep');
 const SHOTS = args.includes('--shots');
-const ONLY = (args.find(a => a.startsWith('--only=')) || '').split('=')[1] || null;
+const ONLY = ((args.find(a => a.startsWith('--only=')) || '').split('=')[1] || '').split(',').filter(Boolean);
+const PORT = Number((args.find(a => a.startsWith('--port=')) || '').split('=')[1]) || 4176;
 const SKIP_BUILD = args.includes('--no-build');
 
 // The strict matrix. Smallest entries are deliberately below any real phone: reviewers drag the
@@ -48,8 +50,7 @@ const VIEWPORTS = [
 // information. Purely decorative layers are excluded on purpose.
 const CONTENT = [
   '.pill', '.demand', '.objCaption', '.wish', '.chalk', '.fbtn', '.zlabel', '.zprice',
-  '.toast', '.skipPill', '.patience', '.fnum', '#hint', '#wallet', '#crowd', '#dayPill',
-  '#goalPill', '#banner', '.meta-reputation', '.meta-pawbook', '.contractBadge',
+  '.toast', '.skipPill', '.patience', '.fnum', '#wallet', '#banner', '.meta-pawbook', '.pause-btn',
 ].join(',');
 
 const INTERACTIVE = ['button', '[role="button"]', 'a[href]', 'input', 'select', '.fbtn', '.skipPill'].join(',');
@@ -73,7 +74,7 @@ const srv = http.createServer((req, res) => {
     res.writeHead(200, { 'content-type': types[path.extname(p)] || 'application/octet-stream' });
     res.end(b);
   });
-}).listen(4176);
+}).listen(PORT);
 
 if (SHOTS) fs.mkdirSync('shots/responsive', { recursive: true });
 
@@ -153,12 +154,29 @@ function auditInPage(_unusedContent, INTERACTIVE, MIN_TAP, OVERLAP_TOLERANCE) {
     return !!directText(el) || el.matches(INTERACTIVE);  // readable or pressable
   });
 
+  // A list that SCROLLS is allowed to be longer than the screen: the twentieth pet card sitting
+  // below the fold of the Pet Book's own scroller is how a grid works, not a layout defect. So for
+  // anything inside a vertical scroller, the up/down bounds belong to that scroller, and only the
+  // left/right bounds are still measured against the viewport. The scroller itself is checked as an
+  // element in its own right, so a scroll box that does not fit is still caught.
+  const scrollerOf = el => {
+    for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+      const cs = getComputedStyle(p);
+      if (/(auto|scroll)/.test(cs.overflowY) && p.scrollHeight > p.clientHeight + 1) return p;
+    }
+    return null;
+  };
+
   const range = document.createRange();
   for (const el of els) {
     const r = el.getBoundingClientRect();
+    const sc = scrollerOf(el);
+    const scr = sc && sc.getBoundingClientRect();
+    const topLimit = scr ? Math.max(0, scr.top) : 0;
+    const bottomLimit = scr ? Math.min(vh, scr.bottom) : vh;
     const over = {
-      left: Math.max(0, -r.left), top: Math.max(0, -r.top),
-      right: Math.max(0, r.right - vw), bottom: Math.max(0, r.bottom - vh),
+      left: Math.max(0, -r.left), top: sc ? 0 : Math.max(0, topLimit - r.top),
+      right: Math.max(0, r.right - vw), bottom: sc ? 0 : Math.max(0, r.bottom - bottomLimit),
     };
     const worst = Math.max(over.left, over.top, over.right, over.bottom);
     if (worst > 1) out.overflow.push({ el: describe(el), by: Math.round(worst), edge: Object.keys(over).find(k => over[k] === worst) });
@@ -264,16 +282,48 @@ async function forcePhotoSession(page) {
   });
 }
 
-// Batch 3 adds a fourth overlay and a wallet ring, neither of which the three existing states can
-// show. An audit that does not open what the batch just built reports PASS for the wrong reason —
-// the same blind spot that hid two 40px tap targets until the album state was added.
-async function openPawSheet(page) {
+// Batch D: the menu is the Café card and the sheets behind it. Each is opened through its real
+// door (the Café button, a tile, the Pet Book chip) and measured as the player sees it, then closed
+// the way the player would. An audit that does not open what a batch built reports PASS for the
+// wrong reason.
+async function openCafeCard(page) {
   return page.evaluate(() => {
-    const opener = document.querySelector('.meta-reputation');
-    if (opener) opener.click();
-    const root = document.querySelector('.paw-root');
+    document.querySelector('.pause-btn')?.click();
+    const root = document.querySelector('.pause-root');
     return !!root && !root.classList.contains('hidden');
   });
+}
+async function closeCafeCard(page) {
+  await page.evaluate(() => document.querySelector('[data-action="resume"]')?.click());
+  await W(80);
+}
+async function openTile(page, name) {
+  const ok = await openCafeCard(page);
+  if (!ok) return false;
+  return page.evaluate(n => {
+    const tile = document.querySelector(`[data-tile="${n}"]`);
+    if (!tile || tile.hidden) return false;
+    tile.click();
+    return true;
+  }, name);
+}
+async function openShopTab(page, tab) {
+  return page.evaluate(t => {
+    const b = document.querySelector(`.stab[data-tab="${t}"]`);
+    if (b) b.click();
+    return !!document.querySelector(`.stab.active[data-tab="${t}"]`);
+  }, tab);
+}
+async function closeSheet(page) {
+  await page.evaluate(() => document.querySelector('.sheet .sclose')?.click());
+  await W(300);
+}
+async function openPetBook(page, detail) {
+  return page.evaluate(d => {
+    document.querySelector('.meta-pawbook')?.click();
+    if (d) document.querySelector('button.pb-card')?.click();
+    return !document.querySelector('.meta-book-root.hidden') && (!d || !document.querySelector('.pb-detail[hidden]'));
+  }, detail);
 }
 
 // The wallet's saving ring only appears while something is still unbuilt, and forceDenseCafe builds
@@ -290,22 +340,18 @@ async function showSavingRing(page) {
   });
 }
 
-// A complete party order puts TWO things on screen the audit had never measured: the HUD chip in
-// the left column (it sat on top of the followers pill for two batches) and the world collect pill.
-async function forcePartyOrder(page) {
-  return page.evaluate(() => {
+// The moment sinks: a banner and a toast are queued together; the banner shows first (one at a
+// time), and it has to sit clear of the wallet, the Pet Book chip and the Café button.
+async function showMoment(page) {
+  await page.evaluate(() => {
     const G = window.__game;
-    if (!G || !G.meta) return false;
-    if (!G.meta.partyOrders) G.meta.partyOrders = { nextId: 1, completed: 0, lastOfferDay: 0, active: null };
-    G.meta.partyOrders.active = {
-      id: 9001, title: 'Audit', subtitle: '', createdDay: G.dayState.day, expiresDay: G.dayState.day + 1,
-      reward: 130, claimed: false, requirements: [{ product: 'cookie', count: 4, target: 4 }],
-    };
-    // The chip renders on the system's own day-change sync; nudge the day and let its tick fire.
-    G.dayState.day += 1;
-    for (let i = 0; i < 40; i++) G.update(0.05);
-    return !!document.querySelector('.party-order-btn:not(.hidden)');
+    G.hud.banner({ cells: ['+', 88], aria: 'Audit banner' }, 4000);
+    G.hud.toast({ cells: ['+', 9], aria: 'Audit toast' });
   });
+  // Queued: whatever moment the dense café already had on screen finishes first.
+  const shown = await page.waitForFunction(() => !!document.querySelector('#banner.show'), null, { timeout: 12000 }).then(() => true, () => false);
+  await W(450); // the banner's entrance transition
+  return shown;
 }
 
 // The in-world action button (.fbtn) only exists while the owner stands at a station that offers
@@ -327,27 +373,28 @@ async function showActionButton(page) {
   return shown;
 }
 
-async function openPetBook(page, tab) {
-  return page.evaluate(name => {
-    const btn = document.querySelector('.meta-pawbook');
-    if (btn) btn.click();
-    const t = [...document.querySelectorAll('.meta-book-tab, [data-tab]')]
-      .find(el => (el.dataset && el.dataset.tab === name) || (el.textContent || '').toLowerCase().includes(name));
-    if (t) t.click();
-    return !document.querySelector('.meta-book-root.hidden');
-  }, tab);
+// Last, because it ends the day: the day summary.
+async function showDaySummary(page) {
+  await page.evaluate(() => {
+    const G = window.__game;
+    G.dayStats.earned = 2471; G.dayStats.served = 36; G.dayStats.photos = 3;
+    G.dayState.t = 239.95;
+    for (let i = 0; i < 6 && !G.dayState._ended; i++) G.update(0.05);
+  });
+  await W(1300); // the count-up
+  return page.evaluate(() => !!document.querySelector('.ds-card.show'));
 }
 
 const results = [];
-const list = ONLY ? VIEWPORTS.filter(v => `${v.w}x${v.h}` === ONLY) : VIEWPORTS;
-if (!list.length) { console.error('no viewport matches ' + ONLY); process.exit(1); }
+const list = ONLY.length ? VIEWPORTS.filter(v => ONLY.includes(`${v.w}x${v.h}`)) : VIEWPORTS;
+if (!list.length) { console.error('no viewport matches ' + ONLY.join(',')); process.exit(1); }
 
 for (const vp of list) {
   const ctx = await browser.newContext({ viewport: { width: vp.w, height: vp.h }, deviceScaleFactor: 1, isMobile: vp.w < 700, hasTouch: true });
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(String(e.message || e)));
-  await page.goto('http://localhost:4176/', { waitUntil: 'load' });
+  await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
   await page.waitForFunction(() => !!window.__game, null, { timeout: 15000 }).catch(() => {});
   await W(600);
   await forceDenseCafe(page);
@@ -372,25 +419,29 @@ for (const vp of list) {
     if (SHOTS) await page.screenshot({ path: `shots/responsive/${vp.tag}-${vp.w}x${vp.h}-photo.png` });
   }
 
-  // State 3: the Pet Book overlay on its Album tab — 20 cards in a 4-column grid.
-  if (await openPetBook(page, 'album')) {
-    await W(120);
-    states.push({ name: 'album', audit: await runAudit() });
-    if (SHOTS) await page.screenshot({ path: `shots/responsive/${vp.tag}-${vp.w}x${vp.h}-album.png` });
-    await page.evaluate(() => document.querySelector('.meta-book-close')?.click());
-    await W(80);
-  }
+  const measure = async (name, open, close) => {
+    if (!(await open())) return false;
+    await W(420); // sheet entrance transitions
+    states.push({ name, audit: await runAudit() });
+    if (SHOTS) await page.screenshot({ path: `shots/responsive/${vp.tag}-${vp.w}x${vp.h}-${name}.png` });
+    if (close) await close();
+    return true;
+  };
 
-  // State 4: the Paw Rating sheet — the batch's own new overlay.
-  if (await openPawSheet(page)) {
-    await W(120);
-    states.push({ name: 'paw', audit: await runAudit() });
-    if (SHOTS) await page.screenshot({ path: `shots/responsive/${vp.tag}-${vp.w}x${vp.h}-paw.png` });
-    await page.evaluate(() => document.querySelector('.paw-close')?.click());
-    await W(80);
+  // State 3: the Café card.
+  await measure('cafe', () => openCafeCard(page), () => closeCafeCard(page));
+  // State 4-6: the Shop from the Café card, each tab.
+  if (await openTile(page, 'shop')) {
+    for (const tab of ['staff', 'upgrades', 'decor']) await measure(`shop-${tab}`, () => openShopTab(page, tab), null);
+    await closeSheet(page);
   }
+  // State 7-8: the Pet Book from its chip — the grid, then a pet.
+  await measure('petbook', () => openPetBook(page, false), async () => { await page.evaluate(() => document.querySelector('.meta-book-close')?.click()); await W(80); });
+  await measure('petdetail', () => openPetBook(page, true), async () => { await page.evaluate(() => { document.querySelector('.pb-back')?.click(); document.querySelector('.meta-book-close')?.click(); }); await W(80); });
+  // State 9: Café Stars from its tile.
+  await measure('stars', () => openTile(page, 'stars'), async () => { await page.evaluate(() => document.querySelector('.paw-close')?.click()); await W(80); });
 
-  // State 5: the wallet's saving ring, which needs an unbuilt zone to point at.
+  // State 10: the wallet's saving ring, which needs an unbuilt zone to point at.
   if (await showSavingRing(page)) {
     await page.evaluate(() => window.__game && window.__game.update(0.05));
     await W(120);
@@ -398,14 +449,10 @@ for (const vp of list) {
     if (SHOTS) await page.screenshot({ path: `shots/responsive/${vp.tag}-${vp.w}x${vp.h}-ring.png` });
   }
 
-  // State 6: a complete party order — the HUD chip and the world collect pill together.
-  if (await forcePartyOrder(page)) {
-    await W(120);
-    states.push({ name: 'party', audit: await runAudit() });
-    if (SHOTS) await page.screenshot({ path: `shots/responsive/${vp.tag}-${vp.w}x${vp.h}-party.png` });
-  }
+  // State 11: a banner from the moment queue, beside the permanent HUD.
+  await measure('moment', () => showMoment(page), null);
 
-  // State 7: the action button at the kiosk, measured by the same tap floor as every control. Not
+  // State 12: the action button at the kiosk, measured by the same tap floor as every control. Not
   // shown at all is itself a violation: this state exists to measure it.
   if (await showActionButton(page)) {
     states.push({ name: 'action', audit: await runAudit() });
@@ -413,6 +460,9 @@ for (const vp of list) {
   } else {
     states.push({ name: 'action', audit: { overflow: [], overlap: [], truncated: [], canvas: null, tapTarget: [{ el: '.fbtn (not shown at kiosk1)', w: 0, h: 0 }] } });
   }
+
+  // State 13: the day summary (it ends the day, so it goes last).
+  await measure('summary', () => showDaySummary(page), null);
 
   const count = tally(audit) + states.reduce((s, st) => s + tally(st.audit), 0);
   results.push({ ...vp, audit, states, errors, count });
@@ -467,6 +517,6 @@ const failed = results.filter(r => r.count || r.errors.length).length;
 console.log(`\n${total} total violation(s) across ${failed}/${results.length} viewport(s).`);
 console.log('report: reports-responsive/audit.json');
 
-if (KEEP) { console.log('server still on http://localhost:4176/ (--keep)'); }
+if (KEEP) { console.log(`server still on http://localhost:${PORT}/ (--keep)`); }
 else { srv.close(); }
 process.exit(total > 0 ? 1 : 0);

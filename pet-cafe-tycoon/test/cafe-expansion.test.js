@@ -23,11 +23,15 @@ test('day guide follows simulation time and only warns in the final 15 seconds b
   state.dayState.t = 60; state.dayState.phase = 'rush';
   assert.equal(cafeDayModel(state).soon, false);
   assert.equal(cafeDayModel(state).clock, '1:30');
-  assert.equal(cafeDayModel(state).label, 'Lunch rush');
+  assert.equal(cafeDayModel(state).phase, 'rush');
 });
+// Batch D: the Café card's Today row draws the theme as its glyph, a count and the coins it pays,
+// never the old sentence ("Puppy playdate · 4/6 themed serves · +190 coins at closing").
 test('daily event completion and reward use the actual current shift', () => {
-  const m = cafeDayModel({ dayState: { day: 7, t: 215, phase: 'closing' }, special: { id: 'puppy', target: 6, reward: 190 }, dayStats: { specialServed: 4 } });
-  assert.equal(m.title, 'Puppy playdate'); assert.match(m.event, /4\/6/); assert.match(m.event, /190 coins/);
+  const m = cafeDayModel({ dayState: { day: 7, t: 215, phase: 'closing' }, special: { id: 'puppy', icon: 'dog', target: 6, reward: 190 }, dayStats: { specialServed: 4 } });
+  assert.deepEqual(m.theme, { id: 'puppy', icon: 'dog', count: 4, target: 6, met: false, reward: 190 });
+  assert.equal(cafeDayModel({ dayState: { day: 7, t: 10, phase: 'morning' } }).theme, null, 'a day with no theme draws no theme chip');
+  for (const k of ['title', 'event', 'tip', 'tomorrow', 'label']) assert.equal(k in m, false, `the model carries no ${k} sentence`);
 });
 test('all 20 social performances settle and remain within small pose limits', () => {
   for (const species of ['cat', 'dog', 'bunny', 'hamster']) for (let variant = 0; variant < 5; variant++) {

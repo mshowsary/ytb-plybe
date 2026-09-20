@@ -410,10 +410,6 @@ export function createCustomers(G, S, ctx) {
           leaving.splice(i, 1);
         }
       }
-
-      let urgent = false, cafeGuests = 0;
-      for (const c of G.customers) { if (!c.terraceBound) cafeGuests++; if (!c.done && c.patience < 4) urgent = true; }
-      hud.setCrowd(cafeGuests, effMaxC, urgent);
     },
   };
 }

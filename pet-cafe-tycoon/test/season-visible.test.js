@@ -22,7 +22,8 @@ import {
 } from '../src/render/environment.js';
 import { buildRegion } from '../src/render/props.js';
 
-const AREA = { size: { w: 20, d: 14 }, regions: [{ id: 'terrace', x0: -10, x1: 10, z0: 7.4, z1: 14 }] };
+// The terrace's gate is data/area1.js's own: centred, 2.4 m either side (gate1's fw 4.8).
+const AREA = { size: { w: 20, d: 14 }, regions: [{ id: 'terrace', x0: -10, x1: 10, z0: 7.4, z1: 14, gateX: 0, gateHalfW: 2.4 }] };
 const TERRACE = AREA.regions[0];
 
 const alwaysVisible = g => g.children.filter(c => c !== g.garden && c !== g.deck && c.geometry);
@@ -88,8 +89,9 @@ test('buying the terrace does not hide the fence dressing (it is not inside grou
 test('the deck carries its own seasonal dressing, and it is all under group.deck', () => {
   const g = buildEnvironment(AREA, 'lights');
   const deckV = [...verts(g.deck)];
-  // Litter lies on the planks (tops y 0.045); the fountain pots and their blooms stand on them.
-  const litter = deckV.filter(v => v.y > 0.05 && v.y < 0.08).length;
+  // Litter lies on the planks, whose tops are the floor (y 0 — the terrace is walked at the café
+  // floor's own height, see props.js buildRegion); the fountain pots and their blooms stand on them.
+  const litter = deckV.filter(v => v.y > 0.002 && v.y < 0.03).length;
   const pots = deckV.filter(v => v.y > 0.15 && v.y < 0.8 && Math.hypot(v.x, v.z - 10.6) < 1.6).length;
   assert.ok(litter > 300, `expected litter flecks on the planks, saw ${litter} vertices`);
   assert.ok(pots > 100, `expected planted pots around the fountain, saw ${pots} vertices`);
@@ -100,15 +102,17 @@ test('the deck carries its own seasonal dressing, and it is all under group.deck
 // ---- 2. nothing new blocks the gate -------------------------------------------------------------
 
 test('the gate lane stays clear at every height a guest or pet occupies', () => {
-  // GATE_HALF_W is 1.2 (props.js buildStatic and src/sim/nav.js both hold that constant). Below
-  // y 0.15 is floor (planks, the stone border, flat litter) and above y 1.9 is the gate arch's own
-  // crossbar and the swag hung on it — the band between the two is what a body passes through.
+  // The lane is the region's own gap, gateHalfW 2.4 either side of gateX — the width nav opens and
+  // the width guests actually walk. (This used to test 1.2, a stale copy of nav.js's fallback, and so
+  // passed while a festoon pole and half of two window boxes stood in the real lane.) Below y 0.15
+  // is floor (planks, the stone border, flat litter) and above y 1.9 is the gate arch's own crossbar
+  // and the swag hung on it — the band between the two is what a body passes through.
   const g = buildEnvironment(AREA, 'splash');
   g.setTerraceBuilt(true);
   const offenders = [];
   for (const node of [...alwaysVisible(g), g.deck]) {
     for (const v of verts(node)) {
-      if (Math.abs(v.x) <= 1.2 && v.z > 6.85 && v.z < 7.6 && v.y > 0.15 && v.y < 1.9) {
+      if (Math.abs(v.x - TERRACE.gateX) <= TERRACE.gateHalfW && v.z > 6.85 && v.z < 7.6 && v.y > 0.15 && v.y < 1.9) {
         offenders.push(v);
         if (offenders.length > 4) break;
       }

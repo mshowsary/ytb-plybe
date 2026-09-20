@@ -147,7 +147,13 @@ for (const [tag, want] of [['day', 'brightest'], ['night', 'darkest']]) {
   });
 
   check(errors.length === 0, `[${tag}] page errors: ${errors.join(' | ')}`);
-  check(state.bedCount === 14, `[${tag}] expected the 14 built beds to be exposed, got ${state.bedCount}`);
+  // 14 beds are seeded, but environment.js does not draw the two west-end ones: they would stand on
+  // the street and the new sidewalk. The play yard east of the café adds its pond's three anchors
+  // whenever no region covers that lot (measured: 12 with an east region present, 15 without).
+  const eastLotFree = await page.evaluate(() => !(window.__game.world.area.regions || [])
+    .some(r => r.x0 >= window.__game.world.area.size.w / 2));
+  const wantBeds = 12 + (eastLotFree ? 3 : 0);
+  check(state.bedCount === wantBeds, `[${tag}] expected ${wantBeds} flower-bed and pond anchors, got ${state.bedCount}`);
   check(state.placed >= 5, `[${tag}] only ${state.placed} insects were anchored to a real bed`);
 
   const lights = state.lights == null ? 0 : state.lights;

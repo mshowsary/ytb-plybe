@@ -19,7 +19,6 @@ import { SAVE_LIMITS } from '../src/sim/saveSchema.js';
 import { PAW_MAX_STAR, PAW_PET_KEYS, PAW_RESIDENT_SLOTS_MAX, pawResidentSlots } from '../src/sim/pawRating.js';
 import { salePrice } from '../src/sim/economy.js';
 import { CAFE_SIGN_COLORS } from '../src/sim/followers.js';
-import { franchiseSheetModel } from '../src/ui/franchiseSheet.js';
 import { AREA1 } from '../data/area1.js';
 
 // ---- a ★5 café, as the real game would have written it -----------------------------------------
@@ -356,25 +355,9 @@ test('the offer preview reports the branch the player would actually get', () =>
   assert.equal(preview.offerable, true);
 });
 
-test('the sheet promises exactly what the simulation does', () => {
-  const model = franchiseSheetModel(franchisePreview(goldenCafe().meta));
-  assert.equal(model.branch, 2, 'the second café is Branch 2');
-  assert.ok(model.gains.some(g => g.text.includes('+8%')), 'the income line quotes the real number');
-  // Every "you start again with" line must name something the simulation actually resets, and
-  // every "you keep" line something it actually keeps. A sheet that promised otherwise would be
-  // lying about a destructive action.
-  const resets = new Set(FRANCHISE_RESET);
-  const resetPromises = { builds: ['builds', 'partial'], coins: ['coins'], staff: ['staff', 'staffLevels'], stars: ['stars', 'machineLevels'] };
-  for (const line of model.resets) {
-    const backing = resetPromises[line.id] || [];
-    assert.ok(backing.length && backing.every(k => resets.has(k)), `reset line "${line.id}" is not backed by the partition`);
-  }
-  const kept = openFranchise(goldenCafe(), { area: AREA1 }).save.meta;
-  const keepPromises = { petBook: 'petBook', accessories: 'accessoriesBought', followers: 'followers', residents: 'residents', decor: 'decor', rating: 'pawBest' };
-  for (const line of model.keeps) {
-    assert.ok(keepPromises[line.id] in kept, `keep line "${line.id}" is not backed by the branch state`);
-  }
-});
+// Batch D removed the Franchise from the UI for the MediaCube ship (ship plan §1.5): its offer sheet
+// (ui/franchiseSheet.js) and the test that its copy matched the partition went with it. The
+// simulation half above stays pinned for as long as sim/franchise.js ships.
 
 // ---- a bug this feature UNCOVERED, outside its own files ------------------------------------------
 // saveSchema's decor normalisation is documented as two passes: pass 1 "zone gate only", pass 2 the

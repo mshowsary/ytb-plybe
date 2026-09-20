@@ -1,23 +1,31 @@
-// src/ui/pawSheet.js — the Paw Rating sheet: what the goal IS, and how close the player is.
+// src/ui/pawSheet.js — Café Stars: the one long track, and how close the player is to its next star.
 //
-// Two things and nothing else:
-//   1. the rating, as five paws, filled up to meta.pawBest (the RATCHET — never `live`);
-//   2. for the NEXT star, one row per requirement: an icon, current/target numerals, met state.
+// Batch D merged the Paw Rating sheet and the Café Journey's renovation into this one sheet and
+// dropped the rest of the Journey (rank title, week grid, mastery list, legendary counter) from the
+// UI. What is left:
+//   1. the rating, as five stars, filled up to meta.pawBest (the RATCHET — never `live`);
+//   2. what the NEXT star gives, as reward icons (starRewards below);
+//   3. for the next star, one row per requirement: an icon, current/target numerals, met state;
+//   4. the café renovation, whose buy button ui/renovation.js paints into .stars-reno.
+//
+// The requirement rows are read generically from sim/pawRating.js (pawRatingState().requirements):
+// Batch E replaces those rows, and this sheet draws whatever kinds it is handed.
 //
 // NO SENTENCES. Every requirement pawRating.js emits is already a numeral pair plus a `kind`, so a
 // row is a glyph for the kind and two numbers — the same wordless treatment the wish bubbles and
-// the chalkboards use on the play field. The only English in the file is the overlay title (menus
-// are allowed prose where the surrounding menu already has it — see .career-title/.meta-book-title)
-// and aria-labels, which are never painted.
+// the chalkboards use on the play field. The only English in the file is the sheet title and
+// aria-labels, which are never painted.
 //
-// Structure follows the two existing overlays exactly rather than inventing a third pattern:
-// meta.js's book overlay and career.js's journey card are both `position:fixed;inset:0` roots with
-// a backdrop plus one centred card that owns its own scrolling. This is that, with the card split
-// into a fixed head/paw-row and ONE internal scroller (.paw-list) so the certification audit's
-// smallest viewports (280x653 and 653x280) scroll the list instead of the page. All CSS lives in
-// src/style.css next to .sheet/.card, not injected, because that file is this task's to append to.
-import { PAW_MAX_STAR, pawVisibleRequirements } from '../sim/pawRating.js';
-import { pawIcon, heartIcon, personIcon, sparkleIcon, checkIcon } from './icons.js';
+// Same shape as the Pet Book: a `position:fixed;inset:0` root with a backdrop and one card, split
+// into a fixed head/star row and ONE internal scroller (.paw-list), so the smallest certification
+// viewports (280x653, 653x280) scroll the list instead of the page. CSS lives in src/style.css.
+import {
+  PAW_MAX_STAR, PAW_LEGENDARY_STAR, PAW_ARRIVAL_BONUS_PER_STAR, pawVisibleRequirements,
+  pawAwningSetIndex, pawResidentSlots,
+} from '../sim/pawRating.js';
+import { decorSetForStar, DECOR_BY_ID } from '../../data/decor.js';
+import { openModal, closeModal } from './modal.js';
+import { pawIcon, heartIcon, personIcon, sparkleIcon, checkIcon, starIcon, cafeIcon } from './icons.js';
 
 // ---- glyphs ---------------------------------------------------------------------------------
 // icons.js is not this task's file, so the kinds it has no glyph for are drawn here in its idiom
@@ -123,45 +131,66 @@ export function pawRowIcon(kind) {
   return typeof make === 'function' ? make() : null;
 }
 
+// What a star gives, read from the same functions the game applies it with — so the sheet can never
+// promise a reward the café does not deliver. Each entry is a picture plus at most a numeral.
+export function starRewards(star) {
+  const s = Math.max(0, Math.min(PAW_MAX_STAR, star | 0));
+  if (!s) return [];
+  const out = [{ kind: 'guests', value: `+${Math.round(PAW_ARRIVAL_BONUS_PER_STAR * 100)}%` }];
+  if (pawAwningSetIndex(s) !== pawAwningSetIndex(s - 1)) out.push({ kind: 'awning' });
+  const set = decorSetForStar(s);
+  if (set.length) out.push({ kind: 'decor', count: set.length, icon: (DECOR_BY_ID.get(set[0]) || {}).icon || '' });
+  if (pawResidentSlots(s) > pawResidentSlots(s - 1)) out.push({ kind: 'resident' });
+  if (s === PAW_LEGENDARY_STAR) out.push({ kind: 'legendary' });
+  if (s === PAW_MAX_STAR) out.push({ kind: 'golden' });
+  return out;
+}
+const REWARD_ARIA = {
+  guests: r => `${r.value} more guests`, awning: () => 'a new awning', decor: r => `${r.count} new décor pieces`,
+  resident: () => 'room for one more resident pet', legendary: () => 'legendary pets start visiting', golden: () => 'the Golden Paw',
+};
+function rewardHtml(r) {
+  if (r.kind === 'guests') return `<i>${personIcon()}</i><b>${r.value}</b>`;
+  if (r.kind === 'awning') return `<i>${cafeIcon()}</i>`;
+  if (r.kind === 'decor') return `<i>${r.icon}</i><b>×${r.count}</b>`;
+  if (r.kind === 'resident') return `<i>${heartIcon()}</i><i>${pawIcon()}</i>`;
+  if (r.kind === 'legendary') return `<i>${sparkleIcon()}</i><i>${pawIcon()}</i>`;
+  return `<i class="gold">${pawIcon()}</i>`;
+}
+
 // ---- overlay --------------------------------------------------------------------------------
 
 const ROW_ARIA = { met: 'complete', unmet: 'in progress', pending: 'not measured yet' };
 
 /**
- * Builds the overlay (hidden) and returns its controls. Nothing is opened until the caller asks.
+ * Builds the sheet (hidden) and returns its controls. Nothing is opened until the caller asks.
  *   open(state) / refresh(state)  paint from a pawRatingState() result
- *   attachOpener(el)              make an existing HUD element open it (see .meta-reputation in
- *                                 career.js) — deliberately no new fixed HUD button, because a
- *                                 second floating chip is exactly what collides at 653x280.
  */
 export function createPawSheet(root) {
   const host = root || document.body;
   const el = document.createElement('div');
   el.className = 'paw-root hidden';
   el.innerHTML = '<div class="paw-backdrop"></div>'
-    + '<div class="paw-card" role="dialog" aria-modal="true" aria-label="Paw Rating">'
-    + '<div class="paw-head"><div class="paw-title">Paw Rating</div>'
+    + '<div class="paw-card" role="dialog" aria-modal="true" aria-labelledby="starsTitle">'
+    + '<div class="paw-head"><div class="paw-title" id="starsTitle">Café Stars</div>'
     + '<button class="paw-close" type="button" aria-label="Close">×</button></div>'
     + '<div class="paw-stars" role="img"></div>'
-    + '<div class="paw-list"></div>'
+    + '<div class="paw-list"><div class="stars-next" role="img"></div><div class="stars-rows"></div><div class="stars-reno"></div></div>'
     + '</div>';
   host.appendChild(el);
 
   const starsEl = el.querySelector('.paw-stars');
   const listEl = el.querySelector('.paw-list');
+  const nextEl = el.querySelector('.stars-next');
+  const rowsEl = el.querySelector('.stars-rows');
   let model = null;
 
   const isOpen = () => !el.classList.contains('hidden');
-  const close = () => el.classList.add('hidden');
-  const openEl = () => el.classList.remove('hidden');
+  const close = () => { if (!isOpen()) return; el.classList.add('hidden'); closeModal('stars'); };
+  const openEl = () => { if (isOpen()) return; openModal('stars', { close }); el.classList.remove('hidden'); };
 
   el.querySelector('.paw-close').addEventListener('click', close);
   el.querySelector('.paw-backdrop').addEventListener('click', close);
-  // Capture phase and stopPropagation, exactly like career.js: this overlay sits above the sheets
-  // root, so its Escape must not also close whatever is underneath it.
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && isOpen()) { close(); e.stopPropagation(); }
-  }, true);
 
   function rowEl(r) {
     const row = document.createElement('div');
@@ -199,19 +228,21 @@ export function createPawSheet(root) {
   function render() {
     if (!model) return;
     starsEl.textContent = '';
-    starsEl.setAttribute('aria-label', `Paw rating ${model.best} of ${model.total}`);
+    starsEl.setAttribute('aria-label', `Café Stars ${model.best} of ${model.total}`);
     // ★5 turns the whole row gold. It is the only payoff the sheet can give without words, and it
     // is what the Golden Paw ceremony is named after.
     starsEl.classList.toggle('is-golden', model.complete);
     for (const p of model.paws) {
       const pip = document.createElement('span');
       pip.className = 'paw-pip' + (p.filled ? ' filled' : '') + (p.next ? ' next' : '');
-      pip.innerHTML = pawIcon();
+      pip.innerHTML = starIcon();
       starsEl.appendChild(pip);
     }
     // Repainting drops the scroller's position; a refresh mid-shift should not jump the list.
     const scrollTop = listEl.scrollTop;
-    listEl.textContent = '';
+    rowsEl.textContent = '';
+    nextEl.textContent = '';
+    nextEl.hidden = model.complete;
     if (model.complete) {
       const done = document.createElement('div');
       done.className = 'paw-complete';
@@ -220,9 +251,14 @@ export function createPawSheet(root) {
       const a = document.createElement('span'); a.innerHTML = pawIcon();
       const b = document.createElement('span'); b.className = 'paw-complete-spark'; b.innerHTML = sparkleIcon();
       done.append(a, b);
-      listEl.appendChild(done);
+      rowsEl.appendChild(done);
     } else {
-      for (const r of model.rows) listEl.appendChild(rowEl(r));
+      // "★3 gives:" as pictures — the reward is what makes the checklist worth reading.
+      const rewards = starRewards(model.next);
+      nextEl.innerHTML = `<span class="stars-next-star"><i>${starIcon()}</i><b>${model.next}</b></span>`
+        + rewards.map(r => `<span class="stars-reward">${rewardHtml(r)}</span>`).join('');
+      nextEl.setAttribute('aria-label', `Star ${model.next} gives ${rewards.map(r => REWARD_ARIA[r.kind](r)).join(', ')}`);
+      for (const r of model.rows) rowsEl.appendChild(rowEl(r));
     }
     listEl.scrollTop = scrollTop;
   }
@@ -236,17 +272,5 @@ export function createPawSheet(root) {
     close,
     refresh(state) { if (state !== undefined) setModel(state); },
     get isOpen() { return isOpen(); },
-    // Mirrors createCareerUI()'s treatment of the reputation chip: an existing element becomes the
-    // opener, so no new tap target is added to the HUD.
-    attachOpener(opener) {
-      if (!opener) return;
-      opener.classList.add('paw-openable');
-      opener.tabIndex = 0;
-      if (!opener.getAttribute('role')) opener.setAttribute('role', 'button');
-      opener.addEventListener('click', () => openEl());
-      opener.addEventListener('keydown', e => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEl(); }
-      });
-    },
   };
 }
