@@ -73,7 +73,6 @@ const out = await page.evaluate(() => {
   const topUpSupplies = () => {
     for (const st of G.world.stations.values()) {
       if (st.type === 'coffee') st.beans = 20;
-      if (st.type === 'icecream') st.cream = 20;
       if (st.type === 'blender') st.fruit = 9;
     }
   };

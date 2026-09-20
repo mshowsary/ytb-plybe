@@ -8,13 +8,15 @@
 // every offering station accepted the owner anywhere inside a ~1.35 m front radius. Those radii
 // overlap a neighbour's standing spot, so the kiosk's UPGRADE button floated over the kiosk while
 // the owner stood at the oven. Measured before the fix: four stations showed a neighbour's button —
-// oven1 -> UPGRADE, seat12 -> SUPPLIES, spaSeat3 -> HIRE, and the planters decor -> HIRE.
+// oven1 -> UPGRADE, seat12 -> SUPPLIES, and two in the (since retired) Pet Spa -> HIRE.
 //
 // Assertions, driven against a fully built café so every station is live:
 //   1. Standing on any station's own front spot, any button shown belongs to THAT station.
 //   2. The stations that do own an action still offer it when stood on (no over-correction into
 //      silence), both empty-handed and with the owner's hands full.
 //   3. The button is drawn on the machine's front face, near the owner — not past its centre.
+//   4. It is a real tap target: at least 48x48 CSS px at this phone-landscape viewport, whatever
+//      the label scale (src/ui/labelLayout.js leaves .fbtn out of the scale rule).
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -44,7 +46,7 @@ await new Promise(resolve => server.listen(PORT, '127.0.0.1', resolve));
 // The label each station type is allowed to claim. Anything else standing on its front spot means
 // the button belongs to a different machine.
 const OWNED = {
-  pantry: 'SUPPLIES', return: 'RETURN', kiosk: 'UPGRADE', hire: 'HIRE', boutique: 'SHOP',
+  pantry: 'SUPPLIES', return: 'RETURN', kiosk: 'UPGRADE', hire: 'HIRE',
 };
 
 const failures = [];
@@ -63,7 +65,7 @@ async function sweep(carry) {
     if (G.intro) { G.intro.step = 5; G.intro.active = false; G.intro.target = null; }
     G.coins += 90000;
     // Build the whole café: an unbuilt zone has no stations, and the overlaps only exist once the
-    // late unlocks (spa seats, planters, photo desk) are standing next to the early ones.
+    // late unlocks (the terrace tables, the photo booth) are standing next to the early ones.
     for (const z of G.world.area.zones) {
       if (G.world.built.has(z.id)) continue;
       G.P.x = z.x; G.P.z = z.z;
@@ -80,7 +82,7 @@ async function sweep(carry) {
       let btn = null, centre = null, owner = null;
       if (shown) {
         const r = b.getBoundingClientRect();
-        btn = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        btn = { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height };
         // Project in THIS frame: the camera follows the owner, so a projection taken after the
         // sweep has moved on measures camera travel, not where the button was drawn.
         const t = { sx: 0, sy: 0, visible: true };
@@ -111,11 +113,13 @@ for (const held of [false, true]) {
       check(btnOut <= centreOut + 1,
         `[${tag}] ${r.id}: button is ${btnOut | 0}px from the owner but the station centre is only ` +
         `${centreOut | 0}px — it is anchored past the machine instead of on its front face`);
+      check(r.btn.w >= 47.5 && r.btn.h >= 47.5,
+        `[${tag}] ${r.id}: the ${r.word} button is ${r.btn.w.toFixed(1)}x${r.btn.h.toFixed(1)} CSS px, under the 48x48 tap floor`);
     }
   }
 
   // No over-correction: the machines that own an action must still offer it.
-  const want = held ? ['pantry', 'return', 'kiosk', 'hire', 'boutique'] : ['pantry', 'kiosk', 'hire', 'boutique'];
+  const want = held ? ['pantry', 'return', 'kiosk', 'hire'] : ['pantry', 'kiosk', 'hire'];
   for (const type of want) {
     const any = rows.some(r => r.type === type && r.word === OWNED[type]);
     check(any, `[${tag}] no ${type} station offered its ${OWNED[type]} button when stood on`);

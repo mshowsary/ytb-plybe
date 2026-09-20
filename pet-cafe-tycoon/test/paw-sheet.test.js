@@ -74,13 +74,15 @@ test('the checklist is the NEXT star\'s requirements, in the sim\'s order', () =
   assert.deepEqual(m.rows.map(r => r.kind), ['zone', 'photos', 'seatMiss']);
 });
 
-test('a SKIPPED requirement draws nothing (a catalogue without z_spa shows two ★4 rows)', () => {
-  const noSpa = { ...AREA1, zones: AREA1.zones.filter(z => z.id !== 'z_spa'), regions: (AREA1.regions || []).filter(r => r.id !== 'spa') };
-  const s = state({ pawBest: 3 }, { area: noSpa });
-  assert.equal(s.requirements.some(r => r.id === 'r4.spa' && r.skipped), true, 'fixture assumption: r4.spa is skipped');
-  assert.deepEqual(pawSheetModel(s).rows.map(r => r.id), ['r4.book', 'r4.cup']);
-  // Batch 4b: with the real catalogue the row exists and IS drawn.
-  assert.deepEqual(pawSheetModel(state({ pawBest: 3 })).rows.map(r => r.id), ['r4.spa', 'r4.book', 'r4.cup']);
+test('a SKIPPED requirement draws nothing (a catalogue without z_terrace shows two ★3 rows)', () => {
+  const noTerrace = { ...AREA1, zones: AREA1.zones.filter(z => z.id !== 'z_terrace'), regions: [] };
+  const s = state({ pawBest: 2 }, { area: noTerrace });
+  assert.equal(s.requirements.some(r => r.id === 'r3.terrace' && r.skipped), true, 'fixture assumption: r3.terrace is skipped');
+  assert.deepEqual(pawSheetModel(s).rows.map(r => r.id), ['r3.photos', 'r3.seats']);
+  // With the real catalogue the row exists and IS drawn.
+  assert.deepEqual(pawSheetModel(state({ pawBest: 2 })).rows.map(r => r.id), ['r3.terrace', 'r3.photos', 'r3.seats']);
+  // ★4 names no zone since the spa was retired: two rows, none skipped.
+  assert.deepEqual(pawSheetModel(state({ pawBest: 3 })).rows.map(r => r.id), ['r4.book', 'r4.cup']);
 });
 
 test('a row carries the numerals the sim gave it, untouched', () => {

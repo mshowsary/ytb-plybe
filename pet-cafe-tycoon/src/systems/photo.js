@@ -1,103 +1,94 @@
-// src/systems/photo.js — Task 2.1: the owner-facing bridge for the Pet Photo Studio (plan 3.2).
-// Wires the pure sim mechanics in src/sim/world.js (stepPhotoBooth/resolvePhotoShot — the station's
-// queue, session timer and tip math, none of which touch meta or the DOM) to the browser: owner
-// proximity (mans a session and collects the tip tray, exactly like src/systems/stations.js does
-// for a register's own pile), a real friendship tier read from G.meta via the Pet Visitor Book
-// (src/sim/petBook.js), and the visible mini-game + polaroid in src/ui/photoGame.js.
+// src/systems/photo.js — the owner-facing bridge for photos at the tables
+// (docs/SHIP-PLAN-2026-09-19.md §1.3). Wires the pure pose mechanics in src/sim/petPose.js
+// (which pet is posing, the shot clock and the tip math, none of which touch meta or the DOM) to
+// the browser: the owner's proximity, a real friendship tier read from G.meta via the Pet Visitor
+// Book (src/sim/petBook.js), and the visible ring + polaroid in src/ui/photoGame.js.
 //
-// Mirrors src/systems/stations.js's own factory shape — createXxx(G, S, ctx) returning
-// { update(dt) } — so wiring this into src/game.js's frame loop is the same one-line pattern every
-// other system there already uses (stations.update(dt), zones.update(dt), ...). See this task's own
-// wiringNeeded for the exact call site and ctx fields — src/game.js is owned by another task this
-// batch, so this file cannot wire itself in.
-import { stepPhotoBooth, resolvePhotoShot, collectCash } from '../sim/world.js';
+// It replaced the Pet Photo Studio booth's bridge. What went with the booth: the tip TRAY (a tip
+// now lands on the pet's own table, swept walking past by systems/stations.js like any other pile)
+// and the "stand at the station" idea itself — the owner walks to the pet, not to a machine.
+//
+// Same factory shape as systems/stations.js — createXxx(G, S, ctx) returning { update(dt) } — and
+// src/game.js calls it once per frame between customers.update and staff.update, so a pose starts
+// from seat states the same frame produced and the hired Photographer reacts to it on the next.
+import { stepPetPoses, resolvePoseShot, POSE_SERVE_RADIUS } from '../sim/petPose.js';
 import { addFollowers, followersForShot } from '../sim/followers.js';
 import { petFriendship, petKey, petProfile } from '../sim/petBook.js';
 import { createPhotoGame } from '../ui/photoGame.js';
 
-// Radii deliberately match the scale systems/stations.js already uses for a checkout's own
-// front-check (near(P, st.front, 1.2)) and its cash-pile auto-collect (AUTO_CASH_RADIUS 1.2) — a
-// booth that behaved noticeably differently from a register at the same distance would read as a
-// bug, not a design choice.
-const SERVE_RADIUS = 1.3;
-const COLLECT_RADIUS = 1.2;
-
-// "cats loaf, dogs sit-tilt, bunnies ear-up, hamsters cheeks" (plan 3.2). This table is exported so
-// whichever render layer ends up owning the pet's pose rig (out of this task's file list — see
-// wiringNeeded) can reuse the exact same species -> pose mapping rather than inventing a second one.
+// "cats loaf, dogs sit-tilt, bunnies ear-up, hamsters cheeks". Exported so whichever render layer
+// poses the pet rig reuses the exact same species -> pose mapping rather than inventing a second
+// one; src/render/portrait.js already keys its portrait poses off these names.
 const SPECIES_POSE = { cat: 'loaf', dog: 'sit-tilt', bunny: 'ear-up', hamster: 'cheeks' };
 export function poseForSpecies(species) { return SPECIES_POSE[species] || 'loaf'; }
 
-function near(a, b, r) { return (a.x - b.x) ** 2 + (a.z - b.z) ** 2 < r * r; }
+// The full-screen surfaces a photo must never be drawn over. Every one of them lives in the DOM all
+// the time and shows itself by dropping `hidden` (src/ui/meta.js, pawSheet.js, cafeJournal.js and
+// friends), so they cannot be detected through ui/sheets.js's own isOpen — which covers only the
+// bottom sheets and the day-summary card.
+const OVERLAY_ROOTS = [
+  '.meta-book-root:not(.hidden)', '.paw-root:not(.hidden)', '.career-root:not(.hidden)',
+  '.party-root:not(.hidden)', '.social-root:not(.hidden)',
+].join(',');
 
 export function createPhotoStudio(G, S, ctx) {
-  const { world, hud, fx, audio, P, els } = ctx;
+  const { world, fx, els, sheets, P } = ctx;
   const game = createPhotoGame({
     project: fx && typeof fx.project === 'function' ? fx.project.bind(fx) : null,
     els,
-    onResolve(stationId, quality) { resolvePhotoShot(world, stationId, quality); },
-    // Optional: src/render/portrait.js's renderPetPortrait(renderer, {petKey, poseId}) turns the
-    // polaroid from a blank card into the guest's actual rendered pet, but needs the game's single
-    // THREE.WebGLRenderer, which this batch's ctx does not carry yet (see wiringNeeded). Wired in as
-    // a plain callback rather than an import so this file never takes a hard dependency on another
-    // task's in-flight module — omit ctx.renderPortrait and the polaroid stays a blank frame.
+    onResolve(_subjectId, quality) { resolvePoseShot(world, quality); },
+    // Optional: src/render/portrait.js's renderPetPortrait turns the polaroid from a blank card
+    // into the guest's actual rendered pet, but needs the game's single THREE.WebGLRenderer, which
+    // only main.js owns — so it arrives as a plain callback rather than an import.
     renderPortrait: typeof ctx.renderPortrait === 'function' ? ctx.renderPortrait : null,
     // Read through G every frame rather than captured: src/main.js builds the label arbiter AFTER
     // createGame, so it does not exist yet at construction time.
     avoid: (x, y, w, h) => (G.labelLayout ? G.labelLayout.avoid(x, y, w, h) : [x, y]),
+    // A reveal never lands on top of anything the player has opened: the sheets and the day summary
+    // (both ui/sheets.js, so sheets.isOpen covers them) and the full-screen collection/progress
+    // overlays, which are separate roots that simply drop their `hidden` class. photoGame.js holds
+    // the card until this goes false (playthrough.md: a polaroid was drawn over the Day 14 summary,
+    // hiding its rows). Only ever called when there is a card to show, so the query costs nothing
+    // on an ordinary frame.
+    isBlocked: () => !!(sheets && sheets.isOpen) || (typeof document !== 'undefined' && !!document.querySelector(OVERLAY_ROOTS)),
   });
 
-  // Sim-purity boundary (world.js's stepPhotoBooth comment): this is the one place a queued
-  // customer's species/petVariant turns into a friendship tier, via the same Pet Visitor Book
-  // src/systems/petFriendship.js already reads on every 'pay' event. `customer` here is the exact
-  // sim object stepCustomers/stepPhotoBooth operate on, not a separate render-side copy.
+  // Sim-purity boundary: this is the one place a posing guest's species/petVariant turns into a
+  // friendship tier, via the same Pet Visitor Book systems/petFriendship.js reads on every 'pay'.
   function tierFor(customer) {
     const variant = typeof customer.petVariant === 'number' ? customer.petVariant : 0;
     return petFriendship(G.meta, customer.species, variant).level;
   }
-
-  function collectTray(st) {
-    if (st.pile <= 0 || !P || !near(P, st.front, COLLECT_RADIUS)) return;
-    // The golden-shot rewarded ad (systems/rewardsSystem.js, task 2.7) multiplies photo tips for
-    // the rest of the shift. This is the only place a photo tip becomes coins, so it is the only
-    // place the multiplier can apply — without it the offer is claimable but pays nothing.
-    const amt = Math.round(collectCash(world, st.id) * (G.goldenShotMult || 1));
-    if (amt <= 0) return;
-    G.coins = (G.coins || 0) + amt;
-    if (G.stats) G.stats.lifetimeEarned = (G.stats.lifetimeEarned | 0) + amt;
-    if (hud && typeof hud.setCoins === 'function') hud.setCoins(G.coins);
-    if (audio && typeof audio.play === 'function') audio.play('coin');
-    if (fx && typeof fx.number === 'function') fx.number(st.front.x, 0.9, st.front.z, '+' + amt);
-    if (fx && typeof fx.coinArc === 'function') fx.coinArc(st.front.x, 0.3, st.front.z, Math.min(10, 2 + (amt / 5 | 0)), () => hud && hud.bump && hud.bump());
-    // systems/stations.js marks this same checkpoint when a register pile is swept; without it a
-    // photo tray collection is the one way to gain coins that no save is ever triggered by.
-    if (typeof G.requestCheckpoint === 'function') G.requestCheckpoint('cash-collection');
+  // Which pets the album already holds — sim/petPose.js prefers the ones it does not, so photos
+  // fill the collection instead of repeating whichever cat happens to be sitting down.
+  function photographed(species, variant) {
+    const album = G.meta && G.meta.album;
+    return !!(album && album[petKey(species, variant)]);
   }
 
-  // Which sessions have already paid out their album entry and followers, keyed by station. Both
-  // resolution paths land here — a real tap AND stepPhotoBooth's PHOTO_AUTO_RESOLVE timeout — so
-  // crediting on the tap callback alone would silently skip every shot the player let run out.
-  const creditedFor = new Map();
-
-  function creditShot(st) {
-    const s = st.session;
-    if (!s || !s.resolved) return;
-    if (creditedFor.get(st.id) === s.customerId) return;
-    creditedFor.set(st.id, s.customerId);
+  // Credited on the SESSION, not in a map keyed by who posed: both resolution paths land here — a
+  // real tap AND petPose's own timeout — so crediting on the tap callback alone would silently
+  // skip every shot the player let run out, and a flag on the shot itself cannot mistake a second
+  // pose by the same guest for a repeat of the first.
+  function creditShot(pose) {
+    const s = pose.session;
+    if (!s || !s.resolved || s.credited) return;
+    s.credited = true;
 
     const pk = petKey(s.species, s.variant);
     const album = G.meta.album || (G.meta.album = {});
     const prev = album[pk] || null;
     const rank = s.quality === 'perfect' ? 2 : s.quality === 'good' ? 1 : 0;
-    // Is this shot a MOMENT? A pet's first photo, or a better one than the album already holds.
-    // Those get the full reveal in ui/photoGame.js; a repeat of a shot the album already has just
-    // files itself away. Read by the mini-game on the same frame, before st.session is cleared.
-    s.reveal = !prev || rank > ((prev.best) | 0);
+    // A pet's FIRST photo is the moment: the full developing-polaroid reveal, once per pet ever.
+    // Every later shot is a small corner polaroid with no screen flash (§1.3). The old rule also
+    // revealed any shot better than the album held, which washed the screen white 3-5 times a day
+    // (playthrough.md). Read by the mini-game on the same frame.
+    s.reveal = !prev;
     s.rank = rank;
     s.petName = petProfile(s.species, s.variant).name;
     // REPLACED, never mutated in place. G.snapshot() spreads meta.album exactly one level deep, so
     // an in-place prev.shots++ would reach through the shared nested reference and rewrite a
-    // snapshot that had already been taken (task 2.3 flagged this precise hazard).
+    // snapshot that had already been taken.
     G.meta.album = { ...album, [pk]: {
       shots: ((prev && prev.shots) | 0) + 1,
       best: Math.max((prev && prev.best) | 0, rank),
@@ -116,38 +107,46 @@ export function createPhotoStudio(G, S, ctx) {
     if (typeof G.requestCheckpoint === 'function') G.requestCheckpoint('photo-shot');
   }
 
-  let liveKey = null; // `${stationId}:${customerId}` — which session (if any) the mini-game is showing
+  // Close enough to be the one taking this shot: the same radius sim/staff.js judges the hired
+  // Photographer by.
+  function ownerAt(pose) {
+    return !!P && (P.x - pose.x) ** 2 + (P.z - pose.z) ** 2 < POSE_SERVE_RADIUS * POSE_SERVE_RADIUS;
+  }
+
+  let liveKey = null; // `${seatId}:${customerId}` — which shot (if any) the mini-game is showing
 
   return {
     update(dt) {
-      let live = null;
-      for (const st of world.stations.values()) {
-        if (st.type !== 'photo' || !st.active) continue;
-        if (P && near(P, st.front, SERVE_RADIUS)) st.serving = true;
-        collectTray(st);
-        if (st.session) live = st; // whichever session is already running, or was just started below
-      }
-      // stepPhotoBooth may start a brand-new session (owner present, a guest genuinely waiting at
-      // slot 0) or auto-resolve an existing one past its timeout — `live` above is intentionally
-      // read before this call so a same-tick start still surfaces to the mini-game exactly one
-      // frame later (harmless — the ring's own 1.4s window dwarfs a single frame), while a same-tick
-      // timeout resolution is instead caught by ui/photoGame.js's own `st.session.resolved` check.
-      stepPhotoBooth(world, dt, tierFor);
-      if (!live) for (const st of world.stations.values()) if (st.type === 'photo' && st.session) live = st;
-      for (const st of world.stations.values()) if (st.type === 'photo' && st.session) creditShot(st);
+      // The rewarded Golden Shot doubles photo tips for the rest of the shift
+      // (systems/rewardsSystem.js). The tip becomes coins on the table, inside the sim, so the
+      // multiplier has to reach the sim: it rides on the world like dayState/stars already do.
+      world.photoTipMult = G.goldenShotMult || 1;
+      // The owner came to take the picture. Proximity IS the interaction — there is no button, no
+      // station to stand at and nothing to tap first; the ring appears and the shot is the timing.
+      const pose = world.pose;
+      if (pose && ownerAt(pose)) pose.serving = true;
 
-      if (live) {
-        const key = live.id + ':' + live.session.customerId;
+      const live = stepPetPoses(world, G.customers, dt, {
+        unlocked: world.built.has('z_photo'),
+        photographed,
+        tierFor,
+      });
+      if (live && live.session) creditShot(live);
+
+      if (live && live.session) {
+        const key = live.seatId + ':' + live.session.customerId;
         if (key !== liveKey) {
           liveKey = key;
-          const pk = petKey(live.session.species, live.session.variant);
-          game.start(live, poseForSpecies(live.session.species), pk);
+          game.start(live, poseForSpecies(live.session.species), petKey(live.session.species, live.session.variant));
         }
-        game.update(dt, live);
+        // The ring is only drawn while the owner is the one taking it (see photoGame.update).
+        game.update(dt, live, ownerAt(live));
       } else if (liveKey != null) {
         liveKey = null;
         game.stop();
       }
+      // Reveals held back while a sheet was open get their moment as soon as it closes.
+      game.pump();
     },
   };
 }

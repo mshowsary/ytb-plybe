@@ -2,7 +2,7 @@ import { createContractBadge } from './contractBadge.js';
 import {
   sunIcon, moonIcon, sunriseIcon, sunsetIcon, personIcon, coinIcon, streakIcon, heartIcon,
   cupcakeIcon, coffeeIcon, smoothieIcon, treatIcon, icecreamIcon, leafIcon, gearIcon, pawIcon,
-  waterIcon, sparkleIcon, hangerIcon,
+  waterIcon,
 } from './icons.js';
 // src/ui/hud.js
 import { presentationScheduler } from '../core/presentationScheduler.js';
@@ -104,6 +104,28 @@ export function pickSavingTarget(zones, built) {
   return best;
 }
 
+// The wallet numeral's roll-up, as a clock-driven state with no DOM so it can be tested. frame(now)
+// returns the value to draw this frame, or null once there is nothing left to draw (the I8 rule:
+// a settled numeral is not re-formatted every frame). The frame that ends a roll ALWAYS returns the
+// target itself: a frame gap longer than the roll (a host pause, a background tab, a GC hitch) used
+// to skip straight past the in-progress branch, and the wallet kept the old number until the next
+// coin change — 9,731,169 on the HUD against 4,210 in the pause card, measured.
+export const WALLET_ROLL_MS = 350;
+export function createWalletRoll() {
+  let shown = 0, target = 0, from = 0, t0 = 0, settled = true;
+  return {
+    set(n, now) { from = shown; target = n; t0 = now; settled = false; },
+    frame(now) {
+      if (settled) return null;
+      const k = Math.min(1, (now - t0) / WALLET_ROLL_MS);
+      if (k < 1) shown = from + (target - from) * (1 - Math.pow(1 - k, 3));
+      else { shown = target; settled = true; }
+      return shown;
+    },
+    get shown() { return shown; },
+  };
+}
+
 // The polaroid that flies to the Pet Book (src/ui/photoGame.js's .polaroid). Duplicated from
 // src/ui/serviceSummary.js for the reason stated there: src/ui/icons.js belongs to another task in
 // this batch, and all copies should collapse into one icons.js export as soon as it is free.
@@ -116,22 +138,16 @@ function photoIcon() {
 }
 
 // Keyed by zone id -- the only stable handle data/area1.js gives a purchase. An id this table has
-// never heard of (Batch 4's spa chain, or anything a designer adds later) falls back to the build
+// never heard of (anything a designer adds later) falls back to the build
 // gear, so a new zone degrades to a vague-but-honest glyph instead of breaking the ring.
 const ZONE_ICON = {
   z_seats1: pawIcon, z_oven2: cupcakeIcon, z_register2: coinIcon, z_hire: personIcon,
   z_coffee: coffeeIcon, z_bowl: treatIcon, z_blender: smoothieIcon, z_garden: leafIcon,
   z_seats2: pawIcon, z_terrace: sunIcon, z_icecream: icecreamIcon, z_register3: coinIcon,
   z_photo: photoIcon, z_terraceSeats: pawIcon,
-  // The spa chain (data/area1.js's Restroom -> Splash -> Spa -> Groom -> Bath -> Boutique ->
-  // Photographer run). Restroom and Bath both add a literal water fixture (a sink, the bath's own
-  // waterTank1 pantry); Splash is a pool, same water glyph again -- the ring only ever shows one of
-  // the three at a time, so the reuse never actually collides on screen. Spa is the gateway zone
-  // into that whole wing, so it gets an atmosphere glyph the same way z_terrace's sunIcon already
-  // does for the outdoor wing. Groom reuses the exact paw src/ui/groomGame.js draws over the pet
-  // during the brush-hold minigame, so the ring and the minigame it is saving toward agree.
-  z_restroom: waterIcon, z_splash: waterIcon, z_spa: sparkleIcon, z_groom: pawIcon,
-  z_bath: waterIcon, z_boutique: hangerIcon, z_photographer: photoIcon,
+  // Restroom adds a sink and Splash is a pool, so both take the water glyph -- the ring only ever
+  // shows one build at a time, so the reuse never collides on screen.
+  z_restroom: waterIcon, z_splash: waterIcon,
 };
 
 const RING_STYLE_ID = 'pet-cafe-wallet-ring';
@@ -166,7 +182,7 @@ function ensureRingStyle() {
 export function createHud() {
   const $ = id => document.getElementById(id);
   const hud = $('hud'), num = $('walletNum'), wallet = $('wallet'), hint = $('hint'), crowd = $('crowd'), crowdNum = $('crowdNum');
-  let shown = 0, target = 0, from = 0, t0 = 0;
+  const roll = createWalletRoll();
   const exact = n => Math.round(n).toLocaleString('en-US');
   const fmt = n => {
     const value = Math.max(0, Math.round(n));
@@ -230,7 +246,7 @@ export function createHud() {
   };
 
   H.setCoins = n => {
-    from = shown; target = n; t0 = performance.now(); ringSettled = false;
+    roll.set(n, performance.now()); ringSettled = false;
     const label = `${exact(n)} coins`;
     wallet.title = label; wallet.setAttribute('aria-label', label);
   };
@@ -314,15 +330,15 @@ export function createHud() {
     }, ms);
   };
   H.show = () => hud.classList.remove('hidden');
-  // I8: only touch the DOM while the roll animation is actually in progress (k < 1) — once it
+  // I8: only touch the DOM while the roll has something to draw (createWalletRoll above) — once it
   // settles, the number is already correct and there's nothing left to (re)format every frame.
-  // The ring rides `shown`, not `target`, so it sweeps in step with the numeral rolling up rather
-  // than snapping ahead of it. `shown` is never written once the roll settles (that is the I8
-  // optimisation above), so the final percentage is painted once from `target` instead.
+  // The ring rides the rolled value, not the target, so it sweeps in step with the numeral rather
+  // than snapping ahead of it; a new saving target (setSavingFor) repaints it once from the settled
+  // value.
   H.update = () => {
-    const k = Math.min(1, (performance.now() - t0) / 350);
-    if (k < 1) { shown = from + (target - from) * (1 - Math.pow(1 - k, 3)); num.textContent = fmt(shown); paintRing(shown); }
-    else if (!ringSettled) { ringSettled = true; paintRing(target); }
+    const v = roll.frame(performance.now());
+    if (v != null) { num.textContent = fmt(v); paintRing(v); }
+    else if (!ringSettled) { ringSettled = true; paintRing(roll.shown); }
   };
   wallet.style.transition = 'transform .12s';
 

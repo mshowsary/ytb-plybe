@@ -13,20 +13,22 @@ test('main pantry: {beans, kibble} yields exactly 2 buttons in that order (inter
   ]);
 });
 
-test('coldPantry1: {cream} yields exactly 1 button, not gated by the unrelated beans/kibble keys', () => {
-  assert.deepEqual(pantryButtons({ cream: true }), [{ kind: 'cream', enabled: true }]);
-  assert.deepEqual(pantryButtons({ cream: false }), [{ kind: 'cream', enabled: false }]);
+// A single-supply pantry (Batch 1's cold pantry was one, for cream; it was cut with the cream on
+// 2026-09-19, docs/SHIP-PLAN-2026-09-19.md §1.2) keeps the same contract with a live supply.
+test('a single-supply pantry yields exactly 1 button, not gated by the other supply key', () => {
+  assert.deepEqual(pantryButtons({ kibble: true }), [{ kind: 'kibble', enabled: true }]);
+  assert.deepEqual(pantryButtons({ beans: false }), [{ kind: 'beans', enabled: false }]);
 });
 
 test('a pantry never offers a supply it does not declare', () => {
-  // Only `cream` is defined -> beans/kibble must not appear even though other pantries have them.
-  const buttons = pantryButtons({ cream: true });
+  // Only `kibble` is defined -> beans must not appear even though the main pantry has it.
+  const buttons = pantryButtons({ kibble: true });
   assert.equal(buttons.some(b => b.kind === 'beans'), false);
-  assert.equal(buttons.some(b => b.kind === 'kibble'), false);
+  assert.equal(buttons.length, 1);
 });
 
-test('a pantry declaring all three supplies renders them in fixed beans/kibble/cream order', () => {
-  assert.deepEqual(pantryButtons({ beans: true, kibble: true, cream: true }).map(b => b.kind), ['beans', 'kibble', 'cream']);
+test('the supplies render in the fixed beans/kibble order whatever order the model lists them in', () => {
+  assert.deepEqual(pantryButtons({ kibble: true, beans: true }).map(b => b.kind), ['beans', 'kibble']);
 });
 
 test('a pantry model with no supplies defined renders no buttons', () => {

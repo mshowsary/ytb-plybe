@@ -2,7 +2,7 @@
 import {
   UPGRADES, upgradeCost, hireCost, STAFF,
   WORKER_UPGRADES, MACHINE_UPGRADES, workerUpgradeCost, machineUpgradeCost,
-  STAR_IDS, nextStarCost, ensureStars, boutiqueCatalogue,
+  STAR_IDS, nextStarCost, ensureStars,
 } from '../sim/economy.js';
 import { BARISTA, baristaHireState } from '../sim/barista.js';
 import { pawBestStar } from '../sim/pawRating.js';
@@ -35,7 +35,11 @@ function buildWorkerRows(G, world) {
   const deskBuilt = !!(desk && desk.active);
   const activeDisplays = (world.displays || []).map(id => world.stations.get(id)).filter(st => st && st.active).map(st => ({ id: st.id, product: st.product }));
   const runnerList = (G.staffList || []).filter(s => s.kind === 'runner').map((s, i) => ({ index: i, assign: s.assign || null }));
-  return WORKER_KINDS.map(w => {
+  // The Photographer only has work once the photo booth exists, so its row does not exist before
+  // then either: a row the player cannot use yet is a promise with no way to act on it.
+  const booth = world.stations.get('photo1');
+  const boothBuilt = !!(booth && booth.active);
+  return WORKER_KINDS.filter(w => w.kind !== 'photographer' || boothBuilt).map(w => {
     const count = G.staff[w.kind] | 0;
     if (w.kind === 'barista') {
       const gate = baristaHireState(G.dayState && G.dayState.day, world.built, G.coins, count);
@@ -52,17 +56,16 @@ function buildWorkerRows(G, world) {
       };
     }
     if (w.kind === 'photographer') {
-      // Gated on photoDesk1 (z_photographer), not the generic hire1 deskBuilt above. No level row:
-      // there is no staffLevels.photographer ladder, and letting this kind reach the generic path
-      // below would read G.staffLevels[w.kind].speed off an undefined key and throw.
-      const pDesk = world.stations.get('photoDesk1');
-      const pDeskBuilt = !!(pDesk && pDesk.active);
+      // Hired at the staff desk like every role; the row itself is only listed once photo1 is
+      // active (the filter above). No level row: there is no staffLevels.photographer ladder, and
+      // letting this kind reach the generic path below would read G.staffLevels[w.kind].speed off
+      // an undefined key and throw.
       const pCost = hireCost(w.kind, G.staff);
       return {
         kind: w.kind, label: w.label, desc: w.desc,
         count, cap: STAFF.photographer.costs.length,
         hireCost: pCost, hireMaxed: pCost === null,
-        hireDisabled: !pDeskBuilt || pCost == null || G.coins < pCost,
+        hireDisabled: !deskBuilt || pCost == null || G.coins < pCost,
         showLevels: false, speed: null, carry: null, runners: null, displays: null,
       };
     }
@@ -112,11 +115,6 @@ function buildMachineRows(G, world) {
 }
 
 export function buildKioskModel(G, world, tab = 'player', focusRow = null) {
-  // Boutique tab (plan §3.5/§3.9): only appears once boutique1 is actually built -- the same gate
-  // economy.buyAccessory itself enforces, read here through world.built rather than the station's
-  // own `active` flag so this needs no station lookup (a zone id is enough, exactly like decor's
-  // `requires` gate reads a zone id rather than a station).
-  const boutiqueActive = !!(world.built && world.built.has && world.built.has('z_boutique'));
   return {
     coins: G.coins, tab, focusRow,
     player: buildPlayerRows(G),
@@ -126,7 +124,5 @@ export function buildKioskModel(G, world, tab = 'player', focusRow = null) {
     built: world.built,
     // The ratchet, so the decor tab lists a star set the moment it is earned.
     pawBest: pawBestStar(G.meta),
-    boutiqueActive,
-    boutiqueItems: boutiqueActive ? boutiqueCatalogue(G, world.built) : [],
   };
 }

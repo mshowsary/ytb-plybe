@@ -21,14 +21,12 @@
 // exactly one id per pet, not one per slot. `slot` here only tells the renderer which rig node
 // (head vs neck) that one id's mesh mounts to.
 //
-// THE BOUTIQUE (plan §3.5/§3.9) -- a third unlock door, "an alternative to milestones": every item
-// below also carries a `price` in coins so src/sim/economy.js's buyAccessory(state, id) can sell it
-// once z_boutique is built, regardless of follower tier or season. Prices sit inside the exact same
-// 60-900 coin band data/decor.js authored (this is cosmetic-sink content, same shelf) and climb with
-// `tier` so a player who wants to skip ahead of the follower ladder pays more for the privilege the
-// higher that tier's item would otherwise cost in followers. A bought id lands in
-// `meta.accessoriesBought` (src/sim/saveSchema.js normalizeAccessoriesBought), which
-// accessoryUnlocked() below treats as a third yes alongside the follower-tier and season doors.
+// BOUGHT ITEMS -- a third unlock door that no longer has a shop. The spa's boutique sold these for
+// coins until the spa was retired (2026-09-19 ship plan); there is no coin shop for them now. A save
+// that bought one keeps it: the id stays in `meta.accessoriesBought` (src/sim/saveSchema.js
+// normalizeAccessoriesBought), which accessoryUnlocked() below still treats as a yes alongside the
+// follower-tier and season doors. `price` is kept as authored data (a 60-900 band rising with
+// `tier`, data/decor.js's shelf) for whichever door sells cosmetics next.
 import * as THREE from 'three';
 import { part, merge } from '../src/render/geo.js';
 import { toonMaterial } from '../src/render/palette.js';
@@ -123,7 +121,7 @@ function bellCollar() {
 
 // --- icons -----------------------------------------------------------------------------------
 // Inline SVG, viewBox 0 0 24 24 -- same convention data/decor.js's icons use so a row drops into
-// the same kiosk boutique-tab boxes décor's tab already draws (icon + price, no words). A flat
+// the same icon + price boxes décor's shop rows draw, should a door sell these again. A flat
 // silhouette rather than the 3D mesh's actual geometry, same reasoning décor's icons have: legible
 // at 44px, and independent of whether three.js has even loaded yet.
 const bowIcon = () => '<svg viewBox="0 0 24 24" aria-hidden="true">'
@@ -161,12 +159,9 @@ const partyHatIcon = () => '<svg viewBox="0 0 24 24" aria-hidden="true">'
 // --- catalogue -------------------------------------------------------------------------------------
 // tier matches src/sim/followers.js followerMilestoneTier()'s 0..FOLLOWER_MILESTONES.length range:
 // 0 = unlocked from the start, 1..4 = that many follower milestones reached.
-// `price` sits in data/decor.js's own 60-900 coin band and rises with `tier` -- the boutique lets a
-// player buy ahead of a follower tier they have not reached yet, so the further out a tier is, the
-// more that shortcut costs. Three items per follower tier keep the same price within that tier
-// (there is nothing to differentiate them on) except where a seasonal item ALSO offers a free door
-// in, which does not change its boutique price -- the boutique price is what it costs to skip
-// waiting on EITHER other door, follower tier or season.
+// `price` sits in data/decor.js's own 60-900 coin band and rises with `tier`: buying ahead of a
+// follower tier costs more the further out that tier is. No shop sells these today (see BOUGHT
+// ITEMS above); the numbers stay so a future door does not have to re-derive them.
 export const ACCESSORIES = Object.freeze([
   { id: 'acc_bow',            name: 'Bow',            slot: 'head', tier: 0, price: 150, build: bow,          icon: bowIcon() },
   { id: 'acc_collar_tag',     name: 'Collar Tag',     slot: 'neck', tier: 0, price: 170, build: collarTag,    icon: collarTagIcon() },
@@ -255,11 +250,7 @@ export function seasonAccessoryUnlocked(id, meta, currentDay) {
 }
 
 // Whether `meta.accessoriesBought` (src/sim/saveSchema.js normalizeAccessoriesBought) already
-// names `id`. That normaliser is the enforcement point for "the boutique must be built before a
-// purchase can exist" -- it drops any id a save holds without z_boutique built, exactly like
-// data/decor.js's zone-gated rows -- so by the time this reads the list, membership alone is
-// sufficient; this function does not need (and, being pure catalogue data with no sim import, could
-// not take) a builtSet of its own.
+// names `id`. That normaliser keeps only catalogue ids, so membership alone is sufficient here.
 function accessoryBought(id, meta) {
   const bought = meta && typeof meta === 'object' ? meta.accessoriesBought : null;
   return Array.isArray(bought) && bought.includes(id);
@@ -267,8 +258,8 @@ function accessoryBought(id, meta) {
 
 // Whether `id` is unlocked for a player with this `meta` -- follower tier (unchanged, see
 // data/decor.js's decorUnlocked(item, builtSet) shape: item-first, gate-context second), this
-// season's signature-item path, OR a boutique purchase (plan §3.5/§3.9's "alternative to
-// milestones") -- whichever door the player reaches first. `currentDay` is optional and only feeds
+// season's signature-item path, OR an earlier purchase (a save from the boutique era) --
+// whichever door the player reaches first. `currentDay` is optional and only feeds
 // the seasonal path above.
 export function accessoryUnlocked(id, meta, currentDay) {
   const item = accessoryItem(id);

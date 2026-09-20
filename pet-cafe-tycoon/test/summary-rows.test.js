@@ -58,16 +58,17 @@ test('the single-argument model call still works for every existing caller', () 
 // ---- the wallet ring target -------------------------------------------------------------------
 
 test('the ring targets the cheapest zone that is actually buildable, never a locked cheaper one', () => {
-  // After the pet lounge the catalogue's cheapest UNBUILT zone is z_photo (3000 since Batch 6), but
-  // it sits behind z_terrace (3600). A cheapest-unbuilt rule would point the ring at a purchase the
-  // game refuses to sell, and would sit pinned at 100% doing it.
+  // With the Pet camera already bought, the catalogue's cheapest UNBUILT zone is z_terraceSeats
+  // (the garden tables, 3000) -- but it sits behind z_terrace (the Ice cream garden, 5200). A
+  // cheapest-unbuilt rule would point the ring at a purchase the game refuses to sell, and would
+  // sit pinned at 100% doing it.
   const built = new Set(['z_seats1', 'z_oven2', 'z_hire', 'z_register2', 'z_coffee',
-    'z_bowl', 'z_blender', 'z_garden', 'z_seats2']);
+    'z_bowl', 'z_blender', 'z_garden', 'z_seats2', 'z_photo']);
   const cheapestUnbuilt = AREA1.zones.filter(z => !built.has(z.id)).sort((a, b) => a.price - b.price)[0];
-  assert.equal(cheapestUnbuilt.id, 'z_photo');
+  assert.equal(cheapestUnbuilt.id, 'z_terraceSeats');
   const t = pickSavingTarget(AREA1.zones, built);
   assert.equal(t.id, 'z_terrace');
-  assert.equal(t.price, 3600);
+  assert.equal(t.price, 5200);
 });
 
 test('the ring starts on the cheapest opening purchase and walks the whole catalogue', () => {

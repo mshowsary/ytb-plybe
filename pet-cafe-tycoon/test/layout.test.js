@@ -43,6 +43,9 @@ test('every ACTIVE station front lies on a free grid cell', () => {
   const grid = buildGrid(AREA1, w);
   for (const st of w.stations.values()) {
     if (!st.active) continue;
+    // A 'wall' station (the photo wall) is scenery hung above the floor: nobody ever stands at it,
+    // and the spot 1.3 m out from the west wall at its height is the staff desk.
+    if (st.type === 'wall') continue;
     assert.ok(isFree(grid, idx(grid, st.front.x, st.front.z), 0), `${st.id} front at (${st.front.x},${st.front.z}) is blocked`);
   }
 });
@@ -104,11 +107,13 @@ test('pantry, return and blender are physically separated', () => {
 
 test('Task 25 progression makes Staff Desk and second register parallel after Cupcakes while preserving the smoothie chain', () => {
   // Batch 1 (plan 7.1) appends the terrace chain after z_seats2; the days 1-12 prefix asserted
-  // below (z_seats1..z_seats2) is unchanged.
+  // below (z_seats1..z_seats2) is unchanged. Batch B2 (docs/SHIP-PLAN-2026-09-19.md §1.1): after the
+  // pet lounge the player picks between two parallel goals -- the Pet camera (2400, the cheaper, so
+  // it is offered first) and the Ice cream garden (5200), which then opens the garden tables. The
+  // camera used to hang off the garden, which put photos behind 5200 coins of deck first.
   const order = [
     'z_seats1', 'z_oven2', 'z_register2', 'z_hire', 'z_coffee', 'z_bowl', 'z_blender', 'z_garden', 'z_seats2',
-    'z_terrace', 'z_icecream', 'z_register3', 'z_photo', 'z_terraceSeats', 'z_restroom', 'z_splash',
-    'z_spa', 'z_groom', 'z_bath', 'z_boutique', 'z_photographer',
+    'z_photo', 'z_terrace', 'z_terraceSeats',
   ];
   assert.deepEqual(AREA1.zones.map(z => z.id), order);
   const zones = new Map(AREA1.zones.map(z => [z.id, z]));

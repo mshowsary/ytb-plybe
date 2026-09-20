@@ -21,12 +21,11 @@ import { emitWorld } from './events.js';
 // mechanics on arrival (take/drop/refill/harvest/blend/clean/collect/pay): the real game already
 // does all of these automatically via proximity (src/systems/stations.js, untouched by this task);
 // tools/bot.js's own loop does them explicitly since it has no render/systems layer running.
-import { activeZones, BATH_WATER_CAP } from './world.js';
+import { activeZones } from './world.js';
 import {
   hire, hireCost, upgradeCost, buyUpgrade, machineUpgradeCost, buyMachineUpgrade, ensureLevels, carryCap,
   workerUpgradeCost, buyWorkerUpgrade,
   familyOf, ensureStars, buyStar, STAR_IDS, nextStarCost,
-  buyAccessory, cheapestAccessory,
 } from './economy.js';
 import { CONTENT_ZONE_PRICE, AFFORD_MULTIPLIER, CONTENT_SAVE_AFFORD_MULTIPLIER } from './economyConfig.js';
 import { pantryFor } from './supplies.js';
@@ -59,7 +58,11 @@ function registerTarget(w, G) {
     const phase = Math.floor((G.time || 0) / 6) % 2;
     if (phase === 1) return null; // this half of the cycle: yield to restock
   }
-  return { x: needy.front.x, z: needy.front.z, kind: 'register', stationId: needy.id };
+  // From BEHIND the till (st.serve), where the live owner serves (systems/stations.js). Aiming at
+  // st.front, the customer side, is a register the player can never man: driving the live game
+  // with this target unpatched served nobody and lost every guest at the register.
+  const at = needy.serve || needy.front;
+  return { x: at.x, z: at.z, kind: 'register', stationId: needy.id };
 }
 // Priority 2: restock the counter customers wait at — fetch the WISHED product specifically (not
 // just whatever the cookie oven has), from whichever active source (oven/coffee/blender) currently
@@ -97,8 +100,7 @@ function restockTarget(w, G, phase) {
         if (!st.active || !(st.stock > 0)) continue;
         // Batch 1: 'icecream' mirrors 'coffee'/'oven' here exactly (world.js gives it the same
         // {product, stock} shape) — a bare product-key lookup, not a family, since a station's
-        // own `product` field already IS the specific thing it makes (icecream1 makes 'icecream'
-        // even while dispensing its alt 'sundae' recipe some of the time).
+        // own `product` field already IS the specific thing it makes.
         const pk = st.type === 'oven' ? st.product : st.type === 'coffee' ? st.product
           : st.type === 'icecream' ? st.product : st.type === 'blender' ? 'smoothie' : null;
         if (familyOf(pk) === keyFam) return { x: st.front.x, z: st.front.z, kind: 'fetch', stationId: st.id, product: key };
@@ -149,16 +151,6 @@ function refillTarget(w, G) {
     for (const st of w.stations.values()) {
       if (!st.active) continue;
       if (carry.sack === 'beans' && st.type === 'coffee') return { x: st.front.x, z: st.front.z, kind: 'refillDrop', stationId: st.id };
-      // Cream targets the ice cream machine exactly like beans target the coffee machine, no room
-      // check needed for the same reason: it's only ever fetched when cream has hit exactly 0 (see
-      // needCream below), and refillCream (world.js) is capped at 20 same as refillBeans.
-      if (carry.sack === 'cream' && st.type === 'icecream') return { x: st.front.x, z: st.front.z, kind: 'refillDrop', stationId: st.id };
-      // Batch 4b: water mirrors cream/beans exactly (a reusable 20-unit bag capped by
-      // BATH_WATER_CAP — carry.js's own SUPPLY_PORTIONS has no 'water' entry, so takeSack falls
-      // back to its default-20 branch, which already equals BATH_WATER_CAP) — only fetched when
-      // bath1 hits exactly 0 (see needWater below), so room is never actually the limiting factor,
-      // but the check is kept for the same defensive-parity reason kibble's own room check exists.
-      if (carry.sack === 'water' && st.type === 'bath' && st.water < BATH_WATER_CAP) return { x: st.front.x, z: st.front.z, kind: 'refillDrop', stationId: st.id };
       if (carry.sack === 'kibble' && st.type === 'bowl' && st.stock < st.capacity) return { x: st.front.x, z: st.front.z, kind: 'refillDrop', stationId: st.id };
     }
     // No active bowl has ANY room right now (the one 20-unit kibble sack routinely outsizes the
@@ -176,40 +168,19 @@ function refillTarget(w, G) {
   // this check, a carry stuck holding leftover fruit (the blender's buffer near-full — see
   // harvestTarget above) kept re-issuing a pickup that could never actually succeed, forever.
   if (carry && (carry.fruit > 0 || (G.carryCount || 0) > 0)) return null;
-  let needBeans = false, needKibble = false, needCream = false, needWater = false;
+  let needBeans = false, needKibble = false;
   for (const st of w.stations.values()) {
     if (!st.active) continue;
     if (st.type === 'coffee' && st.beans === 0) needBeans = true;
     if (st.type === 'bowl' && st.stock === 0) needKibble = true;
-    // Batch 1: icecream mirrors coffee exactly (cream instead of beans).
-    if (st.type === 'icecream' && st.cream === 0) needCream = true;
-    // Batch 4b: bath1 mirrors icecream/coffee exactly (water instead of cream/beans) — bathTarget
-    // (this file) already refuses to send the owner to a dry tub, so without this chore the water
-    // would never be refilled and the tub would stay dry (and the spa's own queue starved) forever.
-    if (st.type === 'bath' && st.water === 0) needWater = true;
   }
-  if (!needBeans && !needKibble && !needCream && !needWater) return null;
-  const sackKind = needBeans ? 'beans' : needKibble ? 'kibble' : needCream ? 'cream' : 'water';
-  // data/area1.js has TWO pantries once the terrace's ice cream lane is built: pantry1 (the
-  // original, beans+kibble, no `supplies` field) and coldPantry1 (cream only, `supplies:['cream']`).
-  // A bare `w.stations.get('pantry1')` would send the bot to the wrong building for cream.
+  if (!needBeans && !needKibble) return null;
+  const sackKind = needBeans ? 'beans' : 'kibble';
+  // The pantry that declares this supply (sim/supplies.js), not a hard-coded id.
   const pantry = pantryFor(w, sackKind);
   if (!pantry) return null;
   return { x: pantry.front.x, z: pantry.front.z, kind: 'refillPickup', stationId: pantry.id, sackKind };
 }
-// A pantry "supports" a supply if its DATA says so explicitly (coldPantry1's `supplies:['cream']`
-// in data/area1.js) or, for the classic interior pantry with no `supplies` field at all, if the
-// supply is one of the two original ones. Deliberately reads `w.area.stations` (the original
-// authored data createWorld was built from, kept on `w.area`) rather than the runtime station
-// object off `w.stations`: createWorld (src/sim/world.js, not owned by this task) copies only a
-// fixed field list onto each runtime station and `supplies` is not among them, so `st.supplies` is
-// always undefined at runtime regardless of what data/area1.js says — confirmed by
-// test/bot-decide-icecream.test.js, which failed against the runtime field before this. Rather than
-// touch world.js (owned by another task this batch), this reads the one place the real data still
-// lives. Mirrors the same rule src/ui/interactionCoach.js's pantryStation() uses (that file is
-// owned by the same task as this one but is a separate, independent copy, not a shared import).
-// Was a private copy of this rule; it now lives in src/sim/supplies.js beside the supply table, so
-// the bot, the coach and the objective arrow cannot drift apart about where cream is kept.
 // Loop v2 Task 1: the return crate — a genuinely wedged owner (holding a product whose one
 // display has been full this whole time, or a sack/fruit with nowhere left to put it) hands it
 // back for zero coins instead of carrying it around forever, unable to pick up anything else of
@@ -282,63 +253,58 @@ function harvestTarget(w, G) {
   }
   return best ? { x: best.front.x, z: best.front.z, kind: 'harvest', stationId: best.id } : null;
 }
-// Priority 6: collect cash once a pile is worth the trip.
-function totalPile(w) { let s = 0; for (const id of w.checkouts) s += w.stations.get(id).pile; return s; }
-// The photo booth needs the owner standing at it before stepPhotoBooth will start a session, in
-// exactly the way a register needs the owner before it will serve. Without this the booth is built,
-// guests queue at it, and nothing ever happens — so every headless measurement of the studio would
-// read zero and look like a balance result rather than a missing caller.
-function photoNeedingService(w) {
-  for (const st of w.stations.values()) {
-    if (st.type !== 'photo' || !st.active || st.session) continue;
-    const arr = w._photoQueues && w._photoQueues.get(st.id);
-    if (arr && arr.some(c => c.slot === 0 && c.state === 'atPhoto')) return st;
-  }
-  return null;
+// Priority 6: collect cash once a pile is worth the trip — the registers' piles and the garden
+// stand's jar (a self-serve display's pile, paid into by its guests). The jar is out through the
+// gate, and the owner empties it walking past whenever they stock the stand (tools/bot.js, like
+// systems/stations.js), so a trip just for the jar waits until it holds JAR_TRIP_MIN: at the
+// registers' 20-coin bar the bot spent 40% of every day walking to the garden for pocket change.
+const JAR_TRIP_MIN = 150;
+function cashStations(w) {
+  const out = [];
+  for (const id of w.checkouts) out.push(w.stations.get(id));
+  for (const id of w.displays) { const st = w.stations.get(id); if (st.selfServe && st.pile >= JAR_TRIP_MIN) out.push(st); }
+  // A table's photo tips, on the same "only worth its own trip once it is real money" bar as the
+  // jar: the owner already sweeps a table walking past to wipe it, so this is just the backstop for
+  // a tip pile on a table nobody happened to walk by.
+  for (const st of w.stations.values()) if (st.type === 'seat' && st.active && st.pile >= JAR_TRIP_MIN) out.push(st);
+  return out;
 }
-function photoTarget(w) {
-  const st = photoNeedingService(w);
-  return st ? { x: st.front.x, z: st.front.z, kind: 'photo', stationId: st.id } : null;
-}
-// Batch 4b (plan 3.9): the Pet Spa's two stations need the exact same "owner proximity mans it"
-// treatment as the photo booth above — arriving IS the work, stepGroomTable/stepBath (world.js) do
-// the rest, auto-resolving via their own GROOM_AUTO_RESOLVE/BATH_DURATION timers so the headless
-// bot (and the real game's own autoplay) never stalls waiting for a tap it has no way to make.
-function groomNeedingService(w) {
-  for (const st of w.stations.values()) {
-    if (st.type !== 'groom' || !st.active || st.session) continue;
-    const arr = w._groomQueues && w._groomQueues.get(st.id);
-    if (arr && arr.some(c => c.slot === 0 && c.state === 'atGroom')) return st;
-  }
-  return null;
-}
-function groomTarget(w) {
-  const st = groomNeedingService(w);
-  return st ? { x: st.front.x, z: st.front.z, kind: 'groom', stationId: st.id } : null;
-}
-// Bath differs from groom/photo in one way that matters here: stepBath (world.js) refuses to start
-// a session at all while st.water is 0 — "the guest simply keeps waiting" (world.js's own comment).
-// Returning a target here regardless would camp the owner at a dry tub forever, since 'bath' sits
-// ABOVE refillTarget in chores()'s priority list and would keep winning every tick — starving the
-// water-refill chore below of ever running and deadlocking the tub dry permanently. Deferring to
-// null while dry lets chores() fall through to refillTarget's own water trip instead.
-function bathNeedingService(w) {
-  for (const st of w.stations.values()) {
-    if (st.type !== 'bath' || !st.active || st.session || st.water <= 0) continue;
-    const arr = w._bathQueues && w._bathQueues.get(st.id);
-    if (arr && arr.some(c => c.slot === 0 && c.state === 'atBath')) return st;
-  }
-  return null;
-}
-function bathTarget(w) {
-  const st = bathNeedingService(w);
-  return st ? { x: st.front.x, z: st.front.z, kind: 'bath', stationId: st.id } : null;
+function totalPile(w) { let s = 0; for (const st of cashStations(w)) s += st.pile; return s; }
+// A posing pet needs somebody to walk up to it before the shot happens at all (src/sim/petPose.js),
+// in exactly the way a register needs the owner before it will serve. Without this the camera is
+// bought, pets pose, and nothing ever happens — so every headless measurement of photo income would
+// read zero and look like a balance result rather than a missing caller. The hired Photographer
+// covers poses on its own (sim/staff.js); the owner only has to go when there is no one else.
+function photoTarget(w, G) {
+  const pose = w.pose;
+  if (!pose || pose.session) return null;
+  if (G && (G.staff.photographer | 0) > 0) return null;
+  return { x: pose.x, z: pose.z, kind: 'photo', stationId: pose.seatId };
 }
 function cashTarget(w) {
   if (totalPile(w) < 20) return null;
   let best = null, bestPile = -1;
-  for (const id of w.checkouts) { const co = w.stations.get(id); if (co.pile > bestPile) { bestPile = co.pile; best = co; } }
+  for (const co of cashStations(w)) { if (co.pile > bestPile) { bestPile = co.pile; best = co; } }
   return best ? { x: best.cash.x, z: best.cash.z, kind: 'cash', stationId: best.id } : null;
+}
+// The garden stand earns only while it has cones on its counter, and nobody queues at an empty one
+// long enough for restockTarget's "a guest is waiting" signal to be the whole policy: garden guests
+// arrive in bursts from the street. So the bot tops the stand up once it runs low and its machine
+// has a batch ready, the way a player glancing at the garden would. The fetch leg is enough —
+// restockTarget carries the cones to the stand's own counter from there (continueLeg).
+const STAND_LOW = 2, STAND_BATCH_MIN = 3;
+function standTarget(w, G) {
+  if ((G.carryCount || 0) > 0 || (G.carry && (G.carry.sack || G.carry.fruit > 0))) return null;
+  for (const id of w.displays) {
+    const stand = w.stations.get(id);
+    if (!stand.selfServe || stand.stock > STAND_LOW) continue;
+    const fam = familyOf(stand.product);
+    for (const st of w.stations.values()) {
+      if (!st.active || st.type !== 'icecream' || familyOf(st.product) !== fam || st.stock < STAND_BATCH_MIN) continue;
+      return { x: st.front.x, z: st.front.z, kind: 'fetch', stationId: st.id, product: st.product };
+    }
+  }
+  return null;
 }
 // Priority 7: build the next zone when affordable — the cheapest fully-affordable active zone, or
 // (once nothing is fully affordable outright) a meaningful partial-payment trip so payZone's own
@@ -415,15 +381,12 @@ function tryHiresAndUpgrades(w, G) {
       if (r.ok) emitWorld(w, { type: 'purchase', kind: 'hire:' + kind, cost: r.cost, at: G.time || 0 });
     }
   }
-  // Batch 4b: the Photographer is hired from photoDesk1, a SEPARATE desk from hire1 — deliberately
-  // NOT folded into HIRE_ORDER/nextHireKind above (whose only gate is hireDeskActive, i.e. hire1):
-  // appending 'photographer' there would let hire() succeed the instant hire1 opens, days before
-  // z_photographer (the last zone in the spa chain) is ever built. hire() itself is still the one
-  // guard against overspending (hireCost returns null past the role's 2-tier ladder), so this is
-  // safe to attempt unconditionally every tick once the desk is active — mirrors the hireDesk block
-  // above in every way except its own gate.
-  const photoDesk = w.stations.get('photoDesk1');
-  if (photoDesk && photoDesk.active) {
+  // The Photographer is hired at the same desk, but only once the Pet camera is owned (z_photo) —
+  // so it is NOT folded into HIRE_ORDER/nextHireKind above, whose only gate is hire1: appending it
+  // there would let hire() succeed the instant hire1 opens, days before there is anything to
+  // photograph. hire() itself is still the one guard against overspending (hireCost returns null
+  // past the role's 2-tier ladder), so this is safe to attempt every tick once both are true.
+  if (hireDeskActive && w.built.has('z_photo')) {
     const r = hire(G, 'photographer');
     if (r.ok) emitWorld(w, { type: 'purchase', kind: 'hire:photographer', cost: r.cost, at: G.time || 0 });
   }
@@ -470,17 +433,6 @@ function tryHiresAndUpgrades(w, G) {
         const r = buyStar(G, w, id);
         if (r.ok) { emitWorld(w, { type: 'purchase', kind: 'star:' + id, cost: r.cost, at: G.time || 0 }); return; }
       }
-    }
-  }
-  // Batch 4b: boutique accessories (plan 3.5/3.9) — a purely cosmetic sink, no throughput value at
-  // all, so it sits at the same "only once nothing more pressing" priority as a station star just
-  // above rather than getting its own tier. cheapestAccessory already returns null once the
-  // boutique isn't built or its shelf is exhausted, so this is a no-op everywhere before z_boutique.
-  {
-    const acc = cheapestAccessory(G, w.built);
-    if (acc && coins >= acc.price * afford) {
-      const r = buyAccessory(G, acc.id);
-      if (r.ok) { emitWorld(w, { type: 'purchase', kind: 'accessory:' + acc.id, cost: r.cost, at: G.time || 0 }); return; }
     }
   }
   ensureLevels(G);
@@ -538,12 +490,9 @@ function continueLeg(w, G, kind, stationId) {
     return (t && kind === 'blend' && t.kind === 'harvest') ? null : t;
   }
   if (kind === 'clean') return cleanTarget(w, G, stationId);
-  // Hold the booth until the session it started has actually resolved, rather than abandoning a
-  // guest mid-pose the first tick another chore looks more urgent.
-  if (kind === 'photo') return photoTarget(w);
-  // Same "hold until resolved" commitment as photo, for the spa's own two stations.
-  if (kind === 'groom') return groomTarget(w);
-  if (kind === 'bath') return bathTarget(w);
+  // Hold the pose until the shot it started has actually resolved, rather than walking off
+  // mid-pose the first tick another chore looks more urgent.
+  if (kind === 'photo') return photoTarget(w, G);
   if (kind === 'cash') return cashTarget(w);
   if (kind === 'build') return buildTarget(w, G);
   if (kind === 'register') return registerTarget(w, G); // "stay until the queue is empty"
@@ -579,7 +528,12 @@ export function decide(w, G) {
   // A paid guest under a broom bubble outranks a shelf: with two seats and no cleaner yet, finishing
   // the restock first is exactly how the early days lost a guest every few minutes.
   const guestWaitsForTable = Array.isArray(G.customers) && G.customers.some(c => !c.done && c.state === 'waitSeat');
-  const chores = () => (guestWaitsForTable ? cleanTarget(w, G) : null) || restockTarget(w, G) || returnTarget(w, G, B) || photoTarget(w) || groomTarget(w) || bathTarget(w) || refillTarget(w, G) || cleanTarget(w, G) || harvestTarget(w, G);
+  // A pose is the one chore with a clock on it: it lasts POSE_MAX_SECONDS and happens once every
+  // 35-50 s, so a shelf that can be restocked in the next twenty seconds costs nothing to defer
+  // while a photo missed is gone. It sits behind the broom bubble (a guest waiting for a table is
+  // still a guest) and returns null outright once a Photographer is hired, so this only ever moves
+  // the owner for poses nobody else is covering.
+  const chores = () => (guestWaitsForTable ? cleanTarget(w, G) : null) || photoTarget(w, G) || restockTarget(w, G) || returnTarget(w, G, B) || refillTarget(w, G) || cleanTarget(w, G) || standTarget(w, G) || harvestTarget(w, G);
   // M3 T6 pass 2 real bug fix: build BEFORE cash, not the other way around. cashTarget only needs
   // a pile >= 20 to fire — trivially true almost every time the register has processed even one or
   // two seated customers, especially with pass 2's higher menu prices — so `cash || build` let a

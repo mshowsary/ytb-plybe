@@ -220,6 +220,21 @@ function normalizeStats(raw) {
   return out;
 }
 
+// Lifetime guests served, never below what the save's own shift history proves. Until 2026-09-19
+// the live counter never moved (systems/customers.js listened for a 'pay' that stepRegisters emits
+// after that listener has run), so every existing save holds 0 and the Paw Rating's ★1 row was
+// unreachable. The best lifetime source a save carries is meta.career.history: one row per
+// settled shift, written from that shift's own served count (career.recordCareerShift). The
+// in-progress shift is not in it yet, so today's dayStats.served is added unless today is already
+// settled. recipeSales counts items rather than guests, and the ledger only holds the current
+// day, so neither is used. Math.max keeps it idempotent and never lowers a live count.
+function backfillLifetimeServed(served, history, dayStats, day) {
+  let proven = 0;
+  for (const row of Object.values(history || {})) proven += row.served | 0;
+  if (!has(history || {}, String(day))) proven += dayStats.served | 0;
+  return Math.max(served, Math.min(proven, SAVE_LIMITS.maxCounter));
+}
+
 function normalizeSettings(raw) {
   const src = isRecord(raw.settings) ? raw.settings : {};
   return {
@@ -336,17 +351,13 @@ function normalizeDecor(raw, builtSet = null) {
   return DECOR_IDS.filter(id => wanted.has(id) && decorUnlocked(DECOR_BY_ID.get(id), builtSet));
 }
 
-// Boutique purchases (plan §3.5/§3.9): unknown ids vanish, duplicates collapse, catalogue order for
-// byte-identical re-validation -- same shape as normalizeDecor above. The one gate is BUILT, not
-// per-item: economy.buyAccessory refuses to sell anything until z_boutique exists, so a save that
-// holds even one bought id with the boutique absent is hand-edited, and the WHOLE list is dropped
-// (there is no partial-credit "which one did you actually earn" to fall back to, unlike decor's
-// per-row `requires`). This is what makes "a hand-edited save cannot own a boutique purchase before
-// the boutique exists" hold at the save boundary, not just in the live buyAccessory() refusal.
-function normalizeAccessoriesBought(raw, builtSet = null) {
+// Accessories bought in the retired spa's boutique: unknown ids vanish, duplicates collapse,
+// catalogue order for byte-identical re-validation -- same shape as normalizeDecor above. There is
+// no zone gate. The boutique that used to be one is gone, so a gate would confiscate every real
+// purchase on the next load, and it never stopped a forger anyway: followers restore up to
+// SAVE_LIMITS.maxFollowers, far past the top follower milestone, which unlocks every item already.
+function normalizeAccessoriesBought(raw) {
   if (!Array.isArray(raw)) return [];
-  const boutiqueBuilt = !!(builtSet && (typeof builtSet.has === 'function' ? builtSet.has('z_boutique') : builtSet.z_boutique));
-  if (!boutiqueBuilt) return [];
   const wanted = new Set();
   for (const id of raw.slice(0, 128)) if (typeof id === 'string' && ACCESSORY_ID_SET.has(id)) wanted.add(id);
   return ACCESSORY_IDS.filter(id => wanted.has(id));
@@ -511,9 +522,9 @@ function normalizeCareer(raw, completedDays, repEntitlement) {
   for (const key of Object.keys(MASTERY)) recipeSales[key] = clampInt(recipeSrc[key], 0, SAVE_LIMITS.maxCounter, 0);
 
   // A renovation is a PURCHASE (career.buyRenovation spends coins), not a live readout of the
-  // reputation meter. serviceQuality.applySeatMiss can now DECREMENT meta.reputation, so clamping
-  // the owned tier against the CURRENT value would silently revoke a renovation the player already
-  // paid for the first time a bad shift pushed them back under the gate.
+  // reputation meter. serviceQuality.applySeatMiss used to DECREMENT meta.reputation (it no longer
+  // does), and clamping the owned tier against the CURRENT value would silently revoke a renovation
+  // the player already paid for the first time the meter ever dropped back under the gate.
   //
   // Clamp against the reputation ENTITLEMENT instead: the same bounded expression the reputation
   // clamp itself enforces (3 per settled shift + 1 per owned decor piece). It only ever grows, so
@@ -692,7 +703,7 @@ export function validateAndMigrateSave(raw, area = null) {
   // Pass 1: zone gate only. The star gate needs pawBest, which is not knowable yet — see the
   // cycle described at pass 2 below.
   const decorZoneGated = normalizeDecor(metaRaw.decor, buildState.builtSet);
-  const accessoriesBought = normalizeAccessoriesBought(metaRaw.accessoriesBought, buildState.builtSet);
+  const accessoriesBought = normalizeAccessoriesBought(metaRaw.accessoriesBought);
   const rawRep = clampInt(metaRaw.reputation, 0, SAVE_LIMITS.maxDay * 3, 0);
   // When completedDays exists (all modern saves), reputation cannot exceed 3 points per settled
   // shift PLUS one point per owned decor item (economy.js buyDecor grants +1 each). The decor term
@@ -716,6 +727,7 @@ export function validateAndMigrateSave(raw, area = null) {
   const levels = normalizeLevels(raw);
   const stats = normalizeStats(raw);
   const dayStats = normalizeShiftStats(raw);
+  stats.served = backfillLifetimeServed(stats.served, career.history, dayStats, day.dayState.day);
 
   // --- Paw Rating (plan 3.4) -------------------------------------------------------------------
   // album/followers are hoisted out of the meta literal below because the rating ceiling reads
@@ -742,11 +754,12 @@ export function validateAndMigrateSave(raw, area = null) {
   const pawBest = clampInt(metaRaw.pawBest, 0, Math.max(0, pawCeiling), 0);
   // --- the franchise carry-over (plan §3.11: a branch KEEPS "accessories (equipped + bought)" and
   // "decor unlocks") -----------------------------------------------------------------------------
-  // A second branch has reset its builds by design, so the boutique and the terrace those cosmetics
-  // were bought from are gone with them -- and the zone gates in pass 1 would confiscate every one
-  // of those purchases on the very next load. Those gates exist so a hand-edited save cannot INVENT
-  // a purchase; they were never meant to take back a purchase a legitimate reset moved out from
-  // under. So a franchised save re-admits exactly the cosmetics it already owned.
+  // A second branch has reset its builds by design, so the terrace those décor pieces were bought
+  // for is gone with them -- and the zone gate in pass 1 would confiscate every one of those
+  // purchases on the very next load. That gate exists so a hand-edited save cannot INVENT a
+  // purchase; it was never meant to take back a purchase a legitimate reset moved out from under.
+  // So a franchised save re-admits exactly the décor it already owned. (Bought accessories carry no
+  // zone gate at all -- see normalizeAccessoriesBought -- so they need no carry-over.)
   //
   // Only HERE, in pass 2, and deliberately not in pass 1: the reputation ceiling and the renovation
   // entitlement above are computed from `decorZoneGated`, so they still count only what the CURRENT
@@ -797,9 +810,7 @@ export function validateAndMigrateSave(raw, area = null) {
       equipped: normalizeEquipped(metaRaw.equipped),
       residents: normalizeResidents(metaRaw.residents),
       decor,
-      accessoriesBought: branchCarryOver
-        ? normalizeAccessoriesBought(metaRaw.accessoriesBought, carryOverZones)
-        : accessoriesBought,
+      accessoriesBought,
       goldenPaw: metaRaw.goldenPaw === true,
       pawBest,
       pawSeatWindow,

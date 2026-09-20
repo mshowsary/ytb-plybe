@@ -30,6 +30,8 @@ const VIEWPORTS = [
   { w: 280, h: 653, tag: 'fold-portrait' },
   { w: 320, h: 480, tag: 'min-portrait' },
   { w: 360, h: 640, tag: 'small-portrait' },
+  // The phone the in-world action button was measured 24 px tall on (menu/HUD research, 2026-09-19).
+  { w: 380, h: 670, tag: 'phone-portrait-small' },
   { w: 390, h: 844, tag: 'phone-portrait' },
   { w: 414, h: 896, tag: 'large-portrait' },
   { w: 768, h: 1024, tag: 'tablet-portrait' },
@@ -235,22 +237,28 @@ async function forceDenseCafe(page) {
   for (let i = 0; i < 90; i++) { await page.evaluate(() => window.__game && window.__game.update(0.05)); await W(12); }
 }
 
-// Force a photo session into existence. stepPhotoBooth needs the owner at the booth AND a guest
-// genuinely waiting in slot 0, which a 4.5s sim warm-up will not produce on its own — so the state
-// is built directly, exactly as forceDenseCafe builds the zone list directly rather than waiting
-// for the bot to afford it. If the booth or a guest is missing this is a no-op and the pass simply
-// measures the same thing the world pass does.
+// Force a shot into existence. A pose is chosen every 35-50 s from whoever happens to be seated
+// (src/sim/petPose.js), which a 4.5 s sim warm-up will not produce on its own — so the state is
+// built directly, exactly as forceDenseCafe builds the zone list directly rather than waiting for
+// the bot to afford it. With no guest at all this is a no-op and the pass simply measures the same
+// thing the world pass does.
 async function forcePhotoSession(page) {
   return page.evaluate(() => {
     const G = window.__game;
     if (!G || !G.world) return false;
-    const st = [...G.world.stations.values()].find(s => s.type === 'photo' && s.active);
     const guest = (G.customers || []).find(c => c && !c.done);
-    if (!st || !guest) return false;
-    st.serving = true;
-    st.session = {
-      customerId: guest.id, species: guest.species, variant: guest.petVariant | 0,
-      tier: 0, t: 0.35, resolved: false,
+    if (!guest) return false;
+    const seat = guest.seat || [...G.world.stations.values()].find(s => s.type === 'seat' && s.active);
+    if (!seat) return false;
+    const spot = seat.pair ? seat.pair.pet : seat;
+    G.world.pose = {
+      id: seat.id, seatId: seat.id, customerId: guest.id,
+      species: guest.species, variant: guest.petVariant | 0,
+      x: spot.x, z: spot.z, t: 1, after: 0, serving: false,
+      session: {
+        customerId: guest.id, species: guest.species, variant: guest.petVariant | 0,
+        tier: 0, t: 0.35, resolved: false, quality: null, tip: 0,
+      },
     };
     return true;
   });
@@ -298,6 +306,25 @@ async function forcePartyOrder(page) {
     for (let i = 0; i < 40; i++) G.update(0.05);
     return !!document.querySelector('.party-order-btn:not(.hidden)');
   });
+}
+
+// The in-world action button (.fbtn) only exists while the owner stands at a station that offers
+// one, and no other state put him there — which is how a 24 px button (the label scale shrank its
+// 48 px minimum on phones) passed every earlier run. Stand at the kiosk, which is always built,
+// empty-handed, and let the arbiter lay the frame out.
+async function showActionButton(page) {
+  const shown = await page.evaluate(() => {
+    const G = window.__game;
+    const st = G && G.world && G.world.stations.get('kiosk1');
+    if (!st) return false;
+    if (window.__dev && window.__dev.carry) window.__dev.carry(0);
+    G._force = null; G.P.x = st.front.x; G.P.z = st.front.z; G.P.vx = 0; G.P.vz = 0;
+    for (let i = 0; i < 6; i++) G.update(1 / 30);
+    const b = document.querySelector('.fbtn');
+    return !!b && !b.classList.contains('hidden');
+  });
+  await W(150); // real frames: the label arbiter runs from the render loop
+  return shown;
 }
 
 async function openPetBook(page, tab) {
@@ -376,6 +403,15 @@ for (const vp of list) {
     await W(120);
     states.push({ name: 'party', audit: await runAudit() });
     if (SHOTS) await page.screenshot({ path: `shots/responsive/${vp.tag}-${vp.w}x${vp.h}-party.png` });
+  }
+
+  // State 7: the action button at the kiosk, measured by the same tap floor as every control. Not
+  // shown at all is itself a violation: this state exists to measure it.
+  if (await showActionButton(page)) {
+    states.push({ name: 'action', audit: await runAudit() });
+    if (SHOTS) await page.screenshot({ path: `shots/responsive/${vp.tag}-${vp.w}x${vp.h}-action.png` });
+  } else {
+    states.push({ name: 'action', audit: { overflow: [], overlap: [], truncated: [], canvas: null, tapTarget: [{ el: '.fbtn (not shown at kiosk1)', w: 0, h: 0 }] } });
   }
 
   const count = tally(audit) + states.reduce((s, st) => s + tally(st.audit), 0);

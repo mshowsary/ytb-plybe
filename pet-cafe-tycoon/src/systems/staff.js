@@ -28,14 +28,8 @@ const HIRE_SPAWN = { x: -9.0, z: 4.2 };
 const RUNNER_SPAWN = HIRE_SPAWN;
 const CASHIER_FALLBACK = HIRE_SPAWN;
 const CLEANER_SPAWN = HIRE_SPAWN;
-// Batch 4b: mirrors CASHIER_FALLBACK's own role — photoDesk1's own precomputed front spot (world.js
-// createWorld's st.front, the spa foundation's own verified-free derived geometry: "photoDesk1
-// front(16.00, 3.70)"), NOT the desk's raw x/z — that sits ON the desk's own collision footprint,
-// same as every station's centre does, and spawning an actor inside a blocked cell is exactly the
-// kind of start position that can confuse the pathfinder on its very first setTarget. Used only if
-// the station is somehow missing from the world (it never is in real play: the spawn is gated on
-// z_photographer being built, which is exactly what makes photoDesk1 active).
-const PHOTOGRAPHER_FALLBACK = { x: 16.0, z: 3.7 };
+// The Photographer is hired at the staff desk like everyone else, so it arrives the same way.
+const PHOTOGRAPHER_SPAWN = HIRE_SPAWN;
 // Program §6.3: how long one H.wipe call keeps the cleaner's arm sweeping. Refreshed every frame
 // the sim says 'cleaning', so this is really the tail after the seat is done, not the stroke
 // length — long enough to finish the stroke in progress, short enough that the arm is back at
@@ -170,13 +164,9 @@ export function createStaff(G, S, ctx) {
     const human = createHuman(CLEANER_VARIANT, 'cleaner'); scene.add(human.group);
     rec.set(s, { human, itemMeshes: [], px: s.x, pz: s.z, shadow: shadowFor(human.group) });
   }
-  // Batch 4b (plan 3.9) — hired from photoDesk1, mirrors spawnCashier's own "station spot if it
-  // exists, else the fallback literal" shape. Spawns at the desk's own FRONT (free floor), not its
-  // raw x/z (its own collision footprint) — see PHOTOGRAPHER_FALLBACK's comment.
+  // Walks in from the door and on to the photo booth (sim/staff.js stepPhotographer).
   function spawnPhotographer() {
-    const desk = world.stations.get('photoDesk1');
-    const spawn = desk ? desk.front : PHOTOGRAPHER_FALLBACK;
-    const s = createStaffSim('photographer', spawn); G.staffList.push(s);
+    const s = createStaffSim('photographer', PHOTOGRAPHER_SPAWN); G.staffList.push(s);
     const human = createHuman(PHOTOGRAPHER_VARIANT, 'photographer'); scene.add(human.group);
     rec.set(s, { human, itemMeshes: [], px: s.x, pz: s.z, shadow: shadowFor(human.group) });
   }

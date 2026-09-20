@@ -25,7 +25,7 @@
 import * as THREE from 'three';
 import { carryCap, familyOf } from '../sim/economy.js';
 import { pantryFor, supplyLevel } from '../sim/supplies.js';
-import { beanIcon, kibbleIcon, sackIcon, coffeeIcon, treatIcon, waterIcon } from './icons.js';
+import { beanIcon, kibbleIcon, sackIcon, coffeeIcon, treatIcon } from './icons.js';
 // Batch 1 (task E1): the ice cream lane's coach lesson needs a cream glyph. Agent D owns icons.js
 // and is landing `creamIcon` in this same batch — a namespace import (unlike a named one) never
 // fails to LINK if the export isn't there yet at whatever moment this file runs, it just reads back
@@ -79,20 +79,20 @@ export const CLOSING_GRACE_METERS = 4;
 // batch, and the hard rule is edit only files listed as mine) — see the `mark`/`recordFailure`
 // notes below for exactly how this file works around that without touching it.
 // Which machine drinks which supply, and how full it is, both come from src/sim/supplies.js now —
-// this file used to keep its own copy, and its fallback ("anything else, read st.stock") would have
-// read the spa bath, which keeps its consumable in st.water, as permanently empty the moment the
-// bath was listed here. Only the KEY and LABEL maps below are the coach's own, because they are
+// this file used to keep its own copy, and its fallback ("anything else, read st.stock") misread
+// any machine that keeps its consumable in a differently named field (the ice cream machine's
+// st.cream). Only the KEY and LABEL maps below are the coach's own, because they are
 // presentation. The blender is deliberately absent: its fruit comes off the bushes rather than out
 // of a pantry, so the two-step "fetch it from the pantry, then pour it in" lesson does not describe
 // it, and the harvest job plus the carry guidance already walk that errand end to end.
-const REFILL_SUPPLY = Object.freeze({ coffee: 'beans', bowl: 'kibble', icecream: 'cream', bath: 'water' });
-const REFILL_KEY_BY_TYPE = Object.freeze({ coffee: 'refillCoffee', bowl: 'refillBowl', icecream: 'refillIce', bath: 'refillBath' });
-const REFILL_KEY_BY_SUPPLY = Object.freeze({ beans: 'refillCoffee', kibble: 'refillBowl', cream: 'refillIce', water: 'refillBath' });
-const REFILL_LABEL = Object.freeze({ coffee: 'COFFEE', bowl: 'PET TREATS', icecream: 'ICE CREAM', bath: 'BATH' });
+const REFILL_SUPPLY = Object.freeze({ coffee: 'beans', bowl: 'kibble', icecream: 'cream' });
+const REFILL_KEY_BY_TYPE = Object.freeze({ coffee: 'refillCoffee', bowl: 'refillBowl', icecream: 'refillIce' });
+const REFILL_KEY_BY_SUPPLY = Object.freeze({ beans: 'refillCoffee', kibble: 'refillBowl', cream: 'refillIce' });
+const REFILL_LABEL = Object.freeze({ coffee: 'COFFEE', bowl: 'PET TREATS', icecream: 'ICE CREAM' });
 // Every refill lesson this file knows about, whether or not mechanicLearning.js's whitelist does.
-// refillIce and refillBath are coach-local exactly the same way: they generalise from mastery and
-// are never written into the saved `proven` payload, so the save schema is untouched.
-export const ALL_REFILL_KEYS = Object.freeze([...REFILL_LESSON_KEYS, 'refillIce', 'refillBath']);
+// refillIce is coach-local: it generalises from mastery and is never written into the saved
+// `proven` payload, so the save schema is untouched.
+export const ALL_REFILL_KEYS = Object.freeze([...REFILL_LESSON_KEYS, 'refillIce']);
 
 const refillStationLevel = supplyLevel;
 
@@ -321,7 +321,7 @@ export function refillLessonNeed(G, suppressed = new Set(), ready = null) {
     const dist = G.P ? d2(G.P, st.front) : 0;
     if (!best || dist < best.dist) best = {
       key, supply, label: REFILL_LABEL[st.type], stationId: st.id,
-      x: st.front.x, y: st.type === 'bowl' || st.type === 'bath' ? .9 : 1.3, z: st.front.z, dist,
+      x: st.front.x, y: st.type === 'bowl' ? .9 : 1.3, z: st.front.z, dist,
     };
   }
   return best;
@@ -538,8 +538,8 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
     root.classList.toggle('has-caption', !!iconHtml);
   }
   // Route hints name one of five things. Each has a glyph already drawn in ui/icons.js.
-  const SUPPLY_ICON = { beans: beanIcon, kibble: kibbleIcon, cream: creamIcon, water: waterIcon };
-  const STATION_ICON = { COFFEE: coffeeIcon, 'PET TREATS': treatIcon, 'ICE CREAM': creamIcon, BATH: waterIcon };
+  const SUPPLY_ICON = { beans: beanIcon, kibble: kibbleIcon, cream: creamIcon };
+  const STATION_ICON = { COFFEE: coffeeIcon, 'PET TREATS': treatIcon, 'ICE CREAM': creamIcon };
   const supplyIcon = supply => (SUPPLY_ICON[supply] || sackIcon)();
   const stationIcon = label => (STATION_ICON[label] || sackIcon)();
   function resetCandidate() {
@@ -649,7 +649,7 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
         // WHAT is being refilled. A plain stay-put hold needs no caption at all.
         setCaption(candidateT >= 1.5
           ? (hold.key === 'refillCoffee' ? beanIcon() : hold.key === 'refillBowl' ? kibbleIcon()
-            : hold.key === 'refillIce' ? creamIcon() : hold.key === 'refillBath' ? waterIcon() : '')
+            : hold.key === 'refillIce' ? creamIcon() : '')
           : '');
         reveal(hold.key, candidateT >= 8 && candidateT < 9.5 ? 'demo' : 'static'); return true;
       },

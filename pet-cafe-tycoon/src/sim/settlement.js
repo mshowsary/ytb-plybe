@@ -9,6 +9,18 @@ import {
 const clampRating = n => Math.max(1, Math.min(3, n | 0));
 const nonNegative = n => Math.max(0, Math.round(Number(n) || 0));
 
+// One paid guest ('pay' world event): the lifetime count the Paw Rating's ★1 reads, the shift's own
+// count and takings, and the service streak. Callers run it from the world-event drain AFTER
+// stepStaff, because stepRegisters (inside stepStaff) is what emits 'pay'; the lifetime counter
+// used to live in systems/customers.js, which reads events before that, and never saw one.
+export function recordPaidGuest(G, amount) {
+  if (!G.stats || typeof G.stats !== 'object') G.stats = {};
+  G.stats.served = (G.stats.served | 0) + 1;
+  G.dayStats.served++; G.dayStats.earned += amount;
+  G.serviceStreak.count = G.serviceStreak.t > 0 ? G.serviceStreak.count + 1 : 1; G.serviceStreak.t = 7;
+  G.shiftBestStreak = Math.max(G.shiftBestStreak, G.serviceStreak.count); G.dayStats.bestStreak = G.shiftBestStreak;
+}
+
 export function shiftRating(stats, bestStreak = 0, contractMet = false) {
   const served = Math.max(0, stats && stats.served | 0);
   const lost = Math.max(0, stats && stats.lost | 0);

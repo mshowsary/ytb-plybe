@@ -579,7 +579,7 @@ export function createRewardsSystem(G, S, platform) {
   });
 
   // Task 2.7 -- golden-shot is offered "on the first photo of a shift" (plan §4.4): detected by
-  // subscribing to the sim's own 'photo' event (emitted by sim/world.js's resolvePhotoShot) rather
+  // subscribing to the sim's own 'photo' event (emitted by sim/petPose.js's resolvePoseShot) rather
   // than polling world.events, because game.js drains world.events to length 0 before this file's
   // update() runs each frame (same reason systems/petFriendship.js subscribes instead of polling).
   let goldenShotSeenPhoto = false;
@@ -716,23 +716,9 @@ function boltIcon() {
 // Math.random in sim paths" rule.
 //
 // `G.goldenShotMult` (number, 1 by default, reset to 1 at the top of this file's own day-boundary
-// check): set to 2 on a golden-shot claim, for the rest of that shift. The multiplier must be
-// applied at the point a photo's tip actually becomes coins. As of this commit that point is
-// `collectTray()` in src/systems/photo.js (Task 2.1, landed concurrently with this task -- not an
-// owned file here): it reads `collectCash(world, st.id)` and adds the result straight to G.coins
-// with no multiplier applied yet:
-//
-//   const amt = collectCash(world, st.id);
-//   ...
-//   G.coins = (G.coins || 0) + amt;
-//
-// needs to become:
-//
-//   const amt = Math.round(collectCash(world, st.id) * (G.goldenShotMult || 1));
-//
-// systems/photo.js is itself not yet wired into src/game.js's frame loop as of this commit (its
-// own header says so), so verify that landed and re-check this call site before assuming the fix
-// above is still the right one -- both files were mid-flight from other agents while this task ran.
-// Until the multiplier is applied somewhere on this path, a claimed golden-shot marks the in-shift
-// budget spent but has no visible effect on coins -- flagged here rather than silently shipped as
-// if it already worked.
+// check): set to 2 on a golden-shot claim, for the rest of that shift. WIRED, as of Batch B2:
+// src/systems/photo.js mirrors it onto `world.photoTipMult` every frame, and src/sim/petPose.js's
+// resolvePoseShot multiplies the tip by it as the shot resolves. The doubling therefore lands on
+// the TABLE, in the pile the player can see, rather than appearing out of nowhere when the coins
+// are swept -- which is also why it is applied at resolve time and not at collection: a table's
+// pile is collected by the same generic sweep every register tray uses.

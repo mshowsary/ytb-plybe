@@ -3,12 +3,13 @@
 // cleaner (Task 4) will clean dirty tables. M3 T2: every walk goes through the grid
 // (setTarget/stepMover) instead of straight-line moveToward + push-out.
 import { STAFF, RUNNER_CARRY_LEVELS, workerSpeedMult, familyOf } from './economy.js';
-import { takeFromOven, takeFromMachine, putOnDisplay, stepRegisters, cleanSeat, beginCleanSeat, resolvePhotoShot } from './world.js';
+import { takeFromOven, takeFromMachine, putOnDisplay, stepRegisters, cleanSeat, beginCleanSeat } from './world.js';
+import { resolvePoseShot, POSE_SERVE_RADIUS } from './petPose.js';
 import { createMover, setTarget, stepMover } from './mover.js';
 // Task 0.5: emitWorld for the runnerStuck watchdog event; nav's grid readers so a wait spot is
 // only ever chosen on a cell the runner can actually stand on.
 import { emitWorld } from './events.js';
-import { idx, isFree } from './nav.js';
+import { idx, isFree, regionAt } from './nav.js';
 
 // M3 T5: default levels (all tier 0) — every existing caller (tests, tools/bot.js) that calls
 // stepStaff without a 5th `levels` arg gets EXACTLY the pre-T5 behaviour: workerSpeedMult(0) = 1,
@@ -79,9 +80,8 @@ function wishedProduct(customers) {
 // below used to walk every station in the world, and productOf() reports anything that is not an
 // oven or a coffee machine as 'smoothie' — so a stocked barSmoothie display (or even bowl1) could
 // be picked as the "source" for a smoothie wish and then drained straight back onto itself.
-// C6 (Batch 1 plan 3.1/7.2): 'icecream' mirrors 'coffee' exactly (cream instead of beans, same
-// buffer/timer/stock shape — see world.js's stepMachines), so it slots into the runner's existing
-// machine-source ranking for free.
+// C6 (Batch 1 plan 3.1/7.2): 'icecream' has the coffee machine's buffer/timer/stock shape (see
+// world.js's stepMachines), so it slots into the runner's existing machine-source ranking for free.
 const SOURCE_TYPES = { oven: 1, coffee: 1, blender: 1, icecream: 1 };
 // The Barista owns the coffee lane OUTRIGHT while one is on staff.
 //
@@ -528,14 +528,13 @@ const CASHIER_SWITCH_MARGIN = 1;
 // INDEX replaces the patrol-to-longest-queue rule below. That rule ranks purely by raw queue
 // length, which (measured) keeps favouring whichever register is naturally busiest — register1,
 // right off the door — even once a second cashier exists, so both end up crowding it instead of
-// the second one covering the terrace's register3. `idx`/`total` are this cashier's position among
+// the second one covering the other register. `idx`/`total` are this cashier's position among
 // every cashier in the roster and how many there are, computed fresh each tick by stepStaff below
 // (list order is stable — hire order — so idx is too). Homed to w.checkouts[min(idx, len-1)]:
 // w.checkouts is already in stable definition order (refreshActive iterates the stations Map,
-// itself insertion-ordered from data/area1.js — register1, register2, register3), so cashier #2
-// (idx 1) lands on register3 whenever register2 isn't active yet (this batch's own scenario) or on
-// register2 once it is; the min() clamp means a cashier hired before its own home register exists
-// still mans SOME active register rather than idling. total <= 1 (the untouched single-cashier
+// itself insertion-ordered from data/area1.js — register1, register2), so cashier #2 (idx 1) lands
+// on register2; the min() clamp means a cashier hired before its own home register exists still
+// mans SOME active register rather than idling. total <= 1 (the untouched single-cashier
 // case — see nav-fullhouse.test.js, which hires exactly one against two built registers) falls
 // through unchanged to the exact patrol logic that test depends on.
 function stepCashier(s, w, dt, cashierLevel, idx = 0, total = 1) {
@@ -552,13 +551,11 @@ function stepCashier(s, w, dt, cashierLevel, idx = 0, total = 1) {
     s.target = w.checkouts[0] || null;
     s._dwellT = 0;
   } else if (!s.mover.hasTarget) {
-    // Batch 1 fix: the terrace's register3 is FAR from register1/2 (across the gate, ~10m+), not
-    // the few adjacent metres register1/register2 sit apart — so re-evaluating "whichever active
-    // register has a longer queue" on every single idle tick (the original rule, still exactly
-    // right for two nearby registers) now means a genuinely long, wasted walk every time the
-    // comparison flips by even one customer. Measured: with register3 live, this thrashed the
-    // single cashier back and forth so much that served throughput collapsed under nav-
-    // fullhouse.test.js's own floor. Two guards, both no-ops for the original two-close-registers
+    // Batch 1 fix: when a register stood FAR from register1/2 (the retired terrace register3,
+    // across the gate), re-evaluating "whichever active register has a longer queue" on every
+    // single idle tick meant a genuinely long, wasted walk every time the comparison flipped by
+    // even one customer — measured collapsing served throughput under nav-fullhouse.test.js's
+    // own floor. Two guards, both no-ops for the original two-close-registers
     // case this rule was built for (curLen 0 there switches on the very first customer exactly as
     // before — see the untouched acceptance test): once genuinely working a register (curLen > 0),
     // a candidate must beat it by CASHIER_SWITCH_MARGIN, not just by one, and the cashier must have
@@ -588,31 +585,25 @@ function stepCashier(s, w, dt, cashierLevel, idx = 0, total = 1) {
 // Task 4: level-1 cleaning rate (seconds per seat) — matches the global-constants table
 // (owner 1.0s, level-1 cleaner 1.6s; see systems/stations.js for the owner's side of this).
 const CLEANER_RATE = 1.6;
-// C5 (Batch 1 plan 3.1/1.5): fixed duration for the restroom tidy chore — literal per the plan
-// ("works 2.2s"), not scaled by the cleaner's Speed level the way CLEANER_RATE is for seats.
-const RESTROOM_CLEAN_SECONDS = 2.2;
+// Café tables before garden tables, then nearest. A café guest who finds only dirty tables WAITS for
+// a wipe (sim/customers.js), while a garden guest with no clean table just takes its cone away, so a
+// Cleaner out on the deck while the café's tables pile up is café guests giving up on a seat for
+// nothing. Measured in tools/bot.js (60 days, everything built): nearest-first sent the Cleaner out
+// through the gate after every garden meal and cost 346 missed seats; a deck that never needed
+// wiping cost 1. The deck still gets wiped whenever the café is clean, and by the owner walking past.
 function pickDirtySeat(s, w) {
-  let best = null, bestD = Infinity;
+  let best = null, bestD = Infinity, bestGarden = true;
   for (const st of w.stations.values()) {
     if (st.type !== 'seat' || !st.active || !st.dirty) continue;
+    const garden = !!regionAt(w.area, st.x, st.z);
     const d = (st.front.x - s.x) ** 2 + (st.front.z - s.z) ** 2;
-    if (d < bestD) { best = st; bestD = d; }
+    if ((bestGarden && !garden) || (garden === bestGarden && d < bestD)) { best = st; bestD = d; bestGarden = garden; }
   }
   return best;
-}
-// C4/C5: the one active restroom station (wc1 in the shipped layout), or null — same shape as
-// pickDirtySeat's "nothing found" contract.
-function activeRestroom(w) {
-  for (const st of w.stations.values()) if (st.type === 'restroom' && st.active) return st;
-  return null;
 }
 // Walks to the nearest dirty seat's front, cleans it in `rate` seconds (level 1 = CLEANER_RATE,
 // M3 T5's Speed level shortens it — see the rate computed in stepStaff below), repeats; idles at
 // spawn once nothing is dirty.
-// C5: when nothing is dirty and wc1 is active with tidy < 1, the cleaner tidies it instead of
-// idling at spawn — a chore, not a queue. A dirty seat always outranks it: 'idle' only picks the
-// chore once pickDirtySeat comes back empty, and both chore states re-check on every tick (a seat
-// dirtied mid-chore bounces the cleaner straight back to 'idle', which re-picks it next tick).
 function stepCleaner(s, w, dt, rate) {
   switch (s.state) {
     case 'idle': {
@@ -620,8 +611,6 @@ function stepCleaner(s, w, dt, rate) {
       // M3 T6: same hasTarget clear as the runner above — a fresh dirty-seat pick is a genuinely
       // new target, not a continuation of wherever the mover was last idly walking.
       if (st) { s.mover.hasTarget = false; s.target = st.id; s.state = 'toSeat'; return; }
-      const wc = activeRestroom(w);
-      if (wc && wc.tidy < 1) { s.mover.hasTarget = false; s.target = wc.id; s.state = 'toRestroom'; s.timer = 0; return; }
       walkTo(s, s.spawn.x, s.spawn.z, w, dt);
       return;
     }
@@ -642,92 +631,57 @@ function stepCleaner(s, w, dt, rate) {
       if (s.timer >= rate) { cleanSeat(w, st.id); s.state = 'idle'; s.timer = 0; }
       return;
     }
-    case 'toRestroom': {
-      const wc = w.stations.get(s.target);
-      if (!wc || !wc.active || wc.tidy >= 1) { s.state = 'idle'; return; }
-      if (pickDirtySeat(s, w)) { s.state = 'idle'; return; } // a dirty seat just outranked the chore
-      if (walkTo(s, wc.front.x, wc.front.z, w, dt)) { s.state = 'tidying'; s.timer = 0; }
-      return;
-    }
-    case 'tidying': {
-      const wc = w.stations.get(s.target);
-      if (!wc || !wc.active) { s.state = 'idle'; s.timer = 0; return; }
-      if (pickDirtySeat(s, w)) { s.state = 'idle'; s.timer = 0; return; } // dirty seat outranks the chore
-      s.timer += dt;
-      if (s.timer >= RESTROOM_CLEAN_SECONDS) { wc.tidy = 1; s.state = 'idle'; s.timer = 0; }
-      return;
-    }
   }
 }
 
-// Batch 4b (plan 3.9): the Photographer — hired at photoDesk1, works ONLY photo1. It has no
-// queue-clearing chore of its own (nothing to fetch, nothing to sell): it just needs to stand close
-// enough to mark the booth 'serving' — the same thing the owner's own presence already does in
-// systems/photo.js — and, once a session is running, call the shot itself rather than let it ride
-// out PHOTO_AUTO_RESOLVE's full 1.6s and land as a flat, anonymous 'ok'.
+// The Photographer — hired at the staff desk (hire1) once the Pet camera is owned. Its whole job is
+// a pose: it walks to whichever seated pet is currently posing (src/sim/petPose.js), stands close
+// enough to count as having come to take the picture — the same POSE_SERVE_RADIUS the owner is
+// judged by, imported rather than duplicated now that both live in sim/ — and calls the shot itself
+// rather than let it ride out PHOTO_AUTO_RESOLVE's full 1.6s and land as a flat, anonymous 'ok'.
+// With no pose live it parks at spawn, like every other role with nothing to do.
 //
-// PHOTOGRAPHER_SERVE_RADIUS below is a LITERAL duplicate of systems/photo.js's own SERVE_RADIUS
-// (1.3m) — the exact same "how close counts as manning the booth" rule the owner is judged by, not
-// a new number invented for this role. It has to stay a literal: sim/ never imports from systems/
-// (that boundary is what keeps this whole file DOM-free and bot-runnable), so there is no shared
-// binding to import. Flagged in this task's own report as a value that has to be kept in sync by
-// hand if systems/photo.js's SERVE_RADIUS ever moves.
-const PHOTOGRAPHER_SERVE_RADIUS = 1.3;
-// Fixed think time before the photographer calls the shot itself, comfortably under
-// PHOTO_AUTO_RESOLVE's 1.6s so a manned booth always resolves through the photographer's own
-// 'good' first, never the anonymous timeout's 'ok'. resolvePhotoShot itself clamps anything that
-// isn't literally 'perfect' down to 'good' or 'ok' — this file only ever passes 'good', so a
-// photographer-run shot can never come back 'perfect' (that stays the player's own tap).
+// Fixed think time before the photographer calls the shot, comfortably under PHOTO_AUTO_RESOLVE's
+// 1.6s so a covered pose always resolves through the photographer's own 'good' first, never the
+// anonymous timeout's 'ok'. resolvePoseShot clamps anything that isn't literally 'perfect' down to
+// 'good' or 'ok' — this file only ever passes 'good', so a photographer-run shot can never come
+// back 'perfect' (that stays the player's own tap).
 //
 // Hiring the SECOND photographer (this role's own two-tier cost ladder, same shape as the
-// barista's) speeds up the one thing there is to speed up at the one booth: unlike the barista,
-// there is no second lane for a second hire to cover (only one photo booth is ever built), so its
-// value has to be faster hands instead. `total` below is the live photographer headcount, computed
-// once per tick by stepStaff exactly like it already computes cashierTotal for the cashier's own
-// count-dependent behaviour.
+// barista's) speeds up the one thing there is to speed up: there is only ever one pose at a time,
+// so a second pair of hands has to mean faster hands. `total` below is the live photographer
+// headcount, computed once per tick by stepStaff exactly like it already computes cashierTotal.
 export const PHOTOGRAPHER_SHOT_SECONDS = 1.0;
 export const PHOTOGRAPHER_SHOT_SECONDS_LEVEL2 = 0.6;
 
-// The one active photo booth, or null. Mirrors coffeeLane's own "first active one found is safe
-// here too since there's only ever one of each in the shipped layout" reasoning higher up this file.
-function activePhotoBooth(w) {
-  for (const st of w.stations.values()) if (st.type === 'photo' && st.active) return st;
-  return null;
-}
-// Beside the booth's front, not on it — reuses waitSpot's own beside-a-station offset (WAIT_SIDE,
-// 0.9m) so the photographer's body (r=0.30) clears both the customer queue (queue slot 0 sits only
-// 0.1m further out than st.front along the SAME forward axis — see world.js's queue-geometry
-// comment — so standing directly in front would put two r=0.30 bodies well inside the 0.6m they
-// need to separate) and wherever the owner is standing to man the booth themselves (also somewhere
-// near st.front, within the same SERVE_RADIUS). `preferLeft` lets a SECOND hired photographer (idx
-// 1 in the roster) try the opposite side first, so two of them settle on either side of the booth
-// instead of both walking onto the exact same free cell.
-function photographerSpot(w, st, preferLeft) {
-  const sides = preferLeft ? [-WAIT_SIDE, WAIT_SIDE] : [WAIT_SIDE, -WAIT_SIDE];
-  for (const side of sides) {
-    const o = rotateOffset(st.rot || 0, side, 0);
-    const p = { x: st.front.x + o.x, z: st.front.z + o.z };
+// Where to stand to shoot: a step off the pet, on a cell it can actually stand on, never on the pet
+// itself (two r=0.30 bodies need 0.6m) and inside POSE_SERVE_RADIUS so arriving IS the work. The
+// ring of candidates is fixed and ordered, so the choice is deterministic; `preferLeft` reverses it
+// for a SECOND hired photographer so the two settle on opposite sides instead of the same cell.
+const POSE_STAND_DIST = 0.95;
+const POSE_STAND_DIRS = [[0, 1], [1, 0], [0, -1], [-1, 0], [0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [-0.7, -0.7]];
+function photographerSpot(w, pose, preferLeft) {
+  const dirs = preferLeft ? [...POSE_STAND_DIRS].reverse() : POSE_STAND_DIRS;
+  for (const [dx, dz] of dirs) {
+    const p = { x: pose.x + dx * POSE_STAND_DIST, z: pose.z + dz * POSE_STAND_DIST };
     if (!w.grid || isFree(w.grid, idx(w.grid, p.x, p.z), 0)) return p;
   }
-  return { x: st.front.x, z: st.front.z };
+  return { x: pose.x, z: pose.z };
 }
-function stepPhotographer(s, w, dt, idx = 0, total = 1) {
-  const st = activePhotoBooth(w);
-  // No built/active booth at all (a hand-edited or otherwise inconsistent save — the real zone
-  // chain makes z_photo a hard prerequisite of z_photographer, see this task's own report): park at
-  // spawn like every other role does with nothing to do, rather than walking toward a station that
-  // does not exist.
-  if (!st) { walkTo(s, s.spawn.x, s.spawn.z, w, dt); return; }
-  const spot = photographerSpot(w, st, (idx | 0) % 2 === 1);
+function stepPhotographer(s, w, dt, idx2 = 0, total = 1) {
+  const pose = w.pose;
+  // Nothing posing right now (most of the time): park at spawn rather than walk toward nowhere.
+  if (!pose) { walkTo(s, s.spawn.x, s.spawn.z, w, dt); return; }
+  const spot = photographerSpot(w, pose, (idx2 | 0) % 2 === 1);
   const arrived = walkTo(s, spot.x, spot.z, w, dt);
   // Same fallback-arrival tolerance as every other call site in this file (see ARRIVE_FALLBACK_EPS)
   // — an exact 0.05m arrival can leave a mover circling short forever once avoidance perturbs it.
   if (!arrived && s.mover.hasTarget && Math.hypot(spot.x - s.x, spot.z - s.z) < ARRIVE_FALLBACK_EPS) s.mover.hasTarget = false;
-  const dx = st.front.x - s.x, dz = st.front.z - s.z;
-  if (dx * dx + dz * dz < PHOTOGRAPHER_SERVE_RADIUS * PHOTOGRAPHER_SERVE_RADIUS) st.serving = true;
-  if (st.session && !st.session.resolved) {
+  const dx = pose.x - s.x, dz = pose.z - s.z;
+  if (dx * dx + dz * dz < POSE_SERVE_RADIUS * POSE_SERVE_RADIUS) pose.serving = true;
+  if (pose.session && !pose.session.resolved) {
     const think = total >= 2 ? PHOTOGRAPHER_SHOT_SECONDS_LEVEL2 : PHOTOGRAPHER_SHOT_SECONDS;
-    if (st.session.t >= think) resolvePhotoShot(w, st.id, 'good');
+    if (pose.session.t >= think) resolvePoseShot(w, 'good');
   }
 }
 
@@ -756,9 +710,9 @@ export function stepStaff(list, w, dt, onCollect, levels, customers) {
   let cashierTotal = 0;
   for (const s of list) if (s.kind === 'cashier') cashierTotal++;
   let cashierIdx = 0;
-  // Batch 4b: total photographer count, so stepPhotographer knows whether the second hire's
+  // Total photographer count, so stepPhotographer knows whether the second hire's
   // shorter think time (PHOTOGRAPHER_SHOT_SECONDS_LEVEL2) applies, and idx lets a second one prefer
-  // the opposite stand spot beside the booth (see photographerSpot's own comment).
+  // the opposite side of the posing pet (see photographerSpot's own comment).
   let photographerTotal = 0;
   for (const s of list) if (s.kind === 'photographer') photographerTotal++;
   let photographerIdx = 0;

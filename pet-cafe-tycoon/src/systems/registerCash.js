@@ -5,12 +5,35 @@ import * as THREE from 'three';
 const BILL_MAX = 24;
 const COIN_MAX = 12;
 
+// Where a pile sits and how big it is drawn. A register's tray sits on the till top. The garden
+// stand's cash jar (a self-serve display, sim/world.js) sits on the counter top at the END of the
+// row of cones, at a little over half size so it reads as a tip jar rather than a till. On the END,
+// not the back strip behind the cones: there it was real money the camera could not see, tucked
+// behind the counter's own glass (probe shot, 2026-09-19). A TABLE's pile is the tip a photographed
+// pet leaves (src/sim/petPose.js): a small saucer of coins on the tabletop, on the far side from
+// the chair so the guest's own body never hides it.
+const STAND_SCALE = 0.55, STAND_TOP_Y = 1.12, STAND_END_X = 1.0;
+const SEAT_SCALE = 0.52, SEAT_TOP_Y = 0.77, SEAT_LOCAL_X = -0.24, SEAT_LOCAL_Z = -0.22;
+function placement(st) {
+  if (st.type === 'checkout') return { x: st.x, y: 1.115, z: st.z, scale: 1 };
+  // The stack's own tray is drawn at local (-0.38, 0.04); offset the group so the scaled tray lands
+  // on the spot we want in the station's own frame (same rotation convention as sim/world.js).
+  const scale = st.type === 'seat' ? SEAT_SCALE : STAND_SCALE;
+  const targetX = st.type === 'seat' ? SEAT_LOCAL_X : STAND_END_X;
+  const targetZ = st.type === 'seat' ? SEAT_LOCAL_Z : 0;
+  const lx = targetX + 0.38 * scale, lz = targetZ - 0.04 * scale;
+  const s = Math.sin(st.rot || 0), c = Math.cos(st.rot || 0);
+  return { x: st.x + lx * c + lz * s, y: st.type === 'seat' ? SEAT_TOP_Y : STAND_TOP_Y, z: st.z - lx * s + lz * c, scale };
+}
+
 function makeRegisterStack(st) {
   const group = new THREE.Group();
   group.name = 'registerCash';   // sits ON the till by design; named so audits can tell it from a clip
-  group.position.set(st.x, 1.115, st.z);
+  const at = placement(st);
+  group.position.set(at.x, at.y, at.z);
   group.rotation.y = st.rot || 0;
   group.visible = false;
+  const baseScale = at.scale;
 
   const tray = new THREE.Mesh(
     new THREE.BoxGeometry(0.72, 0.045, 0.46),
@@ -65,7 +88,8 @@ function makeRegisterStack(st) {
     return grew;
   }
 
-  return { group, setAmount, lastPulse: 0 };
+  group.scale.setScalar(baseScale);
+  return { group, setAmount, lastPulse: 0, baseScale };
 }
 
 export function createRegisterCash(G, S, ctx) {
@@ -74,7 +98,7 @@ export function createRegisterCash(G, S, ctx) {
 
   // The old visuals system still owns a legacy floor pile for compatibility; disable it here.
   for (const st of world.stations.values()) {
-    if (st.type !== 'checkout') continue;
+    if (st.type !== 'checkout' && st.type !== 'seat' && !st.selfServe) continue;
     const legacy = vis.get(st.id); if (legacy && legacy.pile) legacy.pile.visible = false;
     const rec = makeRegisterStack(st); scene.add(rec.group);
     records.set(st.id, { ...rec, amount: -1, st });
@@ -93,7 +117,7 @@ export function createRegisterCash(G, S, ctx) {
         rec.setAmount(rec.st.pile);
         rec.group.visible = rec.st.active && rec.st.pile > 0;
         rec.lastPulse = 0;
-        rec.group.scale.setScalar(1);
+        rec.group.scale.setScalar(rec.baseScale);
       }
     },
     update(dt) {
@@ -108,8 +132,8 @@ export function createRegisterCash(G, S, ctx) {
         if (rec.lastPulse > 0) {
           rec.lastPulse = Math.max(0, rec.lastPulse - dt);
           const s = 1 + Math.sin((0.22 - rec.lastPulse) * 24) * rec.lastPulse * 0.22;
-          rec.group.scale.setScalar(s);
-        } else rec.group.scale.setScalar(1);
+          rec.group.scale.setScalar(s * rec.baseScale);
+        } else rec.group.scale.setScalar(rec.baseScale);
       }
     },
   };

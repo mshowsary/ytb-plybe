@@ -8,14 +8,14 @@ export const OWNER_STATE_VERSION = 1;
 export const OWNER_SPAWN = Object.freeze({ x: 0, z: 2.5, rot: 0 });
 export const SACK_MAX = 20;
 
-const PRODUCT_KEYS = new Set(['cookie', 'cupcake', 'coffee', 'smoothie', 'brownie', 'latte']);
-// Every supply a sack can hold, i.e. exactly src/sim/carry.js's SUPPLY_PORTIONS keys plus the one
-// Batch 4b adds. This is a save whitelist: a sack kind missing here is silently emptied on reload.
-// 'cream' WAS missing (a Batch 1 miss — icecream1's supply shipped in carry.js/data but never
-// reached this list, so an owner who reloaded mid-refill lost the bag); 'water' is waterTank1's,
-// new this batch. Adding a key only widens what survives a restore, so neither can affect a run
-// that never reloads.
-const SACK_KEYS = new Set(['beans', 'kibble', 'cream', 'water']);
+// Everything a display takes, so an owner who reloads carrying cones to the garden stand keeps them.
+const PRODUCT_KEYS = new Set(['cookie', 'cupcake', 'coffee', 'smoothie', 'brownie', 'latte', 'icecream', 'sundae']);
+// Every supply a sack can hold, i.e. exactly src/sim/carry.js's SUPPLY_PORTIONS keys. This is a save
+// whitelist: a sack kind missing here loads as empty hands. 'water' was the retired spa bath's
+// supply and 'cream' the retired ice cream supply (the machine needs none since 2026-09-19); with
+// nothing left to take either, a saved water or cream sack loads as empty hands on purpose rather
+// than as a bag with nowhere to go.
+const SACK_KEYS = new Set(['beans', 'kibble']);
 const isRecord = value => !!value && typeof value === 'object' && !Array.isArray(value);
 const finiteNumber = value => typeof value === 'number' && Number.isFinite(value);
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
@@ -46,13 +46,13 @@ export function areaBounds(area, builtSet) {
   };
 }
 
-// Batch 4b — why a box is no longer enough. areaBounds returns the bounding BOX of the interior
-// plus every built region, and that was exact while the only region was the terrace: the terrace
-// spans the same x as the café, so interior ∪ terrace IS a rectangle. The spa hangs off the EAST
-// side, so interior ∪ terrace ∪ spa is an L: the box also contains the dead south-east corner
-// (x 10..17.5, z 7..14) where there is no floor at all, and a box clamp would happily let the
-// owner stroll out onto the lawn there. Nothing else stops them — the per-frame guard is
-// pushOut() against STATION boxes, and fences are render-only.
+// Why a box is not enough. areaBounds returns the bounding BOX of the interior plus every built
+// region, which is exact while the only region is the terrace: the terrace spans the same x as the
+// café, so interior ∪ terrace IS a rectangle. A region off the EAST side (the engine supports one,
+// test/nav-regions.test.js pins it) makes the union an L: the box then also contains a dead corner
+// with no floor at all, and a box clamp would happily let the owner stroll out onto the lawn
+// there. Nothing else stops them — the per-frame guard is pushOut() against STATION boxes, and
+// fences are render-only.
 //
 // So: clamp to the box first (cheap, and the only thing that matters for the ~99% of positions
 // that are already legal), then, if the point landed in no rectangle at all, snap it back into

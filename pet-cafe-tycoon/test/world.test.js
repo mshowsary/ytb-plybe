@@ -14,12 +14,18 @@ test('initial world has only pre-built stations active', () => {
 // bushes + 6 seats + hire + kiosk = 24 stations, 9 zones in the chain.
 // Batch 1 (plan 7.1) appends the terrace: 15 stations (gate1, fountain1, seat7/8, icecream1,
 // barIce, coldPantry1, register3, photo1, seat9-12, wc1, splash1) across 7 new zones.
-// Batch 4b (plan 3.9) appends the spa: 10 stations (gate2, spaSeat1-3, planters, groom1, bath1,
-// waterTank1, boutique1, photoDesk1) across 5 new zones.
 // 2026-09-18: + return2, the terrace's own RETURN crate, built with the ice cream lane.
-test('AREA1 has 50 stations and 21 zones', () => {
-  assert.equal(AREA1.stations.length, 50);
-  assert.equal(AREA1.zones.length, 21);
+// 2026-09-19: the Pet Spa is retired (docs/SHIP-PLAN-2026-09-19.md): its 10 stations (gate2,
+// spaSeat1-3, planters, groom1, bath1, waterTank1, boutique1, photoDesk1) and 5 zones are gone.
+// 2026-09-19, Batch B1 (the Ice cream garden, §1.1-1.2): register3, wc1, splash1, coldPantry1 and
+// return2 are cut with z_icecream (folded into z_terrace), z_register3, z_restroom and z_splash;
+// the lounge adds two tables instead of four (seat4/seat5 left the gate apron) and the garden has
+// four deck tables instead of six (seat11/seat12 gone): 40 - 9 = 31 stations, 16 - 4 = 12 zones.
+// 2026-09-19, Batch B2 (photos at the tables, 1.3): photo1, the booth, is replaced one-for-one by
+// photoWall1, the wall the album fills in -- still 31 stations and 12 zones.
+test('AREA1 has 31 stations and 12 zones', () => {
+  assert.equal(AREA1.stations.length, 31);
+  assert.equal(AREA1.zones.length, 12);
 });
 test('exactly oven1, dispCookie, register1, kiosk1, return1 are active at start (kiosk/return need no zone)', () => {
   const w = createWorld(AREA1);
@@ -31,12 +37,12 @@ test('building the whole zone chain in order activates every station and rebuild
   for (const z of AREA1.zones) {
     let r; do { r = payZone(w, z.id, 100000, 1); } while (!r.done);
   }
-  // Batch 1 (plan 3.1): z_splash retires fountain1 (splash1 replaces it on the same tile — see
-  // world.js payZone), so fountain1 is the one station left inactive once every zone is bought.
+  // Nothing retires a built station any more (z_splash, which swapped fountain1 for its pool, is
+  // gone), so the whole chain leaves every station active.
   const inactive = [...w.stations.values()].filter(st => !st.active);
-  assert.deepEqual(inactive.map(st => st.id), ['fountain1']);
-  // 50 stations - gate1/gate2 (non-blocking, never in w.boxes) - fountain1 (retired by z_splash) = 47.
-  assert.equal(w.boxes.length, 47);
+  assert.deepEqual(inactive.map(st => st.id), []);
+  // 31 stations - gate1 and photoWall1 (both non-blocking, never in w.boxes) = 29.
+  assert.equal(w.boxes.length, 29);
 });
 test('paying a zone drains and completes', () => {
   const w = createWorld(AREA1);

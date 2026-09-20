@@ -1,6 +1,6 @@
 import { isHoliday, isWeekend } from './day.js';
+import { regionAt } from './nav.js';
 import { DECOR, DECOR_BY_ID, decorUnlocked } from '../../data/decor.js';
-import { ACCESSORIES, ACCESSORY_BY_ID, accessoryUnlocked } from '../../data/accessories.js';
 // The Paw Rating owns the AUTHORED size of the arrivals bonus (+10%/star); this file owns how it
 // lands on the demand curve. pawRating.js imports only data/area1.js and sim/petBook.js, both
 // leaves, so this adds no cycle back into economy.js.
@@ -12,7 +12,7 @@ import { pawArrivalMultiplier, pawBestStar } from './pawRating.js';
 // site elsewhere in the codebase working unchanged; only this file's internals were touched.
 import {
   PRODUCTS, FAMILY, BASE_TREAT_CHANCE, UPGRADES, LADDER_GROWTH, BASE_SPEED,
-  SPEED_ASYMPTOTE, INCOME_ASYMPTOTE, MACHINE_ASYMPTOTE, WORKER_ASYMPTOTE, DEMAND,
+  SPEED_ASYMPTOTE, INCOME_ASYMPTOTE, MACHINE_ASYMPTOTE, WORKER_ASYMPTOTE, DEMAND, TERRACE_DEMAND,
   STAFF, REGISTER_RATE, WORKER_UPGRADES, MACHINE_UPGRADES, RUNNER_CARRY_LEVELS, DISPLAY_CAP_LEVELS,
   STARTER_STAR_COSTS, ZONE_STAR_MULT, STAR_LADDER_GROWTH, DISPLAY_STAR_CAP, DISPLAY_STAR_CAP_GROWTH_PER_TIER,
 } from './economyConfig.js';
@@ -23,25 +23,34 @@ export {
 } from './economyConfig.js';
 export const familyOf = key => FAMILY[key] || key;
 
+// The café's own menu: what a guest who came in by the café door can wish for. Anything standing
+// in a region (the Ice cream garden) is on THAT room's menu, not this one — an interior guest who
+// wished for ice cream used to walk out through the owner's gate to buy it and back in to pay,
+// which was most of the gate traffic the owner saw (docs/SHIP-PLAN-2026-09-19.md §1.2).
 export function availableWishProducts(w) {
   const set = new Set();
+  const inside = st => !regionAt(w.area, st.x, st.z);
   for (const id of w.displays) {
     const st = w.stations.get(id);
-    if (st.stock > 0) set.add(st.product);
+    if (st.stock > 0 && inside(st)) set.add(st.product);
   }
   for (const st of w.stations.values()) {
-    if (!st.active || !(st.stock > 0)) continue;
+    if (!st.active || !(st.stock > 0) || !inside(st)) continue;
     if (st.type === 'oven') set.add(st.product);
     else if (st.type === 'coffee') set.add(st.product);
     else if (st.type === 'blender') set.add('smoothie');
-    // icecream mirrors coffee: a guest may wish for it while it is still in the machine, which
-    // is what makes a runner fetch it to the bar. Without this the lane cannot start — nobody
-    // wishes for ice cream until the bar has stock, and the bar only gets stock because
-    // somebody wished. Measured as 0 ice cream sold across a 40-day run.
-    else if (st.type === 'icecream') set.add(st.product);
   }
   if (set.size === 0) set.add('cookie');
   return [...set];
+}
+// A garden guest's wish: whatever the garden's stand is dispensing right now (ice cream, or its
+// sundae once icecream1 reaches the ALT_PRODUCT tier). Draws no rng — the garden has one menu.
+export function gardenWish(w) {
+  for (const id of w.displays) {
+    const st = w.stations.get(id);
+    if (regionAt(w.area, st.x, st.z)) return { product: st.product, treat: false };
+  }
+  return { product: 'icecream', treat: false };
 }
 function bowlIsActive(w) {
   for (const st of w.stations.values()) if (st.type === 'bowl' && st.active) return true;
@@ -171,6 +180,21 @@ export function maxCustomers(builtSet, staff = {}, level = 0) {
   let bonus = Math.floor((cappedLevel - DEMAND.LEVEL_GATE) / DEMAND.LEVEL_PER_MAX_STEP);
   if (level > DEMAND.LEVEL_SOFT_CAP) bonus += Math.floor((level - DEMAND.LEVEL_SOFT_CAP) / DEMAND.LEVEL_PER_MAX_STEP_BEYOND_CAP);
   return Math.min(CROWD_CEILING, authored + bonus);
+}
+
+// The Ice cream garden's arrivals — a second stream beside the café door's, never a share of it,
+// so the café's own crowd is exactly what it was before the garden (docs/SHIP-PLAN-2026-09-19.md
+// §1.2). `tables` is how many deck tables are open (sim/customers.js gardenTableCount): 0 means no
+// garden, and so no garden guests. Returns seconds between garden arrivals at spawnMult 1.
+export function terraceSpawnInterval(tables) {
+  if (!(tables > 0)) return null;
+  const extraPairs = Math.max(0, Math.ceil(tables / 2) - 1);
+  return Math.max(TERRACE_DEMAND.MIN_INTERVAL, TERRACE_DEMAND.BASE_INTERVAL - TERRACE_DEMAND.INTERVAL_PER_EXTRA_PAIR * extraPairs);
+}
+// Most garden guests on the deck at once: a few at the stand plus one per table.
+export function terraceMaxCustomers(tables) {
+  if (!(tables > 0)) return 0;
+  return TERRACE_DEMAND.BASE_MAX + TERRACE_DEMAND.MAX_PER_TABLE * tables;
 }
 
 // Batch 3 (plan §3.4): each Paw Rating star is "+10% arrivals". Arrivals are expressed here as an
@@ -413,75 +437,5 @@ export function cheapestDecor(state, builtSet = null) {
     if (!best || item.price < best.price) best = item;
   }
   return best;
-}
-
-// ---------------------------------------------------------------------------------------------
-// BOUTIQUE (plan §3.5/§3.9) -- accessories bought for coins, "an alternative to milestones". Every
-// row in data/accessories.js already carries a follower-tier gate (and four carry a season gate);
-// this is a THIRD door, priced in the same 60-900 band decor uses, so a player who does not want to
-// wait on followers or a season can buy straight in once the boutique is built. Exactly like decor,
-// this can only ever grant a cosmetic (accessoryUnlocked's bought path) plus the ability to equip
-// it -- never followers, never a rating, never a stat -- so it cannot destabilise anything the
-// economy pass already balanced.
-function boutiqueBuilt(builtSet) {
-  if (!builtSet) return false;
-  return typeof builtSet.has === 'function' ? builtSet.has('z_boutique') : !!builtSet.z_boutique;
-}
-
-export function ownedAccessories(state) {
-  const list = state && state.meta && state.meta.accessoriesBought;
-  return Array.isArray(list) ? list : [];
-}
-export function ownsAccessory(state, id) {
-  return ownedAccessories(state).includes(id);
-}
-
-// Everything still worth buying in the boutique right now: has a boutique price, is not already
-// unlocked through ANY door (follower tier, season or an earlier purchase -- accessoryUnlocked
-// covers all three), and the boutique itself is built. Mirrors affordableDecor's "unowned, unlocked,
-// gated" shape; the kiosk's boutique tab and buyAccessory both read this one definition.
-export function boutiqueCatalogue(state, builtSet = null) {
-  const built = builtSet || (state && state.world && state.world.built) || null;
-  if (!boutiqueBuilt(built)) return [];
-  const meta = state && state.meta;
-  const day = state && state.dayState && state.dayState.day;
-  return ACCESSORIES.filter(item => typeof item.price === 'number' && !accessoryUnlocked(item.id, meta, day));
-}
-
-export function affordableAccessories(state, builtSet = null) {
-  const coins = (state && state.coins) || 0;
-  return boutiqueCatalogue(state, builtSet).filter(item => item.price <= coins);
-}
-
-// The cheapest thing still on the boutique shelf, or null. Same role as cheapestDecor for invariant
-// A's "always something in reach" gate -- see tools/bot.js's affordableOptionsCount/
-// cheapestPurchasablePrice, which are wired to add this alongside cheapestDecor as ONE option, not
-// one per item (that file is not owned here; see this task's wiringNeeded).
-export function cheapestAccessory(state, builtSet = null) {
-  let best = null;
-  for (const item of boutiqueCatalogue(state, builtSet)) {
-    if (!best || item.price < best.price) best = item;
-  }
-  return best;
-}
-
-// Same shape as buyDecor: {ok, cost}, never mutates the wallet on refusal. `meta.accessoriesBought`
-// is REPLACED with a new array on a successful buy (rule 7 -- nested save state is never mutated in
-// place), not pushed into, so G.snapshot()'s one-level-deep meta spread always sees a fresh array.
-export function buyAccessory(state, id) {
-  const item = ACCESSORY_BY_ID.get(id);
-  if (!item || typeof item.price !== 'number') return { ok: false, cost: null };
-  const builtSet = state && state.world && state.world.built ? state.world.built : null;
-  if (!boutiqueBuilt(builtSet)) return { ok: false, cost: item.price };
-  const meta = state && state.meta;
-  const day = state && state.dayState && state.dayState.day;
-  if (accessoryUnlocked(id, meta, day)) return { ok: false, cost: item.price, owned: true };
-  if (!state.meta || typeof state.meta !== 'object') state.meta = {};
-  const owned = ownedAccessories(state);
-  const cost = item.price;
-  if (!(state.coins >= cost)) return { ok: false, cost };
-  state.coins -= cost;
-  state.meta.accessoriesBought = [...owned, id];
-  return { ok: true, cost };
 }
 

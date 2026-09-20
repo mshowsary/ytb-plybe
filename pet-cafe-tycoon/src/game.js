@@ -35,7 +35,7 @@ import {
   weeklyCupState, weekdayIndex, renovationState, buyRenovation,
   LEGENDARY_REPUTATION,
 } from './sim/career.js';
-import { settleShift, cloneSettlement } from './sim/settlement.js';
+import { settleShift, cloneSettlement, recordPaidGuest } from './sim/settlement.js';
 import { createCarry } from './sim/carry.js';
 import { createMaterialCheckpoint } from './sim/checkpoint.js';
 import { createInput } from './core/input.js';
@@ -64,7 +64,6 @@ import { createRenovationUI } from './ui/renovation.js';
 import { createAudio } from './audio/synth.js';
 import { createStations } from './systems/stations.js';
 import { createPhotoStudio } from './systems/photo.js';
-import { createSpaBridge } from './systems/spa.js';
 import { addFollowers, followersForDiscovery } from './sim/followers.js';
 import { renderPetPortrait } from './render/portrait.js';
 import { createZones } from './systems/zones.js';
@@ -259,7 +258,7 @@ export function createGame(S, area, els, platform = null) {
     const gMult = goldenHourMult(G.golden);
     return Math.round(base * (1 + themeBonus) * gMult);
   };
-  const ctx = { area, world, scene, hud, fx, sheets, audio, input, owner, P, price, els, vis: new Map(), hints: { oven: 0, counter: 0, cash: 0, zone: 0, refillCoffee: 0, refillBowl: 0, refillCream: 0, refillWater: 0, harvest: 0, blend: 0, clean: 0 }, firstHint: { msg: null, t: 0 } };
+  const ctx = { area, world, scene, hud, fx, sheets, audio, input, owner, P, price, els, vis: new Map(), hints: { oven: 0, counter: 0, cash: 0, zone: 0, refillCoffee: 0, refillBowl: 0, harvest: 0, blend: 0, clean: 0 }, firstHint: { msg: null, t: 0 } };
   ctx.syncPetBook = syncPetBookPresentation;
   // The portrait renderer needs the game's single WebGLRenderer, which only main.js's createScene
   // owns — passed as a callback so systems/photo.js never imports the render layer directly.
@@ -274,7 +273,6 @@ export function createGame(S, area, els, platform = null) {
 
   const stations = createStations(G, S, ctx); const zones = createZones(G, S, ctx); const customers = createCustomers(G, S, ctx); const staff = createStaff(G, S, ctx);
   const photoStudio = createPhotoStudio(G, S, ctx);
-  const spaBridge = createSpaBridge(G, S, ctx);
   const visuals = createVisuals(G, S, ctx); const registerCash = createRegisterCash(G, S, ctx); const economyExperience = createEconomyExperience(G, S, ctx, platform);
   G.meta.servicePolicy = normalizeServicePolicy(G.meta.servicePolicy);
   const petSocials = createPetSocials(G, S, ctx); const partyOrders = createPartyOrders(G, S, ctx, platform); const objective = createObjective(G, S, ctx); const intro = createIntro(G, S, ctx);
@@ -301,20 +299,24 @@ export function createGame(S, area, els, platform = null) {
     // constant reassuring, cleaning and recovering reads as nagging rather than challenge; a
     // pink banner promising future fines was the loudest piece of that.
     G.time += dt; world.servicePolicyActive = prepareServicePolicy(G);
-    petSocials.update(); input.update(); stations.update(dt); zones.update(dt); photoStudio.update(dt); spaBridge.update(dt);
+    petSocials.update(); input.update(); stations.update(dt); zones.update(dt);
     customers.prepare(dt); staff.prepare();
     const barista = G.baristaWorker?.prepare();
     ownerActor.mover.x = P.x; ownerActor.mover.z = P.z; ownerActor.mover.vx = P.vx; ownerActor.mover.vz = P.vz;
     beginActorStep(world, G.customers, G.staffList, barista ? [barista] : [], [ownerActor]);
-    customers.update(dt); staff.update(dt); intro.update(dt);
+    // Poses run BETWEEN the guests and the staff: a pose is chosen from seat states stepCustomers
+    // just produced, and the hired Photographer (inside staff.update) reacts to it on the same
+    // frame. tools/bot.js keeps the identical order.
+    customers.update(dt); photoStudio.update(dt); staff.update(dt); intro.update(dt);
     ambience.update(dt); renovationDecor.update(dt);
     { const night = S.daylight ? S.daylight.lights : 0; ambience.setNight(night); environment.setNight(night); environment.updateFireflies(dt); } visuals.update(dt); registerCash.update(dt); objective.update(dt); economyExperience.update(dt); partyOrders.update(dt); fx.update(dt); hud.update();
 
     G.serviceStreak.t = Math.max(0, G.serviceStreak.t - dt);
     for (const e of world.events) {
       if (e.type === 'pay') {
-        G.dayStats.served++; G.dayStats.earned += e.amount; G.serviceStreak.count = G.serviceStreak.t > 0 ? G.serviceStreak.count + 1 : 1; G.serviceStreak.t = 7;
-        G.shiftBestStreak = Math.max(G.shiftBestStreak, G.serviceStreak.count); G.dayStats.bestStreak = G.shiftBestStreak;
+        // Lifetime and shift counts together, here: this loop runs after staff.update, where
+        // stepRegisters emits 'pay' (sim/settlement.js recordPaidGuest).
+        recordPaidGuest(G, e.amount);
         const paidCustomer = G.customers.find(c => c.id === e.id); const order = paidCustomer && paidCustomer.order || [];
         if (G.special && order.some(p => saleMatchesTheme(G.special, p, familyOf))) {
           G.dayStats.specialServed = (G.dayStats.specialServed || 0) + 1;
@@ -331,11 +333,10 @@ export function createGame(S, area, els, platform = null) {
         if (G.serviceStreak.count === 5 || (G.serviceStreak.count >= 10 && G.serviceStreak.count % 10 === 0)) { hud.banner(cue([G.serviceStreak.count, '×', streakIcon()], `${G.serviceStreak.count} service streak`), 1200); audio.play('chime'); }
       } else if (e.type === 'lost') { G.dayStats.lost++; G.serviceStreak.count = 0; G.serviceStreak.t = 0; }
       else if (e.type === 'seatMissed') {
-        // Program §6.2: a paid guest never got a clean table. The missed-seat stat and the
-        // reputation point are durable sim state, not presentation, so they are applied here --
-        // beside 'pay' and 'lost', in the one loop that owns world events -- and checkpointed the
-        // way the sibling penalty path is, so a crash before the next mark cannot lose the rank.
-        // systems/visuals.js sees the same event and draws the numeral, nothing more.
+        // Program §6.2: a paid guest never got a clean table. The missed-seat stat is durable sim
+        // state (the Paw Rating's seat window reads it), so it is applied here -- beside 'pay' and
+        // 'lost', in the one loop that owns world events -- and checkpointed. It costs nothing:
+        // applySeatMiss no longer takes a reputation point.
         applySeatMiss(G);
         G.requestCheckpoint('seat-missed');
       }
@@ -496,9 +497,8 @@ export function createGame(S, area, els, platform = null) {
       settlement: cloneSettlement(G.meta.settlement),
       decor: [...(G.meta.decor || [])], followers: G.meta.followers | 0,
       album: { ...G.meta.album }, equipped: { ...G.meta.equipped },
-      // accessoriesBought was missing from this literal since Batch 4b: every boutique purchase was
-      // lost on the next save. Found by the Franchise's keep-list test, which reports any field the
-      // snapshot drops.
+      // accessoriesBought was missing from this literal until the Franchise's keep-list test (which
+      // reports any field the snapshot drops) caught it: every bought accessory was lost on save.
       residents: [...(G.meta.residents || [])], accessoriesBought: [...(G.meta.accessoriesBought || [])], goldenPaw: !!G.meta.goldenPaw,
       season: { ...(G.meta.season || { index: 0, dayStart: 1 }) },
       pawBest: G.meta.pawBest | 0,
@@ -549,9 +549,9 @@ export function createGame(S, area, els, platform = null) {
     owner.group.position.set(P.x, 0, P.z); owner.group.rotation.y = P.rot || 0; S.snap(P.x, P.z); G._force = null; G.contextGuide = null;
     visuals.syncAll(); registerCash.syncAll(); zones.syncAll(); hud.setCoins(G.coins); syncReputationPresentation(); syncPetBookPresentation(); syncCareerPresentation(); syncPawPresentation(); partyOrders.sync(true);
     // AFTER world.built is rebuilt above, not before: the first version of this call sat ahead of
-    // world.built.clear() and read the pre-restore build set, so a returning player with the spa
-    // (or the terrace) saw bare lawn until the next build event. Probed: spaBuilt true, host
-    // visible false after the first restore, true only after a second.
+    // world.built.clear() and read the pre-restore build set, so a returning player with the terrace
+    // saw bare lawn until the next build event. Probed: the region built, its host visible false
+    // after the first restore, true only after a second.
     syncRegions();
     // A terminal save is already settled. Reopen that committed report as presentation only; the
     // settlement transaction itself is idempotent and cannot award coins/reputation/cups twice.

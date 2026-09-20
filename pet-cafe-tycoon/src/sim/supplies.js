@@ -1,23 +1,20 @@
 // src/sim/supplies.js — the one place that knows which machine drinks which supply, how full it
 // is, and where a refill is fetched from.
 //
-// Before this existed the knowledge was scattered and, in three places, incomplete. The espresso
-// machine and the treat bowl were wired end to end, but the ice cream machine's cream and the
-// bath's water were known only to the pantry sheet, the carry model and the bot: the player-facing
-// job detector never noticed them running dry, `canDeliverTo` did not recognise the sack, so the
-// game told an owner holding cream to walk it to the RETURN crate, and `heldLabel` called every
-// non-bean sack "kibble". Owner playtest, 2026-09-16: "the garden or rooftop or terrace all builds,
-// and interactions also not working as it should".
+// Before this existed the knowledge was scattered and, in three places, incomplete: a supply known
+// only to the pantry sheet, the carry model and the bot was invisible to the player-facing job
+// detector, `canDeliverTo` did not recognise its sack (so the game sent an owner holding it to the
+// RETURN crate), and `heldLabel` called every non-bean sack "kibble". Owner playtest, 2026-09-16:
+// "the garden or rooftop or terrace all builds, and interactions also not working as it should".
+// The ice cream machine's cream was that supply; it was cut with its cold pantry on 2026-09-19
+// (docs/SHIP-PLAN-2026-09-19.md §1.2), so the machine now drinks nothing.
 //
 // Adding a supply-consuming machine should mean adding one row to SUPPLY_OF, LEVEL and CAP here.
-import { BATH_WATER_CAP } from './world.js';
 
 /** Station type -> the supply kind it consumes. */
 export const SUPPLY_OF = Object.freeze({
   coffee: 'beans',
   bowl: 'kibble',
-  icecream: 'cream',
-  bath: 'water',
   blender: 'fruit',
 });
 
@@ -26,24 +23,23 @@ export const SUPPLY_OF = Object.freeze({
 const LEVEL = {
   coffee: st => st.beans | 0,
   bowl: st => st.stock | 0,
-  icecream: st => st.cream | 0,
-  bath: st => st.water | 0,
   blender: st => st.fruit | 0,
 };
 const CAP = {
   coffee: () => 20,
   bowl: st => (st.capacity | 0) || 10,
-  icecream: () => 20,
-  bath: () => BATH_WATER_CAP,
   blender: () => 9,
 };
 
 /** The supply a station consumes, or null if it consumes none. */
 export function supplyKind(st) { return st ? SUPPLY_OF[st.type] || null : null; }
 
-export function supplyLevel(st) { const f = st && LEVEL[st.type]; return f ? f(st) : 0; }
+// A station that consumes nothing (the garden's ice cream machine, an oven) never runs dry, so its
+// level is Infinity rather than 0: any reader asking "is it out?" — the interaction coach's refill
+// detector included — hears "no", instead of a missing field reading as an empty machine.
+export function supplyLevel(st) { if (!st) return 0; const f = LEVEL[st.type]; return f ? f(st) : Infinity; }
 export function supplyCap(st) { const f = st && CAP[st.type]; return f ? f(st) : 0; }
-export function supplyRoom(st) { return Math.max(0, supplyCap(st) - supplyLevel(st)); }
+export function supplyRoom(st) { return SUPPLY_OF[st && st.type] ? Math.max(0, supplyCap(st) - supplyLevel(st)) : 0; }
 
 /** An active machine that has run completely dry and cannot work until someone refills it. */
 export function isStarved(st) {
@@ -55,8 +51,8 @@ export function acceptsSupply(st, supply) {
   return !!st && !!st.active && SUPPLY_OF[st.type] === supply && supplyRoom(st) > 0;
 }
 
-// A pantry "supports" a supply if its DATA says so explicitly (coldPantry1's `supplies:['cream']`
-// in data/area1.js) or, for the classic interior pantry with no `supplies` field at all, if it is
+// A pantry "supports" a supply if its DATA says so explicitly (a `supplies` list in data/area1.js)
+// or, for the classic interior pantry with no `supplies` field at all, if it is
 // one of the two original supplies. Deliberately reads `world.area.stations` — the authored data
 // createWorld was built from — because createWorld copies only a fixed field list onto each runtime
 // station and `supplies` is not among them, so `st.supplies` is always undefined at runtime.

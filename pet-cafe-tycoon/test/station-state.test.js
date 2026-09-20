@@ -80,7 +80,7 @@ test('station normalization never invents stock from oversized values or inactiv
       dispCookie: { stock: 99999, product: 'latte' },
       dispCupcake: { stock: 5, product: 'cupcake' },
       coffee1: { beans: 0, stock: 8, product: 'latte' }, // inactive because z_coffee is not built
-      seat1: { dirty: true },
+      seat1: { dirty: true, pile: 45 },
       fakeStation: { stock: 8 },
     },
   };
@@ -89,7 +89,8 @@ test('station normalization never invents stock from oversized values or inactiv
   assert.deepEqual(normalized.data.byId.register1, { pile: 0 });
   assert.deepEqual(normalized.data.byId.dispCookie, { stock: 0, product: 'cookie' });
   assert.deepEqual(normalized.data.byId.dispCupcake, { stock: 5, product: 'cupcake' });
-  assert.deepEqual(normalized.data.byId.seat1, { dirty: true });
+  // A table's photo tips persist exactly like a register's tray (src/sim/petPose.js).
+  assert.deepEqual(normalized.data.byId.seat1, { dirty: true, pile: 45 });
   assert.equal(normalized.data.byId.coffee1, undefined);
   assert.equal(normalized.data.byId.fakeStation, undefined);
 });

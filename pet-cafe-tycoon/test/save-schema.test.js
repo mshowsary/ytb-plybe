@@ -327,9 +327,9 @@ test('owned decor widens the reputation ceiling by exactly one point per piece',
   assert.equal(forged.data.meta.reputation, 7, 'the invalid id buys no headroom');
 });
 
-// sim/serviceQuality.applySeatMiss is the first code in the project that DECREMENTS reputation.
-// career.buyRenovation spends coins, so the tier it grants is a purchase and must not evaporate the
-// first time a bad shift pushes the meter back under the gate that unlocked it.
+// sim/serviceQuality.applySeatMiss used to DECREMENT reputation (it no longer does, 2026-09-19), so
+// saves written before then can hold a meter below a renovation already bought. career.buyRenovation
+// spends coins, so the tier it grants is a purchase and must not evaporate on reload.
 test('a purchased renovation survives a reputation loss on reload', () => {
   // 12 settled shifts can have paid up to 36 reputation, enough to buy level 1 (30 rep). Seat
   // misses then dragged the live meter down to 28 -- under the gate, but the coins were spent.

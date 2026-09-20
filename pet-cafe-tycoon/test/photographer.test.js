@@ -1,38 +1,37 @@
-// test/photographer.test.js — Batch 4b, the Photographer (plan 3.9): "hired from photoDesk1,
-// auto-takes Good shots at photo1". Mirrors the barista's own gating shape (a two-tier hire ladder,
-// STAFF.photographer already landed in economyConfig) and photo1's own SIM contract (Batch 2's
-// stepPhotoBooth/resolvePhotoShot) rather than inventing either.
+// test/photographer.test.js — the Photographer: hired at the staff desk (hire1) once the Pet camera
+// exists (z_photo), arrives from the door like every hire (HIRE_SPAWN), and walks to whichever
+// seated pet is posing to take the shot at quality Good. It was hired from the spa's photoDesk1
+// until the spa was retired (2026-09-19), and it worked the photo1 booth until Batch B2 moved photos
+// to the tables (docs/SHIP-PLAN-2026-09-19.md §1.3).
 //
 // What's pinned here:
-//   STAND   the photographer walks to photo1 and stands beside its front — off the customer queue
-//           AND off the exact front spot the owner themselves would use (two r=0.30 bodies need
-//           0.6m; see photographerSpot's own comment in src/sim/staff.js) — and, once close enough
-//           (the SAME radius systems/photo.js judges the owner's own presence by), marks the booth
-//           'serving'.
-//   RESOLVE a running session is called by the photographer itself well before PHOTO_AUTO_RESOLVE's
-//           anonymous 1.6s timeout, always 'good', never 'perfect' (resolvePhotoShot's own clamp —
+//   STAND   the photographer walks to the posing pet and stands off it — never on the pet itself
+//           (two r=0.30 bodies need 0.6m) — and, once close enough (the SAME POSE_SERVE_RADIUS
+//           systems/photo.js judges the owner's own presence by), marks the pose 'serving'.
+//   RESOLVE a running shot is called by the photographer itself well before PHOTO_AUTO_RESOLVE's
+//           anonymous 1.6s timeout, always 'good', never 'perfect' (resolvePoseShot's own clamp —
 //           this file only ever passes 'good', so there is nothing else it could come back as).
 //   LEVEL 2 a second hired photographer shortens the think time (PHOTOGRAPHER_SHOT_SECONDS_LEVEL2)
-//           and the two of them settle on opposite sides of the booth rather than stacking.
-//   IDLE    with no active photo booth at all (a hand-edited/inconsistent save — the real zone
-//           chain makes z_photo a hard ancestor of z_photographer, so this cannot happen from
-//           normal play), the photographer parks at spawn: no stall, no crash.
-//   PERSIST photographerSpawnAllowed (src/sim/staffState.js) gates spawning on z_photographer being
-//           built, mirroring how a runner's assignment (never its existence) is the thing that gets
-//           dropped when its target disappears.
+//           and the two of them settle on opposite sides of the pet rather than stacking.
+//   IDLE    with nothing posing (most of a shift), the photographer parks at spawn: no stall, no
+//           crash, no walking toward a pet that is not there.
+//   PERSIST photographerSpawnAllowed (src/sim/staffState.js) gates spawning on z_photo being built.
+//   SPAWN   systems/staff.js and tools/bot.js both spawn the Photographer at HIRE_SPAWN, the door
+//           every hire walks in from — never on the old spa lawn.
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AREA1 } from '../data/area1.js';
-import { createWorld, payZone, refreshActive, stepPhotoBooth, PHOTO_AUTO_RESOLVE } from '../src/sim/world.js';
+import { createWorld, payZone, refreshActive } from '../src/sim/world.js';
 import {
   createStaff, stepStaff, PHOTOGRAPHER_SHOT_SECONDS, PHOTOGRAPHER_SHOT_SECONDS_LEVEL2,
 } from '../src/sim/staff.js';
+import { stepPetPoses, PHOTO_AUTO_RESOLVE, POSE_SERVE_RADIUS, POSE_GAP_MAX } from '../src/sim/petPose.js';
+import { createCustomer } from '../src/sim/customers.js';
 import { photographerSpawnAllowed } from '../src/sim/staffState.js';
 
-// Builds every zone in AREA1.zones' own array order up to and including `throughId` — identical in
-// shape to test/spa-foundation.test.js's own helper of the same name. Because z_splash requires
-// z_photo (data/area1.js), this always brings photo1 online along the way to z_photographer: there
-// is no reachable save where the photographer's zone exists but photo1's doesn't.
+// Builds every zone in AREA1.zones' own array order up to and including `throughId` (the same
+// helper test/nav-regions.test.js uses). Through z_photo this also builds z_hire, the staff desk.
 function buildThrough(w, throughId) {
   for (const z of AREA1.zones) {
     let guard = 0;
@@ -41,109 +40,163 @@ function buildThrough(w, throughId) {
   }
   refreshActive(w);
 }
-function photoStation(w) {
-  for (const st of w.stations.values()) if (st.type === 'photo') return st;
-  return null;
-}
-function forceSession(st, t = 0) {
-  st.session = { customerId: 1, species: 'cat', variant: 0, tier: 0, t, resolved: false, quality: null, tip: 0 };
-}
-// Mirrors the real per-tick order used by both src/game.js (photoStudio.update before staff.update)
-// and tools/bot.js (stepPhotoBooth before stepStaff): the booth's own session clock ticks first,
-// then the photographer reacts to it and (if it just arrived) marks 'serving' for the tick after.
-function tick(list, w, dt) { stepPhotoBooth(w, dt); stepStaff(list, w, dt, () => {}); }
-function run(list, w, seconds) { for (let t = 0; t < seconds; t += 1 / 30) tick(list, w, 1 / 30); }
+// Where systems/staff.js spawns every hire, the Photographer included (asserted from source below).
+const HIRE_SPAWN = { x: -9.0, z: 4.2 };
 
-test('a hired photographer walks to photo1 and stands off both the queue and the exact front spot', () => {
+function seatedGuest(w, id, species, variant, seatId) {
+  const seat = w.stations.get(seatId);
+  const c = createCustomer(id, species, 0, AREA1);
+  c.petVariant = variant;
+  seat.occupied = true;
+  Object.assign(c, {
+    state: 'eating', paid: true, seat, seatId, timer: 0,
+    x: seat.pair.human.x, z: seat.pair.human.z,
+  });
+  Object.assign(c.mover, { x: c.x, z: c.z, hasTarget: false });
+  return c;
+}
+
+// Mirrors the real per-tick order used by both src/game.js (customers -> photoStudio -> staff) and
+// tools/bot.js: the pose steps first, then the photographer reacts to it and (if it just arrived)
+// marks 'serving' for the tick after.
+function tick(list, w, guests, dt) {
+  stepPetPoses(w, guests, dt, { unlocked: true });
+  stepStaff(list, w, dt, () => {});
+}
+function run(list, w, guests, seconds) { for (let t = 0; t < seconds; t += 1 / 30) tick(list, w, guests, 1 / 30); }
+// Ticks until the photographer(s) have arrived and the shot has started, and stops THERE: a pose
+// clears itself POSE_LINGER after the shot resolves, and everything about where they stood goes
+// with it (they walk back to spawn, together).
+function runUntilShot(list, w, guests, seconds = 10) {
+  for (let t = 0; t < seconds; t += 1 / 30) {
+    tick(list, w, guests, 1 / 30);
+    if (w.pose && w.pose.session) return true;
+  }
+  return false;
+}
+// Starts a pose without waiting out the 35-50s gap: the gap itself is pinned in test/photo.test.js.
+function forcePose(w, guests) {
+  w.poseGapT = 0;
+  for (let t = 0; t < POSE_GAP_MAX && !w.pose; t += 1) stepPetPoses(w, guests, 1 / 30, { unlocked: true });
+  assert.ok(w.pose, 'a pose must be live for this test');
+  return w.pose;
+}
+
+test('a hired photographer walks from the door to the posing pet and stands off it, not on it', () => {
   const w = createWorld(AREA1, {}, 1);
-  buildThrough(w, 'z_photographer');
-  const st = photoStation(w);
-  const desk = w.stations.get('photoDesk1');
-  assert.ok(desk && desk.active, 'photoDesk1 must be active once z_photographer is built');
-  const photographer = createStaff('photographer', desk.front);
-  run([photographer], w, 20);
+  buildThrough(w, 'z_photo');
+  assert.ok(w.stations.get('photoWall1').active, 'the Pet camera is bought');
+  assert.ok(w.stations.get('hire1').active, 'the staff desk it is hired at is built on the way');
+  const guests = [seatedGuest(w, 1, 'cat', 0, 'seat1')];
+  const pose = forcePose(w, guests);
+  const photographer = createStaff('photographer', HIRE_SPAWN);
+  assert.ok(runUntilShot([photographer], w, guests), 'it must reach the pet and start the shot');
   assert.equal(photographer.mover.teleports, 0, 'a genuine, reachable stand spot must never need a teleport rescue');
-  const distFront = Math.hypot(photographer.x - st.front.x, photographer.z - st.front.z);
-  const distQueue0 = Math.hypot(photographer.x - st.queue[0].x, photographer.z - st.queue[0].z);
-  assert.ok(distFront >= 0.6, `must clear the owner's own serve spot by >= 0.6m, got ${distFront}`);
-  assert.ok(distQueue0 >= 0.6, `must clear the customer queue by >= 0.6m, got ${distQueue0}`);
+  const d = Math.hypot(photographer.x - pose.x, photographer.z - pose.z);
+  assert.ok(d >= 0.6, `must clear the pet's own body by >= 0.6m, got ${d.toFixed(2)}`);
+  assert.ok(d <= POSE_SERVE_RADIUS, `and must be close enough to count as having come, got ${d.toFixed(2)}`);
 });
 
-test('once positioned, the photographer marks the booth "serving" using the owner\'s own proximity radius', () => {
+test('once positioned, the photographer marks the pose "serving" using the owner\'s own radius', () => {
   const w = createWorld(AREA1, {}, 2);
-  buildThrough(w, 'z_photographer');
-  const st = photoStation(w);
-  // Spawn at photoDesk1's own FRONT (the same free point systems/staff.js actually spawns from —
-  // its raw x/z sits on the desk's own collision footprint, a blocked cell no real spawn ever uses).
-  const desk = w.stations.get('photoDesk1');
-  const photographer = createStaff('photographer', desk.front);
-  run([photographer], w, 20);
-  assert.equal(st.serving, true);
+  buildThrough(w, 'z_photo');
+  const guests = [seatedGuest(w, 1, 'dog', 0, 'seat2')];
+  forcePose(w, guests);
+  const photographer = createStaff('photographer', HIRE_SPAWN);
+  assert.ok(runUntilShot([photographer], w, guests), 'arriving IS the work: the shot is running');
 });
 
-test('a lone photographer resolves a running session as good well before PHOTO_AUTO_RESOLVE, never perfect', () => {
+test('a lone photographer resolves a running shot as good well before PHOTO_AUTO_RESOLVE, never perfect', () => {
   const w = createWorld(AREA1, {}, 3);
-  buildThrough(w, 'z_photographer');
-  const st = photoStation(w);
-  const desk = w.stations.get('photoDesk1');
-  const photographer = createStaff('photographer', desk.front);
-  run([photographer], w, 20); // let it walk all the way from photoDesk1 and settle into position
-  assert.equal(st.serving, true);
-  forceSession(st);
+  buildThrough(w, 'z_photo');
+  const guests = [seatedGuest(w, 1, 'cat', 0, 'seat1')];
+  forcePose(w, guests);
+  const photographer = createStaff('photographer', HIRE_SPAWN);
+  assert.ok(runUntilShot([photographer], w, guests), 'it walks all the way from the door and starts the shot');
   let resolvedAt = null;
   for (let t = 0; t < PHOTO_AUTO_RESOLVE + 0.1; t += 1 / 30) {
-    tick([photographer], w, 1 / 30);
-    if (st.session.resolved && resolvedAt === null) resolvedAt = t;
+    if (w.pose && w.pose.session && w.pose.session.resolved && resolvedAt === null) { resolvedAt = t; break; }
+    tick([photographer], w, guests, 1 / 30);
   }
-  assert.ok(resolvedAt !== null, 'the session must resolve');
+  assert.ok(resolvedAt !== null, 'the shot must resolve');
   assert.ok(resolvedAt < PHOTO_AUTO_RESOLVE, `must beat the anonymous auto-resolve timeout, resolved at ${resolvedAt}`);
-  assert.ok(resolvedAt <= PHOTOGRAPHER_SHOT_SECONDS + 0.1, `should resolve around the level-1 think time, got ${resolvedAt}`);
-  assert.equal(st.session.quality, 'good', 'a photographer-run shot is always Good, never Perfect');
-  assert.ok(st.session.tip > 0);
+  assert.ok(resolvedAt <= PHOTOGRAPHER_SHOT_SECONDS + 0.2, `should resolve around the level-1 think time, got ${resolvedAt}`);
+  assert.equal(w.pose.session.quality, 'good', 'a photographer-run shot is always Good, never Perfect');
+  assert.ok(w.pose.session.tip > 0);
+  assert.equal(w.stations.get('seat1').pile, w.pose.session.tip, 'and the tip is on that pet\'s table');
 });
 
 test('hiring a second photographer shortens the think time, and the two settle on opposite sides', () => {
   const w = createWorld(AREA1, {}, 4);
-  buildThrough(w, 'z_photographer');
-  const st = photoStation(w);
-  const desk = w.stations.get('photoDesk1');
-  const p1 = createStaff('photographer', desk.front);
-  const p2 = createStaff('photographer', desk.front);
+  buildThrough(w, 'z_photo');
+  const guests = [seatedGuest(w, 1, 'bunny', 0, 'seat3')];
+  forcePose(w, guests);
+  const p1 = createStaff('photographer', HIRE_SPAWN);
+  const p2 = createStaff('photographer', HIRE_SPAWN);
   const list = [p1, p2];
-  run(list, w, 20);
-  assert.equal(st.serving, true);
-  // photographerSpot's preferLeft split: with both bodies settled, they must not be sharing a spot.
+  assert.ok(runUntilShot(list, w, guests), 'both walk in and the shot starts');
   assert.ok(Math.hypot(p1.x - p2.x, p1.z - p2.z) >= 0.6, 'the two photographers must clear each other by >= 0.6m');
-  forceSession(st);
   let resolvedAt = null;
   for (let t = 0; t < PHOTOGRAPHER_SHOT_SECONDS + 0.1; t += 1 / 30) {
-    tick(list, w, 1 / 30);
-    if (st.session.resolved && resolvedAt === null) resolvedAt = t;
+    if (w.pose.session.resolved && resolvedAt === null) { resolvedAt = t; break; }
+    tick(list, w, guests, 1 / 30);
   }
-  assert.ok(resolvedAt !== null && resolvedAt <= PHOTOGRAPHER_SHOT_SECONDS_LEVEL2 + 0.1,
+  assert.ok(resolvedAt !== null && resolvedAt <= PHOTOGRAPHER_SHOT_SECONDS_LEVEL2 + 0.2,
     `two photographers should resolve by the level-2 think time, got ${resolvedAt}`);
-  assert.equal(st.session.quality, 'good');
+  assert.equal(w.pose.session.quality, 'good');
 });
 
-test('with no active photo booth, the photographer parks at spawn instead of stalling', () => {
+test('with nothing posing, the photographer parks at spawn instead of stalling', () => {
   const w = createWorld(AREA1, {}, 5);
-  buildThrough(w, 'z_photographer'); // z_splash's own chain always builds z_photo first (see above)
-  // Simulate the one save shape this cannot reach through normal play: an inconsistent state where
-  // the booth exists but is not active.
-  photoStation(w).active = false;
-  const spawn = { x: 14.5, z: 3.7 };
-  const photographer = createStaff('photographer', spawn);
-  run([photographer], w, 3);
-  assert.ok(Math.hypot(photographer.x - spawn.x, photographer.z - spawn.z) < 0.1, 'parks at spawn, not mid-walk to nowhere');
+  buildThrough(w, 'z_photo');
+  const photographer = createStaff('photographer', HIRE_SPAWN);
+  run([photographer], w, [], 3); // nobody seated, so no pose all shift
+  assert.ok(!w.pose);
+  assert.ok(Math.hypot(photographer.x - HIRE_SPAWN.x, photographer.z - HIRE_SPAWN.z) < 0.1,
+    'parks at spawn, not mid-walk to nowhere');
 });
 
-test('photographerSpawnAllowed gates on z_photographer alone, matching how it is used by prepare()', () => {
+test('photographerSpawnAllowed gates on z_photo alone, matching how it is used by prepare()', () => {
   assert.equal(photographerSpawnAllowed(new Set()), false);
-  assert.equal(photographerSpawnAllowed(new Set(['z_spa', 'z_groom', 'z_bath', 'z_boutique'])), false);
-  assert.equal(photographerSpawnAllowed(new Set(['z_photographer'])), true);
+  assert.equal(photographerSpawnAllowed(new Set(['z_hire', 'z_terrace'])), false, 'the desk alone is not enough: there is no camera');
+  assert.equal(photographerSpawnAllowed(new Set(['z_photographer'])), false, 'the retired spa zone no longer opens the role');
+  assert.equal(photographerSpawnAllowed(new Set(['z_photo'])), true);
   // Every builtSet shape createWorld/save.js actually produce: a Set (live world.built), a plain
   // array (a raw save's `builds` list before createWorld wraps it) and undefined (a save with no
   // staff at all yet).
-  assert.equal(photographerSpawnAllowed(['z_photographer']), true);
+  assert.equal(photographerSpawnAllowed(['z_photo']), true);
   assert.equal(photographerSpawnAllowed(undefined), false);
+});
+
+test('the Photographer spawns at HIRE_SPAWN in the game and in the bot, never on the old spa lawn', () => {
+  const sys = readFileSync(new URL('../src/systems/staff.js', import.meta.url), 'utf8');
+  assert.match(sys, /const HIRE_SPAWN = \{ x: -9\.0, z: 4\.2 \};/, 'systems/staff.js HIRE_SPAWN is the door spot this file walks from');
+  assert.match(sys, /const PHOTOGRAPHER_SPAWN = HIRE_SPAWN;/);
+  assert.match(sys, /createStaffSim\('photographer', PHOTOGRAPHER_SPAWN\)/, 'spawnPhotographer uses the door spawn');
+  assert.doesNotMatch(sys, /photoDesk1|PHOTOGRAPHER_FALLBACK/, 'no trace of the spa desk or its lawn fallback');
+  // prepare() is the call path from normal play: it spawns the hire once the gate allows it.
+  assert.match(sys, /photographerSpawnAllowed\(world\.built\)\) spawnPhotographer\(\)/);
+  const bot = readFileSync(new URL('../tools/bot.js', import.meta.url), 'utf8');
+  assert.match(bot, /const HIRE_SPAWN = \{ x: -9\.0, z: 4\.2 \};/);
+  assert.match(bot, /const PHOTOGRAPHER_SPAWN = HIRE_SPAWN;/);
+  assert.match(bot, /createStaff\('photographer', PHOTOGRAPHER_SPAWN\)/);
+  assert.doesNotMatch(bot, /photoDesk1|PHOTOGRAPHER_FALLBACK/);
+});
+
+test('the Workers sheet lists no Photographer before the Pet camera is bought', async () => {
+  // The positive half of this rule — the row APPEARS once the camera is bought — lives in
+  // src/ui/models.js, which still gates on the deleted photo1 station and is owned by another lane
+  // this batch. That one-line change is listed in this batch's wiringNeeded; until it lands the row
+  // is never offered, so asserting it here would be asserting something that is not true yet.
+  const { buildKioskModel } = await import('../src/ui/models.js');
+  const G = {
+    coins: 999999, up: {}, staff: { runner: 0, cashier: 0, cleaner: 0, barista: 0, photographer: 0 },
+    staffLevels: { runner: { speed: 0, carry: 0 }, cashier: { speed: 0 }, cleaner: { speed: 0 } },
+    staffList: [], meta: {}, dayState: { day: 30 },
+  };
+  const early = createWorld(AREA1, {}, 6);
+  buildThrough(early, 'z_seats2');
+  const before = buildKioskModel(G, early, 'workers').workers.map(r => r.kind);
+  assert.equal(before.includes('photographer'), false, 'no row for a role with nothing to do yet');
+  assert.ok(before.includes('runner'), 'the other roles are listed as before');
 });

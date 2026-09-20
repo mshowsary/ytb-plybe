@@ -75,17 +75,17 @@ export function serviceRecoveryCost(reason, coins = Infinity, ctx = null) {
 
 // Program §6.2 accounting for a guest who paid and then never got a clean seat. It lives here,
 // beside dirtyTablesBlockingSeats, rather than in whichever system happens to observe the
-// 'seatMissed' event, so the sim, the day summary and the tests all read one rule. Reputation is
-// floored at 0: a bad shift can stall progress, never invert it.
+// 'seatMissed' event, so the sim, the day summary and the tests all read one rule. It COUNTS the
+// miss (the Paw Rating's seat window and the summary read it) and takes nothing: it used to cost a
+// reputation point per guest, and a café with no Cleaner lost 17 in one shift while the floor
+// filled with dirty tables. The ship plan's never-punishing rule retired the drain; the guest
+// leaving is the consequence. `delta` stays in the result (always 0) for callers that read it.
 export function applySeatMiss(G) {
   if (!G) return { missedSeats: 0, reputation: 0, delta: 0 };
   const stats = G.dayStats || (G.dayStats = {});
   stats.missedSeats = Math.max(0, stats.missedSeats | 0) + 1;
-  const meta = G.meta || (G.meta = {});
-  const before = Math.max(0, meta.reputation | 0);
-  const after = Math.max(0, before - 1);
-  meta.reputation = after;
-  return { missedSeats: stats.missedSeats, reputation: after, delta: before - after };
+  const reputation = Math.max(0, (G.meta && G.meta.reputation) | 0);
+  return { missedSeats: stats.missedSeats, reputation, delta: 0 };
 }
 
 // Experiment-only reference to the former live schedule. Do not import this from runtime systems.
@@ -115,10 +115,13 @@ export function dirtyTablesBlockingSeats(world) {
 // there was no free dirty seat any more -- so the other four were told, correctly by that
 // predicate and absurdly by any other measure, that there was nothing left to wait for. Cleaning
 // the tables is what threw them out.
-export function seatsMightFree(world) {
+// `inRoom` (optional) limits it to the tables a guest may actually sit at: a café guest is not kept
+// waiting because a garden table is occupied (sim/customers.js passes its sameRoom test).
+export function seatsMightFree(world, inRoom = null) {
   if (!world || !world.stations) return false;
   for (const st of world.stations.values()) {
     if (st.type !== 'seat' || !st.active) continue;
+    if (inRoom && !inRoom(st)) continue;
     if (st.dirty || st.occupied) return true;
   }
   return false;

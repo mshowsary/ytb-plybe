@@ -3,10 +3,10 @@ import { cue } from '../ui/hud.js';
 import { clockIcon, tableDirtyIcon, displayIcon, registerIcon, coinMinusIcon } from '../ui/icons.js';
 import { SOCIALS } from '../sim/petSocials.js';
 // Customer render/system layer: human + named pet visitor, wish UI and pet delight moments.
-import { spawnInterval, maxCustomers, cafeLevel } from '../sim/economy.js';
+import { spawnInterval, maxCustomers, terraceSpawnInterval, terraceMaxCustomers, cafeLevel } from '../sim/economy.js';
 import { spawnIntervalMultiplier } from '../sim/followers.js';
 import { spawnMult, capBonus } from '../sim/day.js';
-import { stepCustomers, createCustomer, PATIENCE } from '../sim/customers.js';
+import { stepCustomers, createCustomer, gardenTableCount, PATIENCE } from '../sim/customers.js';
 import { idx, isFree } from '../sim/nav.js';
 import { createCustomerSpawnSequence } from '../sim/customerSpawn.js';
 import { SERVICE_LABEL, dirtyTablesBlockingSeats } from '../sim/serviceQuality.js';
@@ -29,6 +29,9 @@ import { createPetMoment } from '../ui/petMoments.js';
 // Sim customers normally walk at 2.2 m/s. 2.8 leaves normal movement untouched while absorbing
 // any re-plan/rescue discontinuity into a short catch-up instead of exposing it as a visible warp.
 const GUEST_VISUAL_MAX_SPEED = 2.8;
+// A guest who has left shrinks away over this long where it stands (on the street, past its door)
+// instead of vanishing in one frame.
+const LEAVE_FADE_SECONDS = 0.3;
 // How close the owner has to be to a pet before its name tag appears. 2.8 m is a little over
 // two floor tiles: close enough that only the pets you are actually standing among are named,
 // far enough that you can read a queue of two or three as you walk past it.
@@ -76,6 +79,11 @@ export function createCustomers(G, S, ctx) {
   const rec = new Map();
   let spawnT = 2, penaltyToastCd = 0;
   let cachedDemandKey = '', interval = 4, maxC = 6, effMaxC = 6;
+  // The Ice cream garden's own stream (sim/economy.js terraceSpawnInterval): paced by its open
+  // tables, capped on its own, and never counted against the café's cap above.
+  let gardenSpawnT = 2, gardenKey = -1, gardenInterval = null, gardenMax = 0;
+  // Guests who have left, still shrinking out (see LEAVE_FADE_SECONDS).
+  const leaving = [];
   let regularPlanDay = 0, regularPlan = null, regularGreetedDay = 0;
   const tmpProj = { sx: 0, sy: 0, visible: true };
 
@@ -109,7 +117,7 @@ export function createCustomers(G, S, ctx) {
     return day;
   }
 
-  function spawn() {
+  function spawn(garden = false) {
     const next = spawns.next(G.meta.followers, G.meta);
     const social = G.meta.socials?.active;
     const theme = social?.status === 'running' ? SOCIALS.find(s=>s.id===social.id) : null;
@@ -132,8 +140,8 @@ export function createCustomers(G, S, ctx) {
     const species = identityPick.species;
     const petVariant = identityPick.variant;
     const profile = petProfile(species, petVariant);
-    const c = createCustomer(id, species, variant, area);
-    if (theme) c.socialProduct = theme.product;
+    const c = createCustomer(id, species, variant, area, { garden });
+    if (theme && !garden) c.socialProduct = theme.product;
     c.serviceVisitId = G.meta.servicePolicy.nextVisit++;
     c.petVariant = petVariant;
     c.petIdentityKey = identityPick.key;
@@ -163,19 +171,22 @@ export function createCustomers(G, S, ctx) {
     }
     rec.set(c.id, {
       human, pet, leash, identity, profile, humanShadow, petShadow,
-      px: c.x, pz: c.z, eating: false, spaSeated: false, bub,
+      px: c.x, pz: c.z, eating: false, bub,
       lastState: c.state, petHappyT: 0, petBreakActive: false, treatCelebrated: false, tablePenalty: false,
       regularCandidate: c.regularCandidate, regularGreeted: false, regularGreetingT: 0, regularDay: day,
     });
     if (ctx.discoverPet) ctx.discoverPet(species, petVariant);
   }
 
+  function dispose(r) {
+    scene.remove(r.human.group); scene.remove(r.pet.group); r.leash.detach(); removeBubble(r.bub); r.identity.remove();
+    if (S.contactShadows) { S.contactShadows.remove(r.humanShadow); S.contactShadows.remove(r.petShadow); }
+  }
   function teardown() {
-    for (const r of rec.values()) {
-      scene.remove(r.human.group); scene.remove(r.pet.group); r.leash.detach(); removeBubble(r.bub); r.identity.remove();
-      if (S.contactShadows) { S.contactShadows.remove(r.humanShadow); S.contactShadows.remove(r.petShadow); }
-    }
+    for (const r of rec.values()) dispose(r);
     rec.clear();
+    for (const f of leaving) dispose(f.r);
+    leaving.length = 0;
     regularPlanDay = 0; regularPlan = null; regularGreetedDay = 0;
   }
 
@@ -200,9 +211,19 @@ export function createCustomers(G, S, ctx) {
       effMaxC = maxC + (d ? capBonus(d) : 0) + Math.min(3, Math.floor(cafeLevel(G) / 5));
       const introCap = G.intro && G.intro.active && (G.intro.step | 0) < 3;
       const cap = introCap ? Math.min(effMaxC, 2) : effMaxC;
+      // The café's cap counts the café's own guests: garden guests are extra, never a share of it.
+      let gardenNow = 0;
+      for (const c of G.customers) if (c.terraceBound) gardenNow++;
       if (mult > 0) {
         spawnT -= dt;
-        if (spawnT <= 0 && G.customers.length < cap) { spawnT = interval / mult; spawn(); }
+        if (spawnT <= 0 && G.customers.length - gardenNow < cap) { spawnT = interval / mult; spawn(); }
+      }
+      // The garden's own arrivals at its arch, once it has tables. tools/bot.js runs the same stream.
+      const tables = gardenTableCount(world);
+      if (tables !== gardenKey) { gardenKey = tables; gardenInterval = terraceSpawnInterval(tables); gardenMax = terraceMaxCustomers(tables); }
+      if (gardenInterval && mult > 0) {
+        gardenSpawnT -= dt;
+        if (gardenSpawnT <= 0 && gardenNow < gardenMax) { gardenSpawnT = gardenInterval * spawnIntervalMultiplier(G.meta.followers) / mult; spawn(true); }
       }
 
     },
@@ -247,7 +268,6 @@ export function createCustomers(G, S, ctx) {
         if (e.type === 'lost'||e.type==='tableRefund') applyServicePenalty(e.type==='tableRefund'?'table':e.reason, r || null, G.customers.find(c=>c.id===e.id));
         if (!r) continue;
         if (e.type === 'took') { r.pet.carry(itemFor(e.product)); r.human.setMood('none'); }
-        else if (e.type === 'pay') { G.stats.served = (G.stats.served | 0) + 1; }
         else if (e.type === 'angry') { r.human.setMood('angry'); ctx.audio.play('angry'); }
         else if (e.type === 'wish') {
           r.bub.icon1.innerHTML = iconFor(e.product);
@@ -291,8 +311,10 @@ export function createCustomers(G, S, ctx) {
         const c = G.customers[i]; const r = rec.get(c.id);
         if (!r) continue;
         if (c.done) {
-          scene.remove(r.human.group); scene.remove(r.pet.group); r.leash.detach(); removeBubble(r.bub); r.identity.remove();
-          if (S.contactShadows) { S.contactShadows.remove(r.humanShadow); S.contactShadows.remove(r.petShadow); }
+          // Out of the sim at once (G.customers), out of the picture over LEAVE_FADE_SECONDS: the
+          // guest and its pet shrink away on the street spot they walked out to.
+          removeBubble(r.bub); r.identity.remove();
+          leaving.push({ r, t: 0 });
           rec.delete(c.id); G.customers.splice(i, 1); continue;
         }
 
@@ -317,33 +339,11 @@ export function createCustomers(G, S, ctx) {
           r.regularGreetingT = Math.max(0, r.regularGreetingT - dt);
           if (r.regularGreetingT === 0 && !r.petBreakActive && r.petHappyT <= 0) r.pet.setMood('none');
         }
-        // Batch 5 (plan §3.9, "pets' owners sit while pets are pampered"): sim/customers.js moves a
-        // spa guest onto a free lounge seat (c.spaSeatId) for the length of an OPEN groom/bath
-        // session while its state stays 'atGroom'/'atBath', so this cannot reuse the 'eating'
-        // switch above. It keys on r.px/r.pz having actually converged on the seat's human spot —
-        // the ordinary walk rendering drives them there first — so the guest is seen walking over,
-        // never teleporting. The pet stays at the table/tub: the one place its drawn position is not
-        // the leash-follow spot.
-        const spaLoungeSeat = c.spaSeatId ? seatById(world, c.spaSeatId) : null;
-        const spaSeatedNow = !!(spaLoungeSeat && Math.hypot(r.px - spaLoungeSeat.pair.human.x, r.pz - spaLoungeSeat.pair.human.z) < 0.08);
-        if (!r.spaSeated && spaSeatedNow) {
-          r.human.group.position.set(spaLoungeSeat.pair.human.x, 0, spaLoungeSeat.pair.human.z);
-          r.px = spaLoungeSeat.pair.human.x; r.pz = spaLoungeSeat.pair.human.z;
-          r.human.group.rotation.y = c.rot;
-          r.human.sit(); r.human.setMood('none');
-          r.bub.wrap.classList.add('hidden'); r.bub.bar.classList.add('hidden');
-          const spaTableSt = c._spaTarget ? world.stations.get(c._spaTarget) : null;
-          if (spaTableSt) { r.pet.group.position.set(spaTableSt.front.x, 0, spaTableSt.front.z); r.pet.sit(); }
-          r.spaSeated = true;
-        } else if (r.spaSeated && !spaSeatedNow) {
-          r.pet.stand(); r.human.stand(); r.spaSeated = false;
-          r.px = r.human.group.position.x; r.pz = r.human.group.position.z;
-        }
         if (r.eating && c.state !== 'eating') {
           r.pet.stand(); r.human.stand(); r.eating = false; r.identity.setSeated(false);
           r.px = r.human.group.position.x; r.pz = r.human.group.position.z;
         }
-        if (r.eating || r.spaSeated) {
+        if (r.eating) {
           r.pet.update(dt, false, 0);
         } else {
           const step = cappedVisualStep(r.px, r.pz, c.x, c.z, GUEST_VISUAL_MAX_SPEED, dt);
@@ -352,17 +352,7 @@ export function createCustomers(G, S, ctx) {
           r.px = step.x; r.pz = step.z;
           r.human.group.position.set(r.px, 0, r.pz); r.human.update(dt, vx, vz);
           r.pet.followTarget(r.px, r.pz, c.rot, dt, petWalkable);
-          // A pet fresh from the bath sparkles for BATH_SPARKLE_SECONDS: c.sparkleUntil is stamped
-          // by the sim against its own clock (world.t, advanced by stepBath). An interval burst
-          // rather than a per-frame particle, so twenty seconds costs a few dozen sprites.
-          if (c.sparkleUntil > (world.t || 0) && !globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-            r._sparkleT = (r._sparkleT || 0) + dt;
-            if (r._sparkleT >= 0.45) {
-              r._sparkleT = 0;
-              const pp = r.pet.group.position; fx.burst(pp.x, 0.7, pp.z, '#BFEFFA', 3);
-            }
-          }
-          if (c.state === 'queue' || c.state === 'atBowl' || c.state === 'atRegister' || c.state === 'toPhoto' || c.state === 'atPhoto') r.human.setMood(c.mood === 'wait' ? 'wait' : 'none');
+          if (c.state === 'queue' || c.state === 'atBowl' || c.state === 'atRegister') r.human.setMood(c.mood === 'wait' ? 'wait' : 'none');
         }
 
         const traitTarget = r.profile.name === 'Marmalade' ? world.stations.get('oven1')
@@ -394,10 +384,7 @@ export function createCustomers(G, S, ctx) {
         }
         r.leash.update();
 
-        // toPhoto/atPhoto join this list because the guest's order is already paid for by then —
-        // leaving the wish bubble up would float a resolved order over their head all through the
-        // photo detour.
-        if (c.state === 'leave' || c.state === 'waitSeat' || c.state === 'noSeat' || c.state === 'toPhoto' || c.state === 'atPhoto' || c.done) {
+        if (c.state === 'leave' || c.state === 'waitSeat' || c.state === 'noSeat' || c.done) {
           r.bub.wrap.classList.add('hidden'); r.bub.bar.classList.add('hidden');
         } else if (!r.eating) {
           fx.project(r.px, r.human.height + 0.55, r.pz, tmpProj);
@@ -412,9 +399,21 @@ export function createCustomers(G, S, ctx) {
         r.lastState = c.state;
       }
 
-      let urgent = false;
-      for (const c of G.customers) if (!c.done && c.patience < 4) { urgent = true; break; }
-      hud.setCrowd(G.customers.length, effMaxC, urgent);
+      for (let i = leaving.length - 1; i >= 0; i--) {
+        const f = leaving[i];
+        f.t += dt;
+        const s = Math.max(0, 1 - f.t / LEAVE_FADE_SECONDS);
+        f.r.human.group.scale.setScalar(s); f.r.pet.group.scale.setScalar(s); f.r.leash.update();
+        if (s <= 0) {
+          scene.remove(f.r.human.group); scene.remove(f.r.pet.group); f.r.leash.detach();
+          if (S.contactShadows) { S.contactShadows.remove(f.r.humanShadow); S.contactShadows.remove(f.r.petShadow); }
+          leaving.splice(i, 1);
+        }
+      }
+
+      let urgent = false, cafeGuests = 0;
+      for (const c of G.customers) { if (!c.terraceBound) cafeGuests++; if (!c.done && c.patience < 4) urgent = true; }
+      hud.setCrowd(cafeGuests, effMaxC, urgent);
     },
   };
 }

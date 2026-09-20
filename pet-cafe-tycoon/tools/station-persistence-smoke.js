@@ -77,7 +77,9 @@ const expected = {
   blender1: { fruit:0, stock:5 },
   barSmoothie: { stock:3, product:'smoothie' },
   bowl1: { stock:1 },
-  seat1: { dirty:true },
+  // A table carries two durable things now: its dishes and the tip a photographed pet left on it
+  // (src/sim/petPose.js). Both have to survive the host's pause/reload.
+  seat1: { dirty:true, pile:64 },
 };
 
 function selectState(G) {
@@ -112,7 +114,7 @@ try {
     Object.assign(w.stations.get('blender1'), { fruit:0, stock:5 });
     Object.assign(w.stations.get('barSmoothie'), { stock:3, product:'smoothie' });
     w.stations.get('bowl1').stock = 1;
-    w.stations.get('seat1').dirty = true;
+    Object.assign(w.stations.get('seat1'), { dirty:true, pile:64 });
   });
   await page.waitForTimeout(120); // let stock/cash meshes reflect the state before host pause freezes rendering
 

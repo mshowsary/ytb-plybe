@@ -13,20 +13,21 @@ import { validateAndMigrateSave } from '../src/sim/saveSchema.js';
 
 const INTERIOR = pawInteriorZoneIds(AREA1);
 
-// What Batch 4 will actually author: a spa zone plus the region it opens (plan 3.9).
-// Batch 4b landed z_spa in the real catalogue. "Absent content" therefore needs a catalogue WITHOUT
-// it, and the synthetic spa area below is now simply AREA1 with a redundant second z_spa/spa entry
-// — kept as-is so the assertions that read it stay byte-identical in meaning.
-const NO_SPA_AREA = {
+// A synthetic second region chain (shaped like the retired Pet Spa): a zone that opens an east
+// region, appended after the terrace. Nothing in the rating names it; it proves the interior /
+// regional split re-partitions itself with no edit in pawRating.js.
+const EAST_AREA = {
   ...AREA1,
-  zones: AREA1.zones.filter(z => !['z_spa', 'z_groom', 'z_bath', 'z_boutique', 'z_photographer'].includes(z.id)),
-  regions: AREA1.regions.filter(r => r.id !== 'spa'),
+  zones: [...AREA1.zones, { id: 'z_east', x: 12, z: 0, price: 45000, requires: 'z_terrace', label: 'East wing' }],
+  regions: [...AREA1.regions, { id: 'east', x0: 10, x1: 17.5, z0: -7, z1: 7, builtBy: 'z_east', floor: 'tile' }],
 };
-const SPA_AREA = {
-  ...AREA1,
-  zones: [...AREA1.zones, { id: 'z_spa', x: 12, z: 0, price: 45000, requires: 'z_terrace', label: 'Pet Spa' }],
-  regions: [...AREA1.regions, { id: 'spa', x0: 10, x1: 17.5, z0: -7, z1: 7, builtBy: 'z_spa', floor: 'tile' }],
-};
+// "Absent content": a catalogue that has not authored the terrace chain yet (and so no terrace
+// region). ★3's r3.terrace is the rating's one zone row, so this is what exercises the skip rule.
+const TERRACE_CHAIN = new Set(['z_terrace']);
+for (let pass = 0; pass < AREA1.zones.length; pass++) {
+  for (const z of AREA1.zones) if (z.requires && TERRACE_CHAIN.has(z.requires)) TERRACE_CHAIN.add(z.id);
+}
+const NO_TERRACE_AREA = { ...AREA1, zones: AREA1.zones.filter(z => !TERRACE_CHAIN.has(z.id)), regions: [] };
 
 function meta(extra = {}) {
   return {
@@ -65,13 +66,16 @@ test('interior zones are everything outside a region chain — the terrace chain
   // z_terrace OPENS the terrace region and ★3 asks for it separately; counting it in ★2 would make
   // ★2 strictly harder than ★3.
   assert.ok(!INTERIOR.includes('z_terrace'), 'the region-opening zone is regional, not interior');
-  for (const id of ['z_icecream', 'z_register3', 'z_photo', 'z_terraceSeats', 'z_restroom', 'z_splash']) {
+  for (const id of ['z_icecream', 'z_register3', 'z_terraceSeats', 'z_restroom', 'z_splash']) {
     assert.ok(!INTERIOR.includes(id), `${id} descends from z_terrace and is regional`);
   }
-  assert.equal(INTERIOR.length, 9);
-  // A future spa chain re-partitions itself with no edit in pawRating.js.
-  assert.ok(!pawInteriorZoneIds(SPA_AREA).includes('z_spa'));
-  assert.deepEqual(pawInteriorZoneIds(SPA_AREA), INTERIOR);
+  // The Pet camera hangs its wall INSIDE the cafe and follows the pet lounge, not the garden
+  // (docs/SHIP-PLAN-2026-09-19.md 1.1), so star 2's "the whole cafe interior" now includes it.
+  assert.ok(INTERIOR.includes('z_photo'));
+  assert.equal(INTERIOR.length, 10);
+  // A second region chain re-partitions itself with no edit in pawRating.js.
+  assert.ok(!pawInteriorZoneIds(EAST_AREA).includes('z_east'));
+  assert.deepEqual(pawInteriorZoneIds(EAST_AREA), INTERIOR);
 });
 
 // --- tier gates -----------------------------------------------------------------------------
@@ -153,8 +157,8 @@ test('★3 needs the terrace, 10 album shots and a 7-day window at or under 3 mi
 });
 
 test('★4 needs 16 of 20 pets and a gold cup; ★5 needs the whole album, 3 Perfects and 2000 followers', () => {
-  // z_spa is a real ★4 requirement since Batch 4b, so the fixture builds it.
-  const built = [...INTERIOR, 'z_terrace', 'z_spa'];
+  // ★4 names no zone (its Pet Spa row went with the spa, 2026-09-19): the terrace is ★3's.
+  const built = [...INTERIOR, 'z_terrace'];
   const star3 = m => withSeatDays(meta({
     petFriendship: { 'cat:0': 10 }, album: { 'cat:0': { shots: 10, best: 0 } }, ...m,
   }), 7, 0);
@@ -210,35 +214,37 @@ test('★4 needs 16 of 20 pets and a gold cup; ★5 needs the whole album, 3 Per
 
 test('a requirement naming content absent from the catalogue is skipped, not failed', () => {
   assert.equal(pawZoneInCatalogue('z_terrace', AREA1), true);
-  assert.equal(pawZoneInCatalogue('z_spa', NO_SPA_AREA), false, 'a catalogue without the spa still skips the row');
-  assert.equal(pawZoneInCatalogue('z_spa', AREA1), true, 'Batch 4b: z_spa is real content now');
-  assert.equal(pawZoneInCatalogue('z_spa', SPA_AREA), true);
+  assert.equal(pawZoneInCatalogue('z_terrace', NO_TERRACE_AREA), false);
+  assert.equal(pawZoneInCatalogue('z_spa', AREA1), false, 'the retired spa is absent from the real catalogue');
 
-  const built = [...INTERIOR, 'z_terrace'];
   const m = withSeatDays(meta({
     petFriendship: { 'cat:0': 10 },
     album: { 'cat:0': { shots: 10, best: 0 } },
-    petBook: bookOf(PAW_PET_KEYS.slice(0, 16)),
-    career: { trophies: { gold: 1 }, weeklyCups: {} },
   }), 7, 0);
 
-  // Without the spa in the catalogue: ★4 is reachable, and the spa row is marked skipped so the UI
-  // draws nothing for it.
-  const today = pawRatingState({ meta: m, stats: { served: 200 }, built, area: NO_SPA_AREA });
-  assert.equal(today.live, 4);
-  const spa = req(today, 'r4.spa');
-  assert.equal(spa.skipped, true);
-  assert.equal(spa.met, true);
-  assert.equal(pawVisibleRequirements(today.tiers[3].requirements).some(r => r.id === 'r4.spa'), false);
+  // Without the terrace in the catalogue: ★3 is reachable, and the terrace row is marked skipped
+  // so the UI draws nothing for it.
+  const today = pawRatingState({ meta: m, stats: { served: 200 }, built: INTERIOR, area: NO_TERRACE_AREA });
+  assert.equal(today.live, 3);
+  const terrace = req(today, 'r3.terrace');
+  assert.equal(terrace.skipped, true);
+  assert.equal(terrace.met, true);
+  assert.equal(pawVisibleRequirements(today.tiers[2].requirements).some(r => r.id === 'r3.terrace'), false);
 
-  // Batch 4 adds z_spa to the catalogue and the requirement becomes real with no edit here.
-  const later = pawRatingState({ meta: meta({ ...m }), stats: { served: 200 }, built, area: SPA_AREA });
-  assert.equal(req(later, 'r4.spa').skipped, false);
-  assert.equal(req(later, 'r4.spa').met, false);
-  assert.equal(later.live, 3);
+  // Authoring the zone makes the requirement real with no edit in pawRating.js.
+  const later = pawRatingState({ meta: meta({ ...m }), stats: { served: 200 }, built: INTERIOR, area: AREA1 });
+  assert.equal(req(later, 'r3.terrace').skipped, false);
+  assert.equal(req(later, 'r3.terrace').met, false);
+  assert.equal(later.live, 2);
 
-  const builtSpa = pawRatingState({ meta: meta({ ...m }), stats: { served: 200 }, built: [...built, 'z_spa'], area: SPA_AREA });
-  assert.equal(builtSpa.live, 4);
+  const builtTerrace = pawRatingState({ meta: meta({ ...m }), stats: { served: 200 }, built: [...INTERIOR, 'z_terrace'], area: AREA1 });
+  assert.equal(builtTerrace.live, 3);
+});
+
+test('★4 names no zone: the retired spa row is gone, not skipped', () => {
+  const state = pawRatingState({ meta: meta(), stats: { served: 0 }, built: [], area: AREA1 });
+  assert.deepEqual(state.tiers[3].requirements.map(r => r.id), ['r4.book', 'r4.cup']);
+  assert.equal(state.tiers.flatMap(t => t.requirements).some(r => r.id === 'r4.spa'), false);
 });
 
 // --- the ratchet ------------------------------------------------------------------------------
@@ -281,21 +287,18 @@ test('the rating ratchets: it never goes down when an input regresses', () => {
   assert.equal(regressed.pawBest, 3);
 });
 
-test('Batch 4 adding z_spa cannot un-earn a ★4 a live player already holds', () => {
-  const built = [...INTERIOR, 'z_terrace'];
+test('a zone row that becomes real cannot un-earn a star a live player already holds', () => {
   const m = withSeatDays(meta({
     petFriendship: { 'cat:0': 10 },
     album: { 'cat:0': { shots: 10, best: 0 } },
-    petBook: bookOf(PAW_PET_KEYS.slice(0, 16)),
-    career: { trophies: { gold: 1 }, weeklyCups: {} },
   }), 7, 0);
-  // "Before Batch 4" is the catalogue without the spa; "after" is the real one.
-  assert.equal(applyPawRatchet({ meta: m, stats: { served: 200 }, built, area: NO_SPA_AREA }).best, 4);
+  // "Before" is a catalogue without the terrace; "after" is the real one, terrace still unbuilt.
+  assert.equal(applyPawRatchet({ meta: m, stats: { served: 200 }, built: INTERIOR, area: NO_TERRACE_AREA }).best, 3);
 
-  const afterBatch4 = pawRatingState({ meta: m, stats: { served: 200 }, built, area: AREA1 });
-  assert.equal(afterBatch4.live, 3);
-  assert.equal(afterBatch4.best, 4);
-  assert.equal(afterBatch4.next, 5);
+  const after = pawRatingState({ meta: m, stats: { served: 200 }, built: INTERIOR, area: AREA1 });
+  assert.equal(after.live, 2);
+  assert.equal(after.best, 3);
+  assert.equal(after.next, 4);
 });
 
 // --- descriptors ------------------------------------------------------------------------------
@@ -303,7 +306,7 @@ test('Batch 4 adding z_spa cannot un-earn a ★4 a live player already holds', (
 test('requirements are structured icon descriptors, never prose', () => {
   const state = pawRatingState({ meta: meta(), stats: { served: 0 }, built: [], area: AREA1 });
   const all = state.tiers.flatMap(tier => tier.requirements);
-  assert.equal(all.length, 12);
+  assert.equal(all.length, 11, 'twelve rows less the retired spa row');
   const KEYS = ['star', 'id', 'kind', 'zoneId', 'current', 'target', 'compare', 'met', 'skipped', 'pending'];
   const ids = new Set();
   for (const r of all) {
@@ -439,10 +442,10 @@ test('a hand-edited save cannot grant itself a rating', () => {
   );
   assert.equal(realThree.data.meta.pawBest, 3, 'a ★3 reloads as ★3 with no window in the ring');
 
-  // THE DEMOTION REGRESSION (Batch 4b). z_spa is real content now and ★4 requires it live, but this
-  // save was written before the spa existed and holds a legitimate ★4. The boundary skips zone rows
+  // THE DEMOTION REGRESSION (Batch 4b). When z_spa became a live ★4 row, a save written before the
+  // spa existed and holding a legitimate ★4 was demoted on load. The boundary skips zone rows
   // (saveSchema passes area: null) precisely so a new zone can never un-earn a star on load — the
-  // live ratchet absorbs it, and now the boundary does too.
+  // live ratchet absorbs it, and the boundary does too.
   const realFour = forged(
     {
       pawBest: 4, petFriendship: { 'cat:0': 10 }, album: { 'cat:0': { shots: 10, best: 0 } },

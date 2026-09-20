@@ -1,6 +1,6 @@
 import { inShiftClaimedForShift, markRewardedClaim } from '../sim/adPacing.js';
 import {
-  recommendSmartRelief, recommendRushHelp, reliefClaimKey, returnWasteCost, SMART_RELIEF_REWARD_ID,
+  recommendSmartRelief, recommendRushHelp, reliefClaimKey, SMART_RELIEF_REWARD_ID,
 } from '../sim/relief.js';
 import { familyOf } from '../sim/economy.js';
 import { makeRushCrewBoost, rushCrewActive, rushCrewHasBenefit } from '../sim/rushCrew.js';
@@ -10,7 +10,7 @@ import {
 } from '../sim/petPlayBreak.js';
 import { ROOMBA_SWEEP_SECONDS } from '../sim/petMess.js';
 import { makePendingEntitlement, snapshotTemporaryHelp } from '../sim/temporaryHelp.js';
-import { coinIcon, gearIcon, personIcon, treatIcon, coinMinusIcon, returnIcon, giftIcon, checkIcon, crossIcon, clockIcon, pawIcon, heartIcon, broomIcon, sparkleIcon } from '../ui/icons.js';
+import { coinIcon, gearIcon, personIcon, treatIcon, giftIcon, checkIcon, crossIcon, clockIcon, pawIcon, heartIcon, broomIcon, sparkleIcon } from '../ui/icons.js';
 import { cue } from '../ui/hud.js';
 
 export const RUSH_CREW_REWARD_ID = 'pet-cafe-rush-crew';
@@ -208,21 +208,9 @@ export function createEconomyExperience(G, S, ctx, platform) {
     snapshotWrapped = true;
   }
 
-  G.carry.onReturn = had => {
-    const productKeys = owner.items.map(m => m && m.userData && m.userData.product).filter(Boolean);
-    const wanted = returnWasteCost(productKeys, had && had.fruit);
-    const fee = Math.min(Math.max(0, G.coins | 0), wanted);
-    if (fee <= 0) return;
-    G.coins -= fee;
-    G.dayStats.wasteFees = (G.dayStats.wasteFees | 0) + fee;
-    G.stats.wasteFees = (G.stats.wasteFees | 0) + fee;
-    hud.setCoins(G.coins); audio.play('penalty');
-    const st = world.stations.get('return1');
-    if (st) fx.number(st.x, 1.0, st.z, `-${fee}`, 'lost');
-    // The return station's own coral down-arrow, then the crossed coin. Naming the station that
-    // charged you is more actionable than naming the category of mistake.
-    hud.toast(cue([returnIcon(), coinMinusIcon(), fee], `Food waste, handling minus ${fee} coins`));
-  };
+  // Returning is free. This used to install a G.carry.onReturn that charged a "food waste" fee
+  // (up to 20 coins, a penalty sound and a minus toast); the ship plan's never-punishing rule
+  // retired it. systems/serviceFriction.js still counts each return (dayStats.returnActions).
 
   function hide() { current = null; pressureKey = ''; pressureT = 0; ui.setModel(null); }
   function celebratePetBreak(recipients, resumed = false) {
@@ -406,7 +394,6 @@ export function createEconomyExperience(G, S, ctx, platform) {
       if (pressureT >= 5) { platform?.noteAdEligible?.('rewarded', `rush:${d.day}:${next.key}`); ui.setModel(next); }
     },
     teardown() {
-      if (G.carry.onReturn) G.carry.onReturn = null;
       ui.destroy();
     },
   };

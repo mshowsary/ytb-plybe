@@ -1,35 +1,34 @@
 // Owner movement, station interactions, carry guidance and contextual actions.
-import { pushOut } from '../sim/collide.js';
 import {
   PRODUCTS, familyOf, playerSpeed, carryCap, buyUpgrade, hire as hireStaff,
   buyWorkerUpgrade, buyMachineUpgrade, machineSpeedMult, buyStar, STAR_IDS,
-  buyDecor, buyAccessory,
+  buyDecor,
 } from '../sim/economy.js';
 import {
   stepOvens, stepMachines, takeFromOven, takeFromMachine, putOnDisplay, collectCash,
-  refillBeans, refillBowl, refillCream, refillWater, harvestBush, addFruit as stationAddFruit, ownerCleanSeat,
+  refillBeans, refillBowl, harvestBush, addFruit as stationAddFruit, ownerCleanSeat,
 } from '../sim/world.js';
 import { canTakeItems, takeSack, useSack, addFruit as carryAddFruit, returnAll } from '../sim/carry.js';
-import { clampToArea } from '../sim/ownerState.js';
+import { ownerBodyBoxes, moveOwnerBody, OWNER_BODY_R } from '../sim/ownerReach.js';
 import { heldState, destinationFor, findReturnStation, heldLabel, destinationLabel } from '../sim/interaction.js';
 import { itemFor } from '../render/props.js';
 import { C } from '../render/palette.js';
 import { damp } from '../core/tween.js';
 import { buildKioskModel } from '../ui/models.js';
 import { cue, paintCue } from '../ui/hud.js';
-import { coinIcon, crossIcon, handIcon, returnIcon, coffeeIcon, smoothieIcon, treatIcon, iconFor, sackIcon, gearIcon, personIcon, hangerIcon, broomIcon } from '../ui/icons.js';
+import { coinIcon, crossIcon, handIcon, returnIcon, coffeeIcon, smoothieIcon, treatIcon, iconFor, sackIcon, gearIcon, personIcon, broomIcon } from '../ui/icons.js';
 
 // The floating action button's pictograms, by the label the action was authored with. The label
 // itself survives as the cue's aria text — and, through paintCue's visually-hidden span, as the
 // button's textContent, which tools/production-smoke*.js and the task25 cert read verbatim.
-const ACTION_ICON = { SUPPLIES: sackIcon, RETURN: returnIcon, UPGRADES: gearIcon, STAFF: personIcon, BOUTIQUE: hangerIcon };
+const ACTION_ICON = { SUPPLIES: sackIcon, RETURN: returnIcon, UPGRADES: gearIcon, STAFF: personIcon };
 // The owner's 2026-09-09 phone playtest: "those return, upgrade, staff labels now turned into icons
 // really do not say anything". Sentences stay banned on the play field, but a single verb under the
 // pictogram is not a sentence -- this is the ONE WORD painted by `.fbtnWord` below, entirely outside
 // the cue helper's cells argument that the guard test (test/play-field-text.test.js) inspects, so
 // the ban on worded cue cells is untouched. A label with no entry here falls back to the label
 // itself, which is already upper-case and already a single word for every action this file authors.
-const ACTION_WORD = { SUPPLIES: 'SUPPLIES', RETURN: 'RETURN', UPGRADES: 'UPGRADE', STAFF: 'HIRE', BOUTIQUE: 'SHOP' };
+const ACTION_WORD = { SUPPLIES: 'SUPPLIES', RETURN: 'RETURN', UPGRADES: 'UPGRADE', STAFF: 'HIRE' };
 const FBTN_STYLE_ID = 'pet-cafe-fbtn-word-style';
 function ensureFbtnStyle() {
   if (typeof document === 'undefined' || document.getElementById(FBTN_STYLE_ID)) return;
@@ -86,11 +85,23 @@ const FIRST_HINT = {
   blender: 'Add fruit',
   bowl: 'Add treats',
   icecream: 'Take ice cream',
-  bath: 'Add water',
   kiosk: 'Upgrades',
   hire: 'Staff',
 };
 const FIRST_HINT_SECONDS = 2;
+
+// The garden's ice cream machine stands directly behind its stand, both worked from one spot, so a
+// cone taken is a cone placed a step later. It hands over only what the stand can still take:
+// anything more would be cones in the owner's hands with nowhere on the deck to put them (the
+// garden has no RETURN crate). Other machines are unaffected.
+function pairedStandRoom(world, st, held) {
+  if (st.type !== 'icecream') return Infinity;
+  for (const id of world.displays) {
+    const d = world.stations.get(id);
+    if (d.selfServe && familyOf(d.product) === familyOf(st.product)) return d.capacity - d.stock - held;
+  }
+  return Infinity;
+}
 
 export function createStations(G, S, ctx) {
   ensureFbtnStyle();
@@ -200,11 +211,6 @@ export function createStations(G, S, ctx) {
     if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); markCheckpoint('decor-buy'); }
     else { audio.play('angry'); hud.toast(NOT_ENOUGH_COINS()); }
   }
-  function doBuyAccessory(id) {
-    const r = buyAccessory(G, id);
-    if (r.ok) { audio.play('chime'); hud.setCoins(G.coins); refreshOpen(); markCheckpoint('boutique-buy'); }
-    else { audio.play('angry'); hud.toast(NOT_ENOUGH_COINS()); }
-  }
   function doSetTab(tab) { currentTab = tab; currentFocusRow = null; refreshOpen(); }
   function doAssignRunner(index, displayId) {
     const runners = G.staffList.filter(s => s.kind === 'runner');
@@ -214,7 +220,7 @@ export function createStations(G, S, ctx) {
   }
   const sheetActions = {
     buy: doBuy, hire: doHire, buyWorker: doBuyWorker, buyMachine: doBuyMachine,
-    buyStar: doBuyStar, setTab: doSetTab, assignRunner: doAssignRunner, buyDecor: doBuyDecor, buyAccessory: doBuyAccessory,
+    buyStar: doBuyStar, setTab: doSetTab, assignRunner: doAssignRunner, buyDecor: doBuyDecor,
   };
 
   function doOpenKioskFocused(stationId) {
@@ -249,8 +255,8 @@ export function createStations(G, S, ctx) {
     for (const s of world.stations.values()) if (s.type === 'bowl' && s.active) { bowlActive = true; break; }
     anchorSheet(st);
     // The model comes from THIS pantry's declared supplies (data/area1.js), not a fixed
-    // {beans, kibble}: coldPantry1 carries cream and waterTank1 carries water, and a sheet that
-    // ignored which pantry was tapped could offer neither. A pantry that declares nothing is the
+    // {beans, kibble}: a pantry that declared another supply (the retired cold pantry's cream) was
+    // offered by nothing else. A pantry that declares nothing is the
     // main one and keeps its two historical buttons, so the coach's structural two-button lookup
     // (ui/interactionCoach.js) sees exactly what it always has.
     const def = area.stations.find(s => s.id === st.id);
@@ -300,50 +306,23 @@ export function createStations(G, S, ctx) {
   // footprint. Measured 2026-09-16: the drawn oven reaches 0.60 m past its footprint and the drawn
   // counter 0.21 m, so standing on their front spots put the owner's torso inside them — the merge
   // in the playtest screenshots. Staff, guests and pathfinding keep using world.boxes, so the nav
-  // grid and every sim baseline are untouched. st.body comes from src/systems/visuals.js.
+  // grid and every sim baseline are untouched. st.body comes from src/systems/visuals.js. The box
+  // rule itself lives in sim/ownerReach.js ownerBodyBoxes, so the post-build pocket check
+  // (systems/zones.js) judges reachability against exactly these boxes. A gate is the OPENING in a
+  // fence, not a thing, and is left out: its 4.8 m footprint was once a wall across the terrace's
+  // only doorway that only the player collided with (owner playtest, 2026-09-17).
   let bodyBoxes = null, bodyBoxesFor = -1;
   function playerBoxes() {
     let live = 0;
     for (const st of world.stations.values()) if (st.active) live++;
     if (bodyBoxes && bodyBoxesFor === live) return bodyBoxes;
     bodyBoxesFor = live;
-    bodyBoxes = [];
-    for (const st of world.stations.values()) {
-      if (!st.active) continue;
-      // A gate is the OPENING in a fence, not a thing: world.js leaves it out of the sim's boxes
-      // for exactly that reason, and this list must too. Left in, its 4.8 m footprint was a wall
-      // across the terrace's only doorway that only the player collided with — guests and staff
-      // walked through while the owner was stuck on the deck (owner playtest, 2026-09-17).
-      if (st.type === 'gate') continue;
-      let fw = st.fw != null ? st.fw : 1, fd = st.fd != null ? st.fd : 1;
-      if (Math.abs(Math.sin(st.rot)) > 0.5) { const t = fw; fw = fd; fd = t; }
-      // Union, never replace: a prop drawn smaller than its footprint must not open a gap that the
-      // sim's own collision still treats as solid.
-      let minx = st.x - fw / 2, maxx = st.x + fw / 2, minz = st.z - fd / 2, maxz = st.z + fd / 2;
-      if (st.body) {
-        minx = Math.min(minx, st.body.minx); maxx = Math.max(maxx, st.body.maxx);
-        minz = Math.min(minz, st.body.minz); maxz = Math.max(maxz, st.body.maxz);
-      }
-      bodyBoxes.push({ x: (minx + maxx) / 2, z: (minz + maxz) / 2, hw: (maxx - minx) / 2, hd: (maxz - minz) / 2 });
-    }
+    bodyBoxes = ownerBodyBoxes(world);
     return bodyBoxes;
   }
 
-  // How far into a station would a body of BODY_R standing here be? 0 when clear. Mirrors pushOut's
-  // own circle-vs-box test in src/sim/collide.js, and is the player-only counterpart to it.
-  const BODY_R = 0.46;
-  function overlapDepth(x, z) {
-    let worst = 0;
-    for (const b of playerBoxes()) {
-      const dx = Math.abs(x - b.x) - b.hw, dz = Math.abs(z - b.z) - b.hd;
-      if (dx >= BODY_R || dz >= BODY_R) continue;
-      // Distance from the circle's centre to the box: 0 inside, else the corner/face distance.
-      const ox = Math.max(dx, 0), oz = Math.max(dz, 0);
-      const d = Math.hypot(ox, oz);
-      if (d < BODY_R && BODY_R - d > worst) worst = BODY_R - d;
-    }
-    return worst;
-  }
+  // The owner's body radius — see the movement step in update() for why 0.46.
+  const BODY_R = OWNER_BODY_R;
 
   let floatAction = null;
   // The button belongs to the machine the owner is STANDING AT. Distance decides it; priority only
@@ -389,7 +368,6 @@ export function createStations(G, S, ctx) {
     const st = a.st;
     if (a.kind === 'kiosk') openKiosk(st, 'player');
     else if (a.kind === 'hire') openKiosk(st, 'workers');
-    else if (a.kind === 'boutique') openKiosk(st, 'boutique');
     else if (a.kind === 'pantry') openPantry(st);
     else if (a.kind === 'return') {
       const held = heldState(owner.items, carry);
@@ -421,8 +399,8 @@ export function createStations(G, S, ctx) {
 
       const mv = G._force || input; const sp = playerSpeed(G.up);
       P.vx = damp(P.vx, mv.x * sp, 18, dt); P.vz = damp(P.vz, mv.z * sp, 18, dt);
-      const wasX = P.x, wasZ = P.z, wasDepth = overlapDepth(P.x, P.z);
-      P.x += P.vx * dt; P.z += P.vz * dt;
+      // One step of the owner's body (sim/ownerReach.js moveOwnerBody — the headless no-pockets
+      // walk in test/owner-reach.test.js moves by the same function). What it does, and why:
       // 0.46, not 0.35. The player is pushed out of a station's RAW footprint, and 0.35 is narrower
       // than the body it is standing in for: the arms sit at x +/-0.44 with their own width on top
       // of that, reaching about 0.50 from centre, and a counter's wood top overhangs its footprint
@@ -436,13 +414,11 @@ export function createStations(G, S, ctx) {
       // box can plant the body inside its neighbour and the frame ends with the owner half
       // inside a wall corner. Re-running settles those; anything still overlapping after three
       // passes is a gap genuinely narrower than the body, which the nav grid already forbids.
-      for (let i = 0; i < 3; i++) pushOut(P, BODY_R, playerBoxes());
       // Batch 1 — regions engine (plan 7.1): clamp to the interior UNION every built region (the
       // terrace), or the owner can never walk onto the deck they just bought.
-      // The interior UNION built regions is an L once the spa exists, not a rectangle — a box
-      // clamp let the owner stroll into the empty south-east corner. clampToArea also confines the
-      // crossing to the gate itself; see its comment in sim/ownerState.js.
-      { const p = clampToArea(area, world.built, P.x, P.z); P.x = p.x; P.z = p.z; }
+      // The interior UNION built regions need not be a rectangle, and fences are render-only:
+      // clampToArea confines the owner to the rooms themselves and the crossing to the gate.
+      // See its comment in sim/ownerState.js.
       // The clamp runs AFTER pushOut and wins, so a station whose box straddles the edge of the
       // walkable area — the restroom and the photo booth stand against the back wall — could have
       // the clamp plant the body right back inside it. Measured 2026-09-16: walking at the restroom
@@ -451,7 +427,7 @@ export function createStations(G, S, ctx) {
       // started simply does not happen. Comparing depths rather than testing "is it clear" matters,
       // because a single bad frame would otherwise leave the owner permanently inside with the
       // guard switched off — this way every move that digs out is still allowed.
-      if (overlapDepth(P.x, P.z) > wasDepth + 1e-4) { P.x = wasX; P.z = wasZ; P.vx = 0; P.vz = 0; }
+      if (!moveOwnerBody(P, P.x + P.vx * dt, P.z + P.vz * dt, playerBoxes(), area, world.built)) { P.vx = 0; P.vz = 0; }
       owner.group.position.set(P.x, 0, P.z); owner.update(dt, P.vx, P.vz); S.follow(P.x, P.z, dt);
 
       if (sheetAnchorId && sheets.isOpen) {
@@ -493,7 +469,7 @@ export function createStations(G, S, ctx) {
               const target = destinationFor(world, current, P);
               guideCarry(`${heldLabel(current)}${target ? ` → ${destinationLabel(target)}` : ''}`, 3);
             }
-          } else if (dwellOk && takeT <= 0 && canTakeItems(carry) && owner.items.length < carryCap(G.up) && st.stock > 0) {
+          } else if (dwellOk && takeT <= 0 && canTakeItems(carry) && owner.items.length < carryCap(G.up) && st.stock > 0 && pairedStandRoom(world, st, owner.items.length) > 0) {
             const first = owner.items.length === 0;
             (st.type === 'oven' ? takeFromOven : takeFromMachine)(world, st.id, 1);
             const im = itemFor(productKey); im.userData.product = productKey; owner.addItem(im);
@@ -505,17 +481,6 @@ export function createStations(G, S, ctx) {
             const used = refillBeans(world, st.id, carry.sackLeft);
             if (used > 0) {
               useSack(carry, used); hints.refillCoffee = 1; audio.play('pour'); fx.burst(st.x, 0.9, st.z, C.coral, 6);
-              maybeGuideLeftovers(st);
-            }
-          }
-          // The ice cream machine mirrors the espresso machine exactly, cream for beans. Until now
-          // nothing in the running game ever called refillCream: the cold pantry sold cream, the
-          // owner visibly carried it, and standing at the machine did nothing at all. Same story for
-          // the bath's water further down — see the branch after 'bowl'.
-          if (st.type === 'icecream' && dwellOk && carry.sack === 'cream') {
-            const used = refillCream(world, st.id, carry.sackLeft);
-            if (used > 0) {
-              useSack(carry, used); hints.refillCream = 1; audio.play('pour'); fx.burst(st.x, 0.9, st.z, C.cream || C.coral, 6);
               maybeGuideLeftovers(st);
             }
           }
@@ -546,6 +511,9 @@ export function createStations(G, S, ctx) {
             fx.burst(st.x, 1.3, st.z, PRODUCTS[key].color, 4);
             maybeGuideLeftovers(st);
           }
+          // The garden stand's cash jar empties itself into the wallet as the owner passes behind the
+          // counter — the same walk-past rule as a register's tray, from the spot the owner stocks it.
+          if (st.selfServe && st.pile > 0 && near(P, st.cash, AUTO_CASH_RADIUS) && !sheets.isOpen) collectRegisterCash(st);
         }
 
         if (st.type === 'checkout') {
@@ -584,18 +552,6 @@ export function createStations(G, S, ctx) {
           }
         }
 
-        if (st.type === 'bath') {
-          const dwellOk = dwelling(st, 1.3, speed);
-          noteFirstHint('bath', dwellOk);
-          if (dwellOk && carry.sack === 'water') {
-            const used = refillWater(world, st.id, carry.sackLeft);
-            if (used > 0) {
-              useSack(carry, used); hints.refillWater = 1; audio.play('pour'); fx.burst(st.x, 0.7, st.z, C.metal, 6);
-              maybeGuideLeftovers(st);
-            }
-          }
-        }
-
         if (st.type === 'bush') {
           const dwellOk = dwelling(st, 1.2, speed);
           noteFirstHint('bush', dwellOk);
@@ -610,6 +566,10 @@ export function createStations(G, S, ctx) {
         }
 
         if (st.type === 'seat') {
+          // A photographed pet tips onto its own table (src/sim/petPose.js). Money is a flow chore,
+          // not a decision, so it is swept exactly like a register's tray: walking close enough to
+          // wipe the table is close enough to pick the saucer up.
+          if (st.pile > 0 && near(P, st.front, AUTO_CLEAN_RADIUS) && !sheets.isOpen) collectRegisterCash(st);
           // Dirty tables are maintenance, so proximity itself is the interaction.
           if (st.dirty && near(P, st.front, AUTO_CLEAN_RADIUS) && !sheets.isOpen) {
             // Program §6.3: one call emits 'cleaning' then 'cleaned', so the owner's wipe runs the
@@ -628,11 +588,11 @@ export function createStations(G, S, ctx) {
           }
         }
 
-        if (st.type === 'kiosk' || st.type === 'hire' || st.type === 'boutique') {
+        if (st.type === 'kiosk' || st.type === 'hire') {
           const atFront = near(P, st.front, 1.35);
           noteFirstHint(st.type, atFront);
           if (atFront && !sheets.isOpen) {
-            const label = st.type === 'kiosk' ? 'UPGRADES' : st.type === 'hire' ? 'STAFF' : 'BOUTIQUE';
+            const label = st.type === 'kiosk' ? 'UPGRADES' : 'STAFF';
             offerAction(actionCandidates, st, st.type, label, 2);
           }
         }

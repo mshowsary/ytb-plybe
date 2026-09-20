@@ -88,7 +88,7 @@ const out = await page.evaluate(() => {
   // for the splash pool that later takes the same spot. Excluded by position, not by object.
   // Likewise the petals environment.js floats on the water (y 0.30, radius 0.62-0.84 from centre),
   // which it places for both the fountain and the splash pool.
-  const intendedDecor = (st, x, z, y) => (st.id === 'fountain1' || st.id === 'splash1') && (
+  const intendedDecor = (st, x, z, y) => st.id === 'fountain1' && (
     (Math.abs(Math.abs(x - st.x) - 1.05) < 0.35 && Math.abs(Math.abs(z - st.z) - 1.05) < 0.35)
     || (y < 0.45 && Math.hypot(x - st.x, z - st.z) < 0.95));
 

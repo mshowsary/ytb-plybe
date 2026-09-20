@@ -55,7 +55,7 @@ export function destinationFor(world, held, from = null) {
 
 export function heldLabel(held) {
   if (!held) return '';
-  if (held.type === 'sack') return held.key || 'supplies';   // cream and water used to read "kibble"
+  if (held.type === 'sack') return held.key || 'supplies';   // cream used to read "kibble"
   if (held.type === 'fruit') return 'fruit';
   const labels = { cookie: 'cookies', brownie: 'brownies', cupcake: 'cupcakes', coffee: 'coffee', latte: 'lattes', smoothie: 'smoothies' };
   return labels[held.key] || held.key || 'items';
@@ -68,7 +68,6 @@ export function destinationLabel(st) {
   if (st.type === 'blender') return 'BLENDER';
   if (st.type === 'bowl') return 'TREATS';
   if (st.type === 'icecream') return 'ICE CREAM';
-  if (st.type === 'bath') return 'BATH';
   if (st.type === 'display') {
     const labels = { cookie: 'COOKIES', brownie: 'COOKIES', cupcake: 'CUPCAKES', coffee: 'COFFEE BAR', latte: 'COFFEE BAR', smoothie: 'SMOOTHIES' };
     return labels[st.product] || 'DISPLAY';

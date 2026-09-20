@@ -1,9 +1,10 @@
 // Every supply lane routes: a dry machine sends the player to the place that stocks its supply,
 // and a full pair of hands sends them on to the machine.
 //
-// Before src/sim/supplies.js this knew beans and kibble only, so a dry ice cream machine or spa
-// bath produced no guidance at all — and canDeliverTo did not recognise the sacks either, so the
-// game routed an owner holding cream to the RETURN crate.
+// Before src/sim/supplies.js this knew beans and kibble only, so a dry ice cream machine produced
+// no guidance at all — and canDeliverTo did not recognise the sack either, so the game routed an
+// owner holding cream to the RETURN crate. (The retired spa bath's water lane went with the spa,
+// and the cream lane with the cold pantry on 2026-09-19: the ice cream machine needs no supply.)
 import { test } from 'node:test'; import assert from 'node:assert/strict';
 import { AREA1 } from '../data/area1.js';
 import { createWorld, payZone } from '../src/sim/world.js';
@@ -26,8 +27,6 @@ const drainAll = w => {
     if (!st.active) continue;
     if (st.type === 'coffee') st.beans = 20;
     if (st.type === 'bowl') st.stock = st.capacity;
-    if (st.type === 'icecream') st.cream = 20;
-    if (st.type === 'bath') st.water = 20;
   }
 };
 
@@ -43,13 +42,11 @@ test('a dry machine routes to the pantry that stocks ITS supply, not just any pa
   const cases = [
     ['coffee', 'beans', 'pantry1'],
     ['bowl', 'kibble', 'pantry1'],
-    ['icecream', 'cream', 'coldPantry1'],
-    ['bath', 'water', 'waterTank1'],
   ];
   for (const [type, supply, pantryId] of cases) {
     drainAll(w);
     const st = byType(w, type);
-    st[{ coffee: 'beans', bowl: 'stock', icecream: 'cream', bath: 'water' }[type]] = 0;
+    st[{ coffee: 'beans', bowl: 'stock' }[type]] = 0;
     assert.equal(supplyLevel(st), 0, `${type} did not actually drain`);
     assert.equal(isStarved(st), true, `${type} is dry but does not read as starved`);
     assert.equal(pantryFor(w, supply).id, pantryId, `${supply} should come from ${pantryId}`);
@@ -64,8 +61,7 @@ test('a dry machine routes to the pantry that stocks ITS supply, not just any pa
 
 test('holding the supply switches the guidance to the machine that needs it', () => {
   const w = builtWorld();
-  for (const [type, supply, field] of [['coffee', 'beans', 'beans'], ['bowl', 'kibble', 'stock'],
-    ['icecream', 'cream', 'cream'], ['bath', 'water', 'water']]) {
+  for (const [type, supply, field] of [['coffee', 'beans', 'beans'], ['bowl', 'kibble', 'stock']]) {
     drainAll(w);
     const st = byType(w, type);
     st[field] = 0;
@@ -80,9 +76,9 @@ test('holding the supply switches the guidance to the machine that needs it', ()
 test('a carried supply is deliverable to its machine, and is never routed to the RETURN crate', () => {
   const w = builtWorld();
   drainAll(w);
-  for (const [supply, type] of [['beans', 'coffee'], ['kibble', 'bowl'], ['cream', 'icecream'], ['water', 'bath']]) {
+  for (const [supply, type] of [['beans', 'coffee'], ['kibble', 'bowl']]) {
     const st = byType(w, type);
-    st[{ coffee: 'beans', bowl: 'stock', icecream: 'cream', bath: 'water' }[type]] = 0;
+    st[{ coffee: 'beans', bowl: 'stock' }[type]] = 0;
     const held = { type: 'sack', key: supply, count: 10 };
     assert.equal(canDeliverTo(st, held), true, `a ${supply} sack cannot be delivered to the ${type}`);
     const dest = destinationFor(w, held, { x: st.x, z: st.z });
@@ -91,16 +87,33 @@ test('a carried supply is deliverable to its machine, and is never routed to the
   }
 });
 
-test('a dry ice cream machine or bath is a pending job, the same as a dry espresso machine', () => {
+test('a dry espresso machine or treat bowl is a pending job', () => {
   const w = builtWorld();
   const G = { P: { x: 0, z: 0 }, carry: { sack: null, sackLeft: 0, fruit: 0 }, coins: 0, customers: [] };
-  for (const [type, field] of [['coffee', 'beans'], ['bowl', 'stock'], ['icecream', 'cream'], ['bath', 'water']]) {
+  for (const [type, field] of [['coffee', 'beans'], ['bowl', 'stock']]) {
     drainAll(w);
     for (const st of w.stations.values()) if (st.type === 'bush' && st.active) st.stage = 0;
     byType(w, type)[field] = 0;
     assert.equal(pendingJobs(w, G).sacksEmpty, 1, `a dry ${type} is not counted as an empty supply`);
     assert.equal(jobTarget(w, G).kind, 'refill', `a dry ${type} does not make "refill" the next job`);
   }
+});
+
+test('the garden ice cream machine drinks nothing: never starved, never a refill job, never a pantry trip', () => {
+  const w = builtWorld();
+  drainAll(w);
+  for (const st of w.stations.values()) if (st.type === 'bush' && st.active) st.stage = 0;
+  const ice = byType(w, 'icecream');
+  assert.ok(ice, 'the garden builds its ice cream machine');
+  ice.stock = 0;
+  assert.equal(SUPPLY_OF.icecream, undefined, 'no supply kind for the ice cream machine');
+  assert.equal('cream' in ice, false, 'the machine carries no supply field');
+  assert.equal(isStarved(ice), false);
+  const G = { P: { x: ice.x, z: ice.z }, carry: { sack: null, sackLeft: 0, fruit: 0 }, coins: 0, customers: [] };
+  assert.equal(pendingJobs(w, G).sacksEmpty, 0);
+  assert.equal(refillGuideTarget(w, G), null, 'an empty ice cream machine sent the player to a pantry');
+  // Nor does any pantry hand out cream: the cold pantry is gone and the café pantry never did.
+  assert.equal(pantryFor(w, 'cream', true), null);
 });
 
 test('a dry blender is NOT a refill errand — its fruit comes off the bushes', () => {

@@ -43,16 +43,129 @@ function preserveLegacyDeskInvestment(result, raw, area, areaId) {
   if (result.data.partial && typeof result.data.partial === 'object') delete result.data.partial.z_hire;
 }
 
+// Zones the catalogue no longer sells. The core validator keeps only ids that are still in
+// area.zones (and drops their partial payments and station rows the same way), so without this a
+// save that bought one would silently lose every coin it spent there. Each row is {id, price,
+// requires, stations} exactly as the zone was last authored, except that `stations` lists only the
+// stations that went with it (their trays are refunded too); rows are in chain order, so a row's
+// `requires` is either live or an earlier row. Later batches add the zones they retire.
+export const RETIRED_ZONES = Object.freeze([
+  // The Ice cream garden's cuts, 2026-09-19 (docs/SHIP-PLAN-2026-09-19.md §1.1-1.2). z_icecream's
+  // machine and counter moved into z_terrace, so only its cold pantry and crate left with it.
+  // First, because the spa chain below hangs off z_splash.
+  { id: 'z_icecream', price: 3600, requires: 'z_terrace', stations: ['coldPantry1', 'return2'] },
+  { id: 'z_register3', price: 4000, requires: 'z_icecream', stations: ['register3'] },
+  { id: 'z_restroom', price: 3500, requires: 'z_terraceSeats', stations: ['wc1'] },
+  { id: 'z_splash', price: 4000, requires: 'z_photo', stations: ['splash1'] },
+  // The Pet Spa, retired 2026-09-19 (docs/SHIP-PLAN-2026-09-19.md §1.1).
+  { id: 'z_spa', price: 9000, requires: 'z_splash', stations: ['gate2', 'spaSeat1', 'spaSeat2', 'spaSeat3', 'planters'] },
+  { id: 'z_groom', price: 6000, requires: 'z_spa', stations: ['groom1'] },
+  { id: 'z_bath', price: 7000, requires: 'z_groom', stations: ['bath1', 'waterTank1'] },
+  { id: 'z_boutique', price: 6500, requires: 'z_bath', stations: ['boutique1'] },
+  { id: 'z_photographer', price: 8000, requires: 'z_boutique', stations: ['photoDesk1'] },
+].map(z => Object.freeze({ ...z, stations: Object.freeze([...z.stations]) })));
+
+// Coins owed back for retired zones this raw save built: each zone's price, any cash left on its
+// stations' trays, and any partial payment on one it had not finished. The same chain rule as
+// saveSchema's normalizeBuildState applies (a zone counts only if its `requires` is built), so a
+// forged orphan id earns nothing. A zone that is still authored is skipped, which keeps the table
+// inert until its data row is actually removed. It pays once: the canonical save this produces
+// never contains a retired id, partial or station row, so re-validating it refunds 0.
+export function retiredZoneRefund(raw, area, builtIds, areaId = 'a1') {
+  if (!raw || typeof raw !== 'object' || !area || !Array.isArray(area.zones)) return 0;
+  const live = new Set(area.zones.map(z => z.id));
+  let source = [];
+  if (raw.builds != null) {
+    if (raw.builds && typeof raw.builds === 'object' && Array.isArray(raw.builds[areaId])) source = raw.builds[areaId];
+  } else if (Array.isArray(raw.built)) source = raw.built;
+  const requested = new Set(source.slice(0, 128).filter(id => typeof id === 'string' && id.length <= 80));
+  const partial = raw.partial && typeof raw.partial === 'object' && !Array.isArray(raw.partial) ? raw.partial : {};
+  const byId = raw.stationState && raw.stationState.byId && typeof raw.stationState.byId === 'object' ? raw.stationState.byId : {};
+  const have = new Set(builtIds || []);
+  let refund = 0;
+  for (const z of RETIRED_ZONES) {
+    if (live.has(z.id) || !have.has(z.requires)) continue;
+    if (requested.has(z.id)) {
+      have.add(z.id);
+      refund += z.price;
+      for (const sid of z.stations) {
+        const pile = byId[sid] && byId[sid].pile;
+        if (Number.isFinite(pile) && pile > 0 && pile <= SAVE_LIMITS.maxCoins) refund += Math.trunc(pile);
+      }
+    } else if (Number.isFinite(partial[z.id])) {
+      const paid = Math.trunc(partial[z.id]);
+      // A complete/over-complete partial is corruption, exactly as normalizePartial treats it.
+      if (paid > 0 && paid < z.price) refund += paid;
+    }
+  }
+  return Math.min(refund, SAVE_LIMITS.maxCoins);
+}
+
+// Zones whose prerequisite moved. The core validator drops a built zone whose `requires` is not
+// built, so a save that bought one under its OLD prerequisite would lose it and everything that
+// hangs off it. Instead the zones between the old prerequisite and the new one are completed for
+// that save: they are exactly what the player would otherwise have to rebuild to get back a room
+// they already own. A part-payment on such a zone that the save can no longer see (its new
+// prerequisite is not built) comes back as coins (rechainedPartialRefund below).
+export const RECHAINED_ZONES = Object.freeze([
+  // 2026-09-19: the Ice cream garden follows the pet lounge instead of the smoothie bar.
+  Object.freeze({ id: 'z_terrace', oldRequires: 'z_blender', grants: Object.freeze(['z_garden', 'z_seats2']) }),
+]);
+
+function requestedBuilds(raw, areaId) {
+  if (raw.builds != null) return raw.builds && typeof raw.builds === 'object' && Array.isArray(raw.builds[areaId]) ? raw.builds[areaId] : [];
+  return Array.isArray(raw.built) ? raw.built : [];
+}
+
+// A copy of `raw` with the granted zones added to its build list, or `raw` itself when nothing
+// applies. Never mutates the caller's save.
+export function withRechainedGrants(raw, area, areaId = 'a1') {
+  if (!raw || typeof raw !== 'object' || !area || !Array.isArray(area.zones)) return raw;
+  const source = requestedBuilds(raw, areaId);
+  const have = new Set(source.filter(id => typeof id === 'string'));
+  const add = [];
+  for (const r of RECHAINED_ZONES) {
+    const zone = area.zones.find(z => z.id === r.id);
+    if (!zone || !have.has(r.id) || !have.has(r.oldRequires) || have.has(zone.requires)) continue;
+    for (const id of r.grants) if (!have.has(id)) { have.add(id); add.push(id); }
+  }
+  if (!add.length) return raw;
+  const list = [...source, ...add];
+  return raw.builds != null ? { ...raw, builds: { ...raw.builds, [areaId]: list } } : { ...raw, built: list };
+}
+
+// Coins for a part-payment on a re-chained zone whose NEW prerequisite this save has not built: the
+// validator drops such a partial (the plot is not offered yet), so it is paid back instead.
+export function rechainedPartialRefund(raw, area, builtIds) {
+  if (!raw || typeof raw !== 'object' || !area || !Array.isArray(area.zones)) return 0;
+  const partial = raw.partial && typeof raw.partial === 'object' && !Array.isArray(raw.partial) ? raw.partial : {};
+  const have = new Set(builtIds || []);
+  let refund = 0;
+  for (const r of RECHAINED_ZONES) {
+    const zone = area.zones.find(z => z.id === r.id);
+    if (!zone || have.has(r.id) || have.has(zone.requires) || !have.has(r.oldRequires) || !Number.isFinite(partial[r.id])) continue;
+    const paid = Math.trunc(partial[r.id]);
+    if (paid > 0 && paid < zone.price) refund += paid;
+  }
+  return Math.min(refund, SAVE_LIMITS.maxCoins);
+}
+
 // Tasks 10–12, 29 and 36 extend the certified root-v4 schema through versioned nested payloads.
 // Keeping these wrappers here means the YouTube load gate and applySave canonicalize every extension
 // before cloud writes unlock, without destabilizing the historical root migration contract.
 export function validateAndMigrateSave(raw, area = null) {
+  const areaId = area && typeof area.id === 'string' ? area.id : 'a1';
+  // Before the core validator reads the build list: a re-chained zone must survive its chain check.
+  raw = withRechainedGrants(raw, area, areaId);
   const result = validateCoreSave(raw, area);
   if (!result.ok) return result;
-  const areaId = area && typeof area.id === 'string' ? area.id : 'a1';
   // Task 25 changes a prerequisite and lowers the Desk price; migrate economic value before nested
   // station/staff state is validated so every downstream normalizer sees the promoted build.
   preserveLegacyDeskInvestment(result, raw, area, areaId);
+  // Retired zones come back as coins, on top of the validated wallet and never past its cap.
+  const builtIds = result.data.builds && result.data.builds[areaId];
+  const retiredRefund = retiredZoneRefund(raw, area, builtIds, areaId) + rechainedPartialRefund(raw, area, builtIds);
+  if (retiredRefund > 0) result.data.coins = Math.min(SAVE_LIMITS.maxCoins, result.data.coins + retiredRefund);
   const builtSet = new Set(result.data.builds && result.data.builds[areaId] || []);
   const station = normalizeStationState(
     raw && raw.stationState,
@@ -89,8 +202,9 @@ export function validateAndMigrateSave(raw, area = null) {
   // Task 20: ledger data is observational only and cannot alter canonical wallet/progression data.
   // Preserve an object-shaped payload through the load validator; sim/ledger.js performs the
   // transaction-level sanitization when the runtime restores it. Invalid/missing ledgers simply
-  // start a fresh reconciliation baseline from the already validated wallet.
-  result.data.ledger = raw && raw.ledger && typeof raw.ledger === 'object' && !Array.isArray(raw.ledger)
+  // start a fresh reconciliation baseline from the already validated wallet. A retired-zone refund
+  // moved the wallet outside any recorded transaction, so it starts a fresh baseline too.
+  result.data.ledger = retiredRefund <= 0 && raw && raw.ledger && typeof raw.ledger === 'object' && !Array.isArray(raw.ledger)
     ? raw.ledger
     : null;
   return result;
@@ -144,6 +258,9 @@ export function applySave(state, save, area = state && state.world && state.worl
     followers: meta.followers,
     album: { ...meta.album },
     equipped: { ...meta.equipped },
+    // Every bought accessory was dropped here on each reload until 2026-09-19: the field was
+    // validated, then never copied onto the live meta.
+    accessoriesBought: [...(meta.accessoriesBought || [])],
     residents: [...meta.residents],
     goldenPaw: meta.goldenPaw,
     pawBest: meta.pawBest,

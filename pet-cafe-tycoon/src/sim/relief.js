@@ -15,8 +15,9 @@ export const RUSH_HELP_COOLDOWN_SECONDS = 55;
 
 export function reliefClaimKey(day) { return `relief:${day | 0}`; }
 
-// Supplies are inventory, not trash. Returning an unavoidable half-used beans/kibble sack is free.
-// Finished food and harvested fruit are the only things treated as waste.
+// Experiment-only reference (sim/feeExperiment.js). The live game charges nothing for a return:
+// the waste fee systems/economyExperience.js used to take from this was retired (never punishing).
+// Supplies are inventory, not trash; finished food and harvested fruit were the only "waste".
 export function returnWasteCost(productKeys = [], fruit = 0) {
   let retail = 0;
   for (const key of productKeys || []) retail += PRODUCTS[key] ? PRODUCTS[key].price : 0;

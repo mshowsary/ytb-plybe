@@ -39,7 +39,7 @@ function goldenCafe(over = {}) {
     v: 5,
     coins: 48_000,
     lifetimeEarned: 320_000,
-    builds: { a1: ['z_seats1', 'z_oven2', 'z_register2', 'z_hire', 'z_coffee', 'z_terrace', 'z_boutique'] },
+    builds: { a1: ['z_seats1', 'z_oven2', 'z_register2', 'z_hire', 'z_coffee', 'z_terrace'] },
     partial: { z_blender: 400 },
     upgrades: { speed: 3, carry: 2, income: 4 },
     staff: { runner: 2, cashier: 1, cleaner: 1 },
@@ -251,8 +251,9 @@ test('the post-franchise state round-trips through the real save boundary unchan
 });
 
 test('a branch keeps the cosmetics its reset zones used to gate', () => {
-  // The boutique and the terrace are GONE in the new branch, and their zone gates would otherwise
-  // confiscate everything bought through them. Both are purchases, and §3.11 keeps purchases.
+  // The terrace is GONE in the new branch, and its zone gate would otherwise confiscate the décor
+  // bought for it. It is a purchase, and §3.11 keeps purchases. (Bought accessories have no zone
+  // gate at all since the spa's boutique was retired, so they survive without a carve-out.)
   const canonical = normalizeSave(openFranchise(goldenCafe(), { area: AREA1 }).save, AREA1);
   assert.deepEqual(canonical.meta.accessoriesBought, ['acc_bow', 'acc_beret']);
   assert.ok(canonical.meta.decor.includes('d_umbrella_a'), 'the terrace umbrella is still owned');
@@ -274,7 +275,9 @@ test('a branch keeps the cosmetics its reset zones used to gate', () => {
   const bad = normalizeSave(forged, AREA1);
   assert.equal(bad.meta.pawBest, 0, 'the rating is still earned, never declared');
   assert.deepEqual(bad.meta.decor, [], 'no ★5 rating, no franchise carry-over, no umbrella');
-  assert.deepEqual(bad.meta.accessoriesBought, []);
+  // A bought accessory is a picture on a pet and nothing else, and the gate that used to drop it
+  // never stopped a forger (maxFollowers unlocks every item). Catalogue ids survive; junk does not.
+  assert.deepEqual(bad.meta.accessoriesBought, ['acc_bow'], 'accessories carry no zone gate');
   assert.ok(bad.meta.reputation <= 3, 'reputation is still bounded by the shifts actually settled');
 });
 

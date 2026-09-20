@@ -132,24 +132,26 @@ test('a bare sim harness with no day clock keeps the pre-Program-6.2 path', () =
   assert.equal(seatMisses(w).length, 0);
 });
 
-test('a seat miss costs one missed-seat stat and one point of reputation', () => {
+// Never punishing (docs/SHIP-PLAN-2026-09-19.md rule 3): a missed seat is COUNTED — the Paw
+// Rating's seat window and the summary read it — but it no longer costs a reputation point. With no
+// Cleaner hired, that drain took 17 points in one shift while the tables filled up.
+test('a seat miss counts one missed-seat stat and costs no reputation', () => {
   const G = { dayStats: { served: 3 }, meta: { reputation: 5 } };
-  assert.deepEqual(applySeatMiss(G), { missedSeats: 1, reputation: 4, delta: 1 });
+  assert.deepEqual(applySeatMiss(G), { missedSeats: 1, reputation: 5, delta: 0 });
   assert.equal(G.dayStats.missedSeats, 1);
-  assert.equal(G.meta.reputation, 4);
+  assert.equal(G.meta.reputation, 5);
 
   applySeatMiss(G);
   assert.equal(G.dayStats.missedSeats, 2);
-  assert.equal(G.meta.reputation, 3);
+  assert.equal(G.meta.reputation, 5, 'a second miss takes nothing either');
 
-  // Floored at 0: a bad shift can stall the rank, never invert it.
   const fresh = { dayStats: {}, meta: { reputation: 0 } };
   assert.deepEqual(applySeatMiss(fresh), { missedSeats: 1, reputation: 0, delta: 0 });
   assert.equal(fresh.meta.reputation, 0);
   assert.equal(fresh.dayStats.missedSeats, 1);
 });
 
-test('the emitted event is what moves the stat and the rank', () => {
+test('the emitted event moves the stat, never the rank', () => {
   const { w, seats } = cafe();
   for (const s of seats) { s.dirty = true; s.occupied = false; }
   const c = paidGuest(w);
@@ -162,7 +164,7 @@ test('the emitted event is what moves the stat and the rank', () => {
     w.events.length = 0;
   }
   assert.equal(G.dayStats.missedSeats, 1, 'one guest, one miss — never re-counted while leaving');
-  assert.equal(G.meta.reputation, 2);
+  assert.equal(G.meta.reputation, 3, 'the guest leaving is the whole consequence');
 });
 
 test('the dirty-table refund is a quarter of the receipt, capped, from day 8 on', () => {

@@ -47,9 +47,9 @@ test('Task 31: blocked input stays numerically explicit even with no guest prese
 test('a dry machine asks for exactly what it eats, and nothing while it has some', () => {
   assert.equal(stationNeed({ type: 'coffee', active: true, beans: 0 }), 'beans');
   assert.equal(stationNeed({ type: 'coffee', active: true, beans: 4 }), null);
-  assert.equal(stationNeed({ type: 'icecream', active: true, cream: 0 }), 'cream');
+  // The garden's ice cream machine drinks nothing since 2026-09-19, so even empty it asks for nothing.
+  assert.equal(stationNeed({ type: 'icecream', active: true, stock: 0 }), null);
   assert.equal(stationNeed({ type: 'blender', active: true, fruit: 0 }), 'fruit');
-  assert.equal(stationNeed({ type: 'bath', active: true, water: 0 }), 'water');
   assert.equal(stationNeed({ type: 'bowl', active: true, stock: 0, capacity: 10 }), 'kibble');
   assert.equal(stationNeed({ type: 'bowl', active: true, stock: 3, capacity: 10 }), null);
 });

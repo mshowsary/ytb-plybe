@@ -71,24 +71,17 @@ export function kibbleIcon() {
 // Batch 1 terrace (plan 3.1/7.2, D3/D4): the cream sack, third pantry supply -- coldPantry1's
 // bean-equivalent. Same "supply pictogram" convention as beanIcon/kibbleIcon above: a jug silhouette
 // so the cause (empty cream) and remedy (this glyph, in the pantry) read as the same object.
-// A single drop: the water sack for the spa's bath (waterTank1). Same 24-box and the same
-// soft-fill-plus-one-highlight construction as creamIcon, so the two sit side by side in the
-// pantry sheet as siblings.
-export function waterIcon() {
-  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8c3.2 4.2 6 7.6 6 11.2a6 6 0 0 1-12 0c0-3.6 2.8-7 6-11.2z" fill="#BFEFFA"/>' +
-    '<path d="M12 2.8c3.2 4.2 6 7.6 6 11.2a6 6 0 0 1-12 0c0-3.6 2.8-7 6-11.2z" fill="none" stroke="#5FC4E0" stroke-width="1.2"/>' +
-    '<path d="M9.2 13.6c.1 1.6 1 2.8 2.4 3.3" stroke="#FFFFFF" stroke-width="1.3" stroke-linecap="round" fill="none"/></svg>';
-}
-// A coat hanger: the boutique's floating action. The one play-field control that still spelled its
-// verb out ("BOUTIQUE" / "SUPPLIES" / "UPGRADES" / "STAFF") after the text pass.
-export function hangerIcon() {
-  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.2a1.9 1.9 0 0 1 1.9 1.9c0 .9-.6 1.4-1.2 1.8-.4.3-.7.6-.7 1.1v.6" fill="none" stroke="#8B7CF6" stroke-width="1.6" stroke-linecap="round"/>' +
-    '<path d="M12 9.6 3.6 15.4c-.9.6-.5 2 .6 2h15.6c1.1 0 1.5-1.4.6-2L12 9.6z" fill="#B7ACFB" stroke="#8B7CF6" stroke-width="1.4" stroke-linejoin="round"/></svg>';
-}
 export function creamIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 3h5l.8 3.4c2.1.6 3.7 2.5 3.7 4.8v6.3a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 4 17.5v-6.3c0-2.3 1.6-4.2 3.7-4.8L8.5 3z" fill="#FFF6FB"/>' +
     '<path d="M8.5 3h5l.5 2.2h-6l.5-2.2z" fill="#E9C9DC"/>' +
     '<path d="M7 13.5c1.8-.9 3.6-.9 5.4 0M7 16.5c1.8-.9 3.6-.9 5.4 0" stroke="#E9A9CB" stroke-width="1.1" stroke-linecap="round" fill="none"/></svg>';
+}
+// A single drop: the build ring's glyph for the water fixtures (the restroom's sink, the splash
+// pool). Same 24-box and the same soft-fill-plus-one-highlight construction as creamIcon.
+export function waterIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8c3.2 4.2 6 7.6 6 11.2a6 6 0 0 1-12 0c0-3.6 2.8-7 6-11.2z" fill="#BFEFFA"/>' +
+    '<path d="M12 2.8c3.2 4.2 6 7.6 6 11.2a6 6 0 0 1-12 0c0-3.6 2.8-7 6-11.2z" fill="none" stroke="#5FC4E0" stroke-width="1.2"/>' +
+    '<path d="M9.2 13.6c.1 1.6 1 2.8 2.4 3.3" stroke="#FFFFFF" stroke-width="1.3" stroke-linecap="round" fill="none"/></svg>';
 }
 
 // Loop v2 Task 2: chalkboard/pantry-popup icons — same viewBox 0 0 24 24 convention as the product
@@ -352,4 +345,13 @@ export function bakeIcon() {
     + '<rect x="6" y="9.4" width="12" height="8.4" rx="1.4" fill="#FFB300" stroke="#7A583A" stroke-width="1.2"/>'
     + '<circle cx="9.4" cy="14" r="1.5" fill="#8A5A34"/><circle cx="14.4" cy="14.6" r="1.5" fill="#8A5A34"/>'
     + '<path d="M6.4 6.4h6" stroke="#7A583A" stroke-width="1.5" stroke-linecap="round"/><circle cx="17" cy="6.4" r="1.2" fill="#7A583A"/></svg>';
+}
+// The camera. A pet is posing at its table and wants its picture taken (src/sim/petPose.js): the
+// same bubble shape every other 'this station needs you' cue uses, so the eye reads it the same
+// way -- go there. Appended by Batch B2; nothing else in this file was touched.
+export function cameraIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.4 5.2h7.2l1.1 2.1H20a1.6 1.6 0 0 1 1.6 1.6v8.3A1.6 1.6 0 0 1 20 18.8H4A1.6 1.6 0 0 1 2.4 17.2V8.9A1.6 1.6 0 0 1 4 7.3h3.3z" fill="#4A3B32"/>'
+    + '<circle cx="12" cy="13" r="4.3" fill="#EAF4FF" stroke="#2B2B2B" stroke-width="1.1"/>'
+    + '<circle cx="12" cy="13" r="2.1" fill="#6EC6FF"/>'
+    + '<rect x="16.6" y="9.2" width="2.4" height="1.5" rx=".6" fill="#FFD84D"/></svg>';
 }

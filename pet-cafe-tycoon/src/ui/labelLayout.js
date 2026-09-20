@@ -90,6 +90,13 @@ const HUD_KEEPOUT = '#resourceBar,#wallet,#crowd,#dayPill,#goalPill,#hint,#banne
   + '.coach-caption,.friendship-toast,.golden-indicator,.toast,.build-intent-progress';
 
 const MANAGED = ANCHORS.map(a => a[0]).join(',');
+// Tap targets are solved like every other label (placed first, never nudged or hidden) but never
+// SCALED: the label scale shrinks a pill to match the characters it points at, and a button has to
+// stay a thumb's size whatever the camera distance. The in-world action button (.fbtn, min 48x48 in
+// style.css) rendered 24 px tall on a 380x670 phone at the 0.5 floor, under the Playables 44 px
+// minimum, and the pantry and RETURN crate are operated only through it.
+export const LABEL_UNSCALED = Object.freeze(['.fbtn']);
+export const LABEL_SCALED = Object.freeze(ANCHORS.map(a => a[0]).filter(sel => !LABEL_UNSCALED.includes(sel)));
 // Every frame, not every 12th: the interaction coach moves continuously, and a stale keep-out
 // rect for it let station labels settle exactly where it was about to be. ~15 rect reads sit
 // in the same batched-read phase as the labels themselves, so this costs no extra layout flush.
@@ -158,7 +165,7 @@ function installScaleStyle() {
   if (document.getElementById(SCALE_STYLE_ID)) return;
   const s = document.createElement('style');
   s.id = SCALE_STYLE_ID;
-  s.textContent = `.${SCALE_ROOT_CLASS} :is(${MANAGED}){scale:var(--label-scale,1)}`
+  s.textContent = `.${SCALE_ROOT_CLASS} :is(${LABEL_SCALED.join(',')}){scale:var(--label-scale,1)}`
     // A FILTER, not an opacity override. `filter: opacity()` multiplies with the element's own
     // opacity, so this dims a label that its owner is showing and leaves a label its owner has
     // hidden at zero. The previous `opacity:.45!important` did the opposite: it outranked the base

@@ -1,31 +1,54 @@
-// src/ui/photoGame.js — Task 2.1: the shot mini-game's on-screen presentation (plan 3.2). A ring
-// shrinks over the pet from 2.2x to 0.6x over 1.4s; a tap (pointerdown) inside that window judges
-// Perfect/Good/Ok from the ring's CURRENT scale — photoJudgeQuality (src/sim/world.js), the exact
-// same pure function a real tap and the sim's own bot-facing timeout both read, so a player's tap
-// and the auto-resolve can never disagree about what a given ring position is worth. Left
-// untouched, world.js's stepPhotoBooth auto-resolves the shot as Ok at PHOTO_AUTO_RESOLVE (1.6s)
-// regardless of anything in this file — the mini-game is player SKILL, never a requirement, and
-// nothing here can make automation stall on it.
+// src/ui/photoGame.js — the shot mini-game's on-screen presentation
+// (docs/SHIP-PLAN-2026-09-19.md §1.3). A ring shrinks over the posing pet from 2.2x to 0.6x over
+// 1.4s; a tap (pointerdown) inside that window judges Perfect/Good/Ok from the ring's CURRENT scale
+// — photoJudgeQuality (src/sim/petPose.js), the exact same pure function a real tap and the sim's
+// own timeout both read, so a player's tap and the auto-resolve can never disagree about what a
+// given ring position is worth. Left untouched, stepPetPoses auto-resolves the shot as Ok at
+// PHOTO_AUTO_RESOLVE (1.6s) regardless of anything in this file — the mini-game is player SKILL,
+// never a requirement, and nothing here can make automation stall on it.
 //
-// CSS lives in src/style.css (.photoRing*/.polaroid*) so both classes follow the same
-// "anchor via CSS transform, position via JS left/top" split every other labelLayout-managed
-// element in this game already uses; this file only ever sets style.left/top in raw px on the
-// elements it owns, per this batch's hard rule for new floating/projected DOM.
+// The ring and the flying card's CSS live in src/style.css (.photoRing*/.polaroid*) so both follow
+// the same "anchor via CSS transform, position via JS left/top" split every other labelLayout-
+// managed element uses; this file only ever sets style.left/top in raw px on the elements it owns.
+// The corner polaroid added by this batch injects its own few rules from here (the same pattern
+// systems/stations.js's ensureFbtnStyle and ui/sheets.js's decor CSS already use) because
+// src/style.css belongs to another lane this batch — see this batch's wiringNeeded to fold them in.
 //
 // No English prose on the play field (program rule 5): the ring is pure shape — two concentric
 // guide rings (the Perfect/Good bands) plus the shrinking shot ring itself. The polaroid's only
-// "text" is its tip amount, rendered the same way every other coin float in this game is (a
-// numeral), never a caption.
+// "text" is the pet's name on its one big reveal, never a caption on the floor.
 import {
   photoRingScale, photoJudgeQuality, PHOTO_TARGET_SCALE, PHOTO_PERFECT_BAND, PHOTO_GOOD_BAND,
-} from '../sim/world.js';
+} from '../sim/petPose.js';
+
+// Injected, not in style.css (see the header). Two rules: the corner polaroid that every photo
+// after a pet's first gets, and its reduced-motion form.
+const CORNER_CSS = [
+  '.photoCorner{position:fixed;left:12px;top:250px;z-index:83;width:64px;box-sizing:border-box;',
+  'border-radius:5px;background:#fffdf8;box-shadow:0 8px 20px #3b2e2a3d;padding:4px 4px 12px;',
+  'pointer-events:none;opacity:0;transform:translateX(-130%);',
+  'transition:transform .38s cubic-bezier(.2,1.1,.3,1),opacity .28s ease}',
+  '.photoCorner.shown{opacity:1;transform:translateX(0)}',
+  '.photoCorner.stowing{opacity:0;transform:translateX(-130%)}',
+  '.photoCornerFrame{width:100%;aspect-ratio:1/1;border-radius:3px;background:#e9dfce center/contain no-repeat}',
+  '@media(prefers-reduced-motion:reduce){.photoCorner,.photoCorner.shown,.photoCorner.stowing{transition:opacity .25s ease;transform:none}}',
+].join('');
+let cornerCssInjected = false;
+function ensureCornerCss() {
+  if (cornerCssInjected || typeof document === 'undefined' || !document.head) return;
+  cornerCssInjected = true;
+  const style = document.createElement('style');
+  style.id = 'photo-corner-css';
+  style.textContent = CORNER_CSS;
+  document.head.appendChild(style);
+}
 
 // `project(x, y, z, tmp)` writes a world point's screen {sx, sy, visible} into `tmp` — the same
-// helper src/render/fx.js already exposes and src/systems/stations.js's own floating button uses
-// (see that file's `fbtn`/`fx.project` pattern). `els.fx` is the same floating-DOM layer every
-// other world-projected element in this game mounts into.
-export function createPhotoGame({ project, els, onResolve, renderPortrait, avoid } = {}) {
+// helper src/render/fx.js already exposes and src/systems/stations.js's own floating button uses.
+// `els.fx` is the same floating-DOM layer every other world-projected element mounts into.
+export function createPhotoGame({ project, els, onResolve, renderPortrait, avoid, isBlocked } = {}) {
   const layer = (els && els.fx) || document.body;
+  ensureCornerCss();
 
   const root = document.createElement('div');
   root.className = 'photoRing hidden';
@@ -40,20 +63,20 @@ export function createPhotoGame({ project, els, onResolve, renderPortrait, avoid
   // stay clear of HUD furniture (the .photoRing root itself is a 0x0 positioning anchor).
   const HIT_SIZE = 80;
 
-  let session = null; // { stationId, t, flown }
+  let session = null; // { subjectId, t, flown, poseId, petKeyStr }
   const tmp = { sx: 0, sy: 0, visible: true };
+  // The card queue: every polaroid waits here for pump() to run it, one at a time. A photo is a
+  // moment, and a moment drawn behind a sheet is a moment nobody had.
+  const held = [];
 
-  function place(st) {
+  function place(subject) {
     if (typeof project !== 'function') return;
-    project(st.x, 1.35, st.z, tmp);
-    // This file originally pinned the ring to the pet unconditionally, on the reasoning that
-    // detaching it would "break the tap-timing skill". That reasoning does not hold: the player
-    // judges WHEN to tap from the shrinking ring against the fixed guide bands, and those three
-    // circles are concentric siblings that move together — the pair's screen position carries no
-    // information the player uses. Being trapped under the pause button, by contrast, costs the
-    // shot outright, which is exactly what a MediaCube reviewer looks for when they drag the frame
-    // to its smallest size. So the ring yields. avoid() returns the point unchanged when nothing
-    // collides, so in ordinary play it still sits exactly on the pet.
+    project(subject.x, 1.35, subject.z, tmp);
+    // The ring yields to HUD furniture. The player judges WHEN to tap from the shrinking ring
+    // against the fixed guide bands, and those three circles are concentric siblings that move
+    // together — the pair's screen position carries no information the player uses. Being trapped
+    // under the pause button, by contrast, costs the shot outright. avoid() returns the point
+    // unchanged when nothing collides, so in ordinary play it still sits exactly on the pet.
     let sx = tmp.sx, sy = tmp.sy;
     if (typeof avoid === 'function') {
       const moved = avoid(sx, sy, HIT_SIZE, HIT_SIZE);
@@ -68,7 +91,7 @@ export function createPhotoGame({ project, els, onResolve, renderPortrait, avoid
     if (!session || session.flown) return;
     e.preventDefault();
     const quality = photoJudgeQuality(photoRingScale(session.t));
-    if (typeof onResolve === 'function') onResolve(session.stationId, quality);
+    if (typeof onResolve === 'function') onResolve(session.subjectId, quality);
   }
   hit.addEventListener('pointerdown', onPointerDown);
 
@@ -80,43 +103,47 @@ export function createPhotoGame({ project, els, onResolve, renderPortrait, avoid
     chip.classList.remove('bump'); void chip.offsetWidth; chip.classList.add('bump');
     setTimeout(() => chip.classList.remove('bump'), 420);
   }
+  function chipRect() {
+    const chip = document.querySelector('.meta-pawbook');
+    const rect = chip && chip.getBoundingClientRect();
+    return rect && rect.width > 0 ? rect : null;
+  }
 
-  // A NEW PHOTO IS A MOMENT.
+  function portraitInto(frame, petKeyStr, poseId) {
+    if (typeof renderPortrait !== 'function' || !petKeyStr) return;
+    const dataUrl = renderPortrait(petKeyStr, poseId);
+    if (dataUrl) frame.style.backgroundImage = `url(${dataUrl})`;
+  }
+
+  // A PET'S FIRST PHOTO IS A MOMENT.
   //
-  // The day-18 report: "the photo should give a bigger, cuter, more detailed preview of the pet it
-  // photographed — it is tiny, invisible." Measured, it was: a 46 x 58 px card that began shrinking
-  // and flying on the very next frame and had faded out 0.8 s later, heading for the Pet Book
-  // button — which the calm HUD hides, so it simply drifted up and vanished. The Pet Book's own
-  // portraits are the best-looking art in the game, and the one moment built to show them off
-  // showed a thumbnail for under a second.
+  // A soft shutter flash, then the print DEVELOPS in the upper middle of the screen — faded, warm
+  // and soft, coming up to full colour — with the pet's name and one to three stars for the shot.
+  // It holds for a breath and then files itself into the collection chip, which bumps. It never
+  // takes a tap and never blocks the floor: the player keeps walking through it.
   //
-  // So a pet's first photo, or a better one than the album holds, gets the reveal a collection game
-  // gives a new card: a soft shutter flash, then the print DEVELOPS in the upper middle of the
-  // screen — faded, warm and soft, coming up to full colour — with the pet's name and one to three
-  // stars for the shot. It holds for a breath and then files itself into the collection chip, which
-  // bumps. It never takes a tap and never blocks the floor: the player keeps walking through it.
-  // Repeat shots the album already has keep the quick little flight instead (see flyPolaroid).
+  // ONCE PER PET, EVER. It used to fire again for any shot better than the album held, which the
+  // day-19 playthrough measured as a full-screen white wash 3-5 times a day. Every later photo of
+  // a pet already in the album is the small corner card below, with no flash at all.
   const REVEAL_HOLD_MS = 1500;
-  function revealPolaroid(st, poseId, petKeyStr, info) {
+  function revealPolaroid(poseId, petKeyStr, info) {
+    const timers = [], extra = [];
     const calm = !!(typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
     if (!calm) {
       const flash = document.createElement('div'); flash.className = 'photoFlash';
-      document.body.appendChild(flash);
-      setTimeout(() => flash.remove(), 420);
+      document.body.appendChild(flash); extra.push(flash);
+      timers.push(setTimeout(() => flash.remove(), 420));
     }
     const card = document.createElement('div');
     card.className = 'photoReveal';
     const frame = document.createElement('div'); frame.className = 'photoRevealFrame developing';
-    if (typeof renderPortrait === 'function' && petKeyStr) {
-      const dataUrl = renderPortrait(petKeyStr, poseId);
-      if (dataUrl) frame.style.backgroundImage = `url(${dataUrl})`;
-    }
+    portraitInto(frame, petKeyStr, poseId);
     const name = document.createElement('div'); name.className = 'photoRevealName';
     name.textContent = info.name || '';
     const stars = document.createElement('div'); stars.className = 'photoRevealStars';
     const filled = Math.max(1, Math.min(3, (info.rank | 0) + 1));
     for (let i = 0; i < 3; i++) {
-      const s = document.createElement('span'); s.className = i < filled ? 'on' : 'off'; s.textContent = '\u2605';
+      const s = document.createElement('span'); s.className = i < filled ? 'on' : 'off'; s.textContent = '★';
       stars.appendChild(s);
     }
     card.append(frame, name, stars);
@@ -127,86 +154,105 @@ export function createPhotoGame({ project, els, onResolve, renderPortrait, avoid
       card.classList.add('shown');
       frame.classList.remove('developing');
     }));
-    setTimeout(() => {
-      const target = document.querySelector('.meta-pawbook');
-      const rect = target && target.getBoundingClientRect();
-      if (rect && rect.width > 0) {
+    timers.push(setTimeout(() => {
+      const rect = chipRect();
+      if (rect) {
         card.style.left = (rect.left + rect.width / 2) + 'px';
         card.style.top = (rect.top + rect.height / 2) + 'px';
       }
       card.classList.add('stowing');
-    }, REVEAL_HOLD_MS);
-    setTimeout(() => { card.remove(); bumpChip(); }, REVEAL_HOLD_MS + 650);
+    }, REVEAL_HOLD_MS));
+    timers.push(setTimeout(() => { card.remove(); bumpChip(); }, REVEAL_HOLD_MS + 650));
+    return { el: card, extra, timers, life: REVEAL_HOLD_MS + 700 };
   }
 
-  // The card starts at the booth (world position) and eases toward the Pet Book button —
-  // `.meta-pawbook` (src/ui/meta.js) already exists whether or not this file's own wiring has
-  // landed, so a missing button just leaves the card drifting straight up and fading in place
-  // rather than throwing. `renderPortrait`, when supplied, turns the frame from a blank card into
-  // the guest's actual pet (src/render/portrait.js's renderPetPortrait) — optional, so this file
-  // never depends on that module directly (see systems/photo.js's own comment on why).
-  function flyPolaroid(st, poseId, petKeyStr) {
+  // Every photo after a pet's first: a small polaroid slides in under the collection chip, holds,
+  // and slides back out as the chip bumps. No flash, no screen wash, nothing over the floor —
+  // "another one for the album", not an event.
+  const CORNER_HOLD_MS = 1400;
+  function cornerPolaroid(poseId, petKeyStr) {
+    const timers = [];
     const card = document.createElement('div');
-    card.className = 'polaroid';
-    const frame = document.createElement('div'); frame.className = 'polaroidFrame';
-    if (typeof renderPortrait === 'function' && petKeyStr) {
-      const dataUrl = renderPortrait(petKeyStr, poseId);
-      if (dataUrl) frame.style.backgroundImage = `url(${dataUrl})`;
-    }
+    card.className = 'photoCorner';
+    const frame = document.createElement('div'); frame.className = 'photoCornerFrame';
+    portraitInto(frame, petKeyStr, poseId);
     card.appendChild(frame);
-    layer.appendChild(card);
-    if (typeof project === 'function') {
-      project(st.x, 1.35, st.z, tmp);
-      card.style.left = tmp.sx + 'px';
-      card.style.top = tmp.sy + 'px';
-    }
-    requestAnimationFrame(() => {
-      const target = document.querySelector('.meta-pawbook');
-      const rect = target && target.getBoundingClientRect();
-      if (rect && rect.width > 0) {
-        card.style.left = (rect.left + rect.width / 2) + 'px';
-        card.style.top = (rect.top + rect.height / 2) + 'px';
-      } else {
-        card.style.top = (parseFloat(card.style.top) || 0) - 90 + 'px';
-      }
-      frame.classList.add('shrink');
-      card.classList.add('flying');
-    });
-    setTimeout(() => { card.remove(); bumpChip(); }, 1300);
+    const rect = chipRect();
+    if (rect) { card.style.left = rect.left + 'px'; card.style.top = (rect.bottom + 8) + 'px'; }
+    document.body.appendChild(card);
+    requestAnimationFrame(() => requestAnimationFrame(() => card.classList.add('shown')));
+    timers.push(setTimeout(() => { card.classList.remove('shown'); card.classList.add('stowing'); }, CORNER_HOLD_MS));
+    timers.push(setTimeout(() => { card.remove(); bumpChip(); }, CORNER_HOLD_MS + 420));
+    return { el: card, extra: [], timers, life: CORNER_HOLD_MS + 470 };
+  }
+
+  // ONE card at a time, and never on top of something the player opened. Every card goes through
+  // this queue, including one already playing when a sheet or the day summary opens on top of it:
+  // that card is taken down and put back at the head of the queue, so the moment is postponed
+  // rather than drawn behind (or over) the thing the player is reading. The day-19 playthrough
+  // caught exactly that — a polaroid on top of the Day 14 summary, hiding its rows.
+  let playing = null;
+  function cancelPlaying(requeue) {
+    if (!playing) return;
+    for (const t of playing.timers) clearTimeout(t);
+    for (const el of [playing.el, ...playing.extra]) if (el && el.parentNode) el.remove();
+    if (requeue) held.unshift(playing.job);
+    playing = null;
+  }
+  function runCard(job) {
+    const card = job();
+    playing = { job, ...card };
+    playing.timers.push(setTimeout(() => { if (playing && playing.el === card.el) playing = null; }, card.life));
   }
 
   return {
-    // `poseId` (cats loaf, dogs sit-tilt, bunnies ear-up, hamsters cheeks — plan 3.2) and
-    // `petKeyStr` are captured now (while the sim session that named them is still fresh) rather
-    // than re-read later from st.session, which may already be cleared by the time the polaroid
-    // flies — see update()'s own comment.
-    start(st, poseId, petKeyStr) {
-      session = { stationId: st.id, t: 0, flown: false, poseId: poseId || null, petKeyStr: petKeyStr || null };
+    // `poseId` (cats loaf, dogs sit-tilt, bunnies ear-up, hamsters cheeks) and `petKeyStr` are
+    // captured now, while the sim session that named them is still fresh, rather than re-read later
+    // from subject.session, which may already be gone by the time the card shows.
+    start(subject, poseId, petKeyStr) {
+      session = { subjectId: subject.id, t: 0, flown: false, poseId: poseId || null, petKeyStr: petKeyStr || null };
       shot.style.transform = 'scale(' + photoRingScale(0) + ')';
-      place(st);
-      root.classList.remove('hidden');
+      // place() is the ONLY thing that shows the ring: it hides it again when the subject is not on
+      // screen. start() used to force it visible, which was harmless when the shot could only ever
+      // happen at a booth the owner was standing at — but the hired Photographer shoots pets the
+      // player may be nowhere near, and avoid() then pulled the off-screen ring back into frame as a
+      // circle floating over nothing (probe, 2026-09-20).
+      place(subject);
     },
-    update(dt, st) {
-      if (!session || session.stationId !== st.id) return;
-      if (st.session && !st.session.resolved) {
+    // `aiming` is "the owner is close enough to take this shot themselves". False for a shot the
+    // Photographer is taking across the café: the timing ring is the PLAYER's mini-game, so it is
+    // not drawn (and cannot be tapped) when the shot is not theirs — the card at the end still is.
+    update(dt, subject, aiming = true) {
+      if (!session || session.subjectId !== subject.id) return;
+      if (subject.session && !subject.session.resolved) {
         session.t += dt;
-        place(st);
+        if (aiming) place(subject); else root.classList.add('hidden');
         const scale = photoRingScale(session.t);
         shot.style.transform = `scale(${scale})`;
         const d = Math.abs(scale - PHOTO_TARGET_SCALE);
         shot.style.borderColor = d <= PHOTO_PERFECT_BAND ? '#ffd766' : d <= PHOTO_GOOD_BAND ? '#ffffff' : '#ffffffaa';
         return;
       }
-      // Resolved — by a tap (onResolve already fired above) or the sim's own auto-timeout. Fly the
-      // polaroid exactly once, then just wait for stop() (systems/photo.js calls it once the
-      // guest's own FSM has cleared st.session and freed the booth for the next customer).
+      // Resolved — by a tap (onResolve already fired above), by the hired Photographer, or by the
+      // sim's own timeout. Show the card exactly once, then wait for stop().
       if (!session.flown) {
         session.flown = true;
-        const s = st.session || {};
-        if (s.reveal) revealPolaroid(st, session.poseId, session.petKeyStr, { name: s.petName, rank: s.rank });
-        else flyPolaroid(st, session.poseId, session.petKeyStr);
+        const s = subject.session || {};
+        const poseId = session.poseId, petKeyStr = session.petKeyStr;
+        // Queued, never drawn straight away: pump() runs it on the very next frame unless a sheet
+        // or an overlay is up, in which case it waits for that to close.
+        if (s.reveal) held.push(() => revealPolaroid(poseId, petKeyStr, { name: s.petName, rank: s.rank }));
+        else held.push(() => cornerPolaroid(poseId, petKeyStr));
         root.classList.add('hidden');
       }
+    },
+    // Called every frame by systems/photo.js: runs the card queue. Nothing is drawn while a sheet,
+    // the day summary or a full-screen collection page is open, and anything already on screen when
+    // one opens is taken down and put back in the queue.
+    pump() {
+      if (typeof isBlocked === 'function' && isBlocked()) { cancelPlaying(true); return; }
+      if (playing || !held.length) return;
+      runCard(held.shift());
     },
     stop() {
       session = null;
@@ -214,6 +260,8 @@ export function createPhotoGame({ project, els, onResolve, renderPortrait, avoid
     },
     destroy() {
       hit.removeEventListener('pointerdown', onPointerDown);
+      cancelPlaying(false);
+      held.length = 0;
       root.remove();
     },
   };

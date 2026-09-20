@@ -16,6 +16,9 @@ test('old save without meta migrates to a safe modern meta + career + party-orde
     // the test is to guard the migrated meta SHAPE: a v4 save must come back with a bounded default
     // for every one of them, and nothing may quietly appear here that a fresh save did not earn.
     decor: [], followers: 0, album: {}, equipped: {}, residents: [],
+    // Bought accessories: validated by saveSchema since v5 but dropped by applySave until
+    // 2026-09-19, so every reload lost them. The migrated default is an empty list.
+    accessoriesBought: [],
     goldenPaw: false, season: { index: 0, dayStart: 1 }, franchise: { level: 0, multiplier: 1 },
     // Batch 3. A migrated v4 save has never recorded a shift's seat misses, so the window is
     // present but empty rather than absent — the rating reads it unconditionally.

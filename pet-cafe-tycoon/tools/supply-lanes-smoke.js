@@ -6,13 +6,15 @@
 // The defect this exists to prevent from coming back (owner playtest, 2026-09-16 — "the garden or
 // rooftop or terrace all builds, and interactions also not working as it should", and "the supplies
 // for the icecream I guess I get milk or whatever it is, but visually it seem the bot carry on
-// something"): the ice cream machine and the spa bath were only half-built for the player.
-// refillCream and refillWater existed in the simulation and the bot used them, the cold pantry sold
-// cream and the water tank sold water, the owner even carried the sacks visibly — but nothing in
-// systems/stations.js ever called either one, the ice cream machine was missing from the machine
-// block entirely so its product could not be collected, canDeliverTo did not recognise the sacks
-// (so the game routed an owner holding cream to the RETURN crate), and the job detector never
-// noticed either machine running dry, so there was no arrow and no coach.
+// something"): the ice cream machine (and the since-retired spa bath) were only half-built for the
+// player. refillCream existed in the simulation and the bot used it, the cold pantry sold cream,
+// the owner even carried the sack visibly — but nothing in systems/stations.js ever called it, the
+// ice cream machine was missing from the machine block entirely so its product could not be
+// collected, canDeliverTo did not recognise the sack (so the game routed an owner holding cream to
+// the RETURN crate), and the job detector never noticed the machine running dry, so there was no
+// arrow and no coach. Every supply lane the café still has is driven below. (The cream lane itself
+// was cut on 2026-09-19 — the garden's ice cream machine needs no supply — so what is left to drive
+// for it is its product: the owner working the stand moves cones from the machine to the counter.)
 //
 // Drives the real UI throughout — walks with the movement input, presses the floating action
 // button, taps the pantry sheet — so a break anywhere in that chain fails this, not just a sim
@@ -93,8 +95,6 @@ const out = await page.evaluate(async () => {
   const LANES = [
     { type: 'coffee', supply: 'beans', field: 'beans' },
     { type: 'bowl', supply: 'kibble', field: 'stock' },
-    { type: 'icecream', supply: 'cream', field: 'cream' },
-    { type: 'bath', supply: 'water', field: 'water' },
   ];
   const rows = [];
   for (const lane of LANES) {
@@ -135,15 +135,19 @@ const out = await page.evaluate(async () => {
     }));
   }
 
-  // The ice cream machine must also hand its product over, like every other machine.
+  // The ice cream machine must also hand its product over, like every other machine — and because
+  // it stands directly behind the garden stand, both worked from one spot, the owner standing there
+  // puts each cone straight on the stand's counter.
   const ice = [...G.world.stations.values()].find(s => s.active && s.type === 'icecream');
+  const stand = [...G.world.stations.values()].find(s => s.active && s.selfServe);
   let collected = null;
-  if (ice) {
+  if (ice && stand) {
     G.carry.sack = null; G.carry.sackLeft = 0; G.carry.fruit = 0;
-    ice.cream = 20; ice.stock = 6;
+    if (G.owner.clearItems) G.owner.clearItems();
+    stand.stock = 0; ice.stock = 6;
     walkTo(ice.front.x, ice.front.z);
     step(90);
-    collected = G.owner.items.length;
+    collected = { fromMachine: 6 - ice.stock + 0, onStand: stand.stock, inHand: G.owner.items.length };
   }
   return { rows, collected };
 });
@@ -162,8 +166,9 @@ for (const r of out.rows) {
   if (r.distToMachine > 0.8) failures.push(r.type + ': could not walk to the machine (stopped ' + r.distToMachine + ' m away)');
   if (!(r.filled > 0)) failures.push(r.type + ': carried ' + r.supply + ' to it and stood there, but it is still empty — no refill happens');
 }
-console.log('ice cream collected by hand: ' + out.collected);
-if (!(out.collected > 0)) failures.push('the ice cream machine will not hand its product to the player');
+console.log('ice cream by hand: ' + JSON.stringify(out.collected));
+if (!out.collected || !(out.collected.fromMachine > 0)) failures.push('the ice cream machine will not hand its product to the player');
+else if (!(out.collected.onStand > 0)) failures.push('cones taken at the stand never reached its counter');
 
 if (failures.length) {
   console.error('\nsupply-lanes-smoke FAILED:');

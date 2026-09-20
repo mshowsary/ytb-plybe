@@ -16,9 +16,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { labelScalePolicy } from '../src/ui/labelLayout.js';
+import { labelScalePolicy, LABEL_SCALED, LABEL_UNSCALED } from '../src/ui/labelLayout.js';
 
 const SRC = readFileSync(new URL('../src/ui/labelLayout.js', import.meta.url), 'utf8');
+const STYLE = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8');
 const FOV = 40;
 const TAN_HALF = Math.tan(FOV * Math.PI / 360);
 
@@ -131,5 +132,39 @@ test('scale never grows as the camera pulls back', () => {
 test('degenerate camera input falls back to the reference look', () => {
   for (const bad of [NaN, 0, -1, Infinity, undefined, null]) {
     assert.equal(labelScalePolicy(bad), 1, `worldPerPixel=${bad} must not scale labels`);
+  }
+});
+
+// ---- tap targets are never scaled ------------------------------------------------------------
+// The in-world action button (.fbtn: UPGRADE / HIRE / SUPPLIES / RETURN) sat in the scaled set, so
+// its 48 px minimum rendered at 24 px on a 380x670 phone (the 0.5 floor) — under the Playables 44 px
+// minimum, on the only control that operates the pantry and the RETURN crate. It stays in the
+// solver (placed first, never nudged or hidden) and drops out of the scale rule.
+
+// What a managed class renders at: the injected rule scales exactly LABEL_SCALED (asserted below).
+const renderedScale = (selector, wpp) => (LABEL_SCALED.includes(selector) ? labelScalePolicy(wpp) : 1);
+
+test('the action button renders at >= 48x48 CSS px on the smallest phones, whatever the label scale', () => {
+  const rule = STYLE.match(/^\.fbtn\{[^}]*\}/m);
+  assert.ok(rule, 'style.css must define the .fbtn rule');
+  const minH = Number((rule[0].match(/min-height:(\d+)px/) || [])[1]);
+  const minW = Number((rule[0].match(/min-width:(\d+)px/) || [])[1]);
+  for (const [w, h] of [[320, 480], [380, 670], [320, 568], [1280, 720]]) {
+    const s = renderedScale('.fbtn', worldPerPixel(w, h));
+    assert.equal(s, 1, `${w}x${h}: the action button must not be scaled`);
+    assert.ok(minH * s >= 48 && minW * s >= 48, `${w}x${h}: rendered ${minW * s}x${minH * s}, under 48x48`);
+  }
+  // The pills around it still follow the characters: at 380x670 a wish bubble is at the floor.
+  assert.equal(renderedScale('.wish', worldPerPixel(380, 670)), LABEL_SCALE_MIN);
+});
+
+test('the action button stays under the solver but out of the scale rule', () => {
+  assert.deepEqual([...LABEL_UNSCALED], ['.fbtn']);
+  assert.equal(LABEL_SCALED.includes('.fbtn'), false, 'no scale for a tap target');
+  assert.match(SRC, /^\s*\['\.fbtn', 0\.5, 0\.5\],/m, '.fbtn is still registered in ANCHORS (so MANAGED/solved)');
+  assert.match(SRC, /^\s*\['\.fbtn', 100\],/m, 'and still outranks every label');
+  assert.match(SRC, /:is\(\$\{LABEL_SCALED\.join\(','\)\}\)\{scale:var\(--label-scale,1\)\}/, 'the injected CSS scales LABEL_SCALED only');
+  for (const cls of ['.wish', '.patience', '.demand', '.chalk', '.objCaption', '.zlabel', '.zprice', '.polaroid', '.pet-identity']) {
+    assert.ok(LABEL_SCALED.includes(cls), `${cls} keeps the character-relative scale`);
   }
 });

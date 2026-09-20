@@ -2,8 +2,8 @@
 // The operational job detector can still say "refill"; presentation points the player at the place
 // the supply comes from first, and only then at the machine that needs it.
 //
-// It used to know two supplies. The ice cream machine's cream and the bath's water were left out,
-// so the moment either ran dry the arrow pointed at the dry machine and the player stood there with
+// It used to know two supplies. The ice cream machine's cream was left out, so the moment it ran
+// dry the arrow pointed at the dry machine and the player stood there with
 // empty hands and no idea where cream is kept. Every supply now routes through src/sim/supplies.js,
 // which is the one place that knows machine -> supply -> where you fetch it.
 import { SUPPLY_OF, isStarved, supplyKind, acceptsSupply, supplySource } from './supplies.js';

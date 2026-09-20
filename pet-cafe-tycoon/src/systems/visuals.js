@@ -1,10 +1,11 @@
 // src/systems/visuals.js — builds a mesh per station, keeps physical stock props in sync, owns the
 // Task-31 glanceable stock truth, and runs Task-32's one-shot construction reveal.
 import * as THREE from 'three';
-import { ovenMesh, counterMesh, checkoutMesh, tableMesh, hireDeskMesh, photographerDeskMesh, kioskMesh, bowlMesh, bushMesh, coffeeMesh, pantryMesh, crateMesh, blenderMesh, chalkboardMesh, itemGeoFor, cashPile, dirtyMesh, zoneRing, icecreamMesh, coldPantryMesh, groomTableMesh, bathTubMesh, waterTankMesh, boutiqueRackMesh, planterClusterMesh, spaLoungeMesh, photoBoothMesh, restroomMesh, fountainMesh, splashPoolMesh } from '../render/props.js';
+import { ovenMesh, counterMesh, checkoutMesh, tableMesh, hireDeskMesh, kioskMesh, bowlMesh, bushMesh, coffeeMesh, pantryMesh, crateMesh, blenderMesh, chalkboardMesh, itemGeoFor, cashPile, dirtyMesh, zoneRing, icecreamMesh, fountainMesh } from '../render/props.js';
+import { photoWallMesh } from '../render/photoWall.js';
 import { C, toonMaterial } from '../render/palette.js';
 import { buildRevealPhase, buildRevealScale } from '../render/buildReveal.js';
-import { iconFor, treatIcon, coinIcon, sackIcon, returnIcon, leafIcon, gearIcon, personIcon, beanIcon, creamIcon, broomIcon, kibbleIcon, waterIcon, fruitIcon } from '../ui/icons.js';
+import { iconFor, treatIcon, coinIcon, sackIcon, returnIcon, leafIcon, gearIcon, personIcon, beanIcon, broomIcon, kibbleIcon, fruitIcon, cameraIcon } from '../ui/icons.js';
 import { supplyKind, supplyLevel, supplyCap, supplyRoom, isStarved } from '../sim/supplies.js';
 import { STAR_IDS } from '../sim/economy.js';
 
@@ -75,32 +76,15 @@ function updateItemStack(stack, product, stock, dt, pop) {
   stack.shown = n;
 }
 
-// Batch 1 terrace (plan 3.1/7.2): icecream/photo/restroom mirror the type-keyed lookup every other
-// station uses. `decor` covers fountain1 (the only decor station this batch) and `splash` covers
-// splash1, which occupies fountain1's exact spot once z_splash is built -- see the active-visibility
-// sync in update() below for how the swap actually happens on screen. `gate` renders nothing: it is
+// Batch 1 terrace (plan 3.1/7.2): icecream/photo mirror the type-keyed lookup every other station
+// uses, and `decor` covers fountain1 (the only decor station). `gate` renders nothing: it is
 // a non-blocking fence-gap marker (props.js's fence arch/gate-open animation is the actual visual),
 // so an empty group keeps it out of the generic reveal/pulse machinery's way without a special case.
 const MESH_FOR = {
   oven: ovenMesh, display: counterMesh, checkout: checkoutMesh, seat: tableMesh, hire: hireDeskMesh, kiosk: kioskMesh,
   bowl: bowlMesh, bush: bushMesh, coffee: coffeeMesh, pantry: pantryMesh, return: crateMesh, blender: blenderMesh,
-  icecream: icecreamMesh, photo: photoBoothMesh, restroom: restroomMesh, decor: fountainMesh, splash: splashPoolMesh,
+  icecream: icecreamMesh, decor: fountainMesh, wall: photoWallMesh,
   gate: () => new THREE.Group(),
-  // Batch 4b (plan §3.9). Without these three arms the new types fell through to tableMesh and the
-  // grooming table, the tub and the shop rack all rendered as café tables.
-  groom: groomTableMesh, bath: bathTubMesh, boutique: boutiqueRackMesh,
-};
-// coldPantry1 shares the generic 'pantry' type (so it keeps sheets.js/interactionCoach's pantry
-// plumbing for free) but wants the icy-toned mesh props.js built specifically for it; every other
-// pantry keeps the warm one. Keyed by station id, checked before the type map.
-const MESH_ID_OVERRIDE = {
-  coldPantry1: coldPantryMesh,
-  // Spa pieces that reuse a generic TYPE (pantry / decor / seat) for their sim plumbing but want
-  // their own look — the same arrangement coldPantry1 has had since Batch 1.
-  waterTank1: waterTankMesh, planters: planterClusterMesh,
-  spaSeat1: spaLoungeMesh, spaSeat2: spaLoungeMesh, spaSeat3: spaLoungeMesh,
-  // The photographer is hired from a desk that should look like it: see props.js photographerDeskMesh.
-  photoDesk1: photographerDeskMesh,
 };
 // Program §5.5. Every chalkboard used to carry an English caption -- "OVEN · cupcakes",
 // "COFFEE · needs beans", "PANTRY" -- and with one board per station that made words the most
@@ -108,19 +92,17 @@ const MESH_ID_OVERRIDE = {
 // (the icon it already had) and WHETHER it has anything (a stock dot: green stocked, amber low,
 // red empty). "Needs beans" is not a sentence any more, it is the bean glyph with a red dot; the
 // interaction coach still points at whichever station actually wants the player.
-// Batch 1 terrace: icecream1 mirrors coffee1 exactly (§3.1), so it gets the same dot semantics --
-// empty when its supply (cream, not beans) runs out.
+// The garden's ice cream machine needs no supply, so its dot only ever reads its own stock.
 const CHALK_DOT_TYPES = new Set(['oven', 'display', 'bowl', 'coffee', 'blender', 'bush', 'icecream']);
 const CHALK_LOW_FRACTION = 0.34;
 
 // Split key/html so the per-frame update can compare a short string instead of re-serialising an
-// SVG: only a family flip (oven/display) or the coffee/icecream machine running out of its input
-// changes it.
+// SVG: only a family flip (oven/display) or the coffee machine running out of beans changes it.
 function chalkIconKey(st) {
   switch (st.type) {
     case 'oven': case 'display': return st.product;
     case 'coffee': return (st.beans | 0) > 0 ? 'coffee' : 'beans';
-    case 'icecream': return (st.cream | 0) > 0 ? 'icecream' : 'cream';
+    case 'icecream': return 'icecream';
     case 'blender': return 'smoothie';
     case 'pantry': return 'sack';
     case 'return': return 'return';
@@ -135,7 +117,6 @@ function chalkIconKey(st) {
 function chalkIconHtml(key) {
   switch (key) {
     case 'beans': return beanIcon();
-    case 'cream': return creamIcon();
     case 'sack': return sackIcon();
     case 'return': return returnIcon();
     case 'leaf': return leafIcon();
@@ -152,7 +133,6 @@ function chalkIconHtml(key) {
 export function chalkDotState(st) {
   if (!st || !CHALK_DOT_TYPES.has(st.type)) return null;
   if (st.type === 'coffee' && (st.beans | 0) <= 0) return 'empty';
-  if (st.type === 'icecream' && (st.cream | 0) <= 0) return 'empty';
   if (st.type === 'blender' && (st.fruit | 0) <= 0) return 'empty';
   const { n, cap } = stockAmountAndCap(st);
   if (n <= 0) return 'empty';
@@ -166,6 +146,9 @@ export function chalkDotState(st) {
 // waiting for the thing that fixes it.
 const NO_SEAT_POOL = 4;
 const NO_SEAT_BUBBLE_Y = 1.3;
+// A pet is much shorter than a guest, so its bubble sits lower than theirs -- high enough to clear
+// the table it is sitting at, low enough that it clearly belongs to the animal and not the person.
+const POSE_BUBBLE_Y = 1.0;
 
 // Program §6.2 escalation on a seat nobody has wiped. Crumbs land the moment it goes dirty (the
 // dirtyMesh below); flies join after DIRTY_FLIES_AT seconds and a stink wisp after DIRTY_STINK_AT,
@@ -221,20 +204,20 @@ const DEMAND_Y = { display: 2.1, oven: 2.3, coffee: 1.55, blender: 1.55, bowl: 0
 // the same pill — fruit loaded, drinks made — and nothing said which.
 //
 // NEEDS, NOT NUMBERS. A station shows a bubble only when it needs the PLAYER, and the bubble is a
-// picture of what to bring: the bean sack's bean over a coffee machine that has run dry, the cream
-// tub over the ice cream machine, a peach over the blender, the kibble sack over an empty pet bowl, a
-// water drop over the bath, and — only while a guest is actually waiting at it — the missing product
+// picture of what to bring: the bean sack's bean over a coffee machine that has run dry, a peach
+// over the blender, the kibble sack over an empty pet bowl,
+// and — only while a guest is actually waiting at it — the missing product
 // over an empty counter. The bubble is always the same shape so the eye learns it once, and every
 // icon matches what the player will be holding when they have fixed it. A ripe bush asks to be
 // picked only when the blender actually has room for fruit; otherwise the fruit on the branches
 // already says everything. A machine a Barista looks after never asks the player for anything.
 //
 // Standing next to a station swaps the bubble, if there isn't one, for a small gauge: the same supply
-// icon and a fill bar, no digits. Machines show what they EAT (beans, cream, fruit, water) and
+// icon and a fill bar, no digits. Machines show what they EAT (beans, fruit) and
 // counters show what they HOLD — which is exactly the distinction the blender's pill used to blur.
 // The underlying five-state truth (demandVisualState, below) is unchanged and still tested.
 const NEED_ICON = {
-  beans: () => beanIcon(), cream: () => creamIcon(), fruit: () => fruitIcon(), water: () => waterIcon(),
+  beans: () => beanIcon(), fruit: () => fruitIcon(),
   kibble: () => kibbleIcon(),
   // The SAME peach as the blender's "needs fruit": white bubble = needs it, green bubble = has it.
   // The player connects the two at a glance; a hand icon here (the first try) read as nothing much.
@@ -251,7 +234,7 @@ export function stationNeed(st, { waiter = false, baristaOnDuty = false, blender
   if (!st || st.active === false) return null;
   switch (st.type) {
     case 'coffee': return isStarved(st) && !baristaOnDuty ? 'beans' : null;
-    case 'icecream': case 'blender': case 'bath': case 'bowl': return isStarved(st) ? supplyKind(st) : null;
+    case 'blender': case 'bowl': return isStarved(st) ? supplyKind(st) : null;
     case 'display': return (st.stock | 0) <= 0 && waiter ? 'product' : null;
     case 'bush': return (st.stage | 0) >= 3 && blenderRoom >= 3 ? 'pick' : null;
     default: return null;
@@ -270,7 +253,7 @@ export function stationGauge(st) {
   return null;
 }
 
-const NEED_WORDS = { beans: 'Needs coffee beans', cream: 'Needs cream', fruit: 'Needs fruit', water: 'Needs water', kibble: 'Needs pet treats', pick: 'Ripe fruit to pick' };
+const NEED_WORDS = { beans: 'Needs coffee beans', fruit: 'Needs fruit', kibble: 'Needs pet treats', pick: 'Ripe fruit to pick' };
 function needLabel(need, st) {
   return need === 'product' ? 'Out of ' + (st.product || 'stock') + ', a guest is waiting' : NEED_WORDS[need] || '';
 }
@@ -310,7 +293,7 @@ export function demandVisualState(st) {
   if (n >= cap) return 'full';
   if (n > 0) return 'ready';
   if (st.type === 'coffee') return (st.beans | 0) > 0 ? 'producing' : 'blocked';
-  if (st.type === 'icecream') return (st.cream | 0) > 0 ? 'producing' : 'blocked';
+  if (st.type === 'icecream') return 'producing';
   if (st.type === 'blender') return (st.fruit | 0) > 0 ? 'producing' : 'blocked';
   if (st.type === 'oven') return Number(st.timer) > 0 ? 'producing' : 'empty';
   return 'empty';
@@ -330,11 +313,12 @@ function reducedMotion() {
 
 // Batch 8 item 4: one static contact shadow per station, sized off its own footprint (st.fw/fd --
 // the same fields chalkboard placement already reads) where a type doesn't earn its own tuned
-// radius. 'gate' renders an empty group (MESH_FOR.gate above) -- nothing to anchor, so it gets none.
+// radius. 'gate' renders an empty group (MESH_FOR.gate above) and 'wall' hangs above the floor --
+// neither has anything to anchor a contact shadow to, so neither gets one.
 const STATION_SHADOW_RADIUS = {
-  seat: 0.82, decor: 0.78, splash: 0.78, oven: 0.55, display: 0.55, icecream: 0.55, photo: 0.55,
-  restroom: 0.55, groom: 0.55, bath: 0.55, checkout: 0.48, coffee: 0.48, pantry: 0.48, blender: 0.48,
-  boutique: 0.48, hire: 0.48, kiosk: 0.42, bush: 0.38, bowl: 0.3, return: 0.38,
+  seat: 0.82, decor: 0.78, oven: 0.55, display: 0.55, icecream: 0.55,
+  checkout: 0.48, coffee: 0.48, pantry: 0.48, blender: 0.48,
+  hire: 0.48, kiosk: 0.42, bush: 0.38, bowl: 0.3, return: 0.38,
 };
 function stationShadowRadius(st) {
   const base = STATION_SHADOW_RADIUS[st.type];
@@ -357,7 +341,7 @@ export function createVisuals(G, S, ctx) {
   const MAX_WIPES = 4;
   const bodyCorner = new THREE.Vector3();
   for (const st of world.stations.values()) {
-    const build = MESH_ID_OVERRIDE[st.id] || MESH_FOR[st.type] || tableMesh;
+    const build = MESH_FOR[st.type] || tableMesh;
     const g = build();
     // Named so tools/scene-cost.mjs can attribute a draw-call regression to the system that caused
     // it. Before this, every station, guest and pet landed in the report as an anonymous
@@ -368,8 +352,9 @@ export function createVisuals(G, S, ctx) {
     // What the player's body can bump into, in world space, taken from the geometry that is
     // actually drawn rather than from the station's hand-written fw/fd. Seats are deliberately
     // excluded — their chairs must stay walk-through so guests can path onto them — and so are
-    // gates, which are doorways. See merge() in src/render/geo.js for where bodyBox comes from.
-    if (st.type !== 'seat' && st.type !== 'gate') {
+    // gates (doorways) and walls (mounted above the floor, nothing to bump into). See merge() in
+    // src/render/geo.js for where bodyBox comes from.
+    if (st.type !== 'seat' && st.type !== 'gate' && st.type !== 'wall') {
       g.updateWorldMatrix(true, true);
       let minx = Infinity, minz = Infinity, maxx = -Infinity, maxz = -Infinity;
       g.traverse(o => {
@@ -389,11 +374,14 @@ export function createVisuals(G, S, ctx) {
     }
     // Placed once (`follow: false`): a station's footprint never moves, only its active/visible
     // flag does, which the sync in update() below mirrors onto the shadow handle every frame.
-    const shadow = st.type === 'gate' ? null : S.contactShadows && S.contactShadows.add(g, {
+    const shadow = (st.type === 'gate' || st.type === 'wall') ? null : S.contactShadows && S.contactShadows.add(g, {
       radius: stationShadowRadius(st), strength: 0.85, follow: false,
     });
     if (shadow) shadow.visible = !!st.active;
     const v = { g, items: [], reveal: null, shadow };
+    // The photo wall's frames fill in as the album grows (src/render/photoWall.js) — the handle its
+    // mesh exposes is the only thing update() below needs to keep it true.
+    if (st.type === 'wall' && g.userData.photoWall) v.photoWall = g.userData.photoWall;
     if (st.type === 'display') { v.stack = makeItemStack(g, st.product, g.slots.slice(0, DISPLAY_POOL / DISPLAY_LAYERS), DISPLAY_LAYERS); g.setProduct(st.product); }
     if (st.type === 'oven') {
       // A 3 x 2 tray, not a column. `g.outSlot.y + i * 0.17` built a free-standing totem pole of six
@@ -411,8 +399,8 @@ export function createVisuals(G, S, ctx) {
     }
     if (st.type === 'checkout') { v.pile = cashPile(); v.pile.position.set(st.cash.x, 0, st.cash.z); scene.add(v.pile); }
     if (st.type === 'seat') {
-      // A seat mesh may say where its plates go (props.js spaLoungeMesh: on the side table, not the
-      // cushion); every café table takes the default spot on its top.
+      // A seat mesh may say where its plates go (g.dirtyAnchor); every café table takes the
+      // default spot on its top.
       const a = g.dirtyAnchor;
       const d = dirtyMesh(); d.position.set(a ? a.x : 0.15, a ? a.y : DIRTY_PROP_Y, a ? a.z : -0.1); d.visible = false; g.add(d);
       v.dirtyProp = d; v.dirtyY = a ? a.y : DIRTY_PROP_Y;
@@ -460,6 +448,18 @@ export function createVisuals(G, S, ctx) {
     return { el, visible: false };
   }
 
+  // The camera bubble over a posing pet (docs/SHIP-PLAN-2026-09-19.md §1.3). Exactly the shape a
+  // station uses to say it needs the player -- .demand.need, the same white bubble with a tail --
+  // because it means the same thing: come here. There is only ever ONE pose at a time
+  // (src/sim/petPose.js), so this is one element, not a pool. It goes away the moment the shot
+  // starts: from then on the ring (src/ui/photoGame.js) is what the player is looking at.
+  const poseBubble = document.createElement('div');
+  poseBubble.className = 'demand need hidden';
+  poseBubble.setAttribute('aria-label', 'A pet is posing for a photo');
+  { const i = document.createElement('span'); i.className = 'dicon'; i.innerHTML = cameraIcon(); poseBubble.appendChild(i); }
+  els.fx.appendChild(poseBubble);
+  let poseBubbleOn = null;
+
   function syncAll() {
     for (const st of world.stations.values()) {
       const v = vis.get(st.id); if (!v) continue;
@@ -468,19 +468,17 @@ export function createVisuals(G, S, ctx) {
       // so a loaded save never plays half of someone else's cleaning animation.
       v.popT = null; v.dirtyFade = null;
       if (v.dirtyProp) { v.dirtyProp.scale.setScalar(1); v.dirtyProp.position.y = v.dirtyY; v.dirtyProp.visible = !!st.dirty; }
+      if (v.photoWall) v.photoWall.setAlbum(G.meta && G.meta.album);
     }
     activeWipes.length = 0;
+    // A restore drops every live customer, so whatever was posing is gone with them.
+    poseBubble.classList.add('hidden'); poseBubbleOn = false;
   }
 
   return {
     syncAll,
     update(dt) {
       const still = reducedMotion() || !!(G.settings && G.settings.reducedMotion);
-      // Program §6.2's seat-miss loss is applied by the sim-facing event loop in src/game.js, which
-      // runs after this layer in the same frame. Read the rank ahead of that mutation and count it
-      // down locally, so two misses in one frame never draw a numeral the floored-at-0 reputation
-      // will not actually pay.
-      let repHeadroom = Math.max(0, (G.meta ? G.meta.reputation : 0) | 0);
       for (const e of world.events) {
         if (e.type === 'built') {
           const z = area.zones.find(z => z.id === e.zoneId); if (!z) continue;
@@ -513,15 +511,10 @@ export function createVisuals(G, S, ctx) {
             if (v && !still) v.popT = 0;
             if (audio && typeof audio.play === 'function') audio.play('clean');
           }
-        } else if (e.type === 'seatMissed') {
-          // Program §6.2: the guest paid and never got a clean table. This layer adds nothing but
-          // the single floating numeral that tells the owner it just happened -- the stat and the
-          // reputation point belong to src/game.js, applied and checkpointed exactly once per
-          // event. The numeral is drawn only when the rank will actually move (reputation is
-          // floored at 0, so a fresh save shows no phantom loss).
-          const c = G.customers && G.customers.find(cc => cc.id === e.id);
-          if (c && repHeadroom > 0) { repHeadroom--; fx.number(c.x, 1.75, c.z, '−1★', 'lost'); }
         }
+        // 'seatMissed' draws nothing here any more. It used to float a "−1★" over the guest for the
+        // reputation point it cost; a missed seat no longer costs anything (sim/serviceQuality.js
+        // applySeatMiss), and the guest walking out is the whole consequence.
       }
 
       // How much fruit the hungriest blender has room for, once per frame: a ripe bush only asks to be
@@ -553,12 +546,9 @@ export function createVisuals(G, S, ctx) {
           }
         }
 
-        // Batch 1 terrace (D2): fountain1 goes inactive the instant z_splash completes (world.js's
-        // payZone), with no 'built' event of its own to hide it -- z_splash's event is for splash1,
-        // the new station occupying the same spot. Every other station's active flag has only ever
-        // gone true (via the reveal above), so this sync was previously a no-op everywhere; now it
-        // is what actually swaps the fountain mesh out for the splash pool on screen. Skipped while
-        // a reveal is in flight, since that already owns visibility/scale for its own duration.
+        // Keeps a station's mesh in step with its active flag outside a reveal (a restore that
+        // clears the build set, dev tooling). Skipped while a reveal is in flight, since that
+        // already owns visibility/scale for its own duration.
         if (!v.reveal && v.g.visible !== !!st.active) v.g.visible = !!st.active;
         // Mirrors whatever the reveal/active logic above just decided, whichever branch set it.
         if (v.shadow) v.shadow.visible = v.g.visible;
@@ -580,6 +570,9 @@ export function createVisuals(G, S, ctx) {
         if (st.type === 'display') updateItemStack(v.stack, st.product, st.stock, dt, true);
         if (st.type === 'oven') updateItemStack(v.stack, st.product, Math.min(st.stock, 6), dt, false);
         if (st.type === 'checkout') v.pile.setCount(Math.ceil(st.pile / 5));
+        // The collection, made visible in the café: a frame per pet, coloured once it is in the
+        // album (systems/photo.js creditShot writes it). A no-op when nothing changed.
+        if (v.photoWall) v.photoWall.setAlbum(G.meta && G.meta.album);
         if (st.type === 'bush') v.g.setStage(st.stage);
         if (st.type === 'seat' && v.dirtyProp) {
           // Program §6.3: the crumbs used to be switched off between two frames, which is what
@@ -633,8 +626,6 @@ export function createVisuals(G, S, ctx) {
           if (v._steamT > 0.5) { v._steamT = 0; fx.burst(st.x, 1.0, st.z, '#FFFFFF', 2); }
         }
         // D2 — fountain particle ring: reuse fx.burst on a timer rather than a new particle system.
-        // Stops as soon as st.active flips false (the z_splash swap above), so it never runs behind
-        // the splash pool that replaces it.
         if (st.type === 'decor' && st.active) {
           v._fxT = (v._fxT || 0) + dt;
           if (v._fxT > 1.1) { v._fxT = 0; fx.burst(st.x, 1.0, st.z, '#A8DCEF', 6); }
@@ -712,6 +703,21 @@ export function createVisuals(G, S, ctx) {
       for (let i = noSeatUsed; i < noSeatPool.length; i++) {
         const slot = noSeatPool[i];
         if (slot.visible) { slot.el.classList.add('hidden'); slot.visible = false; }
+      }
+
+      // "Come and take my picture." Up while a pet holds its pose and nobody has started the shot.
+      const pose = world.pose;
+      const poseUp = !!pose && !pose.session;
+      if (poseUp) {
+        fx.project(pose.x, POSE_BUBBLE_Y, pose.z, demandTmp);
+        poseBubble.style.left = demandTmp.sx + 'px'; poseBubble.style.top = demandTmp.sy + 'px';
+      }
+      const poseVisible = poseUp && demandTmp.visible;
+      if (poseBubbleOn !== poseVisible) {
+        poseBubble.classList.toggle('hidden', !poseVisible);
+        // Arriving pops once, like every other need bubble. Never loops: an invitation is not an alarm.
+        if (poseVisible) { poseBubble.classList.remove('pop'); void poseBubble.offsetWidth; poseBubble.classList.add('pop'); }
+        poseBubbleOn = poseVisible;
       }
 
       // Program §6.3: one ring, either actor. ctx.cleanProg is the owner-hold map systems/

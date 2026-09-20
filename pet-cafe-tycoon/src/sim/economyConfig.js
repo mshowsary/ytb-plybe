@@ -33,20 +33,11 @@ export const PRODUCTS = {
   latte:    { price: 19, make: 2.5, color: '#E8C79A' },
   // Batch 1 — the ice cream lane (plan 3.1). icecream1 mirrors coffee1 exactly, so sundae is its
   // alt recipe (world.js ALT_PRODUCT) the same way latte is coffee1's. pupcup is a pet-treat
-  // variant dispensed at icecream1 (plan: wishFor gives terrace-bound pet wishes a pupcup instead
-  // of a treat) — it has no `make`/`bake` because it costs 1 cream directly, not a buffer slot.
+  // variant that nothing wishes for yet — it has no `make`/`bake` because it was never a machine
+  // product.
   icecream: { price: 26, make: 2.0, color: '#FFF0F5' },
   sundae:   { price: 34, make: 2.6, color: '#FFD6E7' },
   pupcup:   { price: 14, color: '#FFE4C4' },
-  // Batch 4b — the spa services (plan 3.9: "spa guests ... pay 60-90 at register3"). These are
-  // SERVICES, not stock: they have no `bake`/`make` because nothing is produced into a buffer and
-  // nothing sits on a display — a groom or a bath is a session at its own station, priced here so
-  // the register, the ledger and the career mastery counters all read one number from one place,
-  // exactly like `treat` and `pupcup` already do. 75/85 sit inside the plan's 60-90 band with the
-  // bath dearer than the groom (it also consumes a `water` sack from waterTank1).
-  // PLACEHOLDERS in the same sense as the spa's zone prices: a pacing agent re-measures both.
-  groom:    { price: 75, color: '#8FD3EE' },
-  bath:     { price: 85, color: '#BFEFFA' },
 };
 
 export const FAMILY = { cookie: 'cookie', brownie: 'cookie', coffee: 'coffee', latte: 'coffee', sundae: 'icecream' };
@@ -110,6 +101,14 @@ export const DEMAND = {
   LEVEL_SOFT_CAP: 24, LEVEL_SPAN: 0.3, LEVEL_DECAY: 0.9,
   LEVEL_PER_MAX_STEP_BEYOND_CAP: 11,
 };
+// The Ice cream garden's own arrivals (docs/SHIP-PLAN-2026-09-19.md §1.2: "terrace guests are extra
+// guests"). A separate stream on top of DEMAND, so buying the garden adds guests at its arch and
+// never takes one from the café door. Scaled by the garden's tables: every pair of deck tables
+// shortens the interval and raises the garden's own crowd cap. Measured in tools/bot.js.
+export const TERRACE_DEMAND = {
+  BASE_INTERVAL: 10, INTERVAL_PER_EXTRA_PAIR: 1.5, MIN_INTERVAL: 7,
+  BASE_MAX: 3, MAX_PER_TABLE: 1,
+};
 
 // --- staffing --------------------------------------------------------------------------------------
 // Task 25: the first Runner is the earliest useful automation (empty-display pressure dominates the
@@ -125,11 +124,11 @@ export const STAFF = {
   // this changes tools/bot.js's printed "economy config identity" hash -- expected.
   cleaner: { costs: [220, 1800], speed: 2.2 },
   barista: { costs: [2300, 6000], speed: 2.4, carry: 4 },
-  // Batch 4b — the Photographer (plan 3.9: hired at photoDesk1, auto-takes `Good` shots at
-  // photo1). Two tiers like every non-runner role, priced between the barista and the runner's own
-  // late tiers because the role is bought long after both. No `carry`: it carries nothing.
-  // A hire is offered by whatever opens the workers sheet, so this role becomes visible the moment
-  // z_photographer is built — see wiringNeeded for the systems/ side that actually takes the shot.
+  // The Photographer (hired at the staff desk once the Pet camera is owned; walks to whichever
+  // seated pet is posing and takes a `Good` shot — sim/staff.js stepPhotographer, sim/petPose.js).
+  // Two tiers like every non-runner role, priced between
+  // the barista and the runner's own late tiers because the role is bought long after both. No
+  // `carry`: it carries nothing. ui/models.js hides its row until the camera is bought.
   photographer: { costs: [3200, 7000], speed: 2.2 },
 };
 export const REGISTER_RATE = { owner: 0.6, cashierBase: 1.0 };
@@ -180,5 +179,5 @@ export const AFFORD_MULTIPLIER = 2;
 // (lower) multiple instead — 1x means "buy it the instant it's affordable", matching how a player
 // actually plays a long save: top up cheap throughput along the way rather than banking every coin
 // for a single multi-day goal. Days 1-12 are unaffected (no content zone is active yet); this only
-// changes behaviour once the terrace (or later, the spa) is the thing being saved for.
+// changes behaviour once the terrace is the thing being saved for.
 export const CONTENT_SAVE_AFFORD_MULTIPLIER = 1;

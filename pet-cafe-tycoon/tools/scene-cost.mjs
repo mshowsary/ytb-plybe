@@ -58,9 +58,9 @@ if (!EXTERNAL) {
 const base = EXTERNAL || `http://127.0.0.1:${PORT}/`;
 
 // The zone chain in build order — payZone refuses a zone whose prerequisite is unbuilt, so the order
-// matters. Everything through the terrace tables is what a player has by day 12.
+// matters. Everything through the garden tables is the whole catalogue since 2026-09-19.
 const CHAIN = ['z_seats1', 'z_oven2', 'z_register2', 'z_hire', 'z_coffee', 'z_bowl', 'z_blender',
-  'z_garden', 'z_seats2', 'z_terrace', 'z_icecream', 'z_photo', 'z_register3', 'z_terraceSeats'];
+  'z_garden', 'z_seats2', 'z_terrace', 'z_photo', 'z_terraceSeats'];
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 852, height: 393 }, isMobile: true, hasTouch: true });

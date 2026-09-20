@@ -2,7 +2,6 @@
 // customers, navigation and owner carry state: those are transient (or belong to Task 11).
 import { PRODUCTS, displayStarCap, familyOf } from './economy.js';
 import { SAVE_LIMITS } from './saveSchema.js';
-import { BATH_WATER_CAP } from './world.js';
 
 export const STATION_STATE_VERSION = 1;
 export const DEFAULT_REGISTER_PILE_LIMIT = 100_000_000;
@@ -59,29 +58,17 @@ function normalizeRow(def, row, stars, maxPile) {
   if (!isRecord(row)) return null;
   switch (def.type) {
     case 'checkout':
-    // The photo booth's tray collects exactly like a register's, so it persists the same way.
-    // st.session is deliberately NOT persisted: it points at a live customer id, and customers
-    // intentionally restart after a reload (same reasoning as 'seat' occupied-vs-dirty below).
-    case 'photo':
-    // Batch 4b: 'groom' collects exactly like the booth (pile only; its session is transient for
-    // the same reason). 'boutique' has no session at all yet — just the same pile shape, ready for
-    // a future "boutique sale" to bank into.
-    case 'groom':
-    case 'boutique':
       return { pile: boundedQuantity(row.pile, maxPile) };
-    // 'bath' additionally persists its water sack, bounded exactly like 'coffee'.beans/
-    // 'icecream'.cream — an oversized/corrupt value collapses to zero rather than to a full tank.
-    case 'bath':
-      return {
-        pile: boundedQuantity(row.pile, maxPile),
-        water: boundedQuantity(row.water, BATH_WATER_CAP),
-      };
     case 'oven':
-    case 'display':
-      return {
+    case 'display': {
+      const out = {
         stock: boundedQuantity(row.stock, outputCapacity(def, stars)),
         product: compatibleProduct(def, row.product),
       };
+      // The garden stand's cash jar is money, persisted exactly like a register's pile.
+      if (def.type === 'display' && def.selfServe) out.pile = boundedQuantity(row.pile, maxPile);
+      return out;
+    }
     case 'coffee':
       return {
         beans: boundedQuantity(row.beans, 20),
@@ -89,9 +76,9 @@ function normalizeRow(def, row, stars, maxPile) {
         product: compatibleProduct(def, row.product),
       };
     case 'icecream':
-      // Mirrors 'coffee' exactly (cream instead of beans) — plan 7.2.
+      // The coffee row without a supply: the ice cream machine drinks nothing since 2026-09-19, so
+      // an old save's `cream` field is simply not read.
       return {
-        cream: boundedQuantity(row.cream, 20),
         stock: boundedQuantity(row.stock, outputCapacity(def, stars)),
         product: compatibleProduct(def, row.product),
       };
@@ -103,14 +90,10 @@ function normalizeRow(def, row, stars, maxPile) {
     case 'bowl':
       return { stock: boundedQuantity(row.stock, outputCapacity(def, stars)) };
     case 'seat':
-      return { dirty: row.dirty === true };
-    case 'restroom': {
-      // Restore is untrusted (Task 1.1 brief) — tidy is bounded 0..1 like every other fraction in
-      // this file, a tampered/non-finite value collapsing to the safe default (a freshly-cleaned
-      // restroom) rather than to either extreme.
-      const t = row.tidy;
-      return { tidy: finiteNumber(t) ? Math.max(0, Math.min(1, t)) : 1 };
-    }
+      // A table's tip saucer is money, persisted exactly like a register's tray. The live pose
+      // itself is deliberately NOT persisted: it points at a customer id, and customers
+      // intentionally restart after a reload (same reasoning as occupied-vs-dirty).
+      return { dirty: row.dirty === true, pile: boundedQuantity(row.pile, maxPile) };
     default:
       return null;
   }
@@ -155,32 +138,19 @@ function resetRuntimeStation(st, def, stars) {
     case 'checkout':
       st.pile = 0; st.serving = ''; st.procT = 0; st._watchdogT = 0;
       break;
-    case 'photo':
-    case 'groom':
-      st.pile = 0; st.serving = ''; st.session = null;
-      break;
-    // Batch 4b: water is durable and deliberately NOT reset here (unlike beans/cream's fixed-full
-    // baseline below) — a tampered save that omits bath1's row entirely must not manufacture a full
-    // tank the way a legacy coffee save incidentally does when its own row goes missing. It is left
-    // exactly as the live world already holds it; restoreStationState below overwrites it only when
-    // a genuine row supplies one.
-    case 'bath':
-      st.pile = 0; st.serving = ''; st.session = null;
-      break;
-    case 'boutique':
-      st.pile = 0;
-      break;
+
     case 'oven':
       st.product = baseProduct(def); st.stock = 0; st.timer = 0;
       break;
     case 'display':
       st.product = baseProduct(def); st.stock = 0; st.capacity = outputCapacity(def, stars);
+      if (st.selfServe) st.pile = 0;
       break;
     case 'coffee':
       st.product = 'coffee'; st.beans = 20; st.stock = 0; st.timer = 0;
       break;
     case 'icecream':
-      st.product = 'icecream'; st.cream = 20; st.stock = 0; st.timer = 0;
+      st.product = 'icecream'; st.stock = 0; st.timer = 0;
       break;
     case 'blender':
       st.fruit = 0; st.stock = 0; st.timer = 0;
@@ -190,10 +160,7 @@ function resetRuntimeStation(st, def, stars) {
       break;
     case 'seat':
       // Customers intentionally restart after reload, so occupied is transient while dirt is durable.
-      st.occupied = false; st.dirty = false;
-      break;
-    case 'restroom':
-      st.tidy = 1;
+      st.occupied = false; st.dirty = false; st.pile = 0;
       break;
     default:
       break;
@@ -217,19 +184,14 @@ export function restoreStationState(world, payload, stars = {}, maxPile = DEFAUL
     const st = world.stations.get(id);
     if (!st || !st.active) continue;
     switch (st.type) {
-      case 'checkout':
-      case 'photo':
-      case 'groom':
-      case 'boutique': st.pile = row.pile; break;
-      case 'bath': st.pile = row.pile; st.water = row.water; break;
+      case 'checkout': st.pile = row.pile; break;
       case 'oven':
-      case 'display': st.stock = row.stock; st.product = row.product; break;
+      case 'display': st.stock = row.stock; st.product = row.product; if (st.selfServe) st.pile = row.pile | 0; break;
       case 'coffee': st.beans = row.beans; st.stock = row.stock; st.product = row.product; break;
-      case 'icecream': st.cream = row.cream; st.stock = row.stock; st.product = row.product; break;
+      case 'icecream': st.stock = row.stock; st.product = row.product; break;
       case 'blender': st.fruit = row.fruit; st.stock = row.stock; break;
       case 'bowl': st.stock = row.stock; break;
-      case 'seat': st.dirty = row.dirty; break;
-      case 'restroom': st.tidy = row.tidy; break;
+      case 'seat': st.dirty = row.dirty; st.pile = row.pile | 0; break;
       default: break;
     }
   }

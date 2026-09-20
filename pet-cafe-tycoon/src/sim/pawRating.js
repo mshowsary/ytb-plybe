@@ -90,12 +90,11 @@ const zoneList = area => (area && Array.isArray(area.zones) ? area.zones : null)
 
 // A requirement that names content ABSENT FROM THE CATALOGUE is SKIPPED, not failed.
 //
-// ★4 names `z_spa`, which is Batch 4 content that does not exist yet. Read literally, ★4 would be
-// unreachable — which also makes the legendary coats Batch 2 shipped (gated at ★4) dead content,
-// and ★5 unreachable behind it. Failing on absent content punishes the player for a build order
-// they cannot influence. So the zone is checked against the ACTUAL catalogue rather than a
-// hardcoded list of which zones exist: when Batch 4 adds `z_spa` to data/area1.js the requirement
-// becomes real on its own, with no edit in this file.
+// A zone row that named content not yet (or no longer) in data/area1.js would make its star
+// unreachable — and the legendary coats (gated at ★4) and ★5 behind it dead content. Failing on
+// absent content punishes the player for a build order they cannot influence. So the zone is
+// checked against the ACTUAL catalogue rather than a hardcoded list of which zones exist, and a
+// row only becomes real once its zone is authored, with no edit in this file.
 export function pawZoneInCatalogue(zoneId, area = AREA1) {
   const zones = zoneList(area);
   return !!zones && zones.some(zone => zone && zone.id === zoneId);
@@ -103,7 +102,7 @@ export function pawZoneInCatalogue(zoneId, area = AREA1) {
 
 // "Every INTERIOR zone" (★2). A zone is REGIONAL when it opens a region (area.regions[].builtBy)
 // or descends from that zone through `requires`; everything else is interior. Derived rather than
-// listed, for the same reason as above: Batch 4's spa region re-partitions this automatically, and
+// listed, for the same reason as above: a new region re-partitions this automatically, and
 // z_terrace — which ★3 asks for separately — is correctly excluded from ★2 today.
 export function pawInteriorZoneIds(area = AREA1) {
   const zones = zoneList(area);
@@ -343,9 +342,9 @@ function tierRequirements(star, ev, opts = {}) {
   if (star === 4) {
     // 16 of 20 is authored as an absolute count, not a fraction: it is a "most of the book" goal,
     // and letting it scale with a future 24-pet catalogue would retroactively raise a live gate.
+    // (★4 also named the Pet Spa until the spa was retired on 2026-09-19; the row went with it.)
     const target = Math.min(PAW_TARGETS.discovered, ev.petTotal);
     return [
-      zoneRow(4, 'r4.spa', 'z_spa', ev),
       row(4, 'r4.book', 'petBook', ev.discovered, target, ev.discovered >= target),
       row(4, 'r4.cup', 'cup', ev.goldCups, PAW_TARGETS.goldCups, ev.goldCups >= PAW_TARGETS.goldCups),
     ];
@@ -393,7 +392,7 @@ export function pawRatingState(input = {}) {
   const { area: _area, builtSet: _builtSet, ...counters } = ev;
   const { tiers, live } = buildTiers(ev, {});
   // THE RATCHET. Several inputs regress: a bad week pushes the missed-seat window back over 3, and
-  // Batch 4 adding z_spa would retroactively un-earn a ★4 a live player already holds. A rating
+  // a newly authored zone row would retroactively un-earn a star a live player already holds. A rating
   // that falls is punishing and would ship as a visible regression, so the highest star ever
   // reached is what the game uses. `best` is computed as max(stored, live) here — so it is correct
   // even for a caller that never persists it — and applyPawRatchet() is what writes it down.

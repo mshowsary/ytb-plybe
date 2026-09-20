@@ -4,7 +4,9 @@ import { payZone } from '../sim/world.js';
 import { crossedBuildPaymentMilestone } from '../sim/checkpoint.js';
 import { buildOutline } from '../render/props.js';
 import { semanticBuildGhost } from '../render/buildPreview.js';
+import { photoWallGhost } from '../render/photoWall.js';
 import { insideBuildFootprint, stepBuildIntent } from '../sim/buildIntent.js';
+import { ownerBodyBoxes, ownerPocketRescue } from '../sim/ownerReach.js';
 import { Spring } from '../core/tween.js';
 import { pickSavingTarget } from '../ui/hud.js';
 
@@ -23,11 +25,25 @@ export function createZones(G, S, ctx) {
   const zonesMap = new Map();
   for (const z of area.zones) {
     const stDef = area.stations.find(s => s.id === z.adds[0]);
-    const fw = (stDef && stDef.fw) || 1.6, fd = (stDef && stDef.fd) || 1.6, rot = (stDef && stDef.rot) || 0;
+    // The plot is normally the shape of the station it builds. A zone that hangs something on a
+    // wall authors its own `pad` instead (data/area1.js): the photo wall is 0.3 m deep, and a plot
+    // that thin is narrower than the stand-still the build needs.
+    const fw = (z.pad && z.pad.w) || (stDef && stDef.fw) || 1.6;
+    const fd = (z.pad && z.pad.d) || (stDef && stDef.fd) || 1.6;
+    const rot = z.pad ? 0 : ((stDef && stDef.rot) || 0);
     const outline = buildOutline(fw, fd); outline.position.set(z.x, 0, z.z); outline.rotation.y = rot; outline.visible = false; scene.add(outline);
     // Task 32: the construction ghost uses the real future station silhouette. A player can read
-    // oven/table/counter/Staff Desk from the world before spending a coin.
-    const ghost = semanticBuildGhost(stDef, fw, fd); ghost.position.set(z.x, 0.025, z.z); ghost.rotation.y = rot; ghost.visible = false; scene.add(ghost);
+    // oven/table/counter/Staff Desk from the world before spending a coin. It stands where that
+    // station WILL stand, not on the pad: pads keep clear of every machine's working spot
+    // (data/area1.js), so the plot to stand on and the thing it builds are two places now.
+    const ghostRot = (stDef && stDef.rot) || 0;
+    // A wall-mounted purchase has no floor silhouette for semanticBuildGhost to draw, so the photo
+    // wall brings its own blueprint (src/render/photoWall.js) rather than leaving a faint slab on
+    // the floor by the skirting board.
+    const ghost = stDef && stDef.type === 'wall'
+      ? photoWallGhost()
+      : semanticBuildGhost(stDef, (stDef && stDef.fw) || fw, (stDef && stDef.fd) || fd);
+    ghost.position.set(stDef ? stDef.x : z.x, 0.025, stDef ? stDef.z : z.z); ghost.rotation.y = ghostRot; ghost.visible = false; scene.add(ghost);
 
     const price = document.createElement('div'); price.className = 'zprice'; price.style.display = 'none';
     // Program's one-word-verb rule for action controls: BUILD is the pill's first child so it reads
@@ -75,6 +91,21 @@ export function createZones(G, S, ctx) {
     S.punch(0.84, 1.1);
     fx.burst(zv.z.x, 0.9, zv.z.z, '#FFD84D', 16);
     fx.burst(zv.z.x, 0.6, zv.z.z, '#7FD69A', 10);
+    freeOwnerFromPocket();
+  }
+
+  // No pockets. The owner is usually standing on the pad when a station pops in, and a new station
+  // can close the last gap wide enough for the owner's body (buying the photo studio from its pad
+  // sealed the owner into the terrace's west corner). If the owner can no longer walk back to the
+  // café centre, they step out to the nearest spot that can, with a puff so the hop reads as
+  // deliberate. sim/ownerReach.js judges it with the owner's own collision boxes and room shape.
+  function freeOwnerFromPocket() {
+    const to = ownerPocketRescue(area, world.built, ownerBodyBoxes(world), P);
+    if (!to) return;
+    fx.dust(P.x, P.z, 2);
+    P.x = to.x; P.z = to.z; P.vx = 0; P.vz = 0;
+    fx.dust(P.x, P.z, 2);
+    fx.burst(P.x, 0.5, P.z, '#FFFFFF', 8);
   }
 
   function syncAll() {

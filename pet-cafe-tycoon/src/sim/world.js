@@ -35,13 +35,20 @@ export function createWorld(area, save, seed) {
     // Loop v2 Task 1: a display holds exactly ONE product (fixed by data, never mixed) — replaces
     // the old shared 'counter' (items: [], any product). putOnDisplay/takeFromDisplay below.
     if (s.type === 'display') Object.assign(st, { product: s.product, stock: 0, capacity: s.capacity || 8 });
+    // A self-serve stand (the garden's barIce): guests pay into its cash jar themselves the moment
+    // they take their cone (sim/customers.js payAtStand), and the owner collects the jar walking
+    // past, the same as a register's pile (addCash/collectCash below are generic over `pile`).
+    if (s.type === 'display' && s.selfServe) Object.assign(st, { selfServe: true, pile: 0 });
     // M3 T3: the register keeps the code type 'checkout' (w.checkouts, checkoutMesh, everything
     // that already reads it) even though the plan/UI call it "Register". serving/procT drive the
     // manned-register cadence — see stepRegisters below.
     if (s.type === 'checkout') Object.assign(st, { pile: 0, serving: '', procT: 0 });
     // Task 4: `dirty` starts false; set true by customers.js when a pair finishes eating, cleared
     // by cleanSeat below (owner) or the cleaner staff kind (src/sim/staff.js).
-    if (s.type === 'seat') Object.assign(st, { occupied: false, dirty: false });
+    // `pile` is the table's tip saucer: a photographed pet tips onto its own table
+    // (src/sim/petPose.js), and the owner sweeps it walking past exactly like a register's tray —
+    // addCash/collectCash are generic over any station with a `.pile`.
+    if (s.type === 'seat') Object.assign(st, { occupied: false, dirty: false, pile: 0 });
     if (s.type === 'bowl') Object.assign(st, { stock: 0, capacity: 10 });
     // growT: seconds accumulator toward the next stage (stepMachines below), one stage per 25/3 s.
     if (s.type === 'bush') Object.assign(st, { stage: 0, growT: 0 });
@@ -51,33 +58,14 @@ export function createWorld(area, save, seed) {
     if (s.type === 'blender') Object.assign(st, { fruit: 0, stock: 0, buffer: 8, timer: 0 });
     // Batch 1 — terrace station types (plan 7.2). 'gate' is a non-blocking marker: it carries no
     // state and (src/sim/nav.js footprintBoxes, and w.boxes below) never contributes a collision
-    // box. 'decor' blocks (fountain/splash) but carries no state of its own. 'icecream' mirrors
-    // 'coffee' exactly (cream instead of beans) so every generic machine system (stepMachines,
-    // runners' pickSource, the bot) generalises for free. 'restroom' is a comfort buff, not a
-    // queue: tidy drains 0.08/seated guest (owned by the seating/cleaner systems), bounded 0..1
-    // here and by stationState.js on restore. 'splash' is decor with fx.
-    if (s.type === 'icecream') Object.assign(st, { product: 'icecream', baseProduct: 'icecream', altProduct: ALT_PRODUCT[s.id] || null, cream: 20, stock: 0, buffer: 8, timer: 0 });
-    if (s.type === 'restroom') Object.assign(st, { tidy: 1 });
-    // Task 2.1 (photo studio): 'photo' is a queue + tip tray + a one-guest-at-a-time mini-game
-    // session — `pile` collects exactly like a register's (world.js's own addCash/collectCash are
-    // generic over any station with a `.pile` field, so no new collection code was needed there).
-    // `serving` mirrors 'checkout' — set truthy by whichever presentation/bot layer detects the
-    // owner standing at st.front (systems/photo.js in the running game, tools/bot.js headless) —
-    // and gates stepPhotoBooth's auto-start below exactly like stepRegisters gates on it. `session`
-    // is null when idle; see stepPhotoBooth/resolvePhotoShot/clearPhotoSession further down.
-    if (s.type === 'photo') Object.assign(st, { pile: 0, serving: '', session: null });
-    // Batch 4b (plan 3.9) — the spa's two session stations mirror 'photo' exactly: a queue, a
-    // one-guest-at-a-time session and a tip pile (world.js's own addCash/collectCash already
-    // generalise over any station with a `.pile`, so no new collection code is needed here). 'bath'
-    // additionally carries its own consumable, `water` — shaped exactly like 'icecream'.cream/
-    // 'coffee'.beans (a small sack-refillable buffer, not the pantry's own supply) — see
-    // refillWater/BATH_WATER_CAP further down.
-    if (s.type === 'groom') Object.assign(st, { pile: 0, serving: '', session: null });
-    if (s.type === 'bath') Object.assign(st, { pile: 0, serving: '', session: null, water: BATH_WATER_CAP });
-    // 'boutique' is a shopfront: no queue, no session — just a register-shaped pile so a future
-    // "boutique sale" (a player UI action, out of this task's scope) has somewhere to bank into.
-    if (s.type === 'boutique') Object.assign(st, { pile: 0 });
-    if (s.type === 'gate' || s.type === 'decor' || s.type === 'splash') Object.assign(st, {});
+    // box. 'decor' blocks (the fountain) but carries no state of its own. 'icecream' has the
+    // coffee machine's product/stock/buffer shape, so every generic machine system (stepMachines,
+    // runners' pickSource, the bot) generalises for free — but it needs no supply: the cream sack
+    // and its cold pantry were cut (docs/SHIP-PLAN-2026-09-19.md §1.2).
+    if (s.type === 'icecream') Object.assign(st, { product: 'icecream', baseProduct: 'icecream', altProduct: ALT_PRODUCT[s.id] || null, stock: 0, buffer: 8, timer: 0 });
+    // 'wall' is mounted scenery with state of its own held elsewhere (the photo wall reads
+    // meta.album), like 'gate' and 'decor' it carries none here.
+    if (s.type === 'gate' || s.type === 'decor' || s.type === 'wall') Object.assign(st, {});
 
     const frontDist = s.front != null ? s.front : 1.3;
     const f = rotateOffset(st.rot, 0, frontDist);
@@ -97,6 +85,12 @@ export function createWorld(area, save, seed) {
         s.serveForward != null ? s.serveForward : -((st.fd != null ? st.fd : 1) / 2 + 0.7));
       st.serve = { x: st.x + sv.x, z: st.z + sv.z };
     }
+    // The stand's jar is collected from where the owner already stands to stock it (its front,
+    // behind the counter), so working the stand and emptying the jar are the same trip.
+    if (st.selfServe) st.cash = { x: st.front.x, z: st.front.z };
+    // A table's tip saucer sits ON the table, so the coins fly up from the table itself; the owner
+    // is judged by the seat's front, the same spot the walk-past wipe already uses.
+    if (s.type === 'seat') st.cash = { x: st.x, z: st.z };
 
     // M3 T3: registers reuse the counter's queue geometry helper (5 slots, 1.4m then 0.85m
     // steps — fix round 2: cut from 6 to 5 so the deepest slot, z = 2.8, stays clear of the
@@ -105,13 +99,7 @@ export function createWorld(area, save, seed) {
     // register2 needs this: it shares hire1's blocked x band and its queue would otherwise run
     // straight through hire1's footprint (found by test/layout.test.js). Every other
     // display/register has open floor along its queue line and leaves this at its default 0.
-    // Task 2.1: 'photo' reuses this exact geometry (plan 3.2 — "reuse the register queue
-    // geometry") rather than inventing its own, so photo1's line fans out and overflows past 5
-    // guests (customers.js's queuePos) exactly like a register's already does.
-    // Batch 4b: groom1/bath1 reuse this same geometry (plan 3.9's own queue, re-derived and proven
-    // free cell-by-cell by test/spa-foundation.test.js before this wiring landed) rather than
-    // inventing a second queue shape.
-    if (s.type === 'display' || s.type === 'checkout' || s.type === 'photo' || s.type === 'groom' || s.type === 'bath') {
+    if (s.type === 'display' || s.type === 'checkout') {
       st.queue = [];
       const right = s.queueRight || 0;
       for (let i = 0; i < 5; i++) {
@@ -148,10 +136,11 @@ export function refreshActive(w) {
   w.displays = displays; w.checkouts = checkouts;
   // 'gate' is a non-blocking marker (plan 7.2) — the terrace's fence gap is walkable through it,
   // for the owner exactly like it is for the nav grid (nav.js's own footprintBoxes excludes it
-  // too). collide.js's stationBoxes takes only `w.stations`, so route it a filtered map instead
-  // of touching that shared, not-mine module.
+  // too). 'wall' is mounted on a wall and has no floor footprint at all (the photo wall), so it is
+  // the same kind of exception. collide.js's stationBoxes takes only `w.stations`, so route it a
+  // filtered map instead of touching that shared, not-mine module.
   const boxStations = new Map();
-  for (const [id, st] of w.stations) if (st.type !== 'gate') boxStations.set(id, st);
+  for (const [id, st] of w.stations) if (st.type !== 'gate' && st.type !== 'wall') boxStations.set(id, st);
   w.boxes = stationBoxes({ stations: boxStations });
   w.activeZoneList = activeZones(w); // I8: cached list, rebuilt only when the built set changes
   // Stations changed (new footprints block/unblock cells): rebuild the walkability grid. The
@@ -178,10 +167,6 @@ export function payZone(w, zoneId, coins, dt) {
   if (total >= z.price) {
     delete w.partial[zoneId]; delete w.payAcc[zoneId]; w.built.add(zoneId);
     for (const id of z.adds) { const st = w.stations.get(id); if (st) st.active = true; }
-    // Plan 3.1: "z_splash replaces fountain1 mesh with a splash pool" — splash1 is placed exactly
-    // on fountain1's own spot (data/area1.js), so once it exists fountain1 is retired rather than
-    // left active underneath it (which would double-render and double-block the same tile).
-    if (zoneId === 'z_splash') { const old = w.stations.get('fountain1'); if (old) old.active = false; }
     refreshActive(w);
     emitWorld(w, { type: 'built', zoneId });
     return { spent, done: true };
@@ -272,14 +257,13 @@ export function stepMachines(w, dt, coffeeMult = 1) {
       const t = PRODUCTS[st.product].make / (coffeeMult * starMult(w, st.id));
       while (st.timer >= t && st.stock < st.buffer && st.beans > 0) { st.timer -= t; st.stock++; st.beans--; }
     } else if (st.type === 'icecream') {
-      // Mirrors the coffee branch above exactly (cream instead of beans) so every generic system
-      // that already understands a coffee-shaped machine (runners, the bot, star tiers) works for
-      // the ice cream lane with zero extra code.
-      if (st.stock >= st.buffer || st.cream <= 0) { st.timer = 0; continue; }
+      // The coffee branch above without its consumable: the stand's machine only ever stops for a
+      // full buffer, so the garden earns while the owner is inside.
+      if (st.stock >= st.buffer) { st.timer = 0; continue; }
       maybeToggleRecipe(w, st);
       st.timer += dt;
       const t = PRODUCTS[st.product].make / (coffeeMult * starMult(w, st.id));
-      while (st.timer >= t && st.stock < st.buffer && st.cream > 0) { st.timer -= t; st.stock++; st.cream--; }
+      while (st.timer >= t && st.stock < st.buffer) { st.timer -= t; st.stock++; }
     } else if (st.type === 'blender') {
       if (st.stock >= st.buffer || st.fruit <= 0) { st.timer = 0; continue; }
       st.timer += dt;
@@ -306,24 +290,6 @@ export function refillBeans(w, id, sack = 20) {
   const room = Math.max(0, 20 - st.beans);
   const used = Math.max(0, Math.min(sack, room));
   st.beans += used;
-  return used;
-}
-// Ice cream lane's cream sack, same shape as refillBeans above.
-export function refillCream(w, id, sack = 20) {
-  const st = w.stations.get(id);
-  const room = Math.max(0, 20 - st.cream);
-  const used = Math.max(0, Math.min(sack, room));
-  st.cream += used;
-  return used;
-}
-// Batch 4b: bath1's water sack, same shape as refillCream/refillBeans above (room-capped, returns
-// the amount actually drawn from the sack so a 'water' carry.js sack can decrement by exactly that
-// much rather than a flat amount regardless of how much room was there).
-export function refillWater(w, id, sack = BATH_WATER_CAP) {
-  const st = w.stations.get(id);
-  const room = Math.max(0, BATH_WATER_CAP - st.water);
-  const used = Math.max(0, Math.min(sack, room));
-  st.water += used;
   return used;
 }
 // Blender fruit buffer, cap 9.
@@ -469,304 +435,3 @@ export function stepRegisters(w, dt) {
   for (const id of w.checkouts) w.stations.get(id).serving = '';
 }
 
-// Task 2.1 — the Pet Photo Studio (plan 3.2). The mini-game's timing/scoring constants live here
-// (not in ui/photoGame.js) so the headless bot and the deterministic sim test suite can drive the
-// exact same numbers as the real render layer without importing anything DOM-shaped.
-export const PHOTO_RING_START = 2.2;      // ring scale at shot start
-export const PHOTO_RING_END = 0.6;        // ring scale at the end of its shrink
-export const PHOTO_RING_DURATION = 1.4;   // seconds the ring takes to shrink start -> end
-// A shot left untouched (player skill is optional, never mandatory) resolves itself 0.2s after the
-// ring finishes shrinking — comfortably past PHOTO_RING_DURATION so a real player's last-instant tap
-// is never raced by the timeout, and short enough that neither the headless bot nor the in-game
-// auto-play bot ever stalls on it (plan 3.2's own bot requirement).
-export const PHOTO_AUTO_RESOLVE = 1.6;
-export const PHOTO_PERFECT_BAND = 0.08;
-export const PHOTO_GOOD_BAND = 0.22;
-// The ring's "home" scale — where the pet actually sits relative to the booth frame. Kept as pure
-// math (no DOM) so both ui/photoGame.js (real taps) and this file's own tests can score a shot the
-// same way without a browser.
-export const PHOTO_TARGET_SCALE = 1.0;
-
-// Ring scale at elapsed time `t` (seconds since the shot started), clamped past the shrink's own
-// duration so a caller that samples slightly late (a dropped frame, a delayed tap handler) still
-// gets a sane, in-range answer instead of extrapolating past PHOTO_RING_END.
-export function photoRingScale(t) {
-  const p = Math.max(0, Math.min(1, (Number(t) || 0) / PHOTO_RING_DURATION));
-  return PHOTO_RING_START + (PHOTO_RING_END - PHOTO_RING_START) * p;
-}
-
-// Perfect (+-0.08), Good (+-0.22), else Ok — plan 3.2's exact bands, centered on PHOTO_TARGET_SCALE.
-export function photoJudgeQuality(scale) {
-  const d = Math.abs(scale - PHOTO_TARGET_SCALE);
-  if (d <= PHOTO_PERFECT_BAND) return 'perfect';
-  if (d <= PHOTO_GOOD_BAND) return 'good';
-  return 'ok';
-}
-// Plan 3.2: 40% of eligible paid guests are offered the studio.
-export const PHOTO_CHANCE = 0.4;
-// Queue depth cap (Trap 3 discipline — an allocator that fills past its physical geometry piles
-// duplicates on the same spot). photo1's queue reuses the register's 5-slot line/overflow geometry
-// (queuePos in customers.js), but a NEW arrival stops being routed here once this many guests are
-// already headed to or waiting at the booth, so the line never grows past what one manned booth can
-// plausibly clear before everyone's patience runs out.
-export const PHOTO_QUEUE_CAP = 4;
-export const PHOTO_BASE_TIP = 40;
-export const PHOTO_TIP_PER_TIER = 20;
-export const PHOTO_QUALITY_MULT = { perfect: 2, good: 1.3, ok: 1 };
-
-// tips = (40 + 20 * friendshipTier) * {perfect:2, good:1.3, ok:1} (plan 3.2), rounded to a whole
-// coin like every other price computation in this codebase. `tier` is clamped 0-3 (petBook.js's
-// PET_FRIENDSHIP_TIERS never exceeds 3) so a corrupt/out-of-range caller can't inflate a tip.
-export function photoTipAmount(tier, quality) {
-  const t = Math.max(0, Math.min(3, tier | 0));
-  const mult = PHOTO_QUALITY_MULT[quality] || 1;
-  return Math.round((PHOTO_BASE_TIP + PHOTO_TIP_PER_TIER * t) * mult);
-}
-
-// Advances every active photo booth by one tick: starts a fresh session at an idle, manned booth
-// whose slot-0 guest is genuinely at rest there (the same "hasTarget false AND spatially at the
-// slot" gate stepRegisters uses for its own head customer — see that function's own long comment
-// for exactly why both halves are needed), and auto-resolves a session as 'ok' once it's run past
-// PHOTO_AUTO_RESOLVE seconds with nobody having called resolvePhotoShot for it yet.
-//
-// Sim purity: this file never reads meta (friendship tiers live in G.meta, not `w`). `tierFor`,
-// when given, maps a queued sim customer to a 0-3 friendship tier; the browser's systems/photo.js
-// passes a real petBook-backed lookup, tools/bot.js and every test may omit it (tier 0 throughout —
-// still a full, correctly-scored mini-game, just without the friendship bonus).
-export function stepPhotoBooth(w, dt, tierFor) {
-  for (const st of w.stations.values()) {
-    if (st.type !== 'photo' || !st.active) continue;
-    if (st.session) {
-      if (!st.session.resolved) {
-        st.session.t += dt;
-        if (st.session.t >= PHOTO_AUTO_RESOLVE) resolvePhotoShot(w, st.id, 'ok');
-      }
-      continue; // a resolved-but-not-yet-cleared session still occupies the booth this tick
-    }
-    if (!st.serving) continue;
-    const arr = w._photoQueues && w._photoQueues.get(st.id);
-    const q0 = st.queue && st.queue[0];
-    const head = arr && q0 && arr.find(c => c.slot === 0 && c.state === 'atPhoto' && !c.mover.hasTarget && Math.hypot(c.x - q0.x, c.z - q0.z) < 0.15);
-    if (!head) continue;
-    const rawTier = typeof tierFor === 'function' ? tierFor(head) : 0;
-    const tier = Math.max(0, Math.min(3, Number.isFinite(rawTier) ? Math.trunc(rawTier) : 0));
-    st.session = {
-      customerId: head.id,
-      species: head.species,
-      variant: typeof head.petVariant === 'number' ? head.petVariant : 0,
-      tier, t: 0, resolved: false, quality: null, tip: 0,
-    };
-    emitWorld(w, { type: 'photoStart', id: head.id, stationId: st.id });
-  }
-  for (const st of w.stations.values()) if (st.type === 'photo') st.serving = '';
-}
-
-// Called either by the player's tap/hold (ui/photoGame.js, with a real 'perfect'|'good'|'ok' judged
-// from ring timing) or by stepPhotoBooth's own timeout above (always 'ok'). Idempotent past the
-// first call for a given session — a stray double-resolve (e.g. a tap racing the timeout) cannot
-// double-pay the same shot.
-export function resolvePhotoShot(w, id, quality) {
-  const st = w.stations.get(id);
-  if (!st || !st.session || st.session.resolved) return null;
-  const q = quality === 'perfect' || quality === 'good' ? quality : 'ok';
-  const tip = photoTipAmount(st.session.tier, q);
-  st.session.resolved = true; st.session.quality = q; st.session.tip = tip;
-  addCash(w, id, tip);
-  emitWorld(w, { type: 'photo', id: st.session.customerId, stationId: id, quality: q, tip });
-  return { quality: q, tip };
-}
-
-// The guest FSM (sim/customers.js) calls this once it has read a resolved session for ITS OWN
-// customerId, freeing the booth for the next queued guest.
-export function clearPhotoSession(w, id) {
-  const st = w.stations.get(id);
-  if (st) st.session = null;
-}
-
-// Batch 4b — the Grooming Table (plan 3.9: "brush hold — hold while a paw icon pulses, release on
-// the beat, 3 beats; score -> tip + friendship"). Shaped exactly like the photo booth above (a
-// queue + a one-guest session + a tip pile), generalised from ONE judged moment to THREE: each beat
-// is scored the same way a photo shot is (a pulse shrinks toward a target scale, release distance
-// from the target buckets into perfect/good/ok), and the three per-beat qualities are then totalled
-// into a single session quality. The friendship bonus itself lives in G.meta (petBook.js), same as
-// the photo studio's own friendship tier — sim purity here again means `tierFor` is injected, never
-// read from meta directly.
-export const GROOM_BEAT_SECONDS = 1.2;   // one paw-pulse cycle's duration — the session's tempo
-export const GROOM_BEATS = 3;
-export const GROOM_PULSE_START = 2.2;    // mirrors PHOTO_RING_START
-export const GROOM_PULSE_END = 0.6;      // mirrors PHOTO_RING_END
-export const GROOM_TARGET_SCALE = 1.0;   // mirrors PHOTO_TARGET_SCALE — "on the beat"
-export const GROOM_PERFECT_BAND = 0.08;  // mirrors PHOTO_PERFECT_BAND
-export const GROOM_GOOD_BAND = 0.22;     // mirrors PHOTO_GOOD_BAND
-// Per-beat timeout, mirroring PHOTO_AUTO_RESOLVE's role for a single shot: comfortably past
-// GROOM_BEAT_SECONDS so a real player's last-instant release is never raced by it, short enough
-// that neither the headless bot nor the in-game auto-play bot ever stalls on any one beat. Three
-// untouched beats in a row therefore always end a session as 'ok' well within 3 * GROOM_AUTO_RESOLVE
-// seconds of it starting — "ends a session nobody plays" (plan 3.9's own bot requirement).
-export const GROOM_AUTO_RESOLVE = 1.6;
-export const GROOM_BASE_TIP = 30;
-export const GROOM_TIP_PER_TIER = 15;
-export const GROOM_QUALITY_MULT = { perfect: 2, good: 1.3, ok: 1 };
-
-// Pulse scale at elapsed time `t` (seconds since the current beat started) — same shrink-toward-
-// target shape as photoRingScale, clamped past its own duration for the same late-sample reason.
-export function groomPulseScale(t) {
-  const p = Math.max(0, Math.min(1, (Number(t) || 0) / GROOM_BEAT_SECONDS));
-  return GROOM_PULSE_START + (GROOM_PULSE_END - GROOM_PULSE_START) * p;
-}
-// Perfect/good/ok bands, centered on GROOM_TARGET_SCALE — identical shape to photoJudgeQuality.
-export function groomJudgeQuality(scale) {
-  const d = Math.abs(scale - GROOM_TARGET_SCALE);
-  if (d <= GROOM_PERFECT_BAND) return 'perfect';
-  if (d <= GROOM_GOOD_BAND) return 'good';
-  return 'ok';
-}
-// tip = (30 + 15*tier) * {perfect:2, good:1.3, ok:1}, rounded — same shape as photoTipAmount, tier
-// clamped 0-3 for the same reason (a corrupt caller can't inflate it).
-export function groomTipAmount(tier, quality) {
-  const t = Math.max(0, Math.min(3, tier | 0));
-  const mult = GROOM_QUALITY_MULT[quality] || 1;
-  return Math.round((GROOM_BASE_TIP + GROOM_TIP_PER_TIER * t) * mult);
-}
-
-// Shared by resolveGroomBeat (a real judged release) and stepGroomTable's own per-beat timeout
-// (always 'ok'): records one beat's quality, advances the session, and — once all GROOM_BEATS beats
-// are in — totals them via resolveGroomSession itself, so a session can never get stuck
-// half-resolved regardless of which path fed its last beat.
-function pushGroomBeat(w, id, quality) {
-  const st = w.stations.get(id);
-  if (!st || !st.session || st.session.resolved) return null;
-  const q = quality === 'perfect' || quality === 'good' ? quality : 'ok';
-  st.session.beatScores.push(q);
-  st.session.beat = st.session.beatScores.length;
-  st.session.t = 0;
-  if (st.session.beatScores.length >= GROOM_BEATS) return resolveGroomSession(w, id);
-  return { beat: st.session.beat, quality: q };
-}
-// Called by the player's hold/release (ui's future groom mini-game, with a real scale sampled from
-// groomPulseScale) to score ONE beat against the band above. A stray call past the session's last
-// beat (already resolved) is a no-op, same idempotence guarantee as resolvePhotoShot.
-export function resolveGroomBeat(w, id, phase) {
-  const st = w.stations.get(id);
-  if (!st || !st.session || st.session.resolved) return null;
-  return pushGroomBeat(w, id, groomJudgeQuality(Number(phase)));
-}
-// Totals the session's (up to 3) per-beat qualities into one overall quality by averaging their
-// quality multipliers: all-perfect averages to the perfect multiplier itself (2), all-ok to 1; a
-// mixed set of releases buckets into whichever authored quality its average multiplier nearest
-// matches. A session with zero beats played at all (called directly, defensively) totals as 'ok'
-// rather than throwing on an empty average.
-export function resolveGroomSession(w, id) {
-  const st = w.stations.get(id);
-  if (!st || !st.session || st.session.resolved) return null;
-  const scores = st.session.beatScores.length ? st.session.beatScores : ['ok'];
-  const avgMult = scores.reduce((sum, q) => sum + (GROOM_QUALITY_MULT[q] || 1), 0) / scores.length;
-  const quality = avgMult >= GROOM_QUALITY_MULT.perfect ? 'perfect' : avgMult >= GROOM_QUALITY_MULT.good ? 'good' : 'ok';
-  const tip = groomTipAmount(st.session.tier, quality);
-  st.session.resolved = true; st.session.quality = quality; st.session.tip = tip;
-  addCash(w, id, tip);
-  emitWorld(w, { type: 'groom', id: st.session.customerId, stationId: id, quality, tip });
-  return { quality, tip };
-}
-// The guest FSM calls this once it has read a resolved session for its own customerId, freeing the
-// table for the next queued guest — mirrors clearPhotoSession exactly.
-export function clearGroomSession(w, id) {
-  const st = w.stations.get(id);
-  if (st) st.session = null;
-}
-// Advances every active grooming table by one tick — same manned/slot-0/auto-resolve shape as
-// stepPhotoBooth, generalised to GROOM_BEATS beats per session instead of one. `tierFor` mirrors
-// stepPhotoBooth's own injected friendship-tier lookup (sim purity: never reads meta directly).
-export function stepGroomTable(w, dt, tierFor) {
-  for (const st of w.stations.values()) {
-    if (st.type !== 'groom' || !st.active) continue;
-    if (st.session) {
-      if (!st.session.resolved) {
-        st.session.t += dt;
-        if (st.session.t >= GROOM_AUTO_RESOLVE) pushGroomBeat(w, st.id, 'ok');
-      }
-      continue; // a resolved-but-not-yet-cleared session still occupies the table this tick
-    }
-    if (!st.serving) continue;
-    const arr = w._groomQueues && w._groomQueues.get(st.id);
-    const q0 = st.queue && st.queue[0];
-    const head = arr && q0 && arr.find(c => c.slot === 0 && c.state === 'atGroom' && !c.mover.hasTarget && Math.hypot(c.x - q0.x, c.z - q0.z) < 0.15);
-    if (!head) continue;
-    const rawTier = typeof tierFor === 'function' ? tierFor(head) : 0;
-    const tier = Math.max(0, Math.min(3, Number.isFinite(rawTier) ? Math.trunc(rawTier) : 0));
-    st.session = {
-      customerId: head.id, species: head.species,
-      variant: typeof head.petVariant === 'number' ? head.petVariant : 0,
-      tier, beat: 0, t: 0, beatScores: [], resolved: false, quality: null, tip: 0,
-    };
-    emitWorld(w, { type: 'groomStart', id: head.id, stationId: st.id });
-  }
-  for (const st of w.stations.values()) if (st.type === 'groom') st.serving = '';
-}
-
-// Batch 4b — the Pet Bath (plan 3.9). Unlike groom/photo, no player input at all: a manned tub with
-// a waiting guest and at least 1 unit of water just runs for BATH_DURATION seconds and pays a tip.
-export const BATH_WATER_CAP = 20;        // same cap shape as coffee's beans/icecream's cream
-export const BATH_DURATION = 3.0;        // seconds, a no-input session
-export const BATH_SPARKLE_SECONDS = 20;  // how long a bathed pet's sim sparkle flag lasts
-export const BATH_BASE_TIP = 25;
-export const BATH_TIP_PER_TIER = 12;
-// tip = 25 + 12*tier, rounded, tier clamped 0-3 — same shape as groomTipAmount/photoTipAmount minus
-// the quality multiplier (there is no mini-game here to score one).
-export function bathTipAmount(tier) {
-  const t = Math.max(0, Math.min(3, tier | 0));
-  return Math.round(BATH_BASE_TIP + BATH_TIP_PER_TIER * t);
-}
-// The guest FSM calls this once it has read a resolved session for its own customerId (and stamped
-// its pet's c.sparkleUntil = w.t + BATH_SPARKLE_SECONDS — a sim flag, read by the render layer, that
-// this file never touches itself), freeing the tub for the next queued guest.
-export function clearBathSession(w, id) {
-  const st = w.stations.get(id);
-  if (st) st.session = null;
-}
-export function resolveBathSession(w, id) {
-  const st = w.stations.get(id);
-  if (!st || !st.session || st.session.resolved) return null;
-  const tip = bathTipAmount(st.session.tier);
-  st.session.resolved = true; st.session.tip = tip;
-  addCash(w, id, tip);
-  emitWorld(w, { type: 'bath', id: st.session.customerId, stationId: id, tip });
-  return { tip };
-}
-// Advances every bath tub by one tick. `w.t` is the sim's own monotonic clock (seconds) — advanced
-// unconditionally here, once per call, regardless of whether any bath station is even built yet,
-// since it is the one thing in this file whose CONSUMER (the render layer, comparing against a
-// pet's future c.sparkleUntil) needs an absolute timestamp rather than a relative countdown. If a
-// second system ever needs w.t too, this increment should move to a single shared place instead of
-// letting two steppers double-count it — today bath is the only caller, so it owns it here.
-export function stepBath(w, dt, tierFor) {
-  w.t = (w.t || 0) + dt;
-  for (const st of w.stations.values()) {
-    if (st.type !== 'bath' || !st.active) continue;
-    if (st.session) {
-      if (!st.session.resolved) {
-        st.session.t += dt;
-        if (st.session.t >= BATH_DURATION) resolveBathSession(w, st.id);
-      }
-      continue;
-    }
-    // Unmanned, or the tub is dry: the guest simply keeps waiting at slot 0 (bounded by its own
-    // patience, reusing the photo queue's exact bounded-wait shape — sim/customers.js, not this
-    // file) rather than a session ever starting. refillWater is the only way water rises again.
-    if (!st.serving || st.water <= 0) continue;
-    const arr = w._bathQueues && w._bathQueues.get(st.id);
-    const q0 = st.queue && st.queue[0];
-    const head = arr && q0 && arr.find(c => c.slot === 0 && c.state === 'atBath' && !c.mover.hasTarget && Math.hypot(c.x - q0.x, c.z - q0.z) < 0.15);
-    if (!head) continue;
-    st.water -= 1;
-    const rawTier = typeof tierFor === 'function' ? tierFor(head) : 0;
-    const tier = Math.max(0, Math.min(3, Number.isFinite(rawTier) ? Math.trunc(rawTier) : 0));
-    st.session = {
-      customerId: head.id, species: head.species,
-      variant: typeof head.petVariant === 'number' ? head.petVariant : 0,
-      tier, t: 0, resolved: false, tip: 0,
-    };
-    emitWorld(w, { type: 'bathStart', id: head.id, stationId: st.id });
-  }
-  for (const st of w.stations.values()) if (st.type === 'bath') st.serving = '';
-}

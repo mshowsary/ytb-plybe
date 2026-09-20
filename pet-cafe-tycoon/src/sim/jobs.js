@@ -29,8 +29,8 @@ export function pendingJobs(w, G) {
     if (st.type === 'seat' && st.dirty) dirtyTables++;
     else if (st.type === 'bush' && st.stage === 3) ripeBushes++;
     // Any machine out of its consumable, not just the espresso machine and the treat bowl. The ice
-    // cream machine's cream and the bath's water were invisible here, so running either one dry
-    // produced no pending job at all and the player got no arrow, no coach and no explanation.
+    // cream machine's cream was invisible here, so running it dry produced no pending job at all
+    // and the player got no arrow, no coach and no explanation.
     else if (isStarved(st) && st.type !== 'blender') sacksEmpty++;
   }
   const next = registerWaiting > 0 ? 'register'

@@ -95,11 +95,11 @@ export function installServiceFriction(G) {
   };
   const unsubscribe = subscribeWorld(G.world, event => observedPush(event), 20);
 
-  // createEconomyExperience installs the old return-waste callback during createGame. Replace that
-  // runtime callback after composition: RETURN still clears the held inventory through carry.js,
-  // but handling it never deducts banked money or emits a negative-coin toast/number. Batch 6 also
-  // drops the "items returned" acknowledgement -- the shelf visibly empties in the player's hands,
-  // which is confirmation enough without a pill announcing it.
+  // RETURN clears the held inventory through carry.js; this callback only counts it. Returning never
+  // deducts banked money or emits a negative-coin toast/number (the old waste fee that
+  // createEconomyExperience installed is gone). Batch 6 also drops the "items returned"
+  // acknowledgement -- the shelf visibly empties in the player's hands, which is confirmation
+  // enough without a pill announcing it.
   if (G.carry) {
     G.carry.onReturn = () => {
       const stats = G.dayStats || (G.dayStats = {});
