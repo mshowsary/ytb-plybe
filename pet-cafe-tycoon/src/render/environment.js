@@ -1091,9 +1091,16 @@ export function buildEnvironment(area, seasonId = SEASON_IDS[0]) {
     if (dSolidNode) deck.remove(dSolidNode);
     if (dBrightNode) deck.remove(dBrightNode);
 
-    solidNode = meshOrEmpty(data.solid, { cast: true, receive: true });
+    // The scenery casts no sun shadow (ship plan §1.9's peak budget). `solid` is one merged mesh of
+    // every lawn patch, tree crown, trunk and hedge outside the café — 11,800 triangles, the largest
+    // single thing in the frame — and it was drawing all of them a second time into the shadow map.
+    // Almost none of that shadow lands anywhere the player looks: the shadow camera box is ±14 m and
+    // scene.js's own note puts the flank trees at x 14-28, so what it bought was a faint edge on
+    // grass at the fog line. It still RECEIVES, so the café, the deck and every actor still throw
+    // their shadows onto it.
+    solidNode = meshOrEmpty(data.solid, { cast: false, receive: true });
     brightNode = meshOrEmpty(data.bright, { cast: false, receive: false, material: brightMaterial() });
-    gSolidNode = meshOrEmpty(data.gSolid, { cast: true, receive: true });
+    gSolidNode = meshOrEmpty(data.gSolid, { cast: false, receive: true });
     gBrightNode = meshOrEmpty(data.gBright, { cast: false, receive: false, material: brightMaterial() });
 
     group.add(solidNode);
@@ -1154,6 +1161,58 @@ export function buildEnvironment(area, seasonId = SEASON_IDS[0]) {
   }));
   flies.frustumCulled = false; flies.visible = false;
   const fliesGroup = new THREE.Group(); fliesGroup.name = 'fireflies'; fliesGroup.add(flies);
+
+  // ---- drifting petals (ship plan §1.9, "make it look alive") -----------------------------------
+  // The café already has petals LYING on the deck (the `litter` palette above) and blossom on the
+  // trees, and nothing in between: the air was empty in every frame. These are the same season's
+  // petals on their way down — one InstancedMesh, one material, one draw call for the whole sky, and
+  // no new palette (the colours come straight out of paletteForSeason, so Harvest drops leaves and
+  // Lights drops snow without a line of their own).
+  //
+  // They ride in the SAME child group as the fireflies on purpose. applySeason() removes and
+  // re-appends the re-tintable dressing and test/season-visible.test.js pins the resulting child
+  // order, so a new top-level child of `group` would shift every index after the first season swap.
+  //
+  // Daylight: the inverse of the fireflies. Petals are a daytime thing and go out as the lights come
+  // on, driven by the same group.setNight() signal game.js feeds from render/daylight.js, so there is
+  // exactly one authority for what time of day it is.
+  const PETAL_COUNT = 30;
+  const PETAL_X0 = -13, PETAL_X1 = 13, PETAL_Z0 = -8, PETAL_Z1 = 16, PETAL_TOP = 5.2;
+  const petalGeo = new THREE.PlaneGeometry(0.13, 0.085);
+  // instanceColor, not vertexColors: the per-instance tint is what gives thirty petals the season's
+  // whole palette, and PlaneGeometry carries no colour attribute for a vertexColors material to read.
+  const petalMat = new THREE.MeshBasicMaterial({
+    transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, toneMapped: true,
+  });
+  const petals = new THREE.InstancedMesh(petalGeo, petalMat, PETAL_COUNT);
+  petals.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(PETAL_COUNT * 3), 3);
+  // Named like fx:particles, and for the same reason: tools/prop-overlap-smoke.js excludes anything
+  // whose name starts `fx:`, because a falling petal is weightless and drifts through the gate lane
+  // by design — the same exemption butterflies already have.
+  petals.name = 'fx:petals';
+  petals.castShadow = false; petals.receiveShadow = false;
+  petals.frustumCulled = false; petals.visible = false;
+  // Fixed-seed, like the firefly cloud: a screenshot comparison must not be at the mercy of where
+  // the petals happened to be this run.
+  const petalState = [];
+  for (let i = 0; i < PETAL_COUNT; i++) {
+    petalState.push({
+      x: PETAL_X0 + rnd() * (PETAL_X1 - PETAL_X0),
+      y: rnd() * PETAL_TOP,
+      z: PETAL_Z0 + rnd() * (PETAL_Z1 - PETAL_Z0),
+      fall: 0.32 + rnd() * 0.3, drift: 0.18 + rnd() * 0.22, phase: rnd() * 6.28, spin: 0.6 + rnd() * 1.1,
+    });
+  }
+  const tintPetals = pal => {
+    const set = (pal && Array.isArray(pal.litter) && pal.litter.length) ? pal.litter : ['#FFC7DD'];
+    const c = new THREE.Color();
+    for (let i = 0; i < PETAL_COUNT; i++) {
+      c.set(set[i % set.length]);
+      petals.instanceColor.setXYZ(i, c.r, c.g, c.b);
+    }
+    petals.instanceColor.needsUpdate = true;
+  };
+  fliesGroup.add(petals);
   group.add(fliesGroup);
   // FIRST in the children order, on purpose. applySeason removes and re-appends the re-tintable
   // dressing, so anything added after it at build time would sit BEFORE it after the first swap and
@@ -1172,12 +1231,22 @@ export function buildEnvironment(area, seasonId = SEASON_IDS[0]) {
     flyGeo.attributes.color.needsUpdate = true;
   };
   tintFireflies(paletteForSeason(SEASON_IDS.includes(seasonId) ? seasonId : SEASON_IDS[0]));
+  tintPetals(paletteForSeason(SEASON_IDS.includes(seasonId) ? seasonId : SEASON_IDS[0]));
   const flyBase = flyPos.slice();
-  let flyT = 0;
+  let flyT = 0, petalT = 0;
+  const _petalM = new THREE.Matrix4(), _petalQuat = new THREE.Quaternion();
+  const _petalEuler = new THREE.Euler(), _petalPos = new THREE.Vector3(), _petalScale = new THREE.Vector3(1, 1, 1);
+  // Read once: this is consulted from setNight, which runs every frame.
+  let stillAir = false;
+  try { stillAir = !!matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (_) { stillAir = false; }
   group.setNight = k => {
     const v = Math.max(0, Math.min(1, Number(k) || 0));
     flies.material.opacity = 0.8 * v;
     flies.visible = v > 0.02;
+    // The daytime half of the same signal. Petals are pure ambient motion, so a player who has asked
+    // for reduced motion gets none of them at all rather than a sky of frozen confetti.
+    petalMat.opacity = 0.85 * (1 - v);
+    petals.visible = !stillAir && v < 0.96;
   };
   // The bed positions buildScenery placed for the CURRENT season, less the ones the terrace paved
   // over, plus the play yard's pond. Surfaced on the group so render/butterflies.js anchors the
@@ -1318,6 +1387,24 @@ export function buildEnvironment(area, seasonId = SEASON_IDS[0]) {
   group.updateFireflies = dt => {
     markStep();
     if (reveals.size) stepReveals(dt);
+    if (petals.visible) {
+      petalT += dt;
+      for (let i = 0; i < PETAL_COUNT; i++) {
+        const p = petalState[i];
+        p.y -= p.fall * dt;
+        p.x += Math.sin(petalT * 0.7 + p.phase) * p.drift * dt;
+        p.z += Math.cos(petalT * 0.5 + p.phase) * p.drift * 0.6 * dt;
+        // Back to the top when it lands, and along a little, so the same thirty petals keep a whole
+        // sky busy without ever piling up in one place.
+        if (p.y < 0) { p.y = PETAL_TOP; p.x = PETAL_X0 + ((p.x - PETAL_X0 + 3.7) % (PETAL_X1 - PETAL_X0)); }
+        _petalPos.set(p.x, p.y, p.z);
+        _petalEuler.set(petalT * p.spin + p.phase, petalT * p.spin * 0.7, Math.sin(petalT + p.phase) * 0.8);
+        _petalQuat.setFromEuler(_petalEuler);
+        _petalM.compose(_petalPos, _petalQuat, _petalScale);
+        petals.setMatrixAt(i, _petalM);
+      }
+      petals.instanceMatrix.needsUpdate = true;
+    }
     if (!flies.visible) return;
     flyT += dt;
     const p = flyGeo.attributes.position.array;
@@ -1332,7 +1419,9 @@ export function buildEnvironment(area, seasonId = SEASON_IDS[0]) {
   // A season swap re-tints the swarm along with everything else.
   group.setSeason = id => {
     applySeason(id);
-    tintFireflies(paletteForSeason(SEASON_IDS.includes(id) ? id : SEASON_IDS[0]));
+    const pal = paletteForSeason(SEASON_IDS.includes(id) ? id : SEASON_IDS[0]);
+    tintFireflies(pal);
+    tintPetals(pal);
   };
 
   // Batch 4b: the generic form. `garden` (the near-band scenery the deck replaces) is the

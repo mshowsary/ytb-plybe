@@ -263,7 +263,10 @@ export function createPet(species, variant = 0) {
   const G = geosFor(species, variant); const mat = toonMaterial();
   const legPairA = new THREE.Mesh(G.legPairAGeo, mat); legPairA.castShadow = false; legPairA.receiveShadow = true;
   const legPairB = new THREE.Mesh(G.legPairBGeo, mat); legPairB.castShadow = false; legPairB.receiveShadow = true;
-  const body = new THREE.Mesh(G.bodyGeo, mat); body.castShadow = true; body.receiveShadow = true;
+  // No sun shadow — see the same note on render/human.js's bodyHead. Every pet already has its own
+  // contact shadow (one instanced draw call for the whole café), and the shadow pass was the single
+  // biggest thing standing between a sixteen-actor rush and the publisher's peak budget.
+  const body = new THREE.Mesh(G.bodyGeo, mat); body.castShadow = false; body.receiveShadow = true;
   const head = new THREE.Mesh(G.headGeo, mat); head.castShadow = false; head.receiveShadow = true;
   head.position.set(0, 0.3 + s.h + s.w * 0.35, s.l * 0.45);
   const tail = new THREE.Mesh(G.tailGeo, mat); tail.castShadow = false; tail.receiveShadow = true;
@@ -271,19 +274,28 @@ export function createPet(species, variant = 0) {
   if (G.sparkleGeo) { const sparkle = new THREE.Mesh(G.sparkleGeo, _sparkleMat); sparkle.castShadow = false; sparkle.receiveShadow = false; body.add(sparkle); }
   const neck = new THREE.Object3D(); neck.position.set(0, -s.w * 0.35, s.w * 0.55); head.add(neck);
 
+  // TWO meshes, not four. Each eye and each catchlight used to be its own Mesh, so every pet on
+  // stage cost four draw calls before it had blinked — 40 of them in a rush with ten animals, which
+  // is a fifth of the publisher's whole budget spent on eight spheres a few pixels across. The pair
+  // of irises and the pair of catchlights are each merged, because the two of them always move
+  // together; they stay separate from one another only because they are genuinely different
+  // materials (a toon-shaded iris, an unlit white highlight). They are still children of eyesGroup,
+  // so the blink below — a squash of eyesGroup.scale.y — is unchanged.
   const eyesGroup = new THREE.Group();
   const eyeMat = new THREE.MeshToonMaterial({ color: s.eye });
   const pupilMat = new THREE.MeshBasicMaterial({ color: '#FFFFFF' });
   const eyeR = Math.max(.048, Math.min(.068, s.w * .112));
-  const leftEye = new THREE.Mesh(new THREE.SphereGeometry(eyeR, 8, 8), eyeMat);
-  leftEye.position.set(-s.w * 0.25, 0.065, s.w * 0.47);
-  const rightEye = new THREE.Mesh(new THREE.SphereGeometry(eyeR, 8, 8), eyeMat);
-  rightEye.position.set(s.w * 0.25, 0.065, s.w * 0.47);
-  const leftPupil = new THREE.Mesh(new THREE.SphereGeometry(0.019, 6, 6), pupilMat);
-  leftPupil.position.set(-s.w * 0.23, 0.087, s.w * 0.515);
-  const rightPupil = new THREE.Mesh(new THREE.SphereGeometry(0.019, 6, 6), pupilMat);
-  rightPupil.position.set(s.w * 0.27, 0.087, s.w * 0.515);
-  eyesGroup.add(leftEye, rightEye, leftPupil, rightPupil);
+  const eyes = new THREE.Mesh(merge([
+    part('sph', [eyeR, 8], s.eye, { x: -s.w * 0.25, y: 0.065, z: s.w * 0.47 }),
+    part('sph', [eyeR, 8], s.eye, { x: s.w * 0.25, y: 0.065, z: s.w * 0.47 }),
+  ]), eyeMat);
+  eyes.castShadow = false; eyes.receiveShadow = true;
+  const pupils = new THREE.Mesh(merge([
+    part('sph', [0.019, 6], '#FFFFFF', { x: -s.w * 0.23, y: 0.087, z: s.w * 0.515 }),
+    part('sph', [0.019, 6], '#FFFFFF', { x: s.w * 0.27, y: 0.087, z: s.w * 0.515 }),
+  ]), pupilMat);
+  pupils.castShadow = false; pupils.receiveShadow = false;
+  eyesGroup.add(eyes, pupils);
   head.add(eyesGroup);
 
   const bubble = new THREE.Group(); bubble.position.set(0, head.position.y + s.w * 0.9, 0); bubble.visible = false; group.add(bubble);
@@ -312,7 +324,9 @@ export function createPet(species, variant = 0) {
   // Pets already squash and stretch through the hop path below, and P.update never touches
   // group.scale, so a caller may scale the group freely. pop() just borrows the hop.
   P.setBaseScale = s => { group.scale.setScalar((Number(s) > 0 ? Number(s) : 1) * PET_BASE_SCALE); };
-  P.pop = () => { P._hop = Math.max(P._hop, 0.34); };
+  // Same clock, for the same reason: a caller that drives update() with an explicit hop (or with
+  // none at all) could otherwise either erase this instantly or leave the pet stuck in the air.
+  P.pop = () => { P.joy(0.4); };
   // Residents (systems/residentPets.js) never walk, so everything that reads as alive has to come
   // out of this rig. setLifePhase pins every one of its clocks to a caller-chosen offset, so a row
   // of decorative pets never blinks, breathes or stretches in lockstep AND stays reproducible
@@ -348,7 +362,23 @@ export function createPet(species, variant = 0) {
     head.rotation.y += P._lookY;
     body.rotation.z += P._lookY * 0.05;
   };
-  P.setMood = m => { P._mood = m; bubble.visible = m !== 'none'; bWait.visible = m === 'wait'; bAngry.visible = m === 'angry'; bHappy.visible = m === 'happy'; };
+  // A quick flick of the ears. The ears are merged into headGeo — giving them their own mesh would
+  // cost a draw call per pet, which the frame budget does not have — so the flick is the head's own
+  // sharp roll-and-nod, which is what an ear twitch reads as at this camera anyway.
+  P.perk = (seconds = 0.45) => { P._perkT = Math.max(P._perkT || 0, seconds); P._perkDur = Math.max(P._perkDur || 0, seconds); };
+  // A hop with its OWN clock, decayed by update(), rather than the `_hop` the caller passes in.
+  // `_hop` belongs to whoever is driving the pet — sim/customers.js hands it the guest's own hop
+  // value every frame, and a seated pet is driven with a literal 0 — so a hop written into it from
+  // in here would be wiped on the very next frame for a seated pet and would never end for a walking
+  // one. This is layered on top of whatever `_hop` is doing and cannot be clobbered either way.
+  P.joy = (seconds = 0.42) => { P._joyDur = seconds; P._joyT = seconds; };
+  P.setMood = m => {
+    // The moment a pet becomes happy IS the moment its treat landed, it was seated, or its person
+    // greeted it (sim/customers.js is the only caller). It used to change nothing but a bubble and a
+    // faster tail; a hop and an ear flick are what the plan asks for and the rig already has both.
+    if (m === 'happy' && P._mood !== 'happy') { P.joy(0.42); P.perk(0.5); }
+    P._mood = m; bubble.visible = m !== 'none'; bWait.visible = m === 'wait'; bAngry.visible = m === 'angry'; bHappy.visible = m === 'happy';
+  };
   P.carry = m => { if (P._carried) mouth.remove(P._carried); P._carried = m; if (m) { m.position.set(0, 0, 0); m.scale.setScalar(0.8); mouth.add(m); } };
   // Task 2.4: mount (or clear, when mesh is falsy) one accessory on the 'head' or 'neck' node. The
   // pet rig owns the mount points; data/accessories.js owns what gets built and unlock rules.
@@ -451,6 +481,13 @@ export function createPet(species, variant = 0) {
     }
     head.rotation.z = Math.sin(P._t * 0.5) * 0.05;
     head.rotation.x = moving ? Math.sin(P._t * 0.5) * 0.035 : Math.sin(P._t * 0.32) * 0.02;
+    // The ear flick (P.perk): two fast beats that decay, laid over whatever idle pose is running.
+    if (P._perkT > 0) {
+      P._perkT = Math.max(0, P._perkT - dt);
+      const k = P._perkT / (P._perkDur || 0.45);
+      head.rotation.z += Math.sin((1 - k) * Math.PI * 4) * 0.2 * k;
+      head.rotation.x -= 0.14 * k;
+    }
     if (P._mood === 'happy') {
       head.rotation.z += Math.sin(P._t * 3) * 0.08;
       tail.rotation.y = Math.sin(P._t * 3) * 0.8;
@@ -483,6 +520,13 @@ export function createPet(species, variant = 0) {
       body.scale.set(1, 1 + Math.sin(P._life * 1.885) * 0.02, 1);
     }
     group.position.y = P._hop > 0 ? Math.sin(Math.min(1, P._hop / 0.4) * Math.PI) * 0.35 : 0;
+    // The reaction hop: one arc, squash on the way up, over in under half a second.
+    if (P._joyT > 0) {
+      P._joyT = Math.max(0, P._joyT - dt);
+      const lift = Math.sin((1 - P._joyT / (P._joyDur || 0.42)) * Math.PI) * 0.3;
+      group.position.y += lift;
+      body.scale.set(body.scale.x * (1 - lift * 0.25), body.scale.y * (1 + lift * 0.4), body.scale.z * (1 - lift * 0.25));
+    }
     bubble.rotation.y += dt * 2; bubble.position.y = P.height + 0.25 + Math.sin(P._t * 0.8) * 0.04;
   };
   // Task 35: short context-owned personality clips layered over the current idle pose.

@@ -5,12 +5,10 @@ import {
   checkoutMesh,
   tableMesh,
   hireDeskMesh,
-  kioskMesh,
   bowlMesh,
   bushMesh,
   coffeeMesh,
   pantryMesh,
-  crateMesh,
   blenderMesh,
   buildGhost,
 } from './props.js';
@@ -21,12 +19,10 @@ const BUILDERS = {
   checkout: checkoutMesh,
   seat: tableMesh,
   hire: hireDeskMesh,
-  kiosk: kioskMesh,
   bowl: bowlMesh,
   bush: bushMesh,
   coffee: coffeeMesh,
   pantry: pantryMesh,
-  return: crateMesh,
   blender: blenderMesh,
 };
 

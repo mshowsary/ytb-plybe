@@ -244,7 +244,10 @@ test('the whole environment stays a rounding error against the 210k triangle bud
     meshes++;
   });
   assert.ok(tris < 30000, `environment is ${tris} triangles`);
-  // Four merged garden/fence meshes, the deck floor, and the deck's own lit/unlit dressing pair.
-  assert.ok(meshes <= 8, `environment costs ${meshes} draw calls`);
+  // Four merged garden/fence meshes, the deck floor, the deck's own lit/unlit dressing pair, the
+  // firefly cloud, and — since Batch G — the drifting petals. 9, not 8: the petals are ONE
+  // InstancedMesh for the whole sky (render/environment.js), and the number is pinned here so that
+  // stays true. The next thing that wants to fall out of the air shares that instance.
+  assert.ok(meshes <= 9, `environment costs ${meshes} draw calls`);
   assert.ok(THREE.REVISION, 'three is loaded');
 });

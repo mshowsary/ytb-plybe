@@ -1,13 +1,14 @@
 // src/systems/visuals.js — builds a mesh per station, keeps physical stock props in sync, owns the
 // Task-31 glanceable stock truth, and runs Task-32's one-shot construction reveal.
 import * as THREE from 'three';
-import { ovenMesh, counterMesh, checkoutMesh, tableMesh, hireDeskMesh, kioskMesh, bowlMesh, bushMesh, coffeeMesh, pantryMesh, crateMesh, blenderMesh, chalkboardMesh, itemGeoFor, cashPile, dirtyMesh, zoneRing, icecreamMesh, fountainMesh } from '../render/props.js';
+import { ovenMesh, counterMesh, checkoutMesh, tableMesh, hireDeskMesh, bowlMesh, bushMesh, coffeeMesh, pantryMesh, blenderMesh, signParts, itemGeoFor, cashPile, dirtyMesh, zoneRing, icecreamMesh, fountainMesh } from '../render/props.js';
 import { photoWallMesh } from '../render/photoWall.js';
+import { addParts, part, merge } from '../render/geo.js';
 import { C, toonMaterial } from '../render/palette.js';
 import { buildRevealPhase, buildRevealScale } from '../render/buildReveal.js';
-import { iconFor, treatIcon, coinIcon, sackIcon, returnIcon, leafIcon, gearIcon, personIcon, beanIcon, broomIcon, kibbleIcon, fruitIcon, cameraIcon } from '../ui/icons.js';
+import { broomIcon, kibbleIcon, fruitIcon, beanIcon, cameraIcon, iconFor } from '../ui/icons.js';
 import { supplyKind, supplyLevel, supplyCap, supplyRoom, isStarved } from '../sim/supplies.js';
-import { STAR_IDS } from '../sim/economy.js';
+import { PRODUCTS } from '../sim/economyConfig.js';
 
 // DISPLAY_CAP_LEVELS' maximum (economy.js: [12,16,20,24]). props.js's counterMesh authors twelve
 // floor positions — 6 columns x 2 rows — and the case grows UPWARD past that: DISPLAY_LAYERS layers
@@ -48,6 +49,7 @@ function makeItemStack(group, product, slots, layers = 1) {
 }
 
 const _stackM4 = new THREE.Matrix4(), _stackQ = new THREE.Quaternion(), _stackV = new THREE.Vector3(), _stackS = new THREE.Vector3();
+const _flyM = new THREE.Matrix4(), _flyQ = new THREE.Quaternion(), _flyV = new THREE.Vector3(), _flyS = new THREE.Vector3(1, 1, 1);
 function updateItemStack(stack, product, stock, dt, pop) {
   if (!stack) return;
   // A star tier can swap a station's recipe (cookie <-> brownie). Geometries are cached by product
@@ -81,62 +83,58 @@ function updateItemStack(stack, product, stock, dt, pop) {
 // a non-blocking fence-gap marker (props.js's fence arch/gate-open animation is the actual visual),
 // so an empty group keeps it out of the generic reveal/pulse machinery's way without a special case.
 const MESH_FOR = {
-  oven: ovenMesh, display: counterMesh, checkout: checkoutMesh, seat: tableMesh, hire: hireDeskMesh, kiosk: kioskMesh,
-  bowl: bowlMesh, bush: bushMesh, coffee: coffeeMesh, pantry: pantryMesh, return: crateMesh, blender: blenderMesh,
+  oven: ovenMesh, display: counterMesh, checkout: checkoutMesh, seat: tableMesh, hire: hireDeskMesh,
+  bowl: bowlMesh, bush: bushMesh, coffee: coffeeMesh, pantry: pantryMesh, blender: blenderMesh,
   icecream: icecreamMesh, decor: fountainMesh, wall: photoWallMesh,
   gate: () => new THREE.Group(),
 };
-// Program §5.5. Every chalkboard used to carry an English caption -- "OVEN · cupcakes",
-// "COFFEE · needs beans", "PANTRY" -- and with one board per station that made words the most
-// repeated thing in the 3D frame. The board now says the same two things without any: WHAT it is
-// (the icon it already had) and WHETHER it has anything (a stock dot: green stocked, amber low,
-// red empty). "Needs beans" is not a sentence any more, it is the bean glyph with a red dot; the
-// interaction coach still points at whichever station actually wants the player.
-// The garden's ice cream machine needs no supply, so its dot only ever reads its own stock.
-const CHALK_DOT_TYPES = new Set(['oven', 'display', 'bowl', 'coffee', 'blender', 'bush', 'icecream']);
-const CHALK_LOW_FRACTION = 0.34;
-
-// Split key/html so the per-frame update can compare a short string instead of re-serialising an
-// SVG: only a family flip (oven/display) or the coffee machine running out of beans changes it.
-function chalkIconKey(st) {
+// ── what a station says it is, without a word (ship plan §1.9) ──────────────────────────────────
+// This replaces the chalkboards. Every station used to get a blank black board on a post standing
+// OUTSIDE its footprint, whose only content was a DOM chip that faded in within 5 m: from the play
+// camera the room was dotted with twenty signs that said nothing (the owner's "what is this"), one
+// of them planted in the ★3 resident cat's bed, and each one cost a draw call in the main pass and
+// another in the shadow pass.
+//
+// The pictogram is baked into the board face instead (render/grain.js paints it into the shared
+// detail atlas), and render/props.js's signParts() hands back geometry rather than a mesh so it can
+// be merged into the station's OWN mesh. The sign now reads at any distance, costs nothing, and
+// stands inside the station's own footprint where no walkway, queue slot or pet bed can be.
+//
+// The glyph names a FAMILY, not a recipe: a star tier can swap a counter's product (cookie ↔
+// brownie, coffee ↔ latte, cone ↔ sundae), and a sign baked at build time must not go stale.
+// Whether a station is stocked is not on the sign at all — that is what the demand bubble above it
+// and the goods piled on it already say, live.
+const SIGN_FOR_PRODUCT = {
+  cookie: 'pastry', brownie: 'pastry', cupcake: 'cupcake',
+  coffee: 'cup', latte: 'cup', smoothie: 'smoothie',
+  icecream: 'cone', sundae: 'cone', pupcup: 'cone', treat: 'paw',
+};
+export function stationSignGlyph(st) {
+  if (!st) return null;
   switch (st.type) {
-    case 'oven': case 'display': return st.product;
-    case 'coffee': return (st.beans | 0) > 0 ? 'coffee' : 'beans';
-    case 'icecream': return 'icecream';
+    case 'oven': case 'display': return SIGN_FOR_PRODUCT[st.product] || 'pastry';
+    case 'coffee': return 'cup';
+    case 'icecream': return 'cone';
     case 'blender': return 'smoothie';
     case 'pantry': return 'sack';
-    case 'return': return 'return';
-    case 'bush': return 'leaf';
-    case 'bowl': return 'treat';
+    case 'bush': return 'berry';
+    case 'bowl': return 'paw';
     case 'checkout': return 'coin';
-    case 'kiosk': return 'gear';
     case 'hire': return 'person';
     default: return null;
   }
 }
-function chalkIconHtml(key) {
-  switch (key) {
-    case 'beans': return beanIcon();
-    case 'sack': return sackIcon();
-    case 'return': return returnIcon();
-    case 'leaf': return leafIcon();
-    case 'treat': return treatIcon();
-    case 'coin': return coinIcon();
-    case 'gear': return gearIcon();
-    case 'person': return personIcon();
-    default: return iconFor(key);
-  }
-}
-// Three states, not five: the demand pill above the station already carries the full Task-31
-// truth, so the board only has to answer "can I take something here right now?" at a glance. A
-// machine with no input (no beans, no fruit) reads empty, which is exactly what it is.
-export function chalkDotState(st) {
-  if (!st || !CHALK_DOT_TYPES.has(st.type)) return null;
-  if (st.type === 'coffee' && (st.beans | 0) <= 0) return 'empty';
-  if (st.type === 'blender' && (st.fruit | 0) <= 0) return 'empty';
-  const { n, cap } = stockAmountAndCap(st);
-  if (n <= 0) return 'empty';
-  return n / cap <= CHALK_LOW_FRACTION ? 'low' : 'stocked';
+// The world yaw every sign board turns to. scene.js's camera yaw is a constant and the camera never
+// rotates, so facing the camera is the only orientation under which every glyph reads: a board that
+// faced its own station's front would show the player the back of half of them.
+const SIGN_FACE_YAW = 35 * Math.PI / 180;
+// Where a sign stands in its station's LOCAL frame: the back-left corner of the station's own
+// footprint, pulled in far enough that the post is never outside the ground the station already
+// occupies. A station too small to hold the inset gets the sign on its centre line.
+const SIGN_INSET = 0.22;
+export function stationSignSpot(st) {
+  const hw = Math.max(0, (st.fw || 0) / 2 - SIGN_INSET), hd = Math.max(0, (st.fd || 0) / 2 - SIGN_INSET);
+  return { lx: -hw, lz: -hd };
 }
 
 // Program §6.2, Batch 7: the wait-for-a-wipe bubble a paid guest holds up while dirty tables block
@@ -160,22 +158,30 @@ const POSE_BUBBLE_Y = 1.0;
 // between uses.
 const DIRTY_FLIES_AT = 20;
 const DIRTY_STINK_AT = 40;
+// Both used to be a Group of three separate Meshes, so a café with eight tables left over a rush
+// carried up to 48 draw calls of flies and stink. They are one InstancedMesh and one merged mesh
+// now — the flies still orbit independently (per-instance matrices), and the stink rises and fades
+// as one plume, which is what a plume is (ship plan §1.9's budget).
+const FLY_N = 3, STINK_N = 3;
 function fliesMesh() {
-  const g = new THREE.Group();
-  const geo = new THREE.SphereGeometry(0.035, 6, 4);
-  const mat = new THREE.MeshBasicMaterial({ color: '#2E2A26' });
-  for (let i = 0; i < 3; i++) g.add(new THREE.Mesh(geo, mat));
-  return g;
+  const im = new THREE.InstancedMesh(
+    new THREE.SphereGeometry(0.035, 6, 4),
+    new THREE.MeshBasicMaterial({ color: '#2E2A26' }),
+    FLY_N,
+  );
+  im.castShadow = false; im.receiveShadow = false; im.frustumCulled = false;
+  return im;
 }
 function stinkMesh() {
-  const g = new THREE.Group();
-  const geo = new THREE.SphereGeometry(0.09, 6, 5);
-  for (let i = 0; i < 3; i++) {
-    g.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-      color: '#A6BF6A', transparent: true, opacity: 0.3, depthWrite: false,
-    })));
+  const parts = [];
+  for (let i = 0; i < STINK_N; i++) {
+    parts.push(part('sph', [0.09, 6], '#A6BF6A', { x: Math.sin(i * 2.1) * 0.06, y: i * 0.3, z: Math.cos(i * 1.7) * 0.05 }));
   }
-  return g;
+  const m = new THREE.Mesh(merge(parts), new THREE.MeshBasicMaterial({
+    color: '#A6BF6A', transparent: true, opacity: 0.3, depthWrite: false,
+  }));
+  m.castShadow = false; m.receiveShadow = false;
+  return m;
 }
 // Program §6.3. One wipe presentation, shared by the owner and the cleaner. WIPE_MIN_SECONDS is
 // the floor on the ring sweep so the owner's instantaneous wipe still reads as a stroke instead of
@@ -189,11 +195,12 @@ const CLEAN_POP_SECONDS = 0.26;
 const CLEAN_SPARKLE = '#BFEFFF';
 // Resting height of the crumb prop on the table top — the fade above lifts it from here.
 const DIRTY_PROP_Y = 0.77;
-const CHALK_Y = 1.05;
-function rotateLocal(rot, right, forward) {
-  const s = Math.sin(rot), c = Math.cos(rot);
-  return { x: right * c + forward * s, z: -right * s + forward * c };
-}
+// Where the meal a seated guest is eating sits on the table top, and how long the steam over a hot
+// one keeps coming (Batch G item 5: "the ordered food actually on the table while a guest eats and
+// crumbs after"). The crumbs already existed — dirtyMesh, switched on the moment the guest leaves —
+// so the gap was the half of the story where the food is still there.
+const MEAL_Y = 0.78, MEAL_STEAM_EVERY = 0.85;
+const MEAL_HOT = new Set(['coffee', 'latte']);
 const DEMAND_Y = { display: 2.1, oven: 2.3, coffee: 1.55, blender: 1.55, bowl: 0.85, bush: 1.55, icecream: 1.55 };
 
 // ---- What a station NEEDS, and how full it is ----------------------------------------------------
@@ -318,7 +325,7 @@ function reducedMotion() {
 const STATION_SHADOW_RADIUS = {
   seat: 0.82, decor: 0.78, oven: 0.55, display: 0.55, icecream: 0.55,
   checkout: 0.48, coffee: 0.48, pantry: 0.48, blender: 0.48,
-  hire: 0.48, kiosk: 0.42, bush: 0.38, bowl: 0.3, return: 0.38,
+  hire: 0.48, bush: 0.38, bowl: 0.3,
 };
 function stationShadowRadius(st) {
   const base = STATION_SHADOW_RADIUS[st.type];
@@ -342,12 +349,24 @@ export function createVisuals(G, S, ctx) {
   const bodyCorner = new THREE.Vector3();
   for (const st of world.stations.values()) {
     const build = MESH_FOR[st.type] || tableMesh;
-    const g = build();
+    // The station itself is handed in: counterMesh dresses the self-serve garden stand differently
+    // from an interior display (props.js). Every other builder ignores the argument.
+    const g = build(st);
     // Named so tools/scene-cost.mjs can attribute a draw-call regression to the system that caused
     // it. Before this, every station, guest and pet landed in the report as an anonymous
     // "Group(6 children)" bucket and a cost increase could not be traced to anything.
     g.name = 'station:' + st.type;
     g.position.set(st.x, 0, st.z); g.rotation.y = st.rot; g.visible = st.active;
+    // The sign goes on BEFORE the body box is measured below, so the merge that folds it into the
+    // station's own geometry happens once, at build time, and the box is taken from the geometry
+    // that is actually drawn — minus the sign, which addParts() deliberately keeps out of it.
+    const glyph = stationSignGlyph(st);
+    if (glyph) {
+      const { lx, lz } = stationSignSpot(st);
+      const sp = signParts(glyph, lx, lz, SIGN_FACE_YAW - st.rot);
+      const base = g.children.find(o => o.isMesh && !o.isInstancedMesh);
+      if (sp && base) addParts(base, sp);
+    }
     scene.add(g);
     // What the player's body can bump into, in world space, taken from the geometry that is
     // actually drawn rather than from the station's hand-written fw/fd. Seats are deliberately
@@ -406,27 +425,25 @@ export function createVisuals(G, S, ctx) {
       v.dirtyProp = d; v.dirtyY = a ? a.y : DIRTY_PROP_Y;
     }
     if (DEMAND_Y[st.type] != null) { v.demand = makeDemandEl(); els.fx.appendChild(v.demand.el); }
-    const chalkKey = chalkIconKey(st);
-    if (chalkKey) {
-      const board = chalkboardMesh();
-      const halfW = (st.fw || 1.2) / 2, halfD = (st.fd || 1.2) / 2;
-      const lx = -(halfW + 0.15), lz = halfD - 0.08;
-      board.position.set(lx, 0, lz);
-      g.add(board);
-      const off = rotateLocal(st.rot, lx, lz);
-      const el = document.createElement('div'); el.className = 'chalk hidden';
-      const icon = document.createElement('span'); icon.className = 'chalkIcon'; icon.innerHTML = chalkIconHtml(chalkKey);
-      el.appendChild(icon);
-      let dot = null;
-      if (CHALK_DOT_TYPES.has(st.type)) { dot = document.createElement('span'); dot.className = 'chalkDot'; el.appendChild(dot); }
-      if (STAR_IDS.includes(st.id)) {
-        el.classList.add('tappable');
-        el.addEventListener('click', () => ctx.openKioskFocused && ctx.openKioskFocused(st.id));
-      }
-      els.fx.appendChild(el);
-      v.chalk = { el, icon, dot, key: chalkKey, dotState: null, wx: st.x + off.x, wz: st.z + off.z, lastVisible: false };
-    }
     vis.set(st.id, v);
+  }
+  // A guest's meal, on the table, while they eat it (Batch G item 5). One mesh per interior/garden
+  // table, created lazily the first time that table is used and hidden the rest of the time: the
+  // geometry is itemGeoFor()'s own product mesh, the same object the guest carried to the seat, so
+  // what is on the plate is literally what was ordered. The plate and the item are merged per
+  // product (MEAL_GEO) so a meal is ONE draw call, not two, and only tables in use pay for it.
+  const MEAL_GEO = new Map();
+  const mealAt = new Map();   // seat id -> the product its guest is eating, rebuilt every frame
+  function mealGeoFor(product) {
+    let g = MEAL_GEO.get(product);
+    if (!g) {
+      g = merge([
+        part('cyl', [0.24, 0.24, 0.03, 14], C.cream, { y: 0.015, tex: 'ceramic' }),
+        itemGeoFor(product).clone().translate(0, 0.045, 0),
+      ]);
+      MEAL_GEO.set(product, g);
+    }
+    return g;
   }
   const cleanRings = [];
   for (let i = 0; i < 4; i++) {
@@ -468,11 +485,36 @@ export function createVisuals(G, S, ctx) {
       // so a loaded save never plays half of someone else's cleaning animation.
       v.popT = null; v.dirtyFade = null;
       if (v.dirtyProp) { v.dirtyProp.scale.setScalar(1); v.dirtyProp.position.y = v.dirtyY; v.dirtyProp.visible = !!st.dirty; }
+      // A restore drops every live customer, so no table has anyone eating at it any more.
+      if (v.meal) v.meal.visible = false;
       if (v.photoWall) v.photoWall.setAlbum(G.meta && G.meta.album);
     }
     activeWipes.length = 0;
     // A restore drops every live customer, so whatever was posing is gone with them.
     poseBubble.classList.add('hidden'); poseBubbleOn = false;
+  }
+
+  // ── the opening frame (ship plan §1.6: "oven + counter + register framed in portrait") ─────────
+  // The publisher's rule is that t = 0 shows the fantasy working, and on a 380x670 phone it did not:
+  // the owner starts behind the work row, not between it, so framing 10 m around them left the oven
+  // 9.7 m off screen to the right with the first guidance chevrons pointing at it.
+  //
+  // render/scene.js owns the camera and solves the shot; this is the only place that knows WHAT to
+  // frame. It hands over the stations that are active on a fresh save — no coordinate is written
+  // here, so the shot follows the stations wherever the simulation lane moves them — plus the owner,
+  // so the player is always in their own first frame. A restore releases it (scene.js S.snap), which
+  // is right: a returning player is not being introduced to anything.
+  //
+  // Each station contributes its floor point and its head-height point, so a shot that "fits" the
+  // oven fits the whole oven rather than the tile it stands on.
+  if (S && typeof S.establish === 'function') {
+    const frame = [];
+    for (const st of world.stations.values()) {
+      if (!st.active || st.type === 'gate' || st.type === 'wall') continue;
+      frame.push({ x: st.x, y: 0, z: st.z }, { x: st.x, y: 1.5, z: st.z });
+    }
+    if (ctx.P) frame.push({ x: ctx.P.x, y: 0, z: ctx.P.z }, { x: ctx.P.x, y: 1.9, z: ctx.P.z });
+    if (frame.length) S.establish(frame, { hold: 2.2, glide: 1.4, margin: 0.14 });
   }
 
   return {
@@ -521,6 +563,19 @@ export function createVisuals(G, S, ctx) {
       // picked when that fruit has somewhere to go (stationNeed's 'pick').
       let frameBlenderRoom = 0;
       for (const b of world.stations.values()) if (b.type === 'blender' && b.active) frameBlenderRoom = Math.max(frameBlenderRoom, supplyRoom(b));
+      // Which table has a guest eating what, this frame. Read from the live customer list rather
+      // than driven by an event, so a restore, a day flip or a guest who simply vanishes can never
+      // strand a plate on a table. `c.order` is the array of product keys the guest actually took
+      // off the counter (sim/customers.js), so the plate carries what was really bought.
+      mealAt.clear();
+      if (G.customers) {
+        for (const c of G.customers) {
+          if (c.done || c.state !== 'eating' || !c.seatId) continue;
+          const order = Array.isArray(c.order) ? c.order : null;
+          const product = (order && order.find(k => PRODUCTS[k])) || (c.wish && PRODUCTS[c.wish.product] ? c.wish.product : null);
+          if (product) mealAt.set(c.seatId, product);
+        }
+      }
       for (const st of world.stations.values()) {
         const v = vis.get(st.id); if (!v) continue;
 
@@ -600,30 +655,67 @@ export function createVisuals(G, S, ctx) {
             const on = st.dirty && v.dirtyT >= DIRTY_FLIES_AT;
             v.flies.visible = on;
             // Reduced motion keeps the flies (the information) and drops the orbit (the motion).
-            if (on) for (let i = 0; i < 3; i++) {
-              const a = still ? i * 2.1 : v.dirtyT * (2.2 + i * 0.45) + i * 2.1;
-              v.flies.children[i].position.set(
-                0.15 + Math.cos(a) * (0.24 + i * 0.05),
-                1.04 + (still ? 0 : Math.sin(a * 1.7 + i) * 0.07),
-                -0.1 + Math.sin(a) * (0.22 + i * 0.05),
-              );
+            if (on) {
+              for (let i = 0; i < FLY_N; i++) {
+                const a = still ? i * 2.1 : v.dirtyT * (2.2 + i * 0.45) + i * 2.1;
+                _flyV.set(
+                  0.15 + Math.cos(a) * (0.24 + i * 0.05),
+                  1.04 + (still ? 0 : Math.sin(a * 1.7 + i) * 0.07),
+                  -0.1 + Math.sin(a) * (0.22 + i * 0.05),
+                );
+                _flyM.compose(_flyV, _flyQ, _flyS);
+                v.flies.setMatrixAt(i, _flyM);
+              }
+              v.flies.instanceMatrix.needsUpdate = true;
             }
           }
           if (v.stink) {
             const on = st.dirty && v.dirtyT >= DIRTY_STINK_AT;
             v.stink.visible = on;
-            if (on) for (let i = 0; i < v.stink.children.length; i++) {
-              const p = still ? (i + 0.5) / v.stink.children.length : (v.dirtyT * 0.5 + i / v.stink.children.length) % 1;
-              const m = v.stink.children[i];
-              m.position.set(0.15 + Math.sin(p * 5 + i) * 0.06, 0.88 + p * 0.62, -0.1 + Math.cos(p * 4 + i) * 0.05);
-              m.scale.setScalar(0.55 + p * 0.85);
-              m.material.opacity = 0.3 * (1 - p);
+            // One plume, rising and thinning as a whole, instead of three spheres each carrying
+            // their own material and their own draw call.
+            if (on) {
+              const p = still ? 0.5 : (v.dirtyT * 0.5) % 1;
+              v.stink.position.set(0.15 + Math.sin(p * 5) * 0.06, 0.88 + p * 0.5, -0.1 + Math.cos(p * 4) * 0.05);
+              v.stink.scale.setScalar(0.55 + p * 0.85);
+              v.stink.material.opacity = 0.3 * (1 - p * 0.85);
             }
           }
+          // The meal itself, while the guest is still eating it. mealAt is rebuilt once per frame
+          // below from the live customer list, so a seat whose guest has gone puts its plate away on
+          // the same frame the crumbs appear.
+          const meal = mealAt.get(st.id);
+          if (meal && !st.dirty) {
+            if (!v.meal) {
+              v.meal = new THREE.Mesh(mealGeoFor(meal), toonMaterial());
+              v.meal.name = 'meal';   // so tools/batch-g-smoke.js can find it without guessing at y
+              v.meal.castShadow = false; v.meal.receiveShadow = true;
+              // On the far side of the table top from the guest's chair (south, z +1.05), so the
+              // body sitting there never hides the thing it is eating.
+              v.meal.position.set(-0.16, MEAL_Y, -0.1);
+              v.g.add(v.meal);
+              v.mealProduct = meal;
+            } else if (v.mealProduct !== meal) {
+              v.meal.geometry = mealGeoFor(meal); v.mealProduct = meal;
+            }
+            v.meal.visible = true;
+            if (MEAL_HOT.has(meal) && !still) {
+              v._mealSteamT = (v._mealSteamT || 0) + dt;
+              if (v._mealSteamT > MEAL_STEAM_EVERY) { v._mealSteamT = 0; fx.steam(st.x - 0.16, MEAL_Y + 0.16, st.z - 0.1, '#FFFFFF', 2); }
+            }
+          } else if (v.meal && v.meal.visible) v.meal.visible = false;
         }
         if (st.type === 'coffee' && st.active && st.beans > 0 && st.stock < st.buffer) {
           v._steamT = (v._steamT || 0) + dt;
-          if (v._steamT > 0.5) { v._steamT = 0; fx.burst(st.x, 1.0, st.z, '#FFFFFF', 2); }
+          if (v._steamT > 0.5) { v._steamT = 0; fx.steam(st.x, 1.0, st.z, '#FFFFFF', 2); }
+        }
+        // Batch G item 5: the oven has had a warm window since Batch 8 (systems/machineJuice.js) but
+        // nothing above it, so a baking oven read the same as a cold one from across the room. A
+        // wisp off the hood is the cheapest "something is cooking" there is — it rides the shared
+        // fx particle pool, so it costs no draw call.
+        if (st.type === 'oven' && st.active && !still && Number(st.timer) > 0) {
+          v._steamT = (v._steamT || 0) + dt;
+          if (v._steamT > 0.7) { v._steamT = 0; fx.steam(st.x, 1.55, st.z, '#FFF0DC', 2); }
         }
         // D2 — fountain particle ring: reuse fx.burst on a timer rather than a new particle system.
         if (st.type === 'decor' && st.active) {
@@ -665,28 +757,6 @@ export function createVisuals(G, S, ctx) {
             const visible = demandTmp.visible && !!mode;
             if (dv.lastVisible !== visible) { dv.el.classList.toggle('hidden', !visible); dv.lastVisible = visible; }
             dv.el.setAttribute('aria-label', need ? needLabel(need, st) : '');
-          }
-        }
-        if (v.chalk) {
-          const ch = v.chalk;
-          if (!st.active) {
-            if (ch.lastVisible !== false) { ch.el.classList.add('hidden'); ch.lastVisible = false; }
-          } else {
-            const key = chalkIconKey(st);
-            if (key && key !== ch.key) { ch.key = key; ch.icon.innerHTML = chalkIconHtml(key); }
-            if (ch.dot) {
-              const dotState = chalkDotState(st);
-              if (dotState !== ch.dotState) { ch.dotState = dotState; ch.dot.dataset.stock = dotState || 'empty'; }
-            }
-            fx.project(ch.wx, CHALK_Y, ch.wz, demandTmp);
-            ch.el.style.left = demandTmp.sx + 'px'; ch.el.style.top = demandTmp.sy + 'px';
-            // Same "icon soup" fix as the demand pill, for the menu-board chip: every kiosk/pantry/
-            // etc. used to carry one all the time, which is exactly the far-edge glyph column the
-            // owner flagged. A chalkboard is only worth reading from up close (5 m), including the
-            // tappable stars -- the floating action button already handles the near-field tap.
-            const near = !!G.P && (G.P.x - ch.wx) ** 2 + (G.P.z - ch.wz) ** 2 <= 25;
-            const visible = demandTmp.visible && near;
-            if (ch.lastVisible !== visible) { ch.el.classList.toggle('hidden', !visible); ch.lastVisible = visible; }
           }
         }
       }

@@ -105,8 +105,19 @@ test('a wipe interrupted before it lands leaves a start with no finish, and the 
 test('H.wipe sweeps the right arm side to side and settles back to rest', () => {
   const human = createHuman({ shirt: 3, hair: 3, skin: 2 }, 'cleaner');
   // The right arm is the only child parked at +0.44 on x (see createHuman's shoulder placement).
-  const armR = human.group.children.find(o => o.isMesh && Math.abs(o.position.x - 0.44) < 1e-6);
+  //
+  // It is no longer a Mesh, and this test used to find it by `o.isMesh`. Batch G instances the two
+  // legs and the two arms — same geometry, same material, so four draws became two — which turned
+  // the four limbs into transform-only bones whose matrices are copied into a pair of
+  // InstancedMeshes each frame. The SWEEP this test is about is unchanged and still asserted below;
+  // what changed is only what kind of object carries the rotation, so the finder drops `isMesh`.
+  const armR = human.group.children.find(o => !o.isMesh && !o.isInstancedMesh && Math.abs(o.position.x - 0.44) < 1e-6);
   assert.ok(armR, 'found the right arm');
+  // And the saving itself, pinned: a character is drawn with two instanced limb meshes, not four
+  // single ones. Sixteen actors on stage is 32 draw calls of the publisher's ~200 budget.
+  const instanced = human.group.children.filter(o => o.isInstancedMesh);
+  assert.equal(instanced.length, 2, 'the legs and the arms are one InstancedMesh each');
+  for (const im of instanced) assert.equal(im.count, 2, 'two instances apiece');
   const DT = 1 / 60;
 
   human.update(DT, 0, 0);

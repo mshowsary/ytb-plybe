@@ -25,6 +25,16 @@ export function createFx(scene, camera, layer, walletEl) {
   F.burst = (x, y, z, hex, n = 12) => { const c = new THREE.Color(hex);
     for (let i = 0; i < n && parts.length < MAXP; i++) { const a = Math.random() * Math.PI * 2, sp = 1.5 + Math.random() * 2.5;
       parts.push({ x, y, z, vx: Math.cos(a) * sp, vy: 2.5 + Math.random() * 2.5, vz: Math.sin(a) * sp, life: 0.6, r: c.r, g: c.g, b: c.b, sz: 0.6 + Math.random() * 0.8 }); } };
+  // Steam, not a burst (ship plan §1.9's "make it look alive"). A burst is thrown upward and pulled
+  // back by gravity, which is right for a sparkle and wrong for a plume: coffee steam rose 40 cm and
+  // rained back into the machine. These particles have NO gravity (`grav: 0`), a slow drift and a long
+  // life, and they ride the same instanced pool as every other particle, so a kitchen full of steam
+  // is still the one draw call fx:particles has always been.
+  F.steam = (x, y, z, hex = '#FFFFFF', n = 2) => { const c = new THREE.Color(hex);
+    for (let i = 0; i < n && parts.length < MAXP; i++) { const a = Math.random() * Math.PI * 2;
+      parts.push({ x: x + (Math.random() - 0.5) * 0.12, y, z: z + (Math.random() - 0.5) * 0.12,
+        vx: Math.cos(a) * 0.09, vy: 0.42 + Math.random() * 0.22, vz: Math.sin(a) * 0.09,
+        life: 1.1 + Math.random() * 0.5, grav: 0, r: c.r, g: c.g, b: c.b, sz: 0.5 + Math.random() * 0.4 }); } };
   F.hearts = (x, y, z, n = 3) => { for (let i = 0; i < n && hearts.length < 24; i++) { const m = new THREE.Mesh(hg, hm); m.name = 'fx:heart'; m.scale.setScalar(0.18); m.position.set(x + (Math.random() - 0.5) * 0.5, y, z + (Math.random() - 0.5) * 0.3); scene.add(m); hearts.push({ m, life: 1.2, vx: (Math.random() - 0.5) * 0.4 }); } };
   const tmp = { sx: 0, sy: 0, visible: true };
   F.coinArc = (x, y, z, n = 6, onArrive) => { F.project(x, y, z, tmp); const r = walletEl.getBoundingClientRect(); const tx = r.left + 24, ty = r.top + r.height / 2; let first = true;
@@ -66,7 +76,9 @@ export function createFx(scene, camera, layer, walletEl) {
   F.update = dt => {
     let k = 0;
     for (let i = parts.length - 1; i >= 0; i--) { const p = parts[i]; p.life -= dt; if (p.life <= 0) { parts.splice(i, 1); continue; }
-      p.vy -= 9 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; if (p.y < 0.05) { p.y = 0.05; p.vy *= -0.3; p.vx *= 0.7; p.vz *= 0.7; }
+      const grav = p.grav === undefined ? 1 : p.grav;
+      p.vy -= 9 * grav * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+      if (grav && p.y < 0.05) { p.y = 0.05; p.vy *= -0.3; p.vx *= 0.7; p.vz *= 0.7; }
       _p.set(p.x, p.y, p.z); _s.setScalar(p.sz * Math.min(1, p.life * 3)); _m.compose(_p, _q, _s); pm.setMatrixAt(k, _m); pm.setColorAt(k, _c.setRGB(p.r, p.g, p.b)); k++; }
     pm.count = k; if (k) { pm.instanceMatrix.needsUpdate = true; pm.instanceColor.needsUpdate = true; }
     for (let i = hearts.length - 1; i >= 0; i--) { const h = hearts[i]; h.life -= dt; if (h.life <= 0) { scene.remove(h.m); hearts.splice(i, 1); continue; }

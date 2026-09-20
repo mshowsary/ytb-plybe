@@ -48,7 +48,10 @@ function makeRegisterStack(st) {
     new THREE.BoxGeometry(0.72, 0.045, 0.46),
     new THREE.MeshToonMaterial({ color: new THREE.Color('#D3A348') }),
   );
-  tray.position.set(-0.38, 0, 0.04); tray.castShadow = true; tray.receiveShadow = true; group.add(tray);
+  // No sun shadow on any of the money: a drawer, a wad of notes and a coin stack on a counter top
+  // throw shadows a couple of pixels wide that the counter's own already swallows, and each one is
+  // an extra shadow-pass draw per till, per tipped table and per garden jar (Batch G's budget pass).
+  tray.position.set(-0.38, 0, 0.04); tray.receiveShadow = true; group.add(tray);
   const trayInset = new THREE.Mesh(
     new THREE.BoxGeometry(0.62, 0.025, 0.36),
     new THREE.MeshToonMaterial({ color: new THREE.Color('#44342C') }),
@@ -57,11 +60,11 @@ function makeRegisterStack(st) {
 
   const billGeo = new THREE.BoxGeometry(0.27, 0.018, 0.14);
   const billMat = new THREE.MeshToonMaterial({ color: new THREE.Color('#78C997') });
-  const bills = new THREE.InstancedMesh(billGeo, billMat, BILL_MAX); bills.castShadow = true; bills.count = 0; group.add(bills);
+  const bills = new THREE.InstancedMesh(billGeo, billMat, BILL_MAX); bills.castShadow = false; bills.count = 0; group.add(bills);
 
   const coinGeo = new THREE.CylinderGeometry(0.055, 0.055, 0.018, 12);
   const coinMat = new THREE.MeshToonMaterial({ color: new THREE.Color('#FFD34E') });
-  const coins = new THREE.InstancedMesh(coinGeo, coinMat, COIN_MAX); coins.castShadow = true; coins.count = 0; group.add(coins);
+  const coins = new THREE.InstancedMesh(coinGeo, coinMat, COIN_MAX); coins.castShadow = false; coins.count = 0; group.add(coins);
 
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();

@@ -91,6 +91,9 @@ export function createScene(canvas) {
     const size = innerWidth < 700 ? 1024 : 2048;
     if (sun.shadow.mapSize.width !== size) { sun.shadow.mapSize.set(size, size); sun.shadow.map = null; sun.shadow.needsUpdate = true; }
     if (S.post) S.post.setSize(w, h, basePixelRatio * renderScale);
+    // An opening shot in flight is re-solved for the new aspect: a phone rotated during the first
+    // two seconds must still have the whole work row in frame, not the landscape solution cropped.
+    if (estT > 0 && estPoints) fitFraming(estPoints);
     place();
   };
 
@@ -105,25 +108,132 @@ export function createScene(canvas) {
   };
   S.releasePunch = () => { punchT = 0; punchGoal = 1; };
 
+  // ---- the opening frame (ship plan §1.6/§1.9) --------------------------------------------------
+  // The publisher's rule for a Playable is that t = 0 already shows the fantasy working. It did not:
+  // on a 380x670 phone the owner starts at (0, 2.5) and the camera frames 10 m across them, which put
+  // the oven 9.7 m to screen-right of centre — off the frame entirely (measured NDC x 1.88), with the
+  // opening guidance chevrons running off the right edge toward it.
+  //
+  // Widening portrait until the whole work row fits would have needed ~19 m across (the owner is not
+  // between the register and the oven, they are behind both) and shrunk every character by half for
+  // the rest of the game. So the opening is FRAMED instead: for the first couple of seconds the
+  // camera holds a composed shot of the stations the café actually starts with, then glides to the
+  // ordinary owner-follow framing. Pitch, yaw and FOV never change — only where the camera looks and
+  // how far back it stands, which is the same pair `punch` already moves.
+  //
+  // Who asks for it: systems/visuals.js, at build time, with the stations that are active on a fresh
+  // save. It never hard-codes a position — the other lane is moving stations — and it fits whatever
+  // it is handed, so the shot stays correct when the blender moves or the kiosk goes.
+  const fitCam = new THREE.PerspectiveCamera(FOV, 1, 2.5, 200);
+  const fitV = new THREE.Vector3();
+  let estPoints = null, estMargin = 0.12, estHold = 0, estGlide = 1.4, estT = 0;
+  const estTarget = new THREE.Vector3();
+  let estDist = 0, estFromX = 0, estFromZ = 0;
+
+  // Solve for the camera target and distance that put every point inside the frame. Iterative rather
+  // than analytic because the camera is pitched: a metre of ground moves a different number of pixels
+  // along the screen's two axes, and the answer changes as the distance does.
+  function fitFraming(points) {
+    if (!points || !points.length) return false;
+    const cp = Math.cos(PITCH), sp = Math.sin(PITCH), tanH = Math.tan(FOV * Math.PI / 360);
+    let tx = 0, tz = 0;
+    for (const p of points) { tx += p.x; tz += p.z; }
+    tx /= points.length; tz /= points.length;
+    let d = S.dist;
+    fitCam.aspect = camera.aspect;
+    // The camera's own ground axes: screen-right, and the direction the ground runs away up-screen.
+    const rx = Math.cos(YAW), rz = -Math.sin(YAW);
+    const fx = -Math.sin(YAW), fz = -Math.cos(YAW);
+    for (let iter = 0; iter < 10; iter++) {
+      fitCam.position.set(tx + Math.sin(YAW) * cp * d, sp * d, tz + Math.cos(YAW) * cp * d);
+      fitCam.lookAt(tx, 0.4, tz);
+      fitCam.updateMatrixWorld(true);
+      fitCam.updateProjectionMatrix();
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const p of points) {
+        fitV.set(p.x, p.y || 0, p.z).project(fitCam);
+        if (fitV.x < minX) minX = fitV.x; if (fitV.x > maxX) maxX = fitV.x;
+        if (fitV.y < minY) minY = fitV.y; if (fitV.y > maxY) maxY = fitV.y;
+      }
+      const wHalf = d * tanH * fitCam.aspect, vHalf = d * tanH;
+      const ox = (minX + maxX) / 2, oy = (minY + maxY) / 2;
+      // Re-centre: an NDC offset is metres along screen-right, and metres along the ground-forward
+      // axis divided by sin(pitch) — a pitched camera compresses ground distance up the screen.
+      tx += ox * wHalf * rx + oy * (vHalf / sp) * fx;
+      tz += ox * wHalf * rz + oy * (vHalf / sp) * fz;
+      // Then re-fit: how far past the safe area the widest point still is.
+      const need = Math.max(maxX - ox, ox - minX, maxY - oy, oy - minY) / (1 - estMargin);
+      if (need > 0.001) d *= Math.max(0.55, Math.min(2.2, need));
+      if (Math.abs(need - 1) < 0.01 && Math.abs(ox) < 0.01 && Math.abs(oy) < 0.01) break;
+    }
+    estTarget.set(tx, 0, tz);
+    // Never closer than the ordinary framing: an opening shot may pull back to show the café, it may
+    // not shove the camera into it.
+    estDist = Math.max(S.dist, Math.min(S.dist * 2.6, d));
+    return true;
+  }
+
+  /**
+   * Hold a composed shot of `points` (world positions), then glide to the ordinary follow framing.
+   * Called once, at boot. Cancelled by S.snap() (a restore is not an opening) and released early
+   * once the player has actually walked away from where they started.
+   */
+  S.establish = (points, opts = {}) => {
+    try { if (matchMedia('(prefers-reduced-motion: reduce)').matches) estGlide = 2.2; } catch (_) { /* no matchMedia */ }
+    estPoints = points && points.length ? points.map(p => ({ x: p.x, y: p.y || 0, z: p.z })) : null;
+    estMargin = opts.margin != null ? opts.margin : 0.12;
+    estHold = opts.hold != null ? opts.hold : 2.2;
+    if (opts.glide != null) estGlide = opts.glide;
+    if (!estPoints || !fitFraming(estPoints)) { estPoints = null; return false; }
+    estT = estHold + estGlide;
+    estFromX = target.x; estFromZ = target.z;
+    place();
+    return true;
+  };
+  S.releaseEstablish = () => { estT = 0; estPoints = null; };
+  // 1 while the opening shot is held, easing to 0 across the glide. Smoothstep, so the camera leaves
+  // and arrives at rest instead of starting with a jerk.
+  function establishWeight() {
+    if (estT <= 0) return 0;
+    if (estT >= estGlide) return 1;
+    const k = estT / estGlide;
+    return k * k * (3 - 2 * k);
+  }
+
   function place(dt = 0) {
     if (shakeAmt > 0) { shakeAmt *= Math.exp(-9 * dt); if (shakeAmt < 0.0005) shakeAmt = 0; }
     if (punchT > 0) { punchT -= dt; if (punchT <= 0) punchGoal = 1; }
     punchZoom = damp(punchZoom, punchGoal, punchGoal < 1 ? 5 : 3, dt);
-    const dist = S.dist * punchZoom;
+    if (estT > 0) estT = Math.max(0, estT - dt);
+    let dist = S.dist * punchZoom;
+    // The opening shot is layered ON TOP of `target`, never written into it: `target` stays the
+    // owner-follow point the rest of the frame reasons about, so when the weight reaches 0 the camera
+    // is already exactly where a normal frame would have put it and there is nothing to catch up on.
+    const est = establishWeight();
+    const vx = est > 0 ? lerp(target.x, estTarget.x, est) : target.x;
+    const vz = est > 0 ? lerp(target.z, estTarget.z, est) : target.z;
+    if (est > 0) dist = lerp(dist, estDist, est);
     const cp = Math.cos(PITCH), sp = Math.sin(PITCH);
-    camera.position.set(target.x + Math.sin(YAW) * cp * dist, target.y + sp * dist, target.z + Math.cos(YAW) * cp * dist);
+    camera.position.set(vx + Math.sin(YAW) * cp * dist, target.y + sp * dist, vz + Math.cos(YAW) * cp * dist);
     if (shakeAmt > 0) {
       const ang = Math.random() * Math.PI * 2;
       camera.position.x += Math.cos(ang) * shakeAmt;
       camera.position.y += Math.sin(ang * 1.3) * shakeAmt * 0.6;
       camera.position.z += Math.sin(ang) * shakeAmt;
     }
-    camera.lookAt(target.x, target.y + 0.4, target.z);
+    camera.lookAt(vx, target.y + 0.4, vz);
     sun.position.copy(target).add(sunOffset); sun.target.position.copy(target);
   }
 
-  S.follow = (x, z, dt) => { goal.set(x, 0, z); target.x = damp(target.x, goal.x, 6, dt); target.z = damp(target.z, goal.z, 6, dt); place(dt); };
-  S.snap = (x, z) => { target.set(x, 0, z); place(); };
+  S.follow = (x, z, dt) => {
+    goal.set(x, 0, z); target.x = damp(target.x, goal.x, 6, dt); target.z = damp(target.z, goal.z, 6, dt);
+    // A player who starts walking has stopped looking at the opening shot. Measured from where the
+    // camera was established rather than from an input event, so this needs nothing plumbed in from
+    // the input layer and works for a tap-to-move as well as the stick.
+    if (estT > estGlide && Math.hypot(x - estFromX, z - estFromZ) > 0.6) estT = estGlide;
+    place(dt);
+  };
+  S.snap = (x, z) => { S.releaseEstablish(); target.set(x, 0, z); place(); };
 
   // Metres of world covered by one CSS pixel of viewport height, at the camera target's depth.
   // S.dist is owned here (S.resize sets it) and FOV lives here too, so this is the only place that

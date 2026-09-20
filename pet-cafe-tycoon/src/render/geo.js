@@ -66,12 +66,14 @@ export function part(kind, d, hex, xf = {}) {
   let g;
   switch (kind) {
     case 'box': g = new THREE.BoxGeometry(d[0], d[1], d[2]); break;
-    // 2 segments, not 3. A RoundedBoxGeometry's cost grows with the square of this number and the
-    // rounded box is the game's most-used primitive by a wide margin; at the café's wide camera a
-    // 6 cm fillet drawn with two segments instead of three is not a difference anyone can see, and
-    // a built day-12 café measured 251k triangles before the change. Callers wanting a showpiece
-    // curve can still pass their own radius; nothing needs a finer fillet than this.
-    case 'rbox': g = new RoundedBoxGeometry(d[0], d[1], d[2], 2, d[3] ?? 0.06); break;
+    // ONE segment now, not two (it was three before Batch 8). A RoundedBoxGeometry's cost grows with
+    // the square of this number — 108 triangles at 1, 300 at 2, 588 at 3 — and the rounded box is the
+    // game's most-used primitive by a wide margin: a character rig alone is fifteen of them, so at
+    // two segments sixteen actors on stage cost 46k triangles in fillets nobody can resolve. At this
+    // camera a 6-8 cm fillet is a handful of pixels, and one segment draws it as a chamfer that is
+    // indistinguishable from the two-segment curve in a side-by-side capture at 1280x720.
+    // A caller that genuinely needs a showpiece curve passes `seg`.
+    case 'rbox': g = new RoundedBoxGeometry(d[0], d[1], d[2], xf.seg ?? 1, d[3] ?? 0.06); break;
     case 'cyl': g = new THREE.CylinderGeometry(d[0], d[1], d[2], d[3] ?? 16); break;
     case 'sph': g = new THREE.SphereGeometry(d[0], d[1] ?? 14, (d[1] ?? 14) >> 1); break;
     case 'cone': g = new THREE.ConeGeometry(d[0], d[1], d[2] ?? 12); break;
@@ -123,6 +125,23 @@ export function merge(parts) {
 // calls, and a prop smaller than a chair seat — a sack, a basket of fruit, a sign — still reads as
 // grounded on its contact shadow.
 const SHADOW_MIN_RADIUS = 0.4;
+
+// Fold extra parts into a mesh that has already been built, without costing a draw call.
+//
+// Used by systems/visuals.js to put a station's sign on the station's own geometry. The bodyBox is
+// carried over from the mesh it started as, deliberately: `merge()` recomputes it from everything in
+// the band a standing body fills, and a sign is render-only — it contributes no collision anywhere
+// (sim/nav.js, sim/ownerReach.js and world.js all read the station's box, not its mesh). Letting the
+// sign's post grow the box would make the owner bump into a sign, and would give a station too short
+// to have a box at all (the pet treat bowl) a brand new one.
+export function addParts(m, parts) {
+  if (!m || !m.geometry || !parts || !parts.length) return m;
+  const keep = m.geometry.userData && m.geometry.userData.bodyBox;
+  const g = merge([m.geometry, ...parts]);
+  if (keep) g.userData.bodyBox = keep; else delete g.userData.bodyBox;
+  m.geometry = g;
+  return m;
+}
 
 export function mesh(parts, opts = {}) {
   const g = merge(parts);

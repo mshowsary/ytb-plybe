@@ -35,7 +35,6 @@ const ANCHORS = [
   ['.wish', 0.5, 1.0],
   ['.patience', 0.5, 0.0],
   ['.demand', 0.5, 0.5],
-  ['.chalk', 0.5, 0.5],
   ['.objCaption', 0.5, 0.5],
   ['.zlabel', 0.5, 0.5],
   ['.zprice', 0.5, 0.5],
@@ -45,7 +44,7 @@ const ANCHORS = [
 ];
 
 // Higher wins ties and is placed first. Interactive controls outrank everything: they are tap
-// targets, so they may never be nudged or hidden. Decorative menu chalk yields first.
+// targets, so they may never be nudged or hidden. Ambient flavour yields first.
 //
 // Order matters: classOf() returns the FIRST matching row, so a compound selector must precede the
 // bare one it specialises.
@@ -71,7 +70,6 @@ const PRIORITY = [
   ['.demand', 55],
   ['.pet-identity', 52],
   ['.objCaption', 50],
-  ['.chalk', 20],
 ];
 
 // Labels that may be hidden outright when no collision-free slot exists. Anything absent from this
@@ -80,7 +78,11 @@ const PRIORITY = [
 //
 // The two gameplay-bearing pet-tag states resolve to their own compound selectors above, so listing
 // only the bare class here hides a nameless ambient tag while never hiding an offer.
-const HIDEABLE = new Set(['.chalk', '.demand', '.pet-identity']);
+// `.chalk` used to head this list. It is gone with the chalkboards themselves: a station says what
+// it is on its own geometry now (render/grain.js's baked sign glyphs), so there is no DOM chip to
+// arbitrate. A selector left in a table nothing creates is the kind of dead wiring this file's own
+// header warns about, so it is deleted rather than kept "just in case".
+const HIDEABLE = new Set(['.demand', '.pet-identity']);
 
 // HUD furniture that world labels must not sit under. Measured live so it tracks content changes.
 // Every permanent HUD node the play field must keep out of. Pared back to the ones that exist:
@@ -152,10 +154,39 @@ const SCALE_ROOT_CLASS = 'label-scale-root';
 // "Nearest the player" is measured as distance from the viewport centre, which is a faithful proxy
 // because the camera follows the owner: the label closest to the middle of the frame is the one
 // closest to the player's attention. No new signal has to be plumbed in from the simulation.
-const MUTABLE = new Set(['.wish', '.demand', '.chalk', '.zprice', '.zlabel', '.objCaption', '.pet-identity']);
+const MUTABLE = new Set(['.wish', '.demand', '.zprice', '.zlabel', '.objCaption', '.pet-identity']);
 const DENSITY_FULL = 4;   // at or below this many labels, nothing is dimmed at all
 const DENSITY_FOCUS = 3;  // how many stay at full strength once the café is crowded
+// And how many are drawn AT ALL past that point. Dimming was only half the answer: at 45% a bubble
+// is quieter but it still occupies its slot, so a rush measured at 380x670 and 1280x720 still put up
+// to seven of them in a column. Past DENSITY_FULL the arbiter now keeps the nearest DENSITY_KEEP and
+// drops the rest — the nearest DENSITY_FOCUS at full strength, the remainder dimmed.
+//
+// Only MUTABLE classes are ever dropped, which is what keeps this safe: a tap target (.fbtn) and a
+// station's need bubble (.demand.need) resolve to their own selectors, are not in this set, and are
+// never counted, dimmed or culled.
+// 8, judged from the frame: at 6 a whole corner of a crowded café went silent, which trades one
+// legibility problem for another. 8 still caps a rush that measured 21 labels at 380x670 and it is
+// the number at which no column forms at either viewport.
+const DENSITY_KEEP = 8;
 const MUTED_CLASS = 'label-muted';
+
+// ---- off-screen anchors -----------------------------------------------------------
+// The other half of the owner's icon-soup report, and the uglier half. Every label system projects a
+// world point and writes it straight to style.left/top; the solver then clamped whatever it was
+// given into the safe box. For a guest standing off the side of the frame that clamp is a LIE — it
+// drags a bubble belonging to somebody the player cannot see onto the frame edge, and because every
+// off-screen guest clamps to the same edge they stack into a column there (measured: 7 at 380x670).
+//
+// The rule is simply that a label whose own anchor is outside the viewport is not drawn. The anchor
+// is the projected world point the owning system asked for, tracked as st.il/st.it — so this tests
+// where the THING is, not where its pill ended up, and a label whose anchor is on screen can never
+// be hidden by it however far the solver has had to move the pill.
+//
+// .fbtn is exempt: it is the in-world action button, a tap target, and hiding a control is never the
+// right answer. In practice it cannot trigger anyway — the camera follows the owner, and the button
+// is anchored to whatever the owner is standing at.
+const OFFSCREEN_EXEMPT = new Set(['.fbtn']);
 
 // The CSS `scale` property, not a `transform` override: it composes with whatever transform each
 // class already owns (a wish bubble's translate, `.pet-identity.show`'s -108% entrance, `.demand`'s
@@ -256,7 +287,7 @@ export function createLabelLayout(els, opts = {}) {
       const cs = getComputedStyle(el);
       if (cs.display === 'none' || cs.visibility === 'hidden') continue;
       // A label that has not been shown yet is opacity:0 but still laid out — a pet tag before
-      // `.show`, chalk before its reveal. It must not reserve space, or an invisible tag shoves
+      // `.show`. It must not reserve space, or an invisible tag shoves
       // every real bubble off its anchor.
       //
       // Computed opacity is now a faithful reading of what the OWNING SYSTEM wants, because both of
@@ -376,6 +407,10 @@ export function createLabelLayout(els, opts = {}) {
         hidden = HIDEABLE.has(u.sel); // otherwise it must stay visible and accept the overlap
         best = [bl, bt, rectsAt(bl, bt)];
       }
+      // The anchor, not the solved position: a label belonging to something off screen is dropped
+      // rather than dragged to the edge (see OFFSCREEN_EXEMPT above). Tested against the viewport
+      // itself, so a label anchored anywhere the player can actually see survives it.
+      if (!OFFSCREEN_EXEMPT.has(u.sel) && (lead.st.il < 0 || lead.st.il > vw || lead.st.it < 0 || lead.st.it > vh)) hidden = true;
       if (!hidden) for (const r of best[2]) placed.push(r);
       results.push({ u, l: best[0], t: best[1], hidden });
     }
@@ -419,7 +454,7 @@ export function createLabelLayout(els, opts = {}) {
       if (res.hidden || !MUTABLE.has(it.sel)) { setMuted(it.el, false); continue; }
       // res.l/res.t is the label's anchor — for a wish bubble that is the customer's head, which is
       // exactly the point whose distance to frame centre tracks distance to the player.
-      cands.push({ el: it.el, prio: it.prio, d: Math.hypot(res.l - cx, res.t - cy) });
+      cands.push({ res, el: it.el, prio: it.prio, d: Math.hypot(res.l - cx, res.t - cy) });
     }
     if (cands.length <= DENSITY_FULL) {
       for (const c of cands) setMuted(c.el, false);
@@ -428,7 +463,22 @@ export function createLabelLayout(els, opts = {}) {
     // Highest priority first, then whichever is nearest the player. Ties in priority are the common
     // case (every wish bubble is worth 80), so the centre distance is what actually decides.
     cands.sort((a, b) => (b.prio - a.prio) || (a.d - b.d));
-    for (let i = 0; i < cands.length; i++) setMuted(cands[i].el, i >= DENSITY_FOCUS);
+    for (let i = 0; i < cands.length; i++) {
+      const c = cands[i];
+      // Past DENSITY_KEEP the label is not dimmed, it is dropped: dimming alone still left a wall of
+      // pills. Writing res.hidden (and the class with it) keeps this consistent with every other way
+      // a label goes away, so the next frame's read phase sees it at its owner's own opacity and can
+      // bring it straight back when the crowd thins.
+      const cull = i >= DENSITY_KEEP;
+      if (cull !== c.res.hidden) {
+        c.res.hidden = cull;
+        // The whole unit, not just the bubble: a wish bubble and its patience bar are one thing, and
+        // leaving the bar behind would be a worse frame than leaving both.
+        c.el.classList.toggle('label-crowded', cull);
+        for (const f of c.res.u.follow) f.el.classList.toggle('label-crowded', cull);
+      }
+      setMuted(c.el, !cull && i >= DENSITY_FOCUS);
+    }
   }
 
   // Shared with any system that positions its own floating UI (the interaction coach, for one).

@@ -1,6 +1,6 @@
 // Owner movement, station interactions, carry guidance and contextual actions.
 import {
-  PRODUCTS, familyOf, playerSpeed, carryCap, machineSpeedMult, STAR_IDS,
+  PRODUCTS, familyOf, playerSpeed, carryCap, machineSpeedMult,
 } from '../sim/economy.js';
 import {
   stepOvens, stepMachines, takeFromOven, takeFromMachine, putOnDisplay, collectCash,
@@ -168,15 +168,9 @@ export function createStations(G, S, ctx) {
   }
 
   const markCheckpoint = reason => { if (typeof G.requestCheckpoint === 'function') G.requestCheckpoint(reason); };
-  // One Shop (ui/shop.js, reached through G.openShop): the kiosk and a tapped chalkboard open it on
-  // Upgrades, titled "Shop"; the staff desk opens it on Staff, titled "Staff". It owns its own buy
-  // actions and pauses the café like every sheet, so nothing here needs to follow the owner away.
-  function doOpenKioskFocused(stationId) {
-    if (!STAR_IDS.includes(stationId) || sheets.isOpen) return;
-    audio.play('tap'); G.openShop('shop', 'upgrades', stationId);
-  }
-  ctx.openKioskFocused = doOpenKioskFocused;
-
+  // One Shop (ui/shop.js, reached through G.openShop): the staff desk opens it on Staff, titled
+  // "Staff", and the Café button opens it on its own. It owns its buy actions and pauses the café
+  // like every sheet, so nothing here needs to follow the owner away.
   function openKiosk(st, tab) {
     audio.play('tap'); G.openShop(tab === 'workers' ? 'staff' : 'shop', tab);
   }

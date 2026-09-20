@@ -43,6 +43,13 @@ const PORT = Number(arg('--port', 4207)) || 4207;
 // built, not the day-12 chain below. The spa chain is retired by the same plan, so it is skipped
 // whether or not the catalogue still carries it.
 const PEAK = process.argv.includes('--peak');
+// How many characters and pets must be on stage before the sample is taken. The budget in the ship
+// plan (§1.9) is set at PEAK — "the busiest state" — and the crowd the deterministic sim happens to
+// have standing around at the sample instant is not that: the merged build measured 200 calls with
+// TEN actors, so a real rush was never actually measured against the limit. With --actors the run
+// keeps stepping (and keeps the shelves full so guests are served and replaced rather than stalling)
+// until at least this many actor groups are in the scene, then samples. It reports what it reached.
+const WANT_ACTORS = Number(arg('--actors', 0)) || 0;
 const RETIRED = ['z_spa', 'z_groom', 'z_bath', 'z_boutique', 'z_photographer'];
 // Headless chromium defaults to SwiftShader, which runs this game at a few fps: draw calls and
 // triangles are still exact, but frame times are not. --gpu asks ANGLE for the real adapter.
@@ -82,7 +89,7 @@ await page.goto(base, { waitUntil: 'load' });
 await page.waitForFunction(() => !!window.__game, null, { timeout: 30000 });
 await new Promise(r => setTimeout(r, 1200));
 
-await page.evaluate(({ chain, peak, retired }) => {
+await page.evaluate(({ chain, peak, retired, wantActors }) => {
   const G = window.__game;
   if (peak) {
     // Every zone the catalogue offers, in an order payZone accepts: a zone whose prerequisite is
@@ -113,7 +120,30 @@ await page.evaluate(({ chain, peak, retired }) => {
     if (i % 40 === 0) for (const d of shelves) d.stock = d.capacity;
     G.update(0.05);
   }
-}, { chain: CHAIN, peak: PEAK, retired: RETIRED });
+  // Then keep going until the room is genuinely busy. Every actor group in the scene counts — guests,
+  // their pets, staff, the owner and the residents — because that is what the frame actually pays
+  // for. Bounded, and the run reports the crowd it reached, so a café that cannot hold that many is
+  // visible as a smaller number rather than as a hang.
+  if (wantActors > 0) {
+    // A LATE café, not a day-12 one. The crowd the economy will allow is a function of the day, the
+    // café level and the staff on the floor (sim/economy.js maxCustomers), so a day-12 run simply
+    // cannot put sixteen actors on stage however long it is stepped. Day 30 with the whole roster is
+    // the state the ship plan calls peak (★5 lands around day 28-35), and it is the honest place to
+    // measure a budget that is defined at peak.
+    G.dayState.day = 30;
+    G.staff.runner = 3; G.staff.cleaner = 2; G.staff.cashier = 2; G.staff.barista = 1;
+    if (G.meta) G.meta.followers = Math.max(G.meta.followers | 0, 5000);
+    const onStage = () => {
+      let n = 0;
+      window.__scene.scene.traverse(o => { if (o.parent === window.__scene.scene && /^(human|pet):/.test(o.name || '') && o.visible) n++; });
+      return n;
+    };
+    for (let i = 0; i < 12000 && onStage() < wantActors; i++) {
+      if (i % 20 === 0) for (const d of shelves) d.stock = d.capacity;
+      G.update(0.05);
+    }
+  }
+}, { chain: CHAIN, peak: PEAK, retired: RETIRED, wantActors: WANT_ACTORS });
 await new Promise(r => setTimeout(r, 800));
 
 const sample = await page.evaluate(async () => {
@@ -149,6 +179,21 @@ const sample = await page.evaluate(async () => {
   R.info.autoReset = true;
   frames.sort((a, b) => a - b);
 
+  // frameMedian/frameP95 above are rAF-to-rAF, so on any machine that keeps up they both read the
+  // display's interval (16.7 ms at 60 Hz) whatever the scene costs — which makes them useless for
+  // comparing two builds that both hit the cap. This is the frame's own cost with vsync out of the
+  // way: submit the whole post chain back to back and divide. It is not a frame time a player sees,
+  // it is the work a frame asks for, and that is the number a budget is about.
+  let renderMs = 0;
+  {
+    S.render();                                  // warm the pipeline, then measure
+    const t0 = performance.now();
+    const N = 30;
+    for (let i = 0; i < N; i++) S.render();
+    await new Promise(r => requestAnimationFrame(() => r()));   // let the driver drain
+    renderMs = (performance.now() - t0) / N;
+  }
+
   // Bucket every VISIBLE renderable by the scene-level group it hangs under, so a regression names
   // the system that caused it rather than just a number going up.
   const scene = S.scene, byRoot = new Map();
@@ -183,7 +228,7 @@ const sample = await page.evaluate(async () => {
     geometries: R.info.memory.geometries, textures: R.info.memory.textures,
     programs: R.info.programs ? R.info.programs.length : null,
     renderables, shadowCasters: casters, instancedMeshes: instanced, distinctMaterials: mats.size,
-    frameMedianMs: +frames[30].toFixed(2), frameP95Ms: +frames[57].toFixed(2),
+    frameMedianMs: +frames[30].toFixed(2), frameP95Ms: +frames[57].toFixed(2), renderMs: +renderMs.toFixed(2),
     built: G.world.built.size, customers: G.customers.length, staff: G.staffList ? G.staffList.length : 0,
     actors: actorRoots.size, actorRenderables, actorTris: Math.round(actorTris),
     staticCalls: staticCallsMeasured, staticTris: staticTrisMeasured,
@@ -204,7 +249,7 @@ console.log(`scene cost — fully built (${sample.built} zones), day 12, ${sampl
 console.log(`  draw calls ${sample.drawCalls}   triangles ${sample.triangles.toLocaleString('en-US')}`);
 console.log(`  static (actors hidden): ${sample.staticCalls} calls, ${sample.staticTris.toLocaleString('en-US')} triangles   |   ${sample.actors} actors on stage, ${sample.actorCallsAvg} renderables / ${sample.actorDrawCallsEach} draw calls each`);
 console.log(`  renderables ${sample.renderables} (${sample.instancedMeshes} instanced, ${sample.shadowCasters} casting shadow), materials ${sample.distinctMaterials}, geometries ${sample.geometries}`);
-console.log(`  frame median ${sample.frameMedianMs} ms, p95 ${sample.frameP95Ms} ms  (headless software GL — compare runs, not devices)`);
+console.log(`  frame median ${sample.frameMedianMs} ms, p95 ${sample.frameP95Ms} ms (rAF, so vsync-capped), ${sample.renderMs} ms of render work per frame  (compare runs, not devices)`);
 for (const [name, n] of sample.topGroups) console.log(`    ${String(n).padStart(4)}  ${name}`);
 if (errors.length) console.error(`  page errors: ${errors.slice(0, 3).join(' | ')}`);
 

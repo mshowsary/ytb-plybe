@@ -85,7 +85,7 @@ export function waterIcon() {
 }
 
 // Loop v2 Task 2: chalkboard/pantry-popup icons — same viewBox 0 0 24 24 convention as the product
-// icons above, sized by whatever CSS class wraps them (src/style.css's .chalkIcon/.sicon).
+// icons above, sized by whatever CSS class wraps them (src/style.css's .sicon).
 export function coinIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="#FFD84D" stroke="#C98A00" stroke-width="1.5"/>' +
     '<circle cx="12" cy="12" r="5.2" fill="none" stroke="#C98A00" stroke-width="1"/></svg>';

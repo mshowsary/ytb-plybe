@@ -119,15 +119,50 @@ export function createHuman(variant = {}, role = 'customer') {
   const mat = toonMaterial();
   const group = new THREE.Group();
   group.name = 'human:' + role;   // so tools/scene-cost.mjs can attribute cost to a system, not a "Group(5 children)"
-  const legL = new THREE.Mesh(G.legGeo, mat); legL.position.set(-0.15, HIP_Y, 0); legL.castShadow = false; legL.receiveShadow = true;
-  const legR = new THREE.Mesh(G.legGeo, mat); legR.position.set(0.15, HIP_Y, 0); legR.castShadow = false; legR.receiveShadow = true;
-  const bodyHead = new THREE.Mesh(G.bodyHeadGeo, mat); bodyHead.castShadow = true; bodyHead.receiveShadow = true;
-  const armL = new THREE.Mesh(G.armGeo, mat); armL.position.set(-0.44, SHOULDER_Y, 0); armL.castShadow = false; armL.receiveShadow = true;
-  const armR = new THREE.Mesh(G.armGeo, mat); armR.position.set(0.44, SHOULDER_Y, 0); armR.castShadow = false; armR.receiveShadow = true;
-  group.add(legL, legR, bodyHead, armL, armR);
+  // ---- the limbs are INSTANCED (ship plan §1.9's peak budget) -----------------------------------
+  // A person was five meshes: two legs, two arms and a torso-and-head. The legs are the same
+  // geometry on the same material, and so are the arms, so four of those five were two pairs of
+  // identical draws — 2 wasted calls per character, and a rush puts nine or ten people on the floor.
+  //
+  // legL/legR/armL/armR stay as plain Object3D "bones" holding exactly the transforms the animation
+  // below already writes (and armR keeps `hand`, so carried items and the tray are untouched); each
+  // frame their local matrices are copied into a two-instance InstancedMesh. Nothing about the pose
+  // code changes, which is the point: the rig is the same rig, drawn twice instead of four times.
+  const legL = new THREE.Object3D(); legL.position.set(-0.15, HIP_Y, 0);
+  const legR = new THREE.Object3D(); legR.position.set(0.15, HIP_Y, 0);
+  const legsIM = new THREE.InstancedMesh(G.legGeo, mat, 2);
+  legsIM.castShadow = false; legsIM.receiveShadow = true;
+  // An InstancedMesh culls on its own boundingSphere when one is set, and on the bare GEOMETRY's
+  // otherwise — which for a leg is a sphere at the character's hip that ignores the second instance
+  // and every pose. Turning culling off instead cost more than instancing saved: an actor standing
+  // off screen still drew its legs and arms. A fixed, generous sphere around the whole rig is the
+  // right answer — it never has to be recomputed as the limbs swing, and it culls truthfully.
+  legsIM.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 1.1);
+  // No sun shadow (ship plan §1.9's peak budget). A person's torso-and-head was the one caster on
+  // this rig, and it is the most expensive one in the game to keep: every actor on stage drew a
+  // second time into the shadow map, ~2.5k triangles each, and a rush puts sixteen of them there.
+  // Every character already carries a contact shadow (render/contactShadows.js — one instanced draw
+  // call for the whole café), which is what actually reads as "standing on the floor" at this
+  // camera; the cast shadow was a soft blob three metres away that the room's own props overlapped.
+  const bodyHead = new THREE.Mesh(G.bodyHeadGeo, mat); bodyHead.castShadow = false; bodyHead.receiveShadow = true;
+  const armL = new THREE.Object3D(); armL.position.set(-0.44, SHOULDER_Y, 0);
+  const armR = new THREE.Object3D(); armR.position.set(0.44, SHOULDER_Y, 0);
+  const armsIM = new THREE.InstancedMesh(G.armGeo, mat, 2);
+  armsIM.castShadow = false; armsIM.receiveShadow = true;
+  armsIM.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 1.3);
+  group.add(legL, legR, bodyHead, armL, armR, legsIM, armsIM);
+  // The bones are transform-only, so their world matrices must still be maintained (armR carries the
+  // hand and the carry stack) but they draw nothing themselves.
+  const syncLimbs = () => {
+    legL.updateMatrix(); legR.updateMatrix(); armL.updateMatrix(); armR.updateMatrix();
+    legsIM.setMatrixAt(0, legL.matrix); legsIM.setMatrixAt(1, legR.matrix);
+    armsIM.setMatrixAt(0, armL.matrix); armsIM.setMatrixAt(1, armR.matrix);
+    legsIM.instanceMatrix.needsUpdate = true; armsIM.instanceMatrix.needsUpdate = true;
+  };
   const hand = new THREE.Object3D(); hand.position.set(0, -0.59, 0); armR.add(hand);
   const stack = new THREE.Group(); stack.name = 'carry-stack'; stack.position.set(0, 1.05, 0.42); group.add(stack);
 
+  syncLimbs();   // so a character drawn before its first update() has legs and arms, not nothing
   const bubble = new THREE.Group(); bubble.position.set(0, 2.25, 0); bubble.visible = false; group.add(bubble);
   const bWait = new THREE.Mesh(bWaitGeo(), mat); bWait.castShadow = false; bWait.receiveShadow = true;
   const bAngry = new THREE.Mesh(bAngryGeo(), mat); bAngry.castShadow = false; bAngry.receiveShadow = true;
@@ -154,8 +189,8 @@ export function createHuman(variant = {}, role = 'customer') {
   // continuously while the work lasts and tails off when the worker moves on instead of cutting
   // out mid-stroke. Same shape as H.tap above, with a phase of its own so the arm keeps swinging.
   H.wipe = (seconds = 0.35) => { H._wipeT = Math.max(H._wipeT, Math.max(0, seconds)); };
-  H.sit = () => { H._sitting = true; group.position.y = -0.35; legL.rotation.x = -1.5; legR.rotation.x = -1.5; };
-  H.stand = () => { H._sitting = false; group.position.y = 0; legL.rotation.x = 0; legR.rotation.x = 0; };
+  H.sit = () => { H._sitting = true; group.position.y = -0.35; legL.rotation.x = -1.5; legR.rotation.x = -1.5; syncLimbs(); };
+  H.stand = () => { H._sitting = false; group.position.y = 0; legL.rotation.x = 0; legR.rotation.x = 0; syncLimbs(); };
   H.update = (dt, vx, vz) => {
     const sp = Math.hypot(vx, vz); const moving = sp > 0.05;
     if (moving) H._face = Math.atan2(vx, vz);
@@ -202,6 +237,9 @@ export function createHuman(variant = {}, role = 'customer') {
     H._sq = Math.max(-0.16, Math.min(0.16, H._sq + H._sqV * dt));
     const sy = 1 + H._sq, sxz = 1 - H._sq * 0.5;
     group.scale.set(H._base * sxz, H._base * sy, H._base * sxz);
+
+    // Last: every pose above is written onto the bones, and this is what actually draws them.
+    syncLimbs();
 
     // Footfall: the leg swing crosses zero twice a stride, which is exactly when a foot lands.
     if (moving && H.onStep) {

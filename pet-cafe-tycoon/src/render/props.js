@@ -209,12 +209,57 @@ export function buildStatic(area) {
   return g;
 }
 
-export function counterMesh() {
+// ── the self-serve stand dressing (ship plan §1.9, Batch G item 3) ──────────────────────────────
+// From the play camera barIce read as "a plain white slab": it is the same counterMesh every
+// interior display uses, but it faces WEST, so the camera (fixed at yaw 35°, looking from +x/+z)
+// only ever sees its back panel and its end — cream on cream with nothing on either. The interior
+// counters get away with it because the eye reads them off their coral front strip and the cakes
+// piled on top, both of which face the room.
+//
+// A stand gets the same treatment the other terrace stations got: a body in the ice cream pastels
+// (matching icecreamMesh's cabinet, so machine and counter read as one shop), and a striped canopy
+// on two posts over the top — a silhouette that says "stand" from every side, above head height,
+// where no guest queueing at it can hide it. The posts stand at local x ±1.1, INSIDE the counter
+// top's own ±1.25, so nothing the nav grid or the queue corridor measures moves; the canopy itself
+// is above geo.js's body band, so it adds no collision at all.
+const STAND_BODY = '#FFC7D9', STAND_STRIPE = '#FF9DBB';
+function standCanopyParts() {
+  const P = [];
+  for (const x of [-1.1, 1.1]) {
+    P.push(part('cyl', [0.045, 0.045, 1.28, 6], C.cream, { x, y: 1.66, z: -0.1 }));
+  }
+  // A striped valance angled forward, built the way buildStatic's awning is: one strip per stripe,
+  // all at the same height and depth, so they are coplanar by construction and no strip can float
+  // above or sink into the one beside it.
+  for (let i = 0; i < 12; i++) {
+    P.push(part('box', [0.2, 0.07, 0.72], i & 1 ? STAND_STRIPE : C.cream,
+      { x: -1.1 + i * 0.2 + 0.1, y: 2.3, z: 0.12, rx: 0.3, tex: 'fabric' }));
+  }
+  P.push(part('box', [2.4, 0.14, 0.05], STAND_STRIPE, { y: 2.19, z: 0.44 }));
+  for (let i = 0; i < 7; i++) {
+    P.push(part('cyl', [0.09, 0.09, 0.04, 10], STAND_STRIPE, { x: -1.08 + i * 0.36, y: 2.12, z: 0.44, rx: Math.PI / 2 }));
+  }
+  // A cone hung under the ridge, point down: the stand's own shop sign, readable from both ends.
+  P.push(part('cyl', [0.04, 0.04, 0.26, 6], C.metal, { y: 2.06, z: -0.34 }));
+  P.push(part('cyl', [0.17, 0.015, 0.34, 12], '#E0A560', { y: 1.72, z: -0.34, tex: 'fabric' }));
+  P.push(part('sph', [0.19, 10], '#FFF6FA', { y: 1.92, z: -0.34, sy: 0.55 }));
+  P.push(part('sph', [0.14, 10], STAND_BODY, { y: 2.03, z: -0.34, sy: 0.6 }));
+  P.push(part('sph', [0.05, 8], '#E0405F', { y: 2.12, z: -0.34 }));
+  // A tub of spare cones standing on the counter's far end, where the item stack never reaches.
+  P.push(part('cyl', [0.16, 0.13, 0.22, 10], C.metal, { x: -1.02, y: 1.19, z: -0.18, tex: 'metal' }));
+  for (const [dx, dz] of [[-0.05, -0.05], [0.05, -0.02], [0, 0.06]]) {
+    P.push(part('cone', [0.055, 0.28, 8], '#E0A560', { x: -1.02 + dx, y: 1.42, z: -0.18 + dz, tex: 'fabric' }));
+  }
+  return P;
+}
+export function counterMesh(st = null) {
+  const stand = !!(st && st.selfServe);
   const g = new THREE.Group();
   g.add(mesh([
-    part('rbox', [2.4, 1.0, 1.0, 0.08], C.cream, { y: 0.5 }),
+    part('rbox', [2.4, 1.0, 1.0, 0.08], stand ? STAND_BODY : C.cream, { y: 0.5 }),
     part('box', [2.5, 0.12, 1.1], C.wood, { y: 1.02, tex: 'wood' }),
-    part('box', [2.2, 0.5, 0.06], C.coral, { y: 0.5, z: 0.52 }),
+    part('box', [2.2, 0.5, 0.06], stand ? STAND_STRIPE : C.coral, { y: 0.5, z: 0.52 }),
+    ...(stand ? standCanopyParts() : []),
     // The glass used to be a 0.42 m DEEP box standing on the back half of the counter top, with a
     // wood lid over it. Together they ate 0.48 m of the 1.1 m top, which is why the item grid was
     // crammed into the strip that was left and its rows came out 0.14 m apart — less than one cookie
@@ -310,30 +355,65 @@ export function hireDeskMesh() {
   ]));
   return g;
 }
-export function kioskMesh() {
-  const parts = [
-    part('rbox', [1.0, 1.6, 0.5, 0.1], C.accent, { y: 0.8 }),
-    part('box', [0.6, 0.5, 0.05], '#9BF6FF', { y: 1.1, z: 0.26 }),                  // screen
-    part('cyl', [0.22, 0.22, 0.08, 10], C.cream, { y: 1.66 }),                      // gear-like disc
+// ── station signs (ship plan §1.9) ──────────────────────────────────────────────────────────────
+// What this replaces: `chalkboardMesh`, a small BLACK board on a post standing at each station's
+// front-LEFT corner, outside its footprint. Its only content was a DOM chip that faded in within
+// 5 m, so from the play camera the room held twenty blank black lollipops — "what is this" clutter —
+// one of them planted in the ★3 resident cat's bed, and each one its own mesh in both the main and
+// the shadow pass (measured: 20 + 20 draw calls).
+//
+// Three things change, and the first two are why the sign can exist at all:
+//
+//   1. THE PICTOGRAM IS IN THE GEOMETRY. grain.js paints each glyph into the shared detail atlas,
+//      so the board face carries it on the world's one MeshToonMaterial. It says what the station is
+//      from any distance, with no text and no DOM.
+//   2. IT IS PARTS, NOT A MESH. signParts() hands back geometry that systems/visuals.js merges into
+//      the station's OWN mesh, so a sign costs zero draw calls instead of two.
+//   3. IT STANDS INSIDE THE STATION'S OWN FOOTPRINT, not beside it. Ground a station occupies is
+//      already ground nobody walks on and nothing else is placed on, so a sign there can never be in
+//      a walkway, a queue slot or a resident pet's bed. On a tall station the post is swallowed by
+//      the body and only the board shows, which is what a shop sign should look like anyway.
+//
+// `faceYaw` is the WORLD yaw the board turns to (visuals.js passes the camera's own), because the
+// camera never rotates: a sign that faced each station's own front would show the player the back of
+// half of them, and the atlas glyph mirrored.
+const SIGN_POST_TOP = 1.66;
+const SIGN_BOARD_Y = 1.92;
+const SIGN_W = 0.70, SIGN_H = 0.52;
+// The board is TILTED BACK, like a menu stand, because the camera looks down at 52°. Stood upright
+// it was seen 52° off its own normal, so a 0.52 m board projected 21 px tall against 48 px wide and
+// the trilinear filter picked a mip off the compressed axis: measured on a 4x crop of a real frame,
+// the cupcake glyph came out as a soft grey blob. At 30° the board is within 22° of face-on, the
+// glyph is nearly square on screen, and it still reads as a sign rather than as a tabletop.
+//
+// 30° and not more, for a second reason: geo.js box-projects UVs by dominant normal axis, and past
+// ~37° the board's normal tips into the "faces up" branch, which would map the glyph off the wrong
+// pair of axes.
+const SIGN_TILT = 30 * Math.PI / 180;
+export function signParts(glyph, lx = 0, lz = 0, faceYaw = 0) {
+  if (!glyph || !TILES['sign:' + glyph]) return null;
+  const ct = Math.cos(SIGN_TILT), st = Math.sin(SIGN_TILT);
+  const nx = Math.sin(faceYaw) * ct, ny = st, nz = Math.cos(faceYaw) * ct;
+  // Built facing +z and UNROTATED, then turned afterwards. part() projects its UVs before it
+  // translates but AFTER it rotates, and the projection picks its axes from the world normal — so a
+  // board authored already-turned came out with its glyph mirrored on every station whose rotation
+  // pushed cos(faceYaw - rot) negative (the garden stand, the treat bowl, the fruit bushes). Rotating
+  // the finished geometry moves positions and normals and leaves the UVs exactly as projected.
+  const turn = g => { g.rotateX(-SIGN_TILT); g.rotateY(faceYaw); return g; };
+  const frame = turn(part('rbox', [SIGN_W, SIGN_H, 0.06, 0.03], C.woodDark));
+  frame.translate(lx, SIGN_BOARD_Y, lz);
+  // The face stands 1.5 cm proud of its frame along the board's own normal, so the two never share
+  // a depth, and it is the only part in the game that addresses a sign tile.
+  const face = turn(part('box', [SIGN_W - 0.09, SIGN_H - 0.09, 0.012], '#FFF8E7', { tex: 'sign:' + glyph }));
+  face.translate(lx + nx * 0.037, SIGN_BOARD_Y + ny * 0.037, lz + nz * 0.037);
+  return [
+    part('cyl', [0.032, 0.032, SIGN_POST_TOP, 6], C.woodDark, { x: lx, y: SIGN_POST_TOP / 2, z: lz }),
+    frame,
+    face,
   ];
-  for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; parts.push(part('box', [0.08, 0.05, 0.08], C.cream, { x: Math.sin(a) * 0.24, y: 1.66, z: Math.cos(a) * 0.24 })); }
-  const g = new THREE.Group(); g.add(mesh(parts)); return g;
 }
-// Loop v2 Task 2: a small dark chalkboard sign — post + board — mounted at every eligible active
-// station's front-left corner. visuals.js adds it as a CHILD of the station's own render group (in
-// LOCAL, unrotated coordinates: +x local right, +z local front — the same convention world.js's
-// own rotateOffset uses), so it inherits that group's build pop-in, rotation and active/visible
-// state for free; the DOM label (name + product icon) projects from its precomputed world position
-// each frame instead (systems/visuals.js's CHALK_Y).
-export function chalkboardMesh() {
-  const g = new THREE.Group();
-  g.add(mesh([
-    part('cyl', [0.035, 0.035, 0.8, 8], C.woodDark, { y: 0.4 }),
-    part('rbox', [0.5, 0.36, 0.04, 0.04], C.ink, { y: 0.86 }),
-    part('box', [0.44, 0.3, 0.01], '#2B2320', { y: 0.86, z: 0.025 }),
-  ]));
-  return g;
-}
+/** Where signParts() puts the board, for tests and audits that need to know without building it. */
+export const SIGN_GEOMETRY = Object.freeze({ boardY: SIGN_BOARD_Y, w: SIGN_W, h: SIGN_H, postTop: SIGN_POST_TOP });
 // M3 T3: bowl/bush/coffee/storage/blender station props — simple merged meshes, +z front,
 // behaviour lands in Task 4. bushMesh's three berries are a single InstancedMesh (one extra
 // draw call per bush, not three) so setStage(0..3) can scale them independently without
@@ -396,27 +476,6 @@ export function pantryMesh() {
   ]));
   return g;
 }
-// Loop v2 Task 1: the return crate — a small wooden crate with a down-arrow plate (merged), next
-// to the pantry. Takes back any carried stack for zero coins (systems/stations.js).
-export function crateMesh() {
-  const g = new THREE.Group();
-  g.add(mesh([
-    part('box', [0.7, 0.5, 0.7], C.wood, { y: 0.25, tex: 'wood' }),
-    part('box', [0.74, 0.06, 0.74], C.woodDark, { y: 0.51, tex: 'wood' }),
-    part('box', [0.06, 0.5, 0.72], C.woodDark, { x: -0.32, y: 0.25 }),
-    part('box', [0.06, 0.5, 0.72], C.woodDark, { x: 0.32, y: 0.25 }),
-    part('box', [0.36, 0.36, 0.03], C.cream, { y: 0.75, z: 0.36, tex: 'paper' }),          // sign plate
-  ]));
-  // down-arrow on the sign plate, its own small mesh so the plate stays a simple merged box.
-  const arrowMat = new THREE.MeshToonMaterial({ color: new THREE.Color(C.coral) });
-  const arrow = new THREE.Mesh(merge([
-    part('box', [0.06, 0.22, 0.01], C.coral, { y: 0.02 }),
-    part('box', [0.05, 0.05, 0.01], C.coral, { y: -0.09, rz: Math.PI / 4 }),
-    part('box', [0.05, 0.05, 0.01], C.coral, { y: -0.09, rz: -Math.PI / 4 }),
-  ]), arrowMat);
-  arrow.position.set(0, 0.75, 0.375); g.add(arrow);
-  return g;
-}
 export function blenderMesh() {
   const g = new THREE.Group();
   g.add(mesh([
@@ -433,10 +492,14 @@ export function blenderMesh() {
 // placement maths lives next to the geometry that defines it instead of as magic numbers in the
 // systems layer.
 //
-// All five are deliberately cheap. There is no `rbox` anywhere below: RoundedBoxGeometry at
-// geo.js's segment count is 588 triangles per part, and the scene already sits close to its ~210k
-// ceiling. The whole set is under 1.4k triangles, against ~21k freed by the two placeholder
-// residents §5.4's furniture list retires.
+// All five are deliberately cheap. There is no `rbox` anywhere below: RoundedBoxGeometry is the
+// most expensive primitive geo.js offers and the scene already sits close to its ceiling. The whole
+// set is under 1.4k triangles, against ~21k freed by the two placeholder residents §5.4's
+// furniture list retires.
+//
+// None of the five casts a sun shadow (ship plan §1.9's budget): a bed, a basket, a hutch and a
+// cushion are floor furniture whose whole shadow story is the contact shadow systems/residentPets.js
+// already gives them, and every one of them was costing a second draw call in the shadow pass.
 //
 // Bed rims are RINGS of 6-segment spheres rather than solid discs. That matters for more than
 // looks: a pet has to sit INSIDE the rim (legs hidden, body above it) or it reads as standing on
@@ -456,7 +519,7 @@ export function catBedMesh() {
     part('cyl', [0.56, 0.52, 0.1, 14], C.coral, { y: 0.05 }),
     part('cyl', [0.46, 0.46, 0.1, 12], C.cream, { y: 0.13, tex: 'fabric' }),
     ...rimRing(9, 0.45, 0.45, 0.17, 0.16, C.coral),
-  ]));
+  ], { cast: false }));
   g.perch = new THREE.Vector3(0, 0.16, 0);
   return g;
 }
@@ -472,7 +535,7 @@ export function windowCushionMesh() {
     part('box', [0.08, 0.3, 0.5], C.woodDark, { x: 0.7, y: 0.86 }),
     part('sph', [0.44, 10], '#F2C4CE', { y: 1.14, z: 0.1, sy: 0.3, sz: 0.8, tex: 'fabric' }),      // pillow, top 1.27
     part('sph', [0.2, 8], C.wall, { x: -0.62, y: 1.16, z: 0.06, sy: 0.42, sz: 0.9 }), // spare cushion
-  ]));
+  ], { cast: false }));
   g.perch = new THREE.Vector3(0, 1.23, 0.12);
   return g;
 }
@@ -491,7 +554,7 @@ export function catTreeMesh() {
     part('cyl', [0.34, 0.34, 0.09, 12], '#F4C9D3', { y: 1.095, z: 0.2, sz: 1.35, tex: 'fabric' }),  // top cushion, top 1.14
     part('cyl', [0.014, 0.014, 0.26, 4], C.cream, { x: 0.28, y: 0.83, z: 0.5 }),     // toy string
     part('sph', [0.075, 6], C.coin, { x: 0.28, y: 0.67, z: 0.5 }),                   // dangling ball
-  ]));
+  ], { cast: false }));
   // Perch pulled back from the shelf centre (0.2) to 0.08: at 0.2 the cat's muzzle reached
   // 12 mm into the kiosk mesh behind it. Legs still land at z -0.23..0.39 on a shelf spanning
   // -0.27..0.67, so the pose is unchanged.
@@ -506,7 +569,7 @@ export function dogBasketMesh() {
     part('cyl', [0.72, 0.66, 0.16, 14], C.wood, { y: 0.08, sx: 0.6, tex: 'fabric' }),
     part('cyl', [0.62, 0.62, 0.1, 12], C.wall, { y: 0.16, sx: 0.62, tex: 'fabric' }),               // blanket, top 0.21
     ...rimRing(11, 0.42, 0.62, 0.2, 0.16, C.wood),                                   // rim, top 0.36
-  ]));
+  ], { cast: false }));
   g.perch = new THREE.Vector3(0, 0.19, 0);
   return g;
 }
@@ -529,7 +592,7 @@ export function bunnyHutchMesh() {
     p.push(part('box', [0.07, 0.12, 0.94], C.wood, { x, y: 0.41, z: 0.28 }));        // side rails, open front
     for (const z of [-0.62, 0.62]) p.push(part('box', [0.11, 0.26, 0.11], C.woodDark, { x: x * 0.93, y: 0.13, z }));
   }
-  g.add(mesh(p));
+  g.add(mesh(p, { cast: false }));
   g.perch = new THREE.Vector3(0, 0.4, 0.22);
   return g;
 }
@@ -721,7 +784,11 @@ export function zoneRing() {
 export function buildRegion(area, region, palette = null) {
   const pieces = regionPieces(area, region, palette);
   const g = new THREE.Group();
-  g.add(mesh([...pieces.base, ...pieces.rows.flatMap(r => r.parts), ...pieces.extras]));
+  // No sun shadow (ship plan §1.9's peak budget). It is a FLOOR: the planks, the border and the
+  // threshold lie flat on the ground and cast nothing a player can see, and the pots and the arch
+  // that ride in the same merged mesh were dragging the whole 1.6k-triangle deck through the shadow
+  // pass for two soft posts. The deck still receives, so everything standing on it is grounded.
+  g.add(mesh([...pieces.base, ...pieces.rows.flatMap(r => r.parts), ...pieces.extras], { cast: false }));
   return g;
 }
 

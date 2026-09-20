@@ -40,9 +40,15 @@ function cameraDistance(aspect) {
 }
 const worldPerPixel = (w, h) => 2 * cameraDistance(w / h) * TAN_HALF / h;
 
+// `.chalk` is deliberately NOT in these lists any more. The chalkboards left the game in Batch G:
+// a station carries its pictogram on its own geometry now (render/grain.js bakes the glyph into the
+// shared detail atlas, render/props.js signParts() merges the board into the station's mesh), so
+// there is no DOM chip for the arbiter to own. The assertion below pins that it is gone from the
+// registry too — a selector left in a table nothing creates is dead wiring, and the next reader
+// would spend an afternoon looking for the element that matches it.
 test('every projected label class is registered with the arbiter', () => {
   // The registry is the ANCHORS table; MANAGED (and therefore `layout.managed`) is derived from it.
-  for (const cls of ['.wish', '.patience', '.demand', '.chalk', '.objCaption', '.zlabel', '.zprice', '.fbtn', '.pet-identity']) {
+  for (const cls of ['.wish', '.patience', '.demand', '.objCaption', '.zlabel', '.zprice', '.fbtn', '.pet-identity']) {
     assert.match(
       SRC,
       new RegExp(`^\\s*\\['${cls.replace('.', '\\.')}',`, 'm'),
@@ -63,7 +69,17 @@ test('gameplay-bearing pet tag states outrank the bare tag', () => {
   const bare = SRC.indexOf("['.pet-identity', 52]");
   assert.ok(playBreak > -1 && greeting > -1 && bare > -1, 'all three pet-tag priorities must exist');
   assert.ok(playBreak < bare && greeting < bare, 'compound pet-tag rows must precede the bare row');
-  assert.match(SRC, /const HIDEABLE = new Set\(\['\.chalk', '\.demand', '\.pet-identity'\]\)/);
+  assert.match(SRC, /const HIDEABLE = new Set\(\['\.demand', '\.pet-identity'\]\)/);
+});
+
+test('the chalkboard chip is gone from every table in the arbiter', () => {
+  // Not a style preference: an unused selector in ANCHORS/PRIORITY/HIDEABLE/MUTABLE reads as a live
+  // label class to anyone maintaining this file, and the element it names has not existed since the
+  // sign glyphs were baked into the station meshes.
+  const tables = SRC.slice(0, SRC.indexOf('export function labelScalePolicy'));
+  assert.equal(/\['\.chalk'/.test(tables), false, '.chalk must not be registered any more');
+  assert.equal(SRC.includes("'.chalk'"), false, '.chalk must not appear in any solver set');
+  assert.equal(LABEL_SCALED.includes('.chalk'), false);
 });
 
 test('labels are drawn at full size at the reference camera', () => {
@@ -164,7 +180,7 @@ test('the action button stays under the solver but out of the scale rule', () =>
   assert.match(SRC, /^\s*\['\.fbtn', 0\.5, 0\.5\],/m, '.fbtn is still registered in ANCHORS (so MANAGED/solved)');
   assert.match(SRC, /^\s*\['\.fbtn', 100\],/m, 'and still outranks every label');
   assert.match(SRC, /:is\(\$\{LABEL_SCALED\.join\(','\)\}\)\{scale:var\(--label-scale,1\)\}/, 'the injected CSS scales LABEL_SCALED only');
-  for (const cls of ['.wish', '.patience', '.demand', '.chalk', '.objCaption', '.zlabel', '.zprice', '.pet-identity']) {
+  for (const cls of ['.wish', '.patience', '.demand', '.objCaption', '.zlabel', '.zprice', '.pet-identity']) {
     assert.ok(LABEL_SCALED.includes(cls), `${cls} keeps the character-relative scale`);
   }
 });
