@@ -2,6 +2,14 @@
 // short linger at an unfamiliar explicit action, fit the phone viewport, disappear when used, and
 // remain suppressed for that action for the rest of the session. It also proves the distinct
 // "stay here" treatment for a real dwell/refill interaction without changing the refill mechanic.
+//
+// EXTENDED for Batch F (docs/SHIP-PLAN-2026-09-19.md §1.8): ROUTE MODE IS GONE, and the last
+// section proves it. placeAtWorld used to CLAMP an off-screen target into the viewport, so a
+// latched refill lesson pinned a hand and a supply glyph to the top border for tens of seconds —
+// measured once sitting on the restroom roof while pointing at the cold pantry behind it, beside
+// the objective's own edge arrow (research/onboarding, 2026-09-19). A ghost hand is a gesture made
+// ON something: with the target off screen there is nothing to gesture at and the coach shows
+// nothing at all. The tap and hold sections below are unchanged.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -32,7 +40,13 @@ const page = await ctx.newPage();
 await page.route('https://www.youtube.com/game_api/v1', route => route.fulfill({ status:200, contentType:'text/javascript', body:mockSdk }));
 await page.goto('http://127.0.0.1:4178/', { waitUntil:'domcontentloaded' });
 await page.waitForFunction(() => window.__game && window.__ready && window.__interactionCoach, null, { timeout:30000 });
-await page.evaluate(() => { window.__game.intro.step = 5; window.__game.intro.active = false; });
+await page.evaluate(() => {
+  const G = window.__game;
+  G.intro.step = 5; G.intro.active = false;
+  // First Look owns the screen while it teaches and parks this coach while it does (by design).
+  // This file is about the coach, so the lessons are counted as already shown.
+  G.firstLook.skipAll();
+});
 
 // The staff desk is the one explicit tap action left in the world (the upgrade kiosk went with
 // Batch C, docs/SHIP-PLAN-2026-09-19.md 1.4), so it is the station that proves the tap coach.
@@ -139,5 +153,46 @@ await page.evaluate(() => {
 await page.waitForTimeout(650);
 if (await page.locator('.interaction-coach:not(.hidden)').count()) throw new Error('learned coffee hold coach returned in the same session');
 
-console.log(JSON.stringify({ tap:{ shown, suppressedAfterUse:true }, hold:{ beforeRefill, learned:true, suppressedAfterUse:true } }, null, 2));
+// Batch F: an off-screen refill target draws NOTHING. Put the coffee machine dry with a guest
+// waiting on it — the exact state the old lesson latched onto — and stand the owner on the far side
+// of the café so the machine is outside the frame. The old code answered that with a hand clamped
+// to the border; the new one answers with silence and lets the objective's single edge arrow say
+// "over there".
+const offScreen = await page.evaluate(async () => {
+  const G = window.__game, S = window.__scene;
+  const st = G.world.stations.get('coffee1');
+  st.active = true; st.beans = 0; st.stock = 0;
+  G.carry.sack = null; G.carry.sackLeft = 0; G.owner.clearItems();
+  window.__interactionCoach.restoreLearning(null);   // un-prove the refill lesson
+  G.firstLook.skipAll();
+  // The far corner of the room, away from every station front so no tap or hold cue is in range.
+  G.P.x = 8.6; G.P.z = 5.4; G.P.vx = 0; G.P.vz = 0;
+  G.owner.group.position.set(G.P.x, 0, G.P.z);
+  S.snap(G.P.x, G.P.z);
+  for (let i = 0; i < 12 * 30; i++) { G._force = null; G.update(1 / 30); }
+  window.__interactionCoach.update(1 / 30);
+  const tmp = { sx: 0, sy: 0, visible: true };
+  G.fx.project(st.front.x, 1.3, st.front.z, tmp);
+  const c = document.querySelector('.interaction-coach');
+  const r = c ? c.getBoundingClientRect() : null;
+  return {
+    machineOnScreen: tmp.visible,
+    distance: Math.round(Math.hypot(G.P.x - st.front.x, G.P.z - st.front.z) * 10) / 10,
+    beans: st.beans,
+    coachVisible: !!c && !c.classList.contains('hidden'),
+    mode: c ? c.dataset.mode : null,
+    rect: r ? { left: Math.round(r.left), top: Math.round(r.top) } : null,
+    routeClassExists: !!c && c.classList.contains('route-mode'),
+  };
+});
+// The room is 20x14 and a phone in portrait frames a tall slice of it, so a station is not reliably
+// out of frame from anywhere the owner can stand. What matters is not the projection: it is that a
+// dry machine the owner is nowhere near draws NO HAND. That is the whole of route mode's job.
+if (!(offScreen.distance > 4)) throw new Error(`the probe did not get the owner away from the machine: ${JSON.stringify(offScreen)}`);
+if (offScreen.beans !== 0) throw new Error(`the machine refilled itself, so nothing was being asked for: ${JSON.stringify(offScreen)}`);
+if (offScreen.coachVisible) throw new Error(`a coach hand is still drawn for a refill target the owner is ${offScreen.distance} m from: ${JSON.stringify(offScreen)}`);
+if (offScreen.routeClassExists) throw new Error('route mode is still applied to the coach element');
+await page.screenshot({ path:path.join(shots,'03-distant-refill-no-hand.png') });
+
+console.log(JSON.stringify({ tap:{ shown, suppressedAfterUse:true }, hold:{ beforeRefill, learned:true, suppressedAfterUse:true }, offScreen }, null, 2));
 await ctx.close(); await browser.close(); await new Promise(resolve => server.close(resolve));

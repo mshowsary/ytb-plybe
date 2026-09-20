@@ -38,6 +38,7 @@ const PLAY_FIELD_FILES = [
   'ui/moments.js',
   'ui/meta.js',
   'systems/objective.js',
+  'systems/firstLook.js',
   'systems/rewardsSystem.js',
   'systems/offers.js',
   'systems/stations.js',
@@ -194,9 +195,9 @@ test('B. a cue draws only pictograms, numerals, punctuation and proper nouns', (
 // by the variable or class its own file uses, so this survives the file being reformatted.
 // Batch D removed the Pet Social launcher, the party-order chip and its collect pill, and the
 // Mystery Gift chip with the rest of their UI; the objective caption is the one left.
-// Batch E2 adds the rewarded-offer bubble and the ▶ build-pad badge (systems/offers.js). They are
-// world-anchored controls in the strictest sense — the badge is projected onto the pad itself — so
-// they are held to the same rule: every drawn cell is a picture.
+// Batch E2 adds the rewarded-offer bubble and the ▶ build-pad badge (systems/offers.js), and Batch F
+// the First Look bubble and its ghost hand (systems/firstLook.js): the newest things drawn over the
+// world, and the ones most tempting to explain in a sentence. Every drawn cell is a picture.
 //
 // The one deliberate exception, and the reason `adEl` is NOT listed here, is the two-letter AD
 // disclosure. That is a required, honest label on a paid surface, not prose about the game; the
@@ -204,6 +205,7 @@ test('B. a cue draws only pictograms, numerals, punctuation and proper nouns', (
 const WORLD_CONTROLS = [
   ['systems/objective.js', ['caption']],
   ['systems/offers.js', ['iconEl', 'valueEl', 'pad']],
+  ['systems/firstLook.js', ['bubbleEl', 'handEl']],
 ];
 
 // Every `.textContent =` / `.innerHTML =` in a file, with the receiver text that precedes it and

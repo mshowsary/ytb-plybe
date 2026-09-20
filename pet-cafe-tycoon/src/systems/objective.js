@@ -52,15 +52,26 @@ const EDGE_MARGIN = 34;
 // became affordable took the lane for a twelve-second walkthrough of its own. Three systems each
 // deciding, independently, to draw a trail across the café.
 //
-// Guidance is a TEACHER here, not a minder. Every target resolves to one of three modes:
-//   'full'   trail on the floor + beacon + ring + edge arrow + caption -- a walkthrough, to TEACH
+// Guidance is a TEACHER here, not a minder. Every target resolves to one of four modes:
+//   'walk'   trail on the floor + beacon + ring + edge arrow + caption -- the OPENING MINUTE only
 //   'beacon' the arrow over the target alone -- to UN-STICK
+//   'edge'   nothing on the floor and nothing over the target; one screen-edge arrow while the
+//            thing First Look is teaching is off screen, and not even that once it is in frame
 //   'none'   nothing at all -- the normal state of the play field
 //
-// A walkthrough plays once per mechanic, ever (the coach's proven set, persisted with the save),
-// plus the opening lesson. After that, a routine job draws nothing until the player has genuinely
-// stalled on it -- STUCK_SECONDS with no progress toward it -- and then only the pointer.
-// Hesitation never earns a walkthrough again.
+// Batch F deleted the fifth thing this file used to do: a first-time 'full' walkthrough per
+// mechanic, keyed off the coach's proven set. It was the other half of day 1's 84-second chain --
+// the opening never marked what it taught, so "serve at the register", "restock the display" and
+// "build here" each replayed as a fresh walkthrough within two minutes of the opening teaching
+// exactly those three things (research/onboarding). Teaching a NEW thing is now one system's job
+// (systems/firstLook.js: a short pan, one glyph bubble over the thing itself, a ghost hand only for
+// a tap/hold/ring) and systems/intro.js marks the opening's three mechanics as it goes. What is
+// left here is the two jobs a walkthrough was never right for: un-sticking a stalled player, and
+// pointing off screen.
+//
+// After the opening, a routine job draws nothing until the player has genuinely stalled on it --
+// STUCK_SECONDS with no progress toward it -- and then only the pointer. Hesitation never earns a
+// walkthrough.
 //
 // Carrying something works the same way. The destination is known the moment you pick the thing up
 // and nothing is drawn for it: an owner walking a tray of cookies to the display does not need to
@@ -69,15 +80,7 @@ const EDGE_MARGIN = 34;
 //
 // The "you can afford this now" walkthrough is gone entirely. A plot that becomes affordable is an
 // invitation, not an errand, and the plot's own price pill is already standing in the room saying
-// so. Building still gets its one lesson the first time, through the proven set, like everything
-// else.
-const MECHANIC_OF_KIND = {
-  register: 'serve', serve: 'serve', restock: 'pickup', stock: 'pickup', bake: 'pickup',
-  refill: 'pantry', supplies: 'pantry', clean: 'clean', harvest: 'harvest', build: 'build',
-  // Carrying something to where it belongs is what the opening lesson's "stock the display" step
-  // already taught, so it shares that proof rather than re-running a walkthrough on day 3.
-  collect: 'cash', deliver: 'pickup',
-};
+// so -- and First Look opens the build lesson there once, the first time.
 const ARRIVE_METERS = 1.6;
 const STUCK_SECONDS = 6;
 const CARRY_STUCK_SECONDS = 4;
@@ -162,8 +165,6 @@ export function createObjective(G, S, ctx) {
     return walkCells;
   }
   let routeKey = '', routeT = 0, routeFromX = 0, routeFromZ = 0;
-  const proven = key => !!key && typeof G.mechanicProven === 'function' && G.mechanicProven(key);
-  const markProven = key => { if (key && typeof G.markMechanic === 'function') G.markMechanic(key); };
   const caption = document.createElement('div'); caption.className = 'objCaption hidden';
   // The glyph is drawn; the sentence it replaced rides on aria-label, so the caption stays a status
   // announcement rather than an unlabelled decoration.
@@ -187,6 +188,18 @@ export function createObjective(G, S, ctx) {
     else { challenger = next; challengerT = 0; }
     if (challengerT >= TARGET_COMMIT_SECONDS) { committed = challenger; challenger = null; challengerT = 0; }
     return committed;
+  }
+
+  // The one screen-edge arrow, from an already-projected point. Hidden the instant the thing it
+  // points at is in frame: the arrow says "over there", and once you can see it, it is not.
+  function placeEdge(p) {
+    if (p.visible) { edge.classList.add('hidden'); return; }
+    const w = innerWidth, h = innerHeight;
+    const dx = p.nx * (w / 2), dy = -p.ny * (h / 2);
+    const k = Math.min((w / 2 - EDGE_MARGIN) / Math.max(1e-3, Math.abs(dx)), (h / 2 - EDGE_MARGIN) / Math.max(1e-3, Math.abs(dy)));
+    edge.style.left = (w / 2 + dx * k) + 'px'; edge.style.top = (h / 2 + dy * k) + 'px';
+    edge.style.setProperty('--rot', (Math.atan2(dy, dx) * 180 / Math.PI + 90) + 'deg');
+    edge.classList.remove('hidden');
   }
 
   // The stalled-player nudge: nothing until `after` seconds of getting nowhere, then the arrow for
@@ -224,6 +237,14 @@ export function createObjective(G, S, ctx) {
       t += dt;
       if (G.intro && G.intro.active) {
         target = G.intro.target;
+        guided = true;
+        committed = null; challenger = null; challengerT = 0;
+      } else if (G.firstLookPoint) {
+        // A lesson owns the lane while it runs (systems/firstLook.js). All this file contributes is
+        // the ONE screen-edge arrow, and only while the thing being taught is off screen: the
+        // lesson's own bubble is over it, and a second pointer on top of that is the icon soup the
+        // research report measured at the borders.
+        target = G.firstLookPoint;
         guided = true;
         committed = null; challenger = null; challengerT = 0;
       } else if (G.contextGuide) {
@@ -296,25 +317,25 @@ export function createObjective(G, S, ctx) {
 
       // ---- decide the mode -----------------------------------------------------------------
       const stand = standSpotFor(world, target);
-      const mech = MECHANIC_OF_KIND[target.kind] || null;
       const intro = !!(G.intro && G.intro.active);
       let mode;
-      if (intro) mode = 'full';
+      if (intro) mode = 'walk';                                     // the opening minute, once
+      else if (target === G.firstLookPoint) mode = 'edge';          // a lesson owns the screen
       else if (asked && target === asked.target) mode = 'beacon';   // a pointer, never a lesson
-      else if (mech && !proven(mech)) mode = 'full';        // the one lesson, once, ever
       else mode = pointerMode(guided ? CARRY_STUCK_SECONDS : STUCK_SECONDS, dt);
-
-      // Arrival proves the errand: the lesson for this mechanic is over for good.
-      if (stand && Math.hypot(G.P.x - stand.x, G.P.z - stand.z) < ARRIVE_METERS) {
-        if (!intro && mech) markProven(mech);
-      }
 
       if (mode === 'none') {
         guide.hide(); edge.classList.add('hidden');
         caption.classList.add('hidden');
         return;
       }
-      const full = mode === 'full';
+      if (mode === 'edge') {
+        guide.hide(); caption.classList.add('hidden');
+        fx.project(target.x, HOVER_Y, target.z, tmp);
+        placeEdge(tmp);
+        return;
+      }
+      const full = mode === 'walk';
 
       // Route the trail on the OWNER'S OWN grid (sim/ownerReach.js), not the guests' 0.5 m one:
       // the trail is a promise that walking it gets you there, and a 0.30 m guest grid walks the
@@ -346,15 +367,7 @@ export function createObjective(G, S, ctx) {
 
       // Off-screen: pin an arrow to the edge of the screen, pointing at the target.
       fx.project(target.x, HOVER_Y, target.z, tmp);
-      if (!tmp.visible) {
-        const w = innerWidth, h = innerHeight;
-        const dx = tmp.nx * (w / 2), dy = -tmp.ny * (h / 2);
-        const k = Math.min((w / 2 - EDGE_MARGIN) / Math.max(1e-3, Math.abs(dx)), (h / 2 - EDGE_MARGIN) / Math.max(1e-3, Math.abs(dy)));
-        const ex = w / 2 + dx * k, ey = h / 2 + dy * k;
-        edge.style.left = ex + 'px'; edge.style.top = ey + 'px';
-        edge.style.setProperty('--rot', (Math.atan2(dy, dx) * 180 / Math.PI + 90) + 'deg');
-        edge.classList.remove('hidden');
-      } else edge.classList.add('hidden');
+      placeEdge(tmp);
 
       if (coachOwnsBeacon) { caption.classList.add('hidden'); return; }
 

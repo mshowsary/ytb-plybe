@@ -1,6 +1,7 @@
 // Countertop register-cash presentation. Money is represented by the physical till stack only;
 // the exact amount appears as a brief +number when collected, not as permanent text over gameplay.
 import * as THREE from 'three';
+import { part, mesh } from '../render/geo.js';
 
 const BILL_MAX = 24;
 const COIN_MAX = 12;
@@ -44,19 +45,15 @@ function makeRegisterStack(st) {
   group.visible = false;
   const baseScale = at.scale;
 
-  const tray = new THREE.Mesh(
-    new THREE.BoxGeometry(0.72, 0.045, 0.46),
-    new THREE.MeshToonMaterial({ color: new THREE.Color('#D3A348') }),
-  );
-  // No sun shadow on any of the money: a drawer, a wad of notes and a coin stack on a counter top
-  // throw shadows a couple of pixels wide that the counter's own already swallows, and each one is
-  // an extra shadow-pass draw per till, per tipped table and per garden jar (Batch G's budget pass).
-  tray.position.set(-0.38, 0, 0.04); tray.receiveShadow = true; group.add(tray);
-  const trayInset = new THREE.Mesh(
-    new THREE.BoxGeometry(0.62, 0.025, 0.36),
-    new THREE.MeshToonMaterial({ color: new THREE.Color('#44342C') }),
-  );
-  trayInset.position.set(-0.38, 0.03, 0.04); trayInset.receiveShadow = true; group.add(trayInset);
+  // The drawer and its lining are one mesh: they never move relative to each other, and every till,
+  // tipped table and garden jar paid for the second draw. No sun shadow on any of the money either —
+  // a drawer, a wad of notes and a coin stack on a counter top throw shadows a couple of pixels wide
+  // that the counter's own already swallows (Batch G's budget pass).
+  const tray = mesh([
+    part('box', [0.72, 0.045, 0.46], '#D3A348', { x: -0.38, z: 0.04 }),
+    part('box', [0.62, 0.025, 0.36], '#44342C', { x: -0.38, y: 0.03, z: 0.04 }),
+  ], { cast: false });
+  tray.receiveShadow = true; group.add(tray);
 
   const billGeo = new THREE.BoxGeometry(0.27, 0.018, 0.14);
   const billMat = new THREE.MeshToonMaterial({ color: new THREE.Color('#78C997') });

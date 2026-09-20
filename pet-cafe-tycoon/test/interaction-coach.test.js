@@ -128,28 +128,31 @@ test('the bowl lesson waits for a guest who actually wants a treat', () => {
   assert.equal(lesson.label, 'PET TREATS');
 });
 
-// Batch C (docs/SHIP-PLAN-2026-09-19.md 1.4) deleted the pantry's SUPPLIES button and the PANTRY
-// sheet behind it, so 'tap' is not a mode the refill lesson can want any more: every refill is a
-// walk, and the last step -- standing still -- is what the generic lanes already own.
-test('the refill lesson is all walking now: no tap mode survives', () => {
+// REWRITTEN for Batch F (docs/SHIP-PLAN-2026-09-19.md 1.8). This test used to pin 'route' as the
+// refill lesson's answer whenever the player was not already standing at the machine — the mode
+// that drew a hand at a world point and CLAMPED it into the viewport when that point was off
+// screen. The research run measured that hand parked against the top border for tens of seconds,
+// once on the restroom roof while pointing at the cold pantry behind it, next to the objective's
+// own edge arrow: two edge pointers, neither on anything the player could touch.
+//
+// Route mode is deleted, so the assertion is inverted rather than dropped: a ghost hand is a
+// gesture, and the only gestures left are the ones made ON something — the tap on a real button and
+// the hold at a machine the owner is standing at. Walking to the pantry is taught once, by
+// systems/firstLook.js's 'pantry' lesson, with a bubble over the pantry itself.
+test('the refill lesson never draws a hand for walking: no tap mode and no route mode survive', () => {
   for (const carryingSupply of [false, true]) {
     for (const nearMachine of [false, true]) {
       for (const inPlace of [false, true]) {
-        const mode = refillCueMode({ carryingSupply, nearMachine, inPlace });
+        const mode = refillCueMode({ carryingSupply, nearMachine, inPlace, hasPantry: true });
         assert.notEqual(mode, 'tap', `still tapped (carry=${carryingSupply} near=${nearMachine} bin=${inPlace})`);
+        assert.notEqual(mode, 'route', `still routed (carry=${carryingSupply} near=${nearMachine} bin=${inPlace})`);
+        assert.equal(mode, 'fall', 'the generic lanes own every refill frame that is not an overlay');
       }
     }
   }
-  // Empty-handed with a pantry to fetch from: walk there.
-  assert.equal(refillCueMode({ carryingSupply: false, hasPantry: true }), 'route');
-  // Carrying the beans, still away from the machine: route to the machine, nothing else.
-  assert.equal(refillCueMode({ carryingSupply: true, nearMachine: false }), 'route');
-  // Standing at the machine: the hold cue owns the frame.
+  // Standing at the machine is still where the hold cue lives; that lane is reached by falling
+  // through, exactly as before.
   assert.equal(refillCueMode({ carryingSupply: true, nearMachine: true }), 'fall');
-  // A machine with its own bin (the treat bowl) has no pantry leg at all: walk to the machine
-  // itself with empty hands, and standing there is the refill.
-  assert.equal(refillCueMode({ inPlace: true, carryingSupply: false, nearMachine: false }), 'route');
-  assert.equal(refillCueMode({ inPlace: true, carryingSupply: false, nearMachine: true }), 'fall');
   // An open sheet is never covered by a world hand.
   assert.equal(refillCueMode({ overlay: true, carryingSupply: true }), 'none');
 });

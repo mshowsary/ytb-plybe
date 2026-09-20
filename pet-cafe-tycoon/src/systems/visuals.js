@@ -1,7 +1,7 @@
 // src/systems/visuals.js — builds a mesh per station, keeps physical stock props in sync, owns the
 // Task-31 glanceable stock truth, and runs Task-32's one-shot construction reveal.
 import * as THREE from 'three';
-import { ovenMesh, counterMesh, checkoutMesh, tableMesh, hireDeskMesh, bowlMesh, bushMesh, coffeeMesh, pantryMesh, blenderMesh, signParts, itemGeoFor, cashPile, dirtyMesh, zoneRing, icecreamMesh, fountainMesh } from '../render/props.js';
+import { ovenMesh, counterMesh, checkoutMesh, tableMesh, hireDeskMesh, bowlMesh, bushMesh, coffeeMesh, pantryMesh, blenderMesh, signParts, stationStarParts, fruitGardenMesh, itemGeoFor, cashPile, dirtyMesh, zoneRing, icecreamMesh, fountainMesh } from '../render/props.js';
 import { photoWallMesh } from '../render/photoWall.js';
 import { addParts, part, merge } from '../render/geo.js';
 import { C, toonMaterial } from '../render/palette.js';
@@ -135,6 +135,39 @@ const SIGN_INSET = 0.22;
 export function stationSignSpot(st) {
   const hw = Math.max(0, (st.fw || 0) / 2 - SIGN_INSET), hd = Math.max(0, (st.fd || 0) / 2 - SIGN_INSET);
   return { lx: -hw, lz: -hd };
+}
+
+// ── the star tier, on the machine (ship plan §1.6c item 3) ──────────────────────────────────────
+// economy.js keeps a station's tier in state.stars[id] (STAR_IDS: the two ovens, the two pastry
+// counters, the coffee machine and its counter, the blender and its counter) and buyStar() is the
+// only thing that ever raises one. That is the whole call path: ui/shop.js buyStar -> economy.js
+// buyStar -> G.stars[id] -> the compare below, on the next frame, rebuilds that one station's
+// geometry with render/props.js's stationStarParts() merged in. Eight integer compares a frame.
+//
+// A rebuild, not a second mesh: the dressing lands in the station's OWN geometry, so a fully
+// starred café costs exactly the draw calls an unstarred one costs. The base geometry (the mesh as
+// built, sign already merged) is kept so a tier change always starts from it rather than piling
+// tier 2's parts under tier 3's, and the base's bodyBox is carried across unchanged — buying a star
+// changes how a machine LOOKS and never where a body can stand (geo.js addParts's rule).
+export function starTierOf(G, stationId) {
+  const stars = G && G.stars;
+  const raw = stars ? Number(stars[stationId]) : NaN;
+  return Number.isFinite(raw) && raw >= 1 ? Math.trunc(raw) : 1;
+}
+export function applyStarLook(st, v, tier) {
+  if (!v || !v.base || !v.baseGeo || v.starTier === tier) return false;
+  const parts = stationStarParts(st, tier);
+  let geo = v.baseGeo;
+  if (parts && parts.length) {
+    const keep = v.baseGeo.userData && v.baseGeo.userData.bodyBox;
+    geo = merge([v.baseGeo, ...parts]);
+    if (keep) geo.userData.bodyBox = keep; else delete geo.userData.bodyBox;
+  }
+  const old = v.base.geometry;
+  v.base.geometry = geo;
+  if (old && old !== v.baseGeo && old !== geo) old.dispose();
+  v.starTier = tier;
+  return true;
 }
 
 // Program §6.2, Batch 7: the wait-for-a-wipe bubble a paid guest holds up while dirty tables block
@@ -325,7 +358,10 @@ function reducedMotion() {
 const STATION_SHADOW_RADIUS = {
   seat: 0.82, decor: 0.78, oven: 0.55, display: 0.55, icecream: 0.55,
   checkout: 0.48, coffee: 0.48, pantry: 0.48, blender: 0.48,
-  hire: 0.48, bush: 0.38, bowl: 0.3,
+  // bowl was 0.3, sized for the pink ring that used to be the whole treat bar; it is a 0.72 m
+  // feeding stand with its own kibble bin now (props.js bowlMesh), and a 0.3 m shadow under it left
+  // the corners of the stand floating.
+  hire: 0.48, bush: 0.38, bowl: 0.42,
 };
 function stationShadowRadius(st) {
   const base = STATION_SHADOW_RADIUS[st.type];
@@ -361,11 +397,11 @@ export function createVisuals(G, S, ctx) {
     // station's own geometry happens once, at build time, and the box is taken from the geometry
     // that is actually drawn — minus the sign, which addParts() deliberately keeps out of it.
     const glyph = stationSignGlyph(st);
-    if (glyph) {
+    const signBase = g.children.find(o => o.isMesh && !o.isInstancedMesh) || null;
+    if (glyph && signBase) {
       const { lx, lz } = stationSignSpot(st);
       const sp = signParts(glyph, lx, lz, SIGN_FACE_YAW - st.rot);
-      const base = g.children.find(o => o.isMesh && !o.isInstancedMesh);
-      if (sp && base) addParts(base, sp);
+      if (sp) addParts(signBase, sp);
     }
     scene.add(g);
     // What the player's body can bump into, in world space, taken from the geometry that is
@@ -397,7 +433,10 @@ export function createVisuals(G, S, ctx) {
       radius: stationShadowRadius(st), strength: 0.85, follow: false,
     });
     if (shadow) shadow.visible = !!st.active;
-    const v = { g, items: [], reveal: null, shadow };
+    const v = { g, items: [], reveal: null, shadow, base: signBase, baseGeo: signBase ? signBase.geometry : null, starTier: 1 };
+    // Whatever the save already says this machine is worth, before the first frame is drawn: a
+    // restored ★4 café must open looking like a ★4 café, not upgrade itself in front of the player.
+    applyStarLook(st, v, starTierOf(G, st.id));
     // The photo wall's frames fill in as the album grows (src/render/photoWall.js) — the handle its
     // mesh exposes is the only thing update() below needs to keep it true.
     if (st.type === 'wall' && g.userData.photoWall) v.photoWall = g.userData.photoWall;
@@ -427,6 +466,26 @@ export function createVisuals(G, S, ctx) {
     if (DEMAND_Y[st.type] != null) { v.demand = makeDemandEl(); els.fx.appendChild(v.demand.el); }
     vis.set(st.id, v);
   }
+  // ── the Fruit garden (ship plan §1.4; Batch G2 item 1) ────────────────────────────────────────
+  // z_garden's 1400 coins used to add two green spheres to a corner of tiled floor. render/props.js
+  // fruitGardenMesh() is the bed they stand in — soil, kerb, clover, a picket along the café side, a
+  // watering can and a crate of picked fruit — as ONE merged mesh, so the whole garden is one draw
+  // call and none in the shadow pass.
+  //
+  // It is not a station and it has no build event of its own, so it takes its cue from the station
+  // z_garden actually adds: whatever bush2's mesh is doing, the bed is doing. That is the same
+  // authority the reveal, the restore and the dev-tool paths already drive, so there is exactly one
+  // way for the bed and the bushes to disagree — bush2 not existing at all, which hides the bed.
+  const GARDEN_ANCHOR = 'bush2';
+  const gardenPatch = world.stations.has(GARDEN_ANCHOR) ? fruitGardenMesh() : null;
+  if (gardenPatch) scene.add(gardenPatch);
+  function syncGarden() {
+    if (!gardenPatch) return;
+    const anchor = vis.get(GARDEN_ANCHOR);
+    gardenPatch.visible = !!(anchor && anchor.g.visible);
+  }
+  syncGarden();
+
   // A guest's meal, on the table, while they eat it (Batch G item 5). One mesh per interior/garden
   // table, created lazily the first time that table is used and hidden the rest of the time: the
   // geometry is itemGeoFor()'s own product mesh, the same object the guest carried to the seat, so
@@ -488,7 +547,10 @@ export function createVisuals(G, S, ctx) {
       // A restore drops every live customer, so no table has anyone eating at it any more.
       if (v.meal) v.meal.visible = false;
       if (v.photoWall) v.photoWall.setAlbum(G.meta && G.meta.album);
+      // A restore can load a café whose machines are starred; the mesh has to say so immediately.
+      applyStarLook(st, v, starTierOf(G, st.id));
     }
+    syncGarden();
     activeWipes.length = 0;
     // A restore drops every live customer, so whatever was posing is gone with them.
     poseBubble.classList.add('hidden'); poseBubbleOn = false;
@@ -578,6 +640,9 @@ export function createVisuals(G, S, ctx) {
       }
       for (const st of world.stations.values()) {
         const v = vis.get(st.id); if (!v) continue;
+
+        // Eight integer compares a frame; a merge only on the frame a star is actually bought.
+        applyStarLook(st, v, starTierOf(G, st.id));
 
         if (v.reveal) {
           v.reveal.t += Math.max(0, dt);
@@ -760,6 +825,9 @@ export function createVisuals(G, S, ctx) {
           }
         }
       }
+      // The bed follows its bushes: the frame z_garden's reveal first shows bush2 is the frame the
+      // corner becomes a garden.
+      syncGarden();
       // Program §6.2, Batch 7: one broom bubble per guest currently waiting for a wipe.
       let noSeatUsed = 0;
       if (G.customers) for (const c of G.customers) {

@@ -1,19 +1,29 @@
 // tools/guidance-policy-smoke.js
 //
 // What guidance is allowed to draw, and when. systems/objective.js resolves every target to one of
-// three modes — walkthrough (trail + beacon + ring), pointer (beacon alone) or nothing — and this
-// pins that resolution on a day-4 café whose basics are already proven, with the café held quiet so
-// each scenario is the only errand on the floor.
+// four modes — the opening minute's walkthrough, a pointer (beacon alone), a bare screen-edge arrow
+// while First Look is teaching, or nothing — and this pins that resolution on a day-4 café whose
+// basics are already proven, with the café held quiet so each scenario is the only errand on the
+// floor.
 //
 // The contract, after the day-18 report ("demos are everywhere every day, including for things I
 // learned long ago; inconsistent big arrows"):
 //   - nothing pending                          -> nothing drawn
 //   - a proven chore, standing still            -> nothing for 6 s, then a POINTER, never a walkthrough
-//   - a chore never done before                 -> one walkthrough, at once
 //   - a plot the player can suddenly afford     -> nothing (it is an invitation, not an errand)
 //   - carrying something, destination known     -> nothing; a pointer only after 4 s of standing still
 //   - two errands of equal standing             -> the arrow commits to one instead of trading four
 //                                                  times a second (the "fast repetitive arc loop")
+//
+// REWRITTEN for Batch F (docs/SHIP-PLAN-2026-09-19.md §1.8). This file used to assert the fifth
+// rule, "a chore never done before -> one walkthrough, at once": trail + beacon + stand ring, keyed
+// off the coach's proven set. That mode is deleted. It was the second half of day 1's 84-second
+// chain — the opening never marked what it taught, so serve, restock and build each replayed as a
+// fresh full walkthrough within two minutes of the opening teaching exactly those three things
+// (research/onboarding, 2026-09-19). Teaching a new thing is now systems/firstLook.js's job: a pan,
+// one glyph bubble over the thing, and no floor trail at all. So the assertion is not dropped, it
+// is INVERTED — a first-time chore must draw a lesson bubble and NO walkthrough — and the rest of
+// the file is unchanged.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -55,6 +65,9 @@ const out = await page.evaluate(() => {
   const run = sec => { for (let i = 0; i < sec * 30; i++) { G._force = null; G.update(1 / 30); } };
   G.intro.step = 5; G.intro.active = false; G.intro.target = null;
   for (const k of ['move', 'build', 'pickup', 'serve', 'cash', 'pantry', 'harvest']) G.markMechanic(k);
+  // A fortnight-old café has been shown everything already. The one lesson still to come is staged
+  // deliberately at the end of this run.
+  G.firstLook.skipAll();
   for (const id of ['z_seats1', 'z_oven2', 'z_hire', 'z_coffee', 'z_bowl', 'z_blender']) {
     const z = G.world.area.zones.find(z => z.id === id); G.coins = 1e6; G.P.x = z.x; G.P.z = z.z;
     for (let i = 0; i < 200 && !G.world.built.has(id); i++) G.update(0.1);
@@ -101,10 +114,39 @@ const out = await page.evaluate(() => {
   out.competing = snap();
   quiet(); run(1);
 
-  // A chore this player has never done: the one lesson.
-  const seat = [...G.world.stations.values()].find(s => s.type === 'seat' && s.active);
-  seat.dirty = true; run(0.6); out.firstClean = snap();
-  quiet(); run(1);
+  // A chore this player has never done. There is no walkthrough for it any more: First Look shows
+  // ONE bubble over the table, and the floor stays clear.
+  // Un-show exactly ONE lesson, so this scenario is the clean lesson and not whichever unseen
+  // lesson this fully-built café would otherwise open first.
+  G.firstLook.restore(G.firstLook.snapshot().filter(id => id !== 'clean'));
+  G.P.x = 6.5; G.P.z = -3.9;                    // at the oven, away from the table's walk-past wipe
+  run(1);                                       // let the camera finish following the teleport
+  // The seat nearest the owner, so the lesson's bubble is judged on its own terms rather than on
+  // whether the camera happened to have panned to the far side of the deck.
+  const seat = [...G.world.stations.values()].filter(s => s.type === 'seat' && s.active)
+    .sort((a, b) => Math.hypot(a.x - G.P.x, a.z - G.P.z) - Math.hypot(b.x - G.P.x, b.z - G.P.z))[0];
+  seat.dirty = true;
+  // Celebrations share the lesson's lane (ui/moments.js) and their timers run on wall time, which a
+  // synchronous pump never advances — so the backlog is emptied before staging the lesson.
+  window.__moments.clear();
+  // Sampled across the whole beat, not at the end of it: the lesson's camera pan holds the table in
+  // frame while it presents and then glides back to the owner, after which a table ten metres away
+  // is legitimately off screen and the bubble hides rather than clamping to the border.
+  let bubblePeak = 0, walkFrames = 0, lesson = null;
+  for (let i = 0; i < 4 * 30; i++) {
+    G._force = null; G.update(1 / 30);
+    bubblePeak = Math.max(bubblePeak, [...document.querySelectorAll('.fl-bubble')]
+      .filter(el => !el.classList.contains('hidden')).length);
+    const m = snap();
+    if (m.trail && m.beacon && m.ring) walkFrames++;
+    lesson = lesson || G.firstLook.activeId;
+  }
+  out.firstClean = snap();
+  out.firstCleanLesson = lesson;
+  out.firstCleanBubbles = bubblePeak;
+  out.firstCleanWalkFrames = walkFrames;
+  G.firstLook.skipAll();
+  seat.dirty = false; quiet(); run(1);
 
   // Suddenly rich, with nothing urgent. A plot is an invitation; the price pill standing in the
   // room is the whole of the invitation.
@@ -151,7 +193,10 @@ expect('idle', none(out.idle), 'nothing');
 expect('routine1s', none(out.routine1s), 'nothing');
 expect('routine4s', none(out.routine4s), 'still nothing at 4 s');
 expect('routine8s', pointer(out.routine8s), 'a pointer once stalled, and only a pointer');
-expect('firstClean', walk(out.firstClean), 'a walkthrough for a chore never done');
+expect('firstClean', !walk(out.firstClean), 'never a floor walkthrough, not even for a first-time chore');
+if (out.firstCleanWalkFrames > 0) failures.push('firstClean: a floor walkthrough drew on ' + out.firstCleanWalkFrames + ' frames of a first-time chore');
+if (out.firstCleanLesson !== 'clean') failures.push('firstClean: a first dirty table did not open the clean lesson, got ' + out.firstCleanLesson);
+if (out.firstCleanBubbles !== 1) failures.push('firstClean: ' + out.firstCleanBubbles + ' lesson bubbles, expected exactly 1');
 expect('affordable', none(out.affordable), 'nothing when a plot becomes affordable');
 expect('affordable5s', !walk(out.affordable5s), 'never a walkthrough for an affordable plot');
 expect('carry1s', none(out.carry1s), 'nothing while carrying to a known destination');

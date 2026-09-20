@@ -9,6 +9,15 @@
 // the floor trail, the beacon over the target, the ring on the spot to stand on, the screen-edge
 // arrow toward an off-screen target and the first-touch drag hand — by driving a real fresh save
 // through the real movement input and reading the live DOM and scene.
+//
+// REWRITTEN for Batch F (docs/SHIP-PLAN-2026-09-19.md §1.8). It used to require the opening to
+// reach STEP 4 — 'build the Tables plot' — and step 4 was the problem: measured on 2026-09-19 it
+// ran from 13 s to 97 s of day 1, chaining bake → stock → serve → cash targets as full walkthroughs
+// for as long as the player was short of 90 coins, and the opening then ended WITHOUT marking any
+// of it learned, so the objective re-taught serve at 98 s, restock at 119 s and build at 211 s.
+// The opening is three steps now — bake, stock, serve — and it marks each mechanic as it goes, so
+// this file asserts the shorter shape and the marking instead of the chain: same subject, opposite
+// expectation.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -27,7 +36,7 @@ const server = http.createServer((req, res) => {
     res.end(b);
   });
 });
-const PORT = 4194;
+const PORT = Number(process.env.FIRST_MINUTE_PORT || 4194);
 server.on('error', e => {
   if (e.code !== 'EADDRINUSE') throw e;
   console.error('first-minute-smoke: port ' + PORT + ' is already in use — an environment problem, not a game regression.');
@@ -61,6 +70,8 @@ for (const vp of [{ w: 390, h: 844, tag: 'phone portrait' }, { w: 852, h: 393, t
     }
     return {
       step: G.intro.step, active: G.intro.active, coins: G.coins | 0,
+      kind: G.intro.target ? G.intro.target.kind : null,
+      proven: ['move', 'pickup', 'deliver', 'serve', 'cash'].filter(k => G.mechanicProven(k)),
       trail: !!trail && trail.visible, drawn, beacon: !!beacon && beacon.visible, ring: !!ring && ring.visible,
       edge: vis(document.querySelector('.edgeArrow')), touch: vis(document.querySelector('.touchHint')),
       target: G.intro.target ? [G.intro.target.x, G.intro.target.z] : null,
@@ -109,14 +120,31 @@ for (const vp of [{ w: 390, h: 844, tag: 'phone portrait' }, { w: 852, h: 393, t
   s = await state();
   check(!s.touch, '[' + vp.tag + '] the drag hand is still up after the owner walked off (it must retire on the first real step)');
 
-  // The lesson must advance on its own from following the guidance: bake -> stock -> serve -> cash.
+  // The opening must finish on its own from following the guidance: bake -> stock -> serve, and
+  // then get out of the way. Nothing in it may ever point at a build plot.
   const t0 = Date.now();
-  let reached = s.step;
-  while (Date.now() - t0 < 75000 && reached < 4) {
-    await page.waitForTimeout(1000);
-    reached = (await state()).step;
+  let last = s, kinds = new Set([s.kind].filter(Boolean));
+  // 120 s, not the 75 s this budget used to be. The opening is SHORTER than it was (three steps
+  // rather than five, and no build chain after them) but its last step waits on a real guest
+  // reaching the till, which on day 1 is most of the wall clock. What is being bounded here is that
+  // the opening ENDS, not how fast the café fills.
+  while (Date.now() - t0 < 120000 && last.active) {
+    await page.waitForTimeout(500);
+    last = await state();
+    if (last.kind) kinds.add(last.kind);
   }
-  check(reached >= 4, '[' + vp.tag + '] following the guidance for 75 s only reached lesson step ' + reached + ' of 4');
+  const seconds = Math.round((Date.now() - t0) / 100) / 10;
+  check(!last.active, '[' + vp.tag + '] the opening was still running after 120 s of following it (step ' + last.step + ')');
+  check(!kinds.has('build'), '[' + vp.tag + '] the opening pointed the player at a build plot: ' + [...kinds].join(', '));
+  check(!kinds.has('collect'), '[' + vp.tag + '] the opening still has a collect step, which completes itself');
+  // The whole point of the rewrite: what the opening taught is marked learned, so nothing re-teaches
+  // it two minutes later.
+  for (const key of ['move', 'pickup', 'deliver', 'serve', 'cash']) {
+    check(last.proven.includes(key),
+      '[' + vp.tag + '] the opening finished without marking "' + key + '" learned (proven: ' + last.proven.join(',') + ')');
+  }
+  console.log('[' + vp.tag + '] the opening finished in ' + seconds + ' s through ' + [...kinds].join(' -> ')
+    + '; marked ' + last.proven.join(','));
   await page.evaluate(() => clearInterval(window.__fm));
 
   // 3. With a routine job pending, the guidance retires once the player is on their way and never
@@ -130,7 +158,7 @@ for (const vp of [{ w: 390, h: 844, tag: 'phone portrait' }, { w: 852, h: 393, t
     return { anyOn, next: G.debugNextTarget() };
   });
   check(!quiet.anyOn, '[' + vp.tag + '] guidance stayed drawn with no target at all');
-  console.log('[' + vp.tag + '] lesson reached step ' + reached + ' by following the guidance; idle guidance: trail=' + s.trail + ' ring=' + s.ring + ' touch-retired=' + !s.touch);
+  console.log('[' + vp.tag + '] idle guidance: trail=' + s.trail + ' ring=' + s.ring + ' touch-retired=' + !s.touch);
   await page.close();
 }
 

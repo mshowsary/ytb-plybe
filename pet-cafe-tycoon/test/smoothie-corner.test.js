@@ -70,3 +70,52 @@ test('the Smoothie bar plot stands in the corner it builds', () => {
     assert.ok(d <= 4.5, `z_blender's pad is ${d.toFixed(2)} m from ${id}, the thing it builds`);
   }
 });
+
+// ── Batch G2: the machine that stands in that corner ────────────────────────────────────────────
+// Moving the blender was Batch C's job and the four tests above pin it. What arrived at (7.8, 0.1)
+// was a 0.5 m wooden cube with a 0.24 m cyan jug on it, which from the play camera read as "a small
+// pale-blue cylinder standing on bare floor" (shots-production/batch-c/smoothie-corner-1280x720.png)
+// — no base, no top, no colour, nothing saying what it makes or what it takes. These two pin the
+// dressing that fixed that, and the one constraint the dressing had to respect.
+import * as THREE from 'three';
+import { blenderMesh } from '../src/render/props.js';
+import { PRODUCTS } from '../src/sim/economy.js';
+
+function blenderGeometry() {
+  const g = blenderMesh(), geos = [];
+  g.traverse(o => { if (o.isMesh && o.geometry) geos.push(o.geometry); });
+  assert.equal(geos.length, 1, `the blender is ${geos.length} meshes: it must stay one draw call`);
+  return geos[0];
+}
+
+test('the blender is dressed like a station: a body, a top, its own colour and its fruit', () => {
+  const geo = blenderGeometry();
+  geo.computeBoundingBox();
+  const b = geo.boundingBox;
+  assert.ok(b.max.x - b.min.x >= 0.9, `the blender is only ${(b.max.x - b.min.x).toFixed(2)} m wide: still a cube on the floor`);
+  assert.ok(b.max.y >= 1.2, `the blender tops out at ${b.max.y.toFixed(2)} m: there is nothing on the counter`);
+  // The smoothie's own colour, so the machine and the cups piled on barSmoothie read as one bar.
+  const want = new THREE.Color(PRODUCTS.smoothie.color);
+  const c = geo.getAttribute('color');
+  let juice = 0;
+  for (let i = 0; i < c.count; i++) {
+    if (Math.abs(c.getX(i) - want.r) < 0.01 && Math.abs(c.getY(i) - want.g) < 0.01 && Math.abs(c.getZ(i) - want.b) < 0.01) juice++;
+  }
+  assert.ok(juice > 20, `only ${juice} vertices carry the smoothie colour: the corner has no palette`);
+});
+
+test('the dressed blender still fits inside its own footprint, so the queue keeps its lane', () => {
+  // data/area1.js: x 7.8 (not 8.6) so the machine's east face stays clear of barSmoothie's queue
+  // line at x 8.6. sim/collide.js measures the authored fw/fd and sim/ownerReach.js unions it with
+  // the drawn box, so as long as the drawing is INSIDE the footprint neither can change.
+  const def = AREA1.stations.find(s => s.id === 'blender1');
+  const body = blenderGeometry().userData.bodyBox;
+  assert.ok(body, 'the blender no longer reports a body box to sim/ownerReach.js');
+  assert.ok(body.minx >= -def.fw / 2 && body.maxx <= def.fw / 2,
+    `the drawn blender reaches x ${body.minx.toFixed(2)}..${body.maxx.toFixed(2)} outside its ${def.fw} m footprint`);
+  assert.ok(body.minz >= -def.fd / 2 && body.maxz <= def.fd / 2,
+    `the drawn blender reaches z ${body.minz.toFixed(2)}..${body.maxz.toFixed(2)} outside its ${def.fd} m footprint`);
+  const queueX = 8.6;
+  assert.ok(def.x + body.maxx <= queueX - 0.2,
+    `the blender's east face at ${(def.x + body.maxx).toFixed(2)} leaves under 0.2 m to the queue at x ${queueX}`);
+});

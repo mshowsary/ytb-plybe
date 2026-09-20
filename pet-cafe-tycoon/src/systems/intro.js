@@ -1,83 +1,98 @@
-// src/systems/intro.js — scripted first-minute onboarding.
-// A fresh game walks the owner through five short steps — bake, stock, serve, collect, build —
-// each using the world-space objective arrow. The old persistent SKIP pill was deliberately removed:
-// it sat in the middle of Day 1 after the player had already learned the controls and looked like
-// leftover debug/tutorial UI. The sequence is short, non-modal, and completes itself through play.
-import { jobTarget } from '../sim/jobs.js';
-import { refillGuideTarget } from '../sim/refillGuide.js';
+// src/systems/intro.js — the FIRST MINUTE, and the host of First Look.
+//
+// WHAT WAS HERE. Five scripted steps: bake, stock, serve, collect, build. Step 3 (collect) completed
+// instantly, because cash auto-collects from the serving spot, and step 4 ("build the Tables plot,
+// 90 coins") ran from 13 s to 97 s of day 1 — introBuildGuidance chained bake → stock → serve → cash
+// targets for as long as the player was short of 90 coins, and systems/objective.js forced a full
+// walkthrough (floor trail + beacon + stand ring + edge arrow + caption) for every one of them. That
+// is why the research run measured the trail on screen for 25% of day 1 and the beacon for 36%, with
+// the whole production loop replayed three times before the player was allowed to buy anything. Then
+// the intro ENDED without marking any of it learned, so systems/objective.js immediately re-taught
+// "serve at the register" (98 s), "restock the display" (119 s) and "build here" (211 s) as fresh
+// first-time walkthroughs. (research/onboarding, fresh save at 380x670, 2026-09-19.)
+//
+// WHAT IS HERE NOW. Three steps and nothing else: bake → stock → serve, about twenty-five seconds,
+// each one a real thing the player does with the objective arrow pointing at it. Every step MARKS
+// WHAT IT TAUGHT the moment it completes (sim/mechanicLearning.js's proven set, the same set the
+// interaction coach reads), so nothing re-teaches it minutes later. Collecting the cash is not a
+// step because it is not an action. Building is not a step because it is not an errand: First Look
+// opens the build lesson the first time a plot is genuinely affordable, which is an invitation
+// rather than a chain of chores standing between the player and their first purchase.
+//
+// The step NUMBERS are unchanged where they matter: `G.intro.step` still counts 0, 1, 2 and still
+// finishes at 5, which is what sim/saveSchema.js clamps, what systems/customers.js reads to cap the
+// opening crowd, and what ~20 headless tools set to skip the opening.
+//
+// This module is also where First Look is constructed and stepped — one guidance lane, created and
+// driven from the one system game.js already creates and steps for the opening lesson, so there is
+// exactly one place in the frame where teaching happens.
+import { createFirstLook } from './firstLook.js';
+
+const STEP_BAKE = 0, STEP_STOCK = 1, STEP_SERVE = 2, STEP_DONE = 5;
+
+// What each step proves, in the coach's stable mechanic IDs. Marking here is the whole fix for
+// "the intro never marks what it taught as learned": a step is not finished until the game knows
+// the player has done it.
+const STEP_PROVES = {
+  [STEP_BAKE]: ['move', 'pickup'],
+  [STEP_STOCK]: ['pickup', 'deliver'],
+  [STEP_SERVE]: ['serve', 'cash'],
+};
 
 function stationTarget(st, kind) {
   return st ? { x: st.x, z: st.z, kind } : null;
 }
 
-export function introBuildGuidance(G, world) {
-  const z = world && world.area && world.area.zones && world.area.zones[0];
-  if (!z) return null;
-  const paid = Math.max(0, Number(world.partial && world.partial[z.id]) || 0);
-  const remaining = Math.max(0, z.price - paid);
-  const coins = Math.max(0, Number(G && G.coins) || 0);
-  if (remaining <= coins) return { x: z.x, z: z.z, kind: 'build', remaining };
-
-  // Do not strand a literal-following beginner on a 90-coin outline after the first small payout.
-  // Prefer a genuine currently pending job; if nothing is urgent between customer waves, point back
-  // through the production loop so the player naturally earns the missing build contribution.
-  let next = jobTarget(world, G);
-  if (next && next.kind === 'refill') next = refillGuideTarget(world, G) || next;
-  if (next && next.kind !== 'build') return { ...next, remaining };
-
-  const register = world.stations.get('register1');
-  if (register && register.active && (register.money || register.cashAmount || 0) > 0 && register.cash) {
-    return { x: register.cash.x, z: register.cash.z, kind: 'collect', remaining };
-  }
-
-  const held = G && G.owner && Array.isArray(G.owner.items) ? G.owner.items : [];
-  const hasCookie = held.some(m => m && m.userData && (m.userData.product === 'cookie' || m.userData.product === 'brownie'));
-  const display = world.stations.get('dispCookie');
-  if (hasCookie && display && display.active) return { x: display.x, z: display.z, kind: 'stock', remaining };
-
-  const oven = world.stations.get('oven1');
-  if (oven && oven.active) return { x: oven.x, z: oven.z, kind: 'bake', remaining };
-  return null;
-}
-
 export function createIntro(G, S, ctx) {
   const { world, owner, fx } = ctx;
+  const firstLook = createFirstLook(G, S, ctx);
 
   function stepTarget(step) {
-    if (step === 0) return stationTarget(world.stations.get('oven1'), 'bake');
-    if (step === 1) return stationTarget(world.stations.get('dispCookie'), 'stock');
-    if (step === 2) return stationTarget(world.stations.get('register1'), 'serve');
-    if (step === 3) { const st = world.stations.get('register1'); return st && st.cash ? { x: st.cash.x, z: st.cash.z, kind: 'collect' } : null; }
-    if (step === 4) return introBuildGuidance(G, world);
+    if (step === STEP_BAKE) return stationTarget(world.stations.get('oven1'), 'bake');
+    if (step === STEP_STOCK) return stationTarget(world.stations.get('dispCookie'), 'stock');
+    if (step === STEP_SERVE) return stationTarget(world.stations.get('register1'), 'serve');
     return null;
   }
 
   function stepDone(step) {
-    if (step === 0) return owner.items.some(m => m.userData.product === 'cookie');
-    if (step === 1) { const st = world.stations.get('dispCookie'); return !!(st && st.stock >= 1); }
-    if (step === 2) { for (const e of world.events) if (e.type === 'processed') return true; return false; }
-    if (step === 3) return (G.coins || 0) > 0;
-    if (step === 4) { const z = world.area.zones[0]; return !!(z && world.built.has(z.id)); }
+    if (step === STEP_BAKE) return owner.items.some(m => m.userData.product === 'cookie');
+    if (step === STEP_STOCK) { const st = world.stations.get('dispCookie'); return !!(st && st.stock >= 1); }
+    if (step === STEP_SERVE) { for (const e of world.events) if (e.type === 'processed') return true; return false; }
     return true;
   }
 
   function celebrateStep(step) {
     const target = stepTarget(step);
-    if (target && fx) fx.burst(target.x, 1.05, target.z, step === 4 ? '#7FD69A' : '#FFD36A', step === 4 ? 10 : 6);
-    if (ctx.audio) ctx.audio.play(step === 4 ? 'chime' : 'ding');
+    const last = step === STEP_SERVE;
+    if (target && fx) fx.burst(target.x, 1.05, target.z, last ? '#7FD69A' : '#FFD36A', last ? 10 : 6);
+    if (ctx.audio) ctx.audio.play(last ? 'chime' : 'ding');
+  }
+
+  function markStep(step) {
+    if (typeof G.markMechanic !== 'function') return;
+    for (const key of STEP_PROVES[step] || []) G.markMechanic(key);
   }
 
   return {
-    update() {
+    firstLook,
+    update(dt) {
       if (G.intro.step === undefined) { G.intro.step = 0; G.intro.active = true; }
       let step = G.intro.step;
-      if (step < 5 && stepDone(step)) {
-        celebrateStep(step);
-        step += 1;
+      if (step < STEP_DONE) {
+        // A save written by the five-step opening can be sitting on the collect or build step. Both
+        // are gone, and both were already past the three things this teaches, so it lands on done.
+        if (step > STEP_SERVE) step = STEP_DONE;
+        else if (stepDone(step)) {
+          celebrateStep(step);
+          markStep(step);
+          step = step === STEP_SERVE ? STEP_DONE : step + 1;
+        }
       }
       G.intro.step = step;
-      G.intro.active = step < 5;
+      G.intro.active = step < STEP_DONE;
       G.intro.target = G.intro.active ? stepTarget(step) : null;
+      // After the opening, in the same frame, so the two lanes can never both own the screen.
+      firstLook.update(dt);
     },
   };
 }

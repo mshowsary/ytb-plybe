@@ -22,10 +22,19 @@
 //   3. Hysteresis: a visible mode owns the hand for MODE_HOLD_SECONDS before another may replace
 //      it, mode changes cross-fade over MODE_FADE_SECONDS instead of hiding, and closing on a
 //      target inside CLOSING_GRACE_METERS never hides the hand.
+//
+// Batch F (docs/SHIP-PLAN-2026-09-19.md §1.8): ROUTE MODE IS GONE. placeAtWorld used to CLAMP an
+// off-screen target into the viewport, so a latched refill lesson pinned a hand plus a supply glyph
+// to the top edge of the screen for tens of seconds — once sitting on the restroom roof while
+// pointing at the cold pantry behind it, beside the objective's own edge arrow (research/onboarding,
+// 2026-09-19). A ghost hand is a gesture, and there is no gesture for "walk over there": the hand
+// only ever sits on a real control that is on screen right now, and off-screen targets get the one
+// edge arrow systems/objective.js draws. Teaching a NEW thing belongs to systems/firstLook.js, which
+// parks this coach entirely while a lesson is on screen.
 import * as THREE from 'three';
 import { carryCap, familyOf } from '../sim/economy.js';
-import { pantryFor, supplyLevel, refilledInPlace } from '../sim/supplies.js';
-import { beanIcon, kibbleIcon, sackIcon, coffeeIcon, treatIcon } from './icons.js';
+import { supplyLevel, refilledInPlace } from '../sim/supplies.js';
+import { beanIcon, kibbleIcon } from './icons.js';
 import { isModalOpen } from './modal.js';
 import {
   MECHANIC_LEARNING_VERSION,
@@ -90,8 +99,6 @@ function injectStyle() {
     .interaction-coach .coach-ring{fill:none;stroke:#fff;stroke-width:2.3;opacity:.68;transform-origin:19px 19px}
     .interaction-coach .coach-hand{fill:#fff8ef;stroke:#6c554c;stroke-width:1.35;stroke-linejoin:round;stroke-linecap:round;transform-origin:20px 23px}
     .interaction-coach .coach-hold-dots{display:none}.interaction-coach .coach-hold-dot{fill:#fff;opacity:.8}
-    .interaction-coach.route-mode{opacity:.9;filter:drop-shadow(0 4px 7px #0004)}
-    .interaction-coach.route-mode .coach-ring{stroke-width:2.8}
     .interaction-coach.coach-demo .coach-ring{animation:coachTapRing 1.4s ease-out 1}
     .interaction-coach.coach-demo .coach-hand{animation:coachTapHand 1.4s ease-in-out 1}
     @keyframes coachTapRing{0%{transform:scale(.72);opacity:.85}72%{transform:scale(1.16);opacity:.18}100%{transform:scale(1);opacity:.68}}
@@ -106,7 +113,7 @@ function injectStyle() {
     @keyframes coachHoldRing{0%,100%{transform:scale(.78);opacity:.48}50%{transform:scale(1.02);opacity:.88}}
     @keyframes coachHoldHand{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(1.5px) scale(.98)}}
     @keyframes coachDot{0%,100%{opacity:.25;transform:translateY(0)}50%{opacity:.9;transform:translateY(-1px)}}
-    .interaction-coach.coach-fade,.interaction-coach.coach-fade.route-mode,.interaction-coach.coach-fade.hold-mode{opacity:0}
+    .interaction-coach.coach-fade,.interaction-coach.coach-fade.hold-mode{opacity:0}
     .interaction-coach.coach-fade .coach-caption{opacity:0}
     body.game-paused .interaction-coach,body.host-paused .interaction-coach,body.modal-open .interaction-coach{display:none!important}
     @media(max-width:200px){.interaction-coach{width:32px;height:32px;opacity:.66}.interaction-coach .coach-caption{top:33px;font-size:8px}}
@@ -141,11 +148,17 @@ const projectTmp = new THREE.Vector3();
 function placeAtWorld(root, S, target, layout) {
   projectTmp.set(target.x, target.y || 1.15, target.z).project(S.camera);
   if (projectTmp.z < -1 || projectTmp.z > 1) return false;
+  // OFF SCREEN MEANS NO HAND. This used to clamp x and y into the viewport, which is how a hand
+  // ended up parked against the top border for tens of seconds pointing at something behind a wall.
+  // A hand is a gesture made ON a thing; if the thing is not in frame there is nothing to gesture at.
+  if (projectTmp.x < -1 || projectTmp.x > 1 || projectTmp.y < -1 || projectTmp.y > 1) return false;
   let x = (projectTmp.x * 0.5 + 0.5) * innerWidth;
   let y = (-projectTmp.y * 0.5 + 0.5) * innerHeight;
   y -= 18;
   // The coach is a 38px puck with a caption hanging below it (top:39px, up to 150px wide), so the
   // footprint it must keep clear is far larger than the puck itself.
+  // The declutter nudge may still move it a little; that is a shuffle around an on-screen anchor,
+  // not a clamp of something that is not in frame, so its result is kept inside the viewport.
   if (layout && layout.avoid) [x, y] = layout.avoid(x, y + 20, 156, 84), y -= 20;
   x = Math.max(18, Math.min(innerWidth - 18, x));
   y = Math.max(18, Math.min(innerHeight - 52, y));
@@ -154,14 +167,6 @@ function placeAtWorld(root, S, target, layout) {
 }
 
 function d2(a, b) { return (a.x - b.x) ** 2 + (a.z - b.z) ** 2; }
-function distanceTo(G, target) {
-  if (!G?.P || !target) return null;
-  return Math.hypot(G.P.x - target.x, G.P.z - target.z);
-}
-function reducedMotion() {
-  try { return document.body.classList.contains('reduced-motion') || !!matchMedia('(prefers-reduced-motion: reduce)').matches; }
-  catch (_) { return false; }
-}
 
 export function urgentCustomerNeed(G) {
   return !!(G?.customers || []).find(c => c && !c.done && c.state !== 'leave' && Number.isFinite(c.patience) && c.patience <= 4);
@@ -306,21 +311,18 @@ export function refillLessonNeed(G, suppressed = new Set(), ready = null) {
 
 /**
  * Which hand the refill lesson wants this frame. Pure, so the rule is testable:
- * 'route' = walk there, 'fall' = the generic lanes own the frame (that is where the hold cue
- * lives), 'none' = show nothing.
+ * 'fall' = the generic lanes own the frame (that is where the hold cue lives), 'none' = nothing.
  *
- * The 'tap' mode is gone with the thing it pointed at: the pantry's SUPPLIES button and the PANTRY
- * sheet behind it (docs/SHIP-PLAN-2026-09-19.md §1.4). Every refill is a walk now — to the pantry
- * for a sack, or straight to a machine that keeps its own bin ('inPlace', the treat bowl) — and
- * the last step is standing still, which the generic lanes already own.
+ * Two modes have now gone, each with the thing it pointed at. 'tap' went with the pantry's SUPPLIES
+ * button and the sheet behind it (§1.4): stopping at the pantry IS the interaction. 'route' went
+ * with the clamped edge hand (§1.8): walking to the pantry is not a gesture, so there is no hand
+ * for it — First Look teaches that walk once, with a bubble over the pantry itself, and from then
+ * on the only refill cue is the hold at the machine, which the generic lanes below already own.
+ * The parameters other than `overlay` are kept so every caller and test keeps its shape while the
+ * rule reads as the one line it now is.
  */
-export function refillCueMode({
-  overlay = false, carryingSupply = false, hasPantry = true, nearMachine = false, inPlace = false,
-} = {}) {
-  if (overlay) return 'none';
-  if (inPlace) return nearMachine ? 'fall' : 'route';
-  if (!carryingSupply) return hasPantry ? 'route' : 'fall';
-  return nearMachine ? 'fall' : 'route';
+export function refillCueMode({ overlay = false } = {}) {
+  return overlay ? 'none' : 'fall';
 }
 
 /**
@@ -441,12 +443,16 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
   function snapshotLearning() {
     return normalizeMechanicLearning({
       v: MECHANIC_LEARNING_VERSION, proven: [...proven], ...progress.snapshot(),
+      // Batch F: which First Look lessons have already been shown rides in the same payload, for
+      // the same reason half credit does — one canonical learning record, one save path, one bound.
+      looks: G && G.firstLook ? G.firstLook.snapshot() : [],
     });
   }
   function restoreLearning(raw) {
     proven.clear(); shown.clear(); failures.clear();
     const normalized = normalizeMechanicLearning(raw, G);
     for (const key of normalized.proven) proven.add(key);
+    if (G && G.firstLook) G.firstLook.restore(normalized.looks || []);
     // Half credit and the refill tally are part of the canonical Task-29 payload itself, so they
     // survive sim/save.js and a real host round trip, not only an in-memory snapshot. Restoring from
     // `normalized` means this untrusted input is version-gated and bounded exactly once, on the way in.
@@ -475,24 +481,18 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
     }
     root.classList.toggle('has-caption', !!iconHtml);
   }
-  // Route hints name one of five things. Each has a glyph already drawn in ui/icons.js.
-  const SUPPLY_ICON = { beans: beanIcon, kibble: kibbleIcon };
-  const STATION_ICON = { COFFEE: coffeeIcon, 'PET TREATS': treatIcon };
-  const supplyIcon = supply => (SUPPLY_ICON[supply] || sackIcon)();
-  const stationIcon = label => (STATION_ICON[label] || sackIcon)();
   function resetCandidate() {
     candidateKey = null; candidateT = 0; candidateDistance = null;
     activeHold = null; activeHoldSnap = null;
   }
   function hide() {
-    root.classList.add('hidden'); root.classList.remove('hold-mode', 'route-mode', 'coach-fade', 'coach-demo');
+    root.classList.add('hidden'); root.classList.remove('hold-mode', 'coach-fade', 'coach-demo');
     root.dataset.mode = ''; setCaption(''); currentKey = null;
     modeGate.clear();
     if (G) G.coachCueVisible = false;
   }
   function reveal(key, stage) {
     shown.add(key);
-    root.classList.toggle('route-mode', stage === 'route');
     root.classList.toggle('coach-demo', stage === 'demo');
     if (G) G.coachCueVisible = true;
     root.classList.remove('hidden');
@@ -545,18 +545,6 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
     };
   }
 
-  function routePlan(target, key, icon) {
-    const station = target.stationId || target.id || '';
-    return {
-      mode: 'route', key, candidate: `route:${key}:${station}`, dwell: 0.4, distance: distanceTo(G, target),
-      render() {
-        if (!placeAtWorld(root, S, target, layout)) return false;
-        currentKey = key; root.classList.remove('hold-mode'); root.dataset.mode = 'route';
-        setCaption(icon); reveal(key, candidateT >= 8 && candidateT < 9.5 ? 'demo' : 'route'); return true;
-      },
-    };
-  }
-
   function holdPlan(hold, candidate) {
     return {
       mode: 'hold', key: hold.key, candidate, dwell: 0.08, distance: null,
@@ -588,23 +576,9 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
     if (lesson && G && S) {
       const carrying = G.carry.sack === lesson.supply && (G.carry.sackLeft | 0) > 0;
       if (carrying) progress.creditSack(lesson.key);
-      // The machine that keeps its own bin has no pantry leg at all; everything else fetches its
-      // sack from the pantry that actually declares that supply (strict: the loose fallback would
-      // send an owner after kibble to a pantry that no longer stocks any).
-      const station = G.world.stations.get(lesson.stationId);
-      const inPlace = refilledInPlace(station);
-      const pantry = inPlace ? null : pantryFor(G.world, lesson.supply, true);
-      const mode = refillCueMode({
-        overlay: overlayOpen(), carryingSupply: carrying, hasPantry: !!pantry, inPlace,
-        nearMachine: !!(G.P && d2(G.P, { x: lesson.x, z: lesson.z }) <= HOLD_RADIUS * HOLD_RADIUS),
-      });
-      if (mode === 'route') {
-        return (carrying || inPlace)
-          ? routePlan(lesson, lesson.key, stationIcon(lesson.label))
-          : routePlan({ ...pantry.front, stationId: pantry.id, y: 1.15 }, lesson.key, supplyIcon(lesson.supply));
-      }
-      if (mode === 'none') return null;
-      // 'fall': the generic lanes below own this frame - that is where the hold cue lives.
+      if (refillCueMode({ overlay: overlayOpen() }) === 'none') return null;
+      // 'fall': the generic lanes below own this frame - that is where the hold cue lives. The walk
+      // to the pantry draws nothing here at all now (see the header): First Look owns that lesson.
     } else if (overlayOpen()) return null;
 
     // Stock/build world work outranks kiosk/staff/pantry prompts even while its visual is still in
@@ -653,6 +627,11 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
       for (const key of progress.masteredKeys()) proven.add(key);
 
       if (activeHold && holdCompleted(G, activeHold, activeHoldSnap)) mark(activeHold.key);
+
+      // A First Look lesson owns the screen while it runs (systems/firstLook.js): it has its own
+      // ghost hand on the very control this one would reach for, and two hands on one button is
+      // exactly the stacking Batch F set out to remove.
+      if (G && G.firstLookActive) { resetCandidate(); lessonLatch = null; hide(); return; }
 
       // Urgent guests own the world lane. Never stack a kiosk/construction/refill hand on top.
       if (urgentCustomerNeed(G)) { resetCandidate(); lessonLatch = null; hide(); return; }

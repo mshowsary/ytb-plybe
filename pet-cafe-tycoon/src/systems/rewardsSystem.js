@@ -219,8 +219,13 @@ export function createRewardsSystem(G, S, platform) {
       // been running for a moment and nothing else owns the screen. cardShownKey makes it once per
       // real day per session; the calendar itself makes it once per real day across sessions.
       const soldToday = ((G.dayStats && G.dayStats.served) | 0) > 0;
-      const teaching = !!(G.intro && G.intro.active);
-      if (card && !cardOpen && soldToday && !teaching && G.time >= GIFT_CARD_DELAY_SECONDS && !isModalOpen()) {
+      const teaching = !!(G.intro && G.intro.active) || !!(G.firstLook && G.firstLook.activeId);
+      // ...and only when nobody is waiting on the player. A free gift is worth a pause, but not
+      // mid-rush with a queue at the till: the card stops the café (every sheet does), and the
+      // Café card's own gift tile still has it if this moment never comes.
+      const busy = (G.dayState && G.dayState.phase === 'rush')
+        || (G.customers || []).some(c => !c.done && (c.counter || c.register));
+      if (card && !cardOpen && soldToday && !teaching && !busy && G.time >= GIFT_CARD_DELAY_SECONDS && !isModalOpen()) {
         const state = G.dailyGiftState();
         if (state && cardShownKey !== state.key) { cardShownKey = state.key; openCard(); }
       }

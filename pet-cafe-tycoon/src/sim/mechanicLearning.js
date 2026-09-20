@@ -7,15 +7,46 @@ export const MECHANIC_IDS = Object.freeze([
   'move', 'build', 'pickup', 'serve', 'cash',
   'return', 'kiosk', 'hire', 'pantry',
   'refillCoffee', 'refillBowl', 'blend', 'harvest',
-  // Task 33 keeps the demonstrated role inside the same compact stable-ID payload. The first one
-  // proven suppresses all future first-hire demonstrations; no UI text or employee name is saved.
-  'staffDemoRunner', 'staffDemoCashier',
   // Guidance (2026-09-17): the first time a routine errand of a kind is offered, the floor trail
   // walks the player through it once; from then on it only appears after real hesitation. These
   // two are the errand kinds with no other proof of their own.
   'clean', 'deliver',
+  // 'staffDemoRunner'/'staffDemoCashier' were Task 33's one-time staff demo (a purple ring under a
+  // worker for 2.5 s, fired by the worker's own state and connected to nothing the player did).
+  // Batch F replaced it with First Look's per-role lesson below, so the ids have no writer and no
+  // reader any more and are dropped rather than left in a whitelist nothing fills.
 ]);
 const KNOWN = new Set(MECHANIC_IDS);
+
+// ---- First Look (docs/SHIP-PLAN-2026-09-19.md §1.8) ---------------------------------------------
+// One quiet demo per new thing, shown once ever, so the ids the player has already been shown have
+// to survive the save. They are a CLOSED whitelist for exactly the reason the proven set above is:
+// this payload crosses the host boundary, so an id this build does not recognise is dropped on the
+// way in rather than stored and replayed at some later version.
+export const FIRST_LOOK_IDS = Object.freeze([
+  // the café's own chain, in the order a player meets it
+  'build', 'clean', 'upgrades', 'hire',
+  // the first worker of each role, followed to its lane
+  'roleRunner', 'roleCashier', 'roleCleaner', 'roleBarista', 'rolePhotographer',
+  // each purchase's own new verb
+  'coffee', 'pantry', 'bowl', 'harvest', 'blend',
+  'garden', 'icestand', 'photo', 'pose',
+]);
+const FIRST_LOOK_KNOWN = new Set(FIRST_LOOK_IDS);
+
+/**
+ * Bounded show-once payload. Restore is untrusted input: only known lesson ids survive, duplicates
+ * collapse and the list is sorted, so a hand-edited save can at most silence a tutorial it has
+ * already seen — it can never unlock content or replay one.
+ */
+export function normalizeFirstLook(raw) {
+  const out = new Set();
+  const list = Array.isArray(raw) ? raw : (isRecord(raw) && Array.isArray(raw.looks) ? raw.looks : null);
+  if (list) {
+    for (const id of list.slice(0, FIRST_LOOK_IDS.length * 2)) if (FIRST_LOOK_KNOWN.has(id)) out.add(id);
+  }
+  return [...out].sort();
+}
 
 // Task 0.8 half credit. These live here, beside the canonical payload, because the save boundary
 // (sim/save.js -> normalizeMechanicLearning) and the coach must agree on exactly one bound.
@@ -76,6 +107,10 @@ export function normalizeMechanicLearning(raw, evidence = null) {
   const half = normalizeRefillProgress(versioned ? raw : null);
   if (half.sack.length) out.sack = half.sack;
   if (half.refills > 0) out.refills = half.refills;
+  // Batch F: which First Look lessons the player has already been shown, bounded the same way and
+  // omitted while empty, so a save from before this batch serializes exactly as it did before.
+  const looks = normalizeFirstLook(versioned ? raw : null);
+  if (looks.length) out.looks = looks;
   return out;
 }
 

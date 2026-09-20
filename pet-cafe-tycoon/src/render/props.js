@@ -80,6 +80,103 @@ function tileFloor(W, D) {
   return g;
 }
 
+// ── the ground two deleted stations left behind (Batch G2 item 2) ───────────────────────────────
+// Batch C removed the upgrade kiosk (it stood at 9.0, -3.5 and popped an UPGRADE pill while the
+// owner was baking) and the RETURN crate (at -3.8, -5.2; hands auto-return now). Both were right
+// where the eye goes, and both left a rectangle of blank tile that reads as "something used to be
+// here" — which, in a café whose whole job is to look finished, is worse than the station was.
+//
+// They are dressed as FIXTURES, in buildStatic's own merged geometry, so the whole of this costs
+// ZERO extra draw calls in either pass. Nothing here is interactive and nothing here says anything
+// (§1.9: pictures, not words — there is not a letter in any of it).
+//
+// Both clear every station footprint, front and queue slot that tools/prop-overlap-smoke.js
+// measures, and both stay off the two things near them that the smoke does NOT measure: the
+// windowsill cushion resident spot at (-5.0, -6.5) and the cat tree at (9.15, -4.85)
+// (systems/residentPets.js RESIDENT_SPOTS). test/freed-ground.test.js pins all of it.
+const FLOUR = '#F6E3C3';
+// The awning hangs over the whole production row (buildStatic below: z -6.9..-4.7, y 2.5..3.3), and
+// at the play camera's 52° pitch it cuts the sight line to anything on that row above about 1.7 m.
+// Everything the prep counter wants seen therefore lives on its TOP, and its shelf sits low.
+function kitchenPrepParts() {
+  const cx = -3.75, cz = -5.2;                 // where the RETURN crate stood
+  return [
+    // A prep counter that continues the production row: the same cream body, coral strip and wood
+    // top the display counters wear, at the row's own z and under the row's own awning.
+    part('rbox', [1.5, 0.92, 1.0, 0.07], C.cream, { x: cx, y: 0.46, z: cz }),
+    part('box', [1.3, 0.26, 0.06], C.coral, { x: cx, y: 0.52, z: cz + 0.53 }),
+    part('box', [1.6, 0.10, 1.10], C.wood, { x: cx, y: 0.97, z: cz, tex: 'wood' }),        // top 1.02
+    part('box', [1.5, 0.36, 0.06], C.wall, { x: cx, y: 1.20, z: cz - 0.51, tex: 'ceramic' }),
+    part('box', [0.05, 0.24, 0.18], C.woodDark, { x: cx - 0.60, y: 1.26, z: cz - 0.45 }),
+    part('box', [0.05, 0.24, 0.18], C.woodDark, { x: cx + 0.60, y: 1.26, z: cz - 0.45 }),
+    part('box', [1.5, 0.06, 0.24], C.wood, { x: cx, y: 1.41, z: cz - 0.42, tex: 'wood' }),  // shelf
+    // Three store jars on the shelf, low enough that the awning does not cut them off.
+    ...[-0.52, -0.16, 0.22].flatMap(dx => [
+      part('cyl', [0.075, 0.075, 0.18, 8], '#FFF8E7', { x: cx + dx, y: 1.53, z: cz - 0.42 }),
+      part('cyl', [0.080, 0.080, 0.03, 8], C.woodDark, { x: cx + dx, y: 1.635, z: cz - 0.42 }),
+    ]),
+    // The work itself, on the top, where the camera can see it: a mixing bowl of dough, a rolling
+    // pin, a tray of dough balls, a stack of plates and a cooling rack of cookies.
+    part('cyl', [0.21, 0.15, 0.15, 12], C.pink, { x: cx - 0.46, y: 1.095, z: cz + 0.18, tex: 'ceramic' }),
+    part('sph', [0.17, 10], FLOUR, { x: cx - 0.46, y: 1.13, z: cz + 0.18, sy: 0.35 }),
+    part('cyl', [0.045, 0.045, 0.42, 8], C.wood, { x: cx + 0.06, y: 1.065, z: cz + 0.34, rz: Math.PI / 2 }),
+    part('box', [0.40, 0.03, 0.30], C.metal, { x: cx + 0.52, y: 1.035, z: cz - 0.06, tex: 'metal' }),
+    ...[-0.10, 0.02, 0.13].map((dx, i) => part('sph', [0.06, 8], FLOUR,
+      { x: cx + 0.52 + dx, y: 1.10, z: cz - 0.06 + (i - 1) * 0.08 })),
+    ...[0, 1, 2, 3].map(i => part('cyl', [0.15, 0.15, 0.025, 12], '#FFFDF7',
+      { x: cx - 0.10, y: 1.035 + i * 0.03, z: cz - 0.26, tex: 'ceramic' })),
+    part('box', [0.34, 0.02, 0.26], C.metal, { x: cx + 0.52, y: 1.09, z: cz + 0.32, tex: 'metal' }),
+    ...[-0.10, 0.02, 0.13].map(dx => part('cyl', [0.055, 0.055, 0.03, 10], '#C98A5A',
+      { x: cx + 0.52 + dx, y: 1.115, z: cz + 0.32 })),
+    // Two flour sacks leaning against its west end.
+    part('sph', [0.22, 10], C.wood, { x: cx - 1.10, y: 0.25, z: cz - 0.15, sy: 1.15, tex: 'paper' }),
+    part('sph', [0.18, 10], C.woodDark, { x: cx - 1.03, y: 0.20, z: cz + 0.20, sy: 1.1, tex: 'paper' }),
+  ];
+}
+// WHERE HEIGHT CAN GO IN THIS CORNER. The play camera looks from +x/+z, so in the café's north-east
+// corner the EAST FENCE is the near edge of the frame: a 1.7 m dresser stood against it (the first
+// pass of this) hid the entire corner behind its own back panel. Anything tall here has to be on
+// the FAR side — the north wall — and everything on the floor has to stay under about a metre.
+// So the height is a wall shelf at x 9.3 (clear of d_art_mural, which ends at x 8.7, and above the
+// corner planter's foliage), and the floor is a delivery: crates, a churn, sacks and a broom.
+function storeCornerParts() {
+  const wx = 9.3, wz = -6.66;                  // the wall shelf, on the north wall
+  const cx = 8.85, cz = -3.5;                  // the crates, where the upgrade kiosk stood
+  const P = [
+    part('box', [1.10, 0.06, 0.26], C.wood, { x: wx, y: 1.74, z: wz, tex: 'wood' }),
+    part('box', [0.06, 0.22, 0.20], C.woodDark, { x: wx - 0.48, y: 1.60, z: wz - 0.02 }),
+    part('box', [0.06, 0.22, 0.20], C.woodDark, { x: wx + 0.48, y: 1.60, z: wz - 0.02 }),
+    part('box', [1.10, 0.06, 0.26], C.wood, { x: wx, y: 2.16, z: wz, tex: 'wood' }),
+    ...[-0.38, -0.12, 0.16].flatMap((dx, i) => [
+      part('cyl', [0.085, 0.085, 0.22, 10], '#FFF8E7', { x: wx + dx, y: 1.88, z: wz + 0.02 }),
+      part('cyl', [0.092, 0.092, 0.03, 10], i === 1 ? C.coral : C.woodDark, { x: wx + dx, y: 2.005, z: wz + 0.02 }),
+    ]),
+    ...[0, 1, 2].map(i => part('cyl', [0.13, 0.13, 0.035, 12], C.pink,
+      { x: wx + 0.40, y: 1.795 + i * 0.04, z: wz + 0.02, tex: 'ceramic' })),
+    part('cyl', [0.15, 0.15, 0.20, 10], C.plant, { x: wx - 0.34, y: 2.29, z: wz + 0.02 }),
+    part('sph', [0.22, 10], C.plantDark, { x: wx - 0.34, y: 2.48, z: wz + 0.02, sy: 0.8, tex: 'leaf' }),
+    part('cyl', [0.115, 0.075, 0.18, 10], C.metal, { x: wx + 0.30, y: 2.28, z: wz + 0.02, tex: 'metal' }),
+    // Three crates of produce stacked the way a delivery is stacked.
+    part('box', [0.62, 0.26, 0.46], C.wood, { x: cx, y: 0.13, z: cz, tex: 'wood' }),
+    part('box', [0.58, 0.24, 0.44], C.woodDark, { x: cx - 0.03, y: 0.38, z: cz + 0.03, ry: 0.14, tex: 'wood' }),
+    part('box', [0.50, 0.22, 0.40], C.wood, { x: cx + 0.03, y: 0.61, z: cz - 0.03, ry: -0.10, tex: 'wood' }),
+    part('sph', [0.090, 8], C.coral, { x: cx - 0.09, y: 0.76, z: cz - 0.07 }),
+    part('sph', [0.085, 8], '#FF6F91', { x: cx + 0.11, y: 0.77, z: cz + 0.05 }),
+    part('sph', [0.090, 8], C.coin, { x: cx + 0.03, y: 0.80, z: cz - 0.11 }),
+    part('sph', [0.075, 8], C.plant, { x: cx + 0.13, y: 0.75, z: cz - 0.13 }),
+    // A milk churn, two sacks and a broom against the fence.
+    part('cyl', [0.21, 0.24, 0.60, 10], C.metal, { x: 8.42, y: 0.30, z: -2.95, tex: 'metal' }),
+    part('cyl', [0.13, 0.19, 0.16, 10], C.metal, { x: 8.42, y: 0.68, z: -2.95, tex: 'metal' }),
+    part('cyl', [0.15, 0.15, 0.05, 10], C.wallDark, { x: 8.42, y: 0.785, z: -2.95 }),
+    part('sph', [0.20, 10], C.wood, { x: 8.25, y: 0.24, z: -3.70, sy: 1.2, tex: 'paper' }),
+    part('sph', [0.17, 10], C.woodDark, { x: 8.45, y: 0.21, z: -3.98, sy: 1.15, tex: 'paper' }),
+    part('cyl', [0.022, 0.022, 1.25, 6], C.wood, { x: 9.62, y: 0.63, z: -3.05, rz: -0.18 }),
+    part('box', [0.16, 0.20, 0.06], C.woodDark, { x: 9.54, y: 0.11, z: -3.05 }),
+  ];
+  return P;
+}
+function freedGroundParts() { return [...kitchenPrepParts(), ...storeCornerParts()]; }
+
 export function buildStatic(area) {
   const W = area.size.w, D = area.size.d, P = [];
   P.push(part('box', [90, 0.2, 90], '#CDE9B8', { y: -0.6 }));                                             // ground slab (sky never in frame at this pitch)
@@ -150,6 +247,7 @@ export function buildStatic(area) {
     P.push(part('cyl', [0.32, 0.26, 0.5, 10], C.coral, { x, y: 0.25, z }));
     P.push(part('sph', [0.55, 10], C.plant, { x, y: 0.95, z })); P.push(part('sph', [0.38, 10], C.plantDark, { x: x + 0.25, y: 1.25, z: z - 0.1 }));
   }
+  P.push(...freedGroundParts());
   const g = new THREE.Group(); g.add(mesh(P));
   g.name = 'static';   // tools/prop-overlap-smoke.js checks its poles, arms and plants against stations
   // Gate infill: starts CLOSED (matching the pre-region look — a solid, seamless fence) and is
@@ -414,15 +512,163 @@ export function signParts(glyph, lx = 0, lz = 0, faceYaw = 0) {
 }
 /** Where signParts() puts the board, for tests and audits that need to know without building it. */
 export const SIGN_GEOMETRY = Object.freeze({ boardY: SIGN_BOARD_Y, w: SIGN_W, h: SIGN_H, postTop: SIGN_POST_TOP });
+
+// ── a starred machine LOOKS starred (ship plan §1.6c item 3) ────────────────────────────────────
+// The upgrade ladders are the endless coin sink — the economy-ads report measured 129k coins poured
+// into them — and until now every one of them was an invisible +%. A player who has spent nine
+// thousand coins on the coffee bar must be able to SEE the nine thousand coins.
+//
+// Same contract as signParts() above, for the same reason: this returns GEOMETRY, not a mesh, and
+// systems/visuals.js merges it into the station's own single mesh. Going from ★1 to ★4 therefore
+// costs ZERO extra draw calls in either pass — which is the only way a visible ladder can exist in
+// a frame that is already inside a 200-call budget. The merge happens once, on the frame the tier
+// actually changes (a purchase), not per frame.
+//
+// Every part stays within the silhouette the station already had, and the body box systems/visuals.js
+// hands sim/ownerReach.js is deliberately carried over unchanged (geo.js addParts's rule): buying a
+// star must never change where the owner can stand. test/station-star-looks.test.js pins both.
+//
+// The three steps read as a machine getting better rather than as a level number:
+//   ★2  the trim band, and CAPACITY — a second oven tray, a taller case, a cup rail, a second jug
+//   ★3  QUALITY — warming lamps, cake domes, a third group head, a fruit tower
+//   ★4  the trim turns from copper to gold, and the machine takes a finial
+// The ladder itself never ends (economy.js nextStarCost); the LOOK tops out at ★4, because a
+// machine that keeps growing would eventually stand in front of the one behind it.
+const STAR_COPPER = '#C9793E';
+export const STAR_VISIBLE_TIERS = 4;
+// Where a type wears its row of gold studs, in the station's own local frame.
+const STAR_PIPS = {
+  oven: { y: 1.35, z: 0.665, x0: -0.32, dx: 0.16, r: 0.032 },
+  display: { y: 0.86, z: 0.515, x0: -0.90, dx: 0.16, r: 0.032 },
+  coffee: { y: 0.80, z: 0.155, x0: -0.24, dx: 0.13, r: 0.030 },
+  blender: { y: 0.62, z: 0.465, x0: -0.24, dx: 0.13, r: 0.030 },
+};
+function ovenStarParts(t, trim) {
+  const P = [
+    part('box', [1.64, 0.07, 1.24], trim, { y: 1.22 }),                                   // trim band
+    part('box', [0.90, 0.08, 0.50], C.wood, { y: 0.12, z: 0.95, tex: 'wood' }),           // second tray
+    part('box', [0.05, 0.30, 0.45], C.metal, { x: -0.42, y: 0.24, z: 0.95 }),
+    part('box', [0.05, 0.30, 0.45], C.metal, { x: 0.42, y: 0.24, z: 0.95 }),
+  ];
+  if (t >= 3) {
+    for (const x of [-0.45, 0.45]) {
+      P.push(part('cyl', [0.03, 0.03, 0.12, 6], C.metal, { x, y: 1.24, z: 0.30 }));
+      P.push(part('sph', [0.09, 8], '#FFB06B', { x, y: 1.15, z: 0.30, sy: 0.6 }));        // warming lamp
+    }
+    P.push(part('cyl', [0.035, 0.035, 1.30, 8], trim, { y: 1.02, z: 0.66, rz: Math.PI / 2 }));
+    P.push(part('box', [0.05, 0.05, 0.12], trim, { x: -0.60, y: 1.02, z: 0.63 }));
+    P.push(part('box', [0.05, 0.05, 0.12], trim, { x: 0.60, y: 1.02, z: 0.63 }));
+  }
+  if (t >= 4) {
+    P.push(part('cyl', [0.10, 0.10, 0.04, 8], C.coin, { y: 1.42, z: -0.10 }));
+    P.push(part('cone', [0.09, 0.14, 6], C.coin, { y: 1.51, z: -0.10 }));
+  }
+  return P;
+}
+function displayStarParts(t, trim) {
+  const P = [
+    part('box', [2.30, 0.24, 0.05], '#DDF6FF', { y: 1.93, z: -0.50 }),                    // the case grows up
+    part('box', [2.42, 0.09, 0.20], trim, { y: 2.095, z: -0.50 }),                        // its new cornice
+    part('box', [2.46, 0.045, 0.05], trim, { y: 1.085, z: 0.545 }),                       // front trim
+  ];
+  if (t >= 3) {
+    for (const x of [-1.08, 1.08]) {
+      P.push(part('cyl', [0.15, 0.15, 0.025, 12], C.cream, { x, y: 1.1225, z: 0.38, tex: 'ceramic' }));
+      P.push(part('cyl', [0.10, 0.10, 0.09, 10], C.pink, { x, y: 1.17, z: 0.38 }));
+      P.push(part('sph', [0.14, 10], '#EAF6FF', { x, y: 1.24, z: 0.38, sy: 0.9 }));       // cake dome
+      P.push(part('sph', [0.03, 6], trim, { x, y: 1.375, z: 0.38 }));
+    }
+  }
+  if (t >= 4) P.push(part('cone', [0.08, 0.13, 6], C.coin, { y: 2.205, z: -0.50 }));
+  return P;
+}
+function coffeeStarParts(t, trim) {
+  const P = [
+    part('box', [0.86, 0.06, 0.50], trim, { y: 0.70, z: -0.08 }),                         // copper band
+    part('cyl', [0.022, 0.022, 0.24, 6], trim, { x: -0.31, y: 1.055, z: -0.08 }),
+    part('cyl', [0.022, 0.022, 0.24, 6], trim, { x: 0.31, y: 1.055, z: -0.08 }),
+    part('box', [0.68, 0.03, 0.24], trim, { y: 1.05, z: -0.08 }),                         // warming shelf
+    ...[-0.20, 0, 0.20].map(x => part('cyl', [0.05, 0.04, 0.07, 8], C.cream, { x, y: 1.10, z: -0.08 })),
+  ];
+  if (t >= 3) {
+    P.push(part('cyl', [0.09, 0.07, 0.10, 12], C.metal, { y: 0.43, z: 0.18 }));           // third group head
+    P.push(part('box', [0.04, 0.04, 0.20], C.ink, { y: 0.40, z: 0.30 }));
+    P.push(part('cyl', [0.07, 0.055, 0.12, 12], C.cream, { y: 0.19, z: 0.22 }));
+    P.push(part('cyl', [0.058, 0.058, 0.005, 12], '#422A20', { y: 0.253, z: 0.22 }));
+    P.push(part('cyl', [0.018, 0.018, 0.30, 6], C.metal, { x: -0.46, y: 0.58, z: 0.08, rz: -0.3 }));
+  }
+  if (t >= 4) P.push(part('cone', [0.06, 0.12, 6], C.coin, { y: 1.24, z: -0.08 }));
+  return P;
+}
+function blenderStarParts(t, trim) {
+  const juice = (PRODUCTS.smoothie && PRODUCTS.smoothie.color) || C.accent;
+  const P = [
+    part('box', [1.04, 0.055, 0.90], trim, { y: 0.62 }),                                  // trim band
+    // A second jug, set back on the worktop beside the first (0.44 m between their centres, so the
+    // two 0.20 m and 0.18 m bodies never intersect).
+    part('cyl', [0.16, 0.18, 0.10, 10], C.metal, { x: 0.02, y: 0.87, z: -0.26, tex: 'metal' }),
+    part('cyl', [0.14, 0.115, 0.28, 10], SMOOTHIE_GLASS, { x: 0.02, y: 1.06, z: -0.26 }),
+    part('cyl', [0.12, 0.10, 0.15, 10], '#FF8A80', { x: 0.02, y: 1.00, z: -0.26 }),
+    part('cyl', [0.145, 0.145, 0.04, 10], C.ink, { x: 0.02, y: 1.22, z: -0.26 }),
+  ];
+  if (t >= 3) {
+    P.push(part('cyl', [0.018, 0.018, 0.50, 6], C.metal, { x: 0.38, y: 1.07, z: -0.22 }));
+    P.push(part('cyl', [0.14, 0.14, 0.02, 10], C.metal, { x: 0.38, y: 0.95, z: -0.22 }));
+    P.push(part('cyl', [0.11, 0.11, 0.02, 10], C.metal, { x: 0.38, y: 1.20, z: -0.22 }));
+    P.push(part('sph', [0.06, 8], C.coral, { x: 0.32, y: 1.01, z: -0.26 }));
+    P.push(part('sph', [0.055, 8], juice, { x: 0.44, y: 1.01, z: -0.18 }));
+    P.push(part('sph', [0.055, 8], C.coin, { x: 0.38, y: 1.25, z: -0.22 }));
+  }
+  if (t >= 4) P.push(part('cone', [0.055, 0.11, 6], C.coin, { x: 0.42, y: 1.33, z: -0.44 }));
+  return P;
+}
+const STAR_PARTS_FOR = { oven: ovenStarParts, display: displayStarParts, coffee: coffeeStarParts, blender: blenderStarParts };
+/**
+ * The dressing a station wears at star tier `tier`, as geometry to merge into its own mesh.
+ * Returns null at ★1 and for every type the ladder does not sell (economy.js STAR_IDS).
+ */
+export function stationStarParts(st, tier) {
+  if (!st) return null;
+  const build = STAR_PARTS_FOR[st.type];
+  if (!build) return null;
+  const raw = Math.trunc(Number(tier));
+  if (!Number.isFinite(raw) || raw < 2) return null;
+  const t = Math.min(STAR_VISIBLE_TIERS, raw);
+  const P = build(t, t >= 4 ? C.coin : STAR_COPPER);
+  const pip = STAR_PIPS[st.type];
+  if (pip) for (let i = 0; i < t - 1; i++) {
+    P.push(part('sph', [pip.r, 6], C.coin, { x: pip.x0 + i * pip.dx, y: pip.y, z: pip.z }));
+  }
+  return P.length ? P : null;
+}
 // M3 T3: bowl/bush/coffee/storage/blender station props — simple merged meshes, +z front,
 // behaviour lands in Task 4. bushMesh's three berries are a single InstancedMesh (one extra
 // draw call per bush, not three) so setStage(0..3) can scale them independently without
 // re-merging geometry every time a bush ripens.
+// The Pet treat bar (900 coins) was a 0.35 m pink ring lying on bare tile — the same complaint the
+// blender had, two metres away in the same corner. And it was drawing a fiction short: sim/supplies.js
+// has said since Batch C that "the treat bowl keeps its own kibble bin, so standing at the bowl
+// refills it and nobody walks a sack across the café" (REFILLED_IN_PLACE), and systems/stations.js
+// says the bin is "under it" — but nothing drew a bin, so the one station in the game that restocks
+// itself looked exactly like one that could not.
+//
+// It is a feeding station now: a low stand, the treat bowl and a water bowl on it, and the kibble
+// bin with its scoop beside them. Everything stays inside the authored 0.8 x 0.8 footprint, so
+// sim/collide.js sees no change at all and sim/ownerReach.js's union of footprint-and-drawn-box is
+// still exactly the footprint.
 export function bowlMesh() {
   const g = new THREE.Group();
   g.add(mesh([
-    part('cyl', [0.35, 0.3, 0.18, 14], C.pink, { y: 0.09, tex: 'ceramic' }),
-    part('cyl', [0.28, 0.28, 0.05, 14], C.cream, { y: 0.16 }),
+    part('rbox', [0.72, 0.09, 0.64, 0.03], C.wood, { y: 0.045, tex: 'wood' }),                 // the stand
+    part('cyl', [0.22, 0.19, 0.15, 14], C.pink, { x: -0.15, y: 0.165, z: 0.06, tex: 'ceramic' }),
+    part('cyl', [0.175, 0.175, 0.04, 14], '#C98A5A', { x: -0.15, y: 0.235, z: 0.06 }),         // treats in it
+    part('cyl', [0.13, 0.11, 0.10, 12], C.wall, { x: 0.22, y: 0.14, z: 0.14, tex: 'ceramic' }),
+    part('cyl', [0.105, 0.105, 0.03, 12], '#DDF6FF', { x: 0.22, y: 0.185, z: 0.14 }),          // water
+    part('rbox', [0.30, 0.40, 0.26, 0.04], C.woodDark, { x: 0.14, y: 0.20, z: -0.20, tex: 'wood' }),
+    part('box', [0.33, 0.04, 0.29], C.wood, { x: 0.14, y: 0.42, z: -0.20, tex: 'wood' }),      // the bin's lid
+    part('cyl', [0.05, 0.04, 0.07, 10], C.metal, { x: 0.20, y: 0.475, z: -0.24 }),             // the scoop
+    part('cyl', [0.014, 0.014, 0.13, 6], C.metal, { x: 0.08, y: 0.475, z: -0.20, rz: Math.PI / 2 }),
+    part('sph', [0.05, 8], '#8C6239', { x: 0.03, y: 0.12, z: -0.05, sy: 0.6 }),                // spilled kibble
   ]));
   return g;
 }
@@ -476,15 +722,195 @@ export function pantryMesh() {
   ]));
   return g;
 }
+// ── the smoothie corner's machine (ship plan §1.4; Batch G2 item 1) ─────────────────────────────
+// Batch C moved the blender out of the production row to (7.8, 0.1), beside its own fruit and its
+// own counter. What arrived there was a 0.5 m wooden cube with a 0.24 m cyan jug on it — from the
+// play camera, "a small pale-blue cylinder standing on bare floor" (shots-production/batch-c/
+// smoothie-corner-1280x720.png). It spoke none of the language every other station speaks: a body,
+// a wood top, a coloured front strip, and something on the counter that says what it makes.
+//
+// It does now. The violet is PRODUCTS.smoothie.color — literally the colour of the cups piled two
+// metres away on barSmoothie — so machine and counter read as one bar rather than two objects, and
+// the open crate on the top says what goes IN as well as what comes out, which is the whole point
+// of standing it next to the bushes.
+//
+// EVERYTHING STAYS INSIDE THE AUTHORED FOOTPRINT. data/area1.js gives blender1 fw/fd 1.2 and notes
+// that x 7.8 keeps its east face 0.2 m clear of barSmoothie's queue line at x 8.6. The drawn body
+// reaches ±0.54 in x and ±0.47 in z, so it is *inside* that box on every side: sim/collide.js
+// measures the authored footprint (never the mesh) and sim/ownerReach.js unions the two, so both
+// see exactly what they saw when this was a cube. The east face lands at 8.34 — 0.26 m of queue
+// clearance, more than the data file promised.
+const SMOOTHIE_GLASS = '#EAF6FF';
 export function blenderMesh() {
   const g = new THREE.Group();
+  const juice = (PRODUCTS.smoothie && PRODUCTS.smoothie.color) || C.accent;
   g.add(mesh([
-    part('rbox', [0.5, 0.35, 0.5, 0.05], C.wood, { y: 0.18 }),
-    part('cyl', [0.18, 0.24, 0.55, 10], '#9BF6FF', { y: 0.63 }),
-    part('cyl', [0.16, 0.16, 0.08, 10], C.ink, { y: 0.94 }),
+    // The body: counterMesh's cream box + coral strip + wood top, at the blender's own size, with
+    // the strip in smoothie violet instead of coral so the corner has its own colour.
+    part('rbox', [1.0, 0.72, 0.86, 0.07], C.cream, { y: 0.36 }),
+    part('box', [0.86, 0.32, 0.06], juice, { y: 0.40, z: 0.44 }),
+    part('box', [1.08, 0.10, 0.94], C.wood, { y: 0.77, tex: 'wood' }),                  // worktop, top 0.82
+    part('box', [1.00, 0.44, 0.05], C.wall, { y: 1.04, z: -0.455, tex: 'ceramic' }),    // splashback
+    // The machine itself: motor, glass jug half full of smoothie, lid.
+    part('cyl', [0.20, 0.22, 0.13, 12], C.metal, { x: -0.28, y: 0.885, z: 0.06, tex: 'metal' }),
+    part('cyl', [0.17, 0.14, 0.36, 12], SMOOTHIE_GLASS, { x: -0.28, y: 1.13, z: 0.06 }),
+    part('cyl', [0.15, 0.125, 0.20, 12], juice, { x: -0.28, y: 1.05, z: 0.06 }),
+    part('cyl', [0.18, 0.18, 0.05, 12], C.ink, { x: -0.28, y: 1.335, z: 0.06 }),
+    // The hopper: an open crate of picked fruit on the worktop, the input side of the loop.
+    part('box', [0.38, 0.17, 0.32], C.woodDark, { x: 0.31, y: 0.905, z: 0.16, tex: 'wood' }),
+    part('sph', [0.080, 8], C.coral, { x: 0.20, y: 1.02, z: 0.10 }),
+    part('sph', [0.075, 8], '#FF6F91', { x: 0.38, y: 1.03, z: 0.22 }),
+    part('sph', [0.080, 8], C.plant, { x: 0.30, y: 1.05, z: 0.08 }),
+    part('sph', [0.065, 8], C.coin, { x: 0.44, y: 1.01, z: 0.14 }),
+    // Three poured cups on the near end of the top: the splash of colour that faces the room.
+    part('cyl', [0.055, 0.045, 0.14, 8], juice, { x: -0.50, y: 0.89, z: 0.30 }),
+    part('cyl', [0.055, 0.045, 0.14, 8], juice, { x: -0.38, y: 0.89, z: 0.32 }),
+    part('cyl', [0.055, 0.045, 0.14, 8], '#FF6F91', { x: -0.44, y: 0.89, z: 0.18 }),
   ]));
   return g;
 }
+// ── the Fruit garden patch (ship plan §1.4 "z_garden becomes a visible Fruit garden patch") ─────
+// z_garden costs 1400 coins and, until now, added two green spheres to a corner of tiled floor.
+// This is what it buys instead: the corner becomes a bed. Soil under and between all three bushes,
+// a kerb around it, clover and windfall berries on the ground, a low picket along the two sides
+// that face the café, a watering can and a crate of picked fruit standing in it.
+//
+// AUTHORED IN WORLD COORDINATES, and every number below is checked against the real built world by
+// test/fruit-garden.test.js: the bed must cover every bush's footprint, and nothing standing in it
+// may reach into a station's body, a station's front or a queue slot. The bushes are data/area1.js's
+// (bush1 8.6/3.6, bush2 8.6/4.7, bush3 7.2/5.9) and they are another lane's to move — if they do,
+// that test fails loudly rather than leaving a bed in the wrong place.
+//
+// WHY THE PICKET RUNS WHERE IT DOES. The bed is an L: an east arm along the fence and a south arm
+// under bush3. Its two café-facing edges are x 7.85 (z 3.05..5.15) and z 5.15 (x 6.45..7.85) and
+// x 6.45 (z 5.15..6.65), and that is exactly where the picket goes — the outer two edges already
+// have the café's own white fence behind them. All three bushes are worked from the CAFÉ side
+// (fronts 8.6/2.3, 7.3/4.7 and 7.2/4.6, all of them outside the bed), so the picket is never
+// between the owner and a thing to pick. The queue that runs north along x 8.6 from z 2.8 keeps its
+// 0.25 m of clear tile: the bed's north edge is soil, which is 3.6 cm tall and below anything a
+// body occupies, and no picket post is within 0.75 m of a queue slot.
+// The picket is WOOD, not the café's cream. A cream picket was invisible in the first frames of
+// this corner: the café's own fence is cream, the floor tiles are cream and the kerb is pale, so a
+// 0.38 m cream fence on a pale floor read as another tile joint. Garden-stake tan against dark soil
+// reads as a bed edge from across the room, and matches the crate and the trowel handle standing
+// in it.
+const SOIL = '#8B6444', SOIL_DARK = '#6E4D33', KERB = '#C6AC85';
+const PICKET = C.wood, PICKET_DARK = C.woodDark;
+// [x0, x1, z0, z1] — two abutting rectangles (they share the edge at x 7.85, so no two soil quads
+// ever overlap and there is nothing for the depth pass to fight over).
+const GARDEN_BEDS = Object.freeze([
+  Object.freeze([7.85, 9.55, 3.05, 6.65]),   // east arm: bush1, bush2, and the corner planter
+  Object.freeze([6.45, 7.85, 5.15, 6.65]),   // south arm: bush3
+]);
+// The café-facing boundary of that L, as [x0, z0, x1, z1] runs.
+const GARDEN_PICKET = Object.freeze([
+  Object.freeze([7.85, 3.05, 7.85, 5.15]),
+  Object.freeze([6.45, 5.15, 7.85, 5.15]),
+  Object.freeze([6.45, 5.15, 6.45, 6.65]),
+]);
+// The WHOLE outline of the L, kerbed. The three runs above are its café side; the other three run
+// along the café's own fence, where the picket would only duplicate it.
+const GARDEN_KERB = Object.freeze([
+  Object.freeze([7.85, 3.05, 9.55, 3.05]),
+  Object.freeze([9.55, 3.05, 9.55, 6.65]),
+  Object.freeze([6.45, 6.65, 9.55, 6.65]),
+  ...GARDEN_PICKET,
+]);
+const PICKET_TOP = 0.38, PICKET_STEP = 0.26;
+// Where the two loose props stand, in world metres. Both are on soil, both clear every footprint,
+// front and queue slot by more than the 0.3 m tools/prop-overlap-smoke.js allows.
+export const GARDEN_PROPS = Object.freeze({
+  can: Object.freeze({ x: 9.25, z: 3.40 }),
+  crate: Object.freeze({ x: 8.60, z: 5.55 }),
+});
+/** The bed rectangles, for tests and audits that need to know without building the mesh. */
+export const GARDEN_BED_RECTS = GARDEN_BEDS;
+export const GARDEN_PICKET_RUNS = GARDEN_PICKET;
+// A run is authored as a local +z bar and turned by its own yaw, so the boards of a fence running
+// east-west face north-south and not along their own line.
+function runParts(runs, build) {
+  const P = [];
+  for (const [x0, z0, x1, z1] of runs) {
+    const dx = x1 - x0, dz = z1 - z0, len = Math.hypot(dx, dz);
+    build(P, { x0, z0, x1, z1, dx, dz, len, yaw: Math.atan2(dx, dz), mx: (x0 + x1) / 2, mz: (z0 + z1) / 2 });
+  }
+  return P;
+}
+function picketParts() {
+  return runParts(GARDEN_PICKET, (P, r) => {
+    const n = Math.max(2, Math.round(r.len / PICKET_STEP));
+    for (let i = 0; i <= n; i++) {
+      const t = i / n, x = r.x0 + r.dx * t, z = r.z0 + r.dz * t;
+      P.push(part('box', [0.035, PICKET_TOP, 0.09], PICKET, { x, y: PICKET_TOP / 2, z, ry: r.yaw, tex: 'wood' }));
+      P.push(part('cone', [0.045, 0.07, 4], PICKET_DARK, { x, y: PICKET_TOP + 0.03, z, ry: r.yaw }));
+    }
+    for (const y of [0.16, 0.30]) {
+      P.push(part('box', [0.028, 0.045, r.len], PICKET_DARK, { x: r.mx, y, z: r.mz, ry: r.yaw }));
+    }
+  });
+}
+export function fruitGardenMesh() {
+  const P = [];
+  for (const [x0, x1, z0, z1] of GARDEN_BEDS) {
+    // The bed: 3.6 cm of turned soil laid flush on the café tiles, with a kerb round its edge. Both
+    // sit below 0.15 m, the height at which a body starts to exist, so neither is ever in the way.
+    P.push(part('box', [x1 - x0, 0.036, z1 - z0], SOIL,
+      { x: (x0 + x1) / 2, y: 0.018, z: (z0 + z1) / 2, tex: 'plaster' }));
+  }
+  // The kerb follows the L's OUTLINE, not each rectangle: a kerb per rectangle would have laid a
+  // stone edge straight across the middle of the bed where the two arms meet.
+  P.push(...runParts(GARDEN_KERB, (out, r) =>
+    out.push(part('box', [0.1, 0.1, r.len + 0.1], KERB, { x: r.mx, y: 0.05, z: r.mz, ry: r.yaw }))));
+  // Clover and windfall, scattered from a fixed table rather than a random stream: this module is
+  // replay-safe and every screenshot of this corner has to be the same screenshot.
+  // Every tuft and every windfall berry tops out under 0.15 m, the height at which a body starts to
+  // exist (tools/prop-overlap-smoke.js's LO): ground cover can never be "standing in the way".
+  const TUFTS = [
+    [7.98, 3.30], [9.25, 3.95], [8.05, 4.30], [9.35, 4.85], [8.30, 5.30], [8.55, 6.45],
+    [7.95, 4.55], [6.70, 5.40], [7.55, 6.45], [6.62, 6.42], [7.90, 6.15], [9.42, 5.35],
+  ];
+  for (const [x, z] of TUFTS) {
+    P.push(part('cone', [0.055, 0.13, 5], C.plant, { x, y: 0.075, z }));
+    P.push(part('cone', [0.045, 0.10, 5], C.plantDark, { x: x + 0.07, y: 0.06, z: z + 0.05 }));
+  }
+  for (const [x, z, hex] of [[8.90, 4.35, C.coral], [9.05, 3.70, '#FF6F91'], [7.30, 6.55, C.coral],
+    [8.45, 4.95, C.coin], [6.95, 5.75, '#FF6F91'], [9.30, 6.05, C.coral]]) {
+    P.push(part('sph', [0.05, 6], hex, { x, y: 0.07, z }));
+  }
+  P.push(...picketParts());
+  // The watering can: body, spout, handle. Sits on the soil east of bush1. The spout points SOUTH
+  // and not west on purpose — bush1's footprint reaches x 9.05, and a 0.34 m spout swung west would
+  // have put its tip 6 cm inside it.
+  const can = GARDEN_PROPS.can;
+  P.push(part('cyl', [0.145, 0.165, 0.26, 10], C.metal, { x: can.x, y: 0.17, z: can.z, tex: 'metal' }));
+  P.push(part('cyl', [0.035, 0.055, 0.34, 6], C.metal, { x: can.x, y: 0.28, z: can.z + 0.19, rx: 1.0 }));
+  P.push(part('cyl', [0.065, 0.065, 0.03, 8], C.metal, { x: can.x, y: 0.40, z: can.z + 0.33, rx: 1.0 }));
+  P.push(part('box', [0.035, 0.16, 0.035], C.metal, { x: can.x + 0.13, y: 0.36, z: can.z, rz: -0.5 }));
+  P.push(part('box', [0.035, 0.14, 0.035], C.metal, { x: can.x - 0.02, y: 0.40, z: can.z, rz: 0.4 }));
+  P.push(part('box', [0.18, 0.035, 0.035], C.metal, { x: can.x + 0.055, y: 0.44, z: can.z }));
+  // The crate of picked fruit, heaped: the visible end of the harvest loop.
+  const cr = GARDEN_PROPS.crate;
+  P.push(part('box', [0.44, 0.24, 0.36], C.woodDark, { x: cr.x, y: 0.15, z: cr.z, tex: 'wood' }));
+  P.push(part('box', [0.46, 0.05, 0.38], C.wood, { x: cr.x, y: 0.285, z: cr.z, tex: 'wood' }));
+  for (const [dx, dy, dz, r, hex] of [
+    [-0.11, 0.35, -0.06, 0.085, C.coral], [0.06, 0.36, 0.05, 0.080, '#FF6F91'],
+    [0.14, 0.34, -0.08, 0.075, C.coin], [-0.02, 0.43, -0.01, 0.080, C.coral],
+  ]) P.push(part('sph', [r, 8], hex, { x: cr.x + dx, y: dy, z: cr.z + dz }));
+  // A fork and a trowel stuck in the soil beside the crate, so the bed reads as worked.
+  P.push(part('cyl', [0.022, 0.022, 0.52, 6], C.wood, { x: cr.x - 0.36, y: 0.26, z: cr.z + 0.14, rz: 0.18 }));
+  P.push(part('box', [0.13, 0.05, 0.03], C.metal, { x: cr.x - 0.31, y: 0.51, z: cr.z + 0.14 }));
+  // Two darker, freshly-turned patches, so the bed is not one flat colour under the camera.
+  P.push(part('box', [0.9, 0.006, 0.7], SOIL_DARK, { x: 8.95, y: 0.039, z: 4.35, tex: 'plaster' }));
+  P.push(part('box', [0.7, 0.006, 0.6], SOIL_DARK, { x: 7.10, y: 0.039, z: 6.10, tex: 'plaster' }));
+  const g = new THREE.Group();
+  // No sun shadow (ship plan §1.9's budget): a 0.38 m picket on a dark bed is anchored by the bed
+  // itself, and a caster here would be a second whole-pass draw call for a shadow nobody can see.
+  g.add(mesh(P, { cast: false }));
+  g.name = 'gardenPatch';
+  g.visible = false;
+  return g;
+}
+
 // ── Resident pet furniture (plan §5.4) ─────────────────────────────────────────────────────────
 // systems/residentPets.js used to drop scaled-up pets straight onto the café tiles, which read as
 // oversized blocks dumped on the floor. Every resident now sits ON one of these five props, and

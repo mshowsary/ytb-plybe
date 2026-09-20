@@ -78,6 +78,13 @@ const SELF_POSITIONED_FX = new Set([
   // drag hand. Both compute their own screen positions in systems/objective.js and are pure
   // pictures with no tap target, so the label solver has nothing to nudge or hide.
   'edgeArrow', 'touchHint',
+  // Batch F (docs/SHIP-PLAN-2026-09-19.md §1.8): the First Look lesson bubble, on the same terms.
+  // It is deliberately NOT a `.demand`, which the solver is allowed to HIDE when the field is
+  // crowded: a lesson that silently does not happen is worse than one that overlaps for a second,
+  // and it shows for about three seconds, once per mechanic, ever. It hides itself outright when
+  // its subject is off screen (systems/firstLook.js placeBubble) rather than clamping to a border,
+  // which is the failure this whole batch removed.
+  'fl-bubble',
 ]);
 
 // Mirrors NUDGE_STEPS in src/ui/labelLayout.js. Pinned here on purpose: these are the discrete

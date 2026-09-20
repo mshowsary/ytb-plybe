@@ -146,6 +146,24 @@ await page.evaluate(({ chain, peak, retired, wantActors }) => {
 }, { chain: CHAIN, peak: PEAK, retired: RETIRED, wantActors: WANT_ACTORS });
 await new Promise(r => setTimeout(r, 800));
 
+// Every sheet pauses the café (src/ui/modal.js) and a paused café does not render, so anything the
+// setup left on screen reads as 0 draw calls. Take today's gift first — a long stepped run always
+// passes the calm moment its card waits for, and claiming it is what stops it coming back — then
+// close whatever else is up and wait for the frame loop.
+await page.evaluate(async () => {
+  window.__game.openDailyGiftCard?.();
+  await new Promise(r => setTimeout(r, 120));
+  document.querySelector('.gift-root .gift-free')?.click();
+  await new Promise(r => setTimeout(r, 200));
+  for (let i = 0; i < 6 && document.body.classList.contains('modal-open'); i++) {
+    const go = document.querySelector('.continue, [data-action="resume"], .meta-book-close, .sheet-close, .gift-root .gift-free');
+    if (go) go.click(); else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await new Promise(r => setTimeout(r, 250));
+  }
+});
+await page.waitForFunction(() => !document.body.classList.contains('modal-open'), null, { timeout: 8000 }).catch(() => {});
+await new Promise(r => setTimeout(r, 400));
+
 const sample = await page.evaluate(async () => {
   const S = window.__scene;
   const R = S && S.renderer;

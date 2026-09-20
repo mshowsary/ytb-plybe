@@ -101,7 +101,7 @@
   ],
   "visual": [
     {
-      "name": "First minute on a phone: trail, beacon, ring, edge arrow, drag hint",
+      "name": "First minute on a phone: bake, stock, serve — marked learned, then out of the way",
       "command": [
         "node",
         "tools/first-minute-smoke.js"
@@ -109,12 +109,20 @@
       "timeoutMs": 600000
     },
     {
-      "name": "Guidance policy: a demo the first time, a pointer on hesitation, nothing forever",
+      "name": "Guidance policy: a lesson the first time, a pointer on hesitation, nothing forever",
       "command": [
         "node",
         "tools/guidance-policy-smoke.js"
       ],
       "timeoutMs": 300000
+    },
+    {
+      "name": "First Look: one pan and one bubble per new thing, once, and nothing else drawn",
+      "command": [
+        "node",
+        "tools/first-look-smoke.js"
+      ],
+      "timeoutMs": 600000
     },
     {
       "name": "Day-complete card at every certified size: hero, rows, bonus, Continue",
