@@ -132,11 +132,9 @@ export function createWalletRoll() {
 const ZONE_ICON = {
   z_seats1: pawIcon, z_oven2: cupcakeIcon, z_register2: coinIcon, z_hire: personIcon,
   z_coffee: coffeeIcon, z_bowl: treatIcon, z_blender: smoothieIcon, z_garden: leafIcon,
-  z_seats2: pawIcon, z_terrace: sunIcon, z_icecream: icecreamIcon, z_register3: coinIcon,
-  z_photo: photoIcon, z_terraceSeats: pawIcon,
-  // Restroom adds a sink and Splash is a pool, so both take the water glyph -- the ring only ever
-  // shows one build at a time, so the reuse never collides on screen.
-  z_restroom: waterIcon, z_splash: waterIcon,
+  // The garden IS the ice cream stand now (docs/SHIP-PLAN-2026-09-19.md §1.2), so the ring shows a
+  // cone rather than a sun; the camera hangs the photo wall, and the deck tables are more tables.
+  z_seats2: pawIcon, z_terrace: icecreamIcon, z_photo: photoIcon, z_terraceSeats: pawIcon,
 };
 // The glyph that stands for a build, wherever a build is the answer: the wallet's ring here, and the
 // Shop's locked teasers (ui/sheets.js), which say "this opens with that build" as its picture.

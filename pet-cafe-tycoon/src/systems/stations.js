@@ -13,6 +13,7 @@ import { itemFor } from '../render/props.js';
 import { C } from '../render/palette.js';
 import { damp } from '../core/tween.js';
 import { cue, paintCue } from '../ui/hud.js';
+import { cashVisualSpot } from './registerCash.js';
 import { handIcon, returnIcon, coffeeIcon, smoothieIcon, treatIcon, iconFor, sackIcon, gearIcon, personIcon, broomIcon } from '../ui/icons.js';
 
 // The floating action button's pictograms, by the label the action was authored with. The label
@@ -270,8 +271,6 @@ export function createStations(G, S, ctx) {
     return bodyBoxes;
   }
 
-  // The owner's body radius — see the movement step in update() for why 0.46.
-  const BODY_R = OWNER_BODY_R;
 
   let floatAction = null;
   // The button belongs to the machine the owner is STANDING AT. Distance decides it; priority only
@@ -303,10 +302,12 @@ export function createStations(G, S, ctx) {
     if (!st || st.pile <= 0) return 0;
     const amt = collectCash(world, st.id); if (amt <= 0) return 0;
     const cs = st.cash; hints.cash = 1;
+    // The coins fly out of the money the player can see, not out of the spot they are standing on.
+    const vs = cashVisualSpot(st) || { x: cs.x, y: 0.3, z: cs.z };
     G.coins += amt; G.stats.lifetimeEarned = (G.stats.lifetimeEarned | 0) + amt;
     hud.setCoins(G.coins); audio.play('coin');
-    fx.coinArc(cs.x, 0.3, cs.z, Math.min(10, 2 + (amt / 5 | 0)), () => hud.bump());
-    fx.number(cs.x, 0.8, cs.z, '+' + amt);
+    fx.coinArc(vs.x, Math.max(0.3, vs.y), vs.z, Math.min(10, 2 + (amt / 5 | 0)), () => hud.bump());
+    fx.number(vs.x, Math.max(0.8, vs.y + 0.5), vs.z, '+' + amt);
     markCheckpoint('cash-collection');
     return amt;
   }

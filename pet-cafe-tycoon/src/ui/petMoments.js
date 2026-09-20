@@ -16,7 +16,7 @@ function ensureStyle() {
     .pet-identity.play-break{border-color:#e58fa3cc;background:#fff6faee;box-shadow:0 4px 14px #d97c7040,0 0 0 2px #ffd9e080}
     .pet-identity.play-break .paw{animation:pet-break-paw .72s ease-in-out infinite alternate}.pet-identity.play-break .detail{opacity:.82;color:#a9516c}
     @keyframes pet-break-paw{from{transform:scale(.9)}to{transform:scale(1.2)}}
-    body.ui-compact .pet-identity{font-size:10px;padding:4px 7px}.pet-identity.seated .detail{display:none}
+    .pet-identity.seated .detail{display:none}
     .pet-identity .paw{width:24px;height:24px;flex:none;border-radius:50%;display:grid;place-items:center;background:linear-gradient(145deg,#fffdf5,#f1dfc7);box-shadow:inset 0 0 0 1px var(--pet-accent,#b99576)}
     .pet-identity .paw svg{width:20px;height:20px;fill:none;stroke:#654735;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
     .pet-identity .paw svg circle{fill:#654735;stroke:none}

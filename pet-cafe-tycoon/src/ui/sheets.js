@@ -1,6 +1,6 @@
 // Bottom sheets: the Shop, the pantry and the end-of-day card. Every one opens through ui/modal.js,
 // so the café pauses behind it whichever door opened it.
-import { beanIcon, kibbleIcon, creamIcon, iconFor, checkIcon, lockIcon, starIcon, calendarIcon } from './icons.js';
+import { beanIcon, kibbleIcon, iconFor, checkIcon, lockIcon, starIcon, calendarIcon } from './icons.js';
 import { decorCatalogue } from '../../data/decor.js';
 import { renderDaySummary } from './daySummary.js';
 import { openModal, closeModal } from './modal.js';
@@ -231,9 +231,8 @@ function renderKiosk(model, actions, onClose, door) {
 const PANTRY_SUPPLY_META = {
   beans: { icon: beanIcon, label: 'Beans' },
   kibble: { icon: kibbleIcon, label: 'Kibble' },
-  cream: { icon: creamIcon, label: 'Cream' },
 };
-const PANTRY_SUPPLY_ORDER = ['beans', 'kibble', 'cream'];
+const PANTRY_SUPPLY_ORDER = ['beans', 'kibble'];
 // Pure description of which pantry buttons render, in order -- kept separate from the DOM building
 // below so the button contract (count/order/enabled) is unit-testable without a document. A supply
 // gets a button iff `model` defines that key at all (undefined = "this pantry doesn't carry it"),

@@ -123,15 +123,13 @@ export function createCustomers(G, S, ctx) {
     const theme = social?.status === 'running' ? SOCIALS.find(s=>s.id===social.id) : null;
     const day = syncRegularPlan();
     const preferredKey = regularPlan && regularGreetedDay !== day ? regularPlan.key : null;
-    // The rare-visitor rewarded ad promises the NEXT guest is a rare or epic pet, so it overrides
-    // the rolled variant for exactly one spawn. Math.random is safe here and only here: this branch
-    // runs solely after a live ad claim, which no headless bot ever performs, so it cannot desync
-    // sim/customerSpawn.js's seeded stream. The flag is cleared whether or not an identity was free.
-    const forcedVariant = G.rareVisitorPending ? (Math.random() < 0.5 ? 2 : 3) : null;
-    if (forcedVariant != null) G.rareVisitorPending = false;
+    // The old rare-visitor ad used to force this one spawn to a rare variant through
+    // G.rareVisitorPending; nothing has written that flag since its (invisible) chip was deleted, and
+    // the branch was the only Math.random on the spawn path. The Special Guest offer in the ad batch
+    // replaces it, and will invite a pet the book is MISSING rather than reroll a variant.
     const identityPick = resolveUniquePetIdentity(
       theme?.species || next.species,
-      forcedVariant != null ? forcedVariant : next.petVariant,
+      next.petVariant,
       activeNamedPetKeys(G.customers),
       preferredKey,
       G.meta,

@@ -98,9 +98,10 @@ test('Task 0.8: half credit and the refill tally survive the canonical save boun
   assert.equal(restored.hasSack('refillBowl'), true);
   assert.equal(restored.refills, 1);
   restored.creditRefill('refillBowl');
-  // Batch 1 (task E1): mastery generalises to every refill lesson interactionCoach.js knows, not
-  // just the original two — two refills of any supply also proves the ice cream lesson.
-  assert.deepEqual(restored.masteredKeys().sort(), ['refillBowl', 'refillCoffee', 'refillIce']);
+  // Mastery generalises across every refill lesson interactionCoach.js knows. The ice cream machine
+  // left that list with its cream supply (docs/SHIP-PLAN-2026-09-19.md §1.2), so the set is the two
+  // supplies the café still has.
+  assert.deepEqual(restored.masteredKeys().sort(), ['refillBowl', 'refillCoffee']);
 });
 
 test('Task 0.8: an untouched refill lesson adds nothing to the canonical payload', () => {

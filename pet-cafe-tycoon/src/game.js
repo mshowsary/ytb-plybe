@@ -2,8 +2,8 @@ import { normalizeServicePolicy, prepareServicePolicy, recordOrdinaryServiceShif
 import { applySeatMiss } from './sim/serviceQuality.js';
 import { normalizeSocials } from './sim/petSocials.js';
 import { cafeCompletion } from './sim/completion.js';
-import { summaryClaimedForShift, inShiftClaimedForShift, markRewardedClaim, interstitialDueAfterShift, summaryBonusAmount } from './sim/adPacing.js';
-import { specialForDaySeasoned, saleMatchesTheme, specialProgress, specialReward, goldenHourForDay, createGoldenHourState, stepGoldenHour, goldenHourMult } from './sim/specialDays.js';
+import { summaryClaimedForShift, markRewardedClaim, interstitialDueAfterShift, summaryBonusAmount } from './sim/adPacing.js';
+import { specialForDaySeasoned, saleMatchesTheme, specialProgress, specialReward, createGoldenHourState, goldenHourMult } from './sim/specialDays.js';
 import { seasonForDay, deriveSeasonMeta, seasonRolledOver } from './sim/seasons.js';
 import { ACCESSORIES, accessoryUnlocked } from '../data/accessories.js';
 

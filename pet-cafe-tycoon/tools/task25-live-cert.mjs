@@ -1,13 +1,38 @@
+// Repaired 2026-09-20: the Task 25/26 zone-building and staffing progression this drives is
+// unchanged (z_seats1/z_oven2/z_hire prices, the Cupcakes fork into z_hire+z_register2, and the
+// Runner's 150/2,800 roster are all still exactly what data/area1.js and sim/economyConfig.js
+// declare). The one dead surface was #dayPill/.contract-badge (docs/SHIP-PLAN-2026-09-19.md
+// Batch D): the goal's numerals moved off the play field entirely. What SURVIVES that move is a
+// ring around the Cafe button (src/ui/contractBadge.js createGoalRing: --goal-progress, plus
+// goal-celebrate/goal-complete classes pulsed on completion) and the numeral pair one tap away in
+// the Cafe card's Today row (`.cc-today .cc-chip`, src/ui/pauseMenu.js). Re-pointed to both.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import http from 'node:http';
+import path from 'node:path';
 import { chromium } from 'playwright';
 import { STAFF } from '../src/sim/economy.js';
 
-const baseUrl = process.env.PET_CAFE_URL || 'http://127.0.0.1:4173';
+const dist = path.resolve('dist');
+await fs.access(path.join(dist, 'index.html')).catch(() => { throw new Error('dist missing: run npm run build first'); });
 const outDir = process.env.PET_CAFE_CERT_DIR || 'artifacts/task25-live';
 await fs.mkdir(outDir, { recursive: true });
 
-const browser = await chromium.launch({ headless: true });
+let baseUrl = process.env.PET_CAFE_URL || null;
+let server = null;
+if (!baseUrl) {
+  const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml' };
+  server = http.createServer((req, res) => {
+    let p = path.join(dist, decodeURIComponent(req.url.split('?')[0]));
+    if (p.endsWith(path.sep) || !path.extname(p)) p = path.join(dist, 'index.html');
+    fs.readFile(p).then(b => { res.writeHead(200, { 'content-type': types[path.extname(p)] || 'application/octet-stream' }); res.end(b); })
+      .catch(() => { res.writeHead(404); res.end(); });
+  });
+  await new Promise(resolve => server.listen(4502, '127.0.0.1', resolve));
+  baseUrl = 'http://127.0.0.1:4502/';
+}
+
+const browser = await chromium.launch({ headless: true, args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist'] });
 const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
 const pageErrors = [];
 const consoleErrors = [];
@@ -164,34 +189,49 @@ try {
   assert.equal(roundTrip.register2Built, false, 'optional Register 2 must stay unbuilt across save/load');
   assert.ok(roundTrip.activeZones.includes('z_register2'));
 
-  // Exercise the production HUD with deterministic contract progress while paused.
+  // Exercise the production HUD with deterministic contract progress while paused. The goal ring
+  // lives on the Cafe button itself (always on screen); its numerals live one tap away in the Cafe
+  // card's Today row.
   await page.locator('.sheet .sclose').click();
   const contractFixture = await page.evaluate(() => {
     const G = window.__game;
     const original = { goal: G.goal, stats: { ...G.dayStats } };
     G.goal = { kind: 'serve', target: 24, reward: 0 };
     G.dayStats.served = 6;
-    G.update(0);
+    window.__pauseMenu.update();
     return original;
   });
-  const badge = page.locator('#dayPill .contract-badge');
-  assert.equal(await badge.getAttribute('aria-valuenow'), '6');
-  assert.equal(await badge.getAttribute('aria-valuemax'), '24');
-  assert.equal(await badge.locator('.contract-count').textContent(), '6/24');
+  const ring = page.locator('.pause-btn .goal-ring');
+  assert.equal(await ring.getAttribute('hidden'), null, 'goal ring must be visible while a goal is active');
+  assert.equal(await page.evaluate(() => document.querySelector('.pause-btn .goal-ring').style.getPropertyValue('--goal-progress')), '25%');
+  await page.locator('.pause-btn').click();
+  await page.waitForFunction(() => !document.querySelector('.pause-root')?.classList.contains('hidden'));
+  await page.evaluate(() => window.__pauseMenu.sync());
+  const goalChip = page.getByRole('img', { name: /Today's goal/i });
+  const chipAria = await goalChip.getAttribute('aria-label');
+  assert.match(chipAria || '', /6 of 24/, `Today row must show live goal progress: ${chipAria}`);
+  const chipText = (await goalChip.textContent()) || '';
+  assert.match(chipText.replace(/\s+/g, ''), /6\/24/, `Today row chip must show 6/24: ${chipText}`);
   await page.screenshot({ path: `${outDir}/04-contract-mobile.png`, fullPage: true });
+  const cardBox = await page.locator('.pause-card').boundingBox();
+  assert.ok(cardBox && cardBox.x >= -1 && cardBox.x + cardBox.width <= 391, `Cafe card must fit at 390px: ${JSON.stringify(cardBox)}`);
+  await page.locator('[data-action="resume"]').click();
+  await page.waitForFunction(() => window.__game.userPaused === false);
+
   await page.setViewportSize({ width: 320, height: 844 });
-  const compact = await badge.boundingBox();
-  assert.ok(compact && compact.x >= 0 && compact.x + compact.width <= 320, 'contract must fit at 320px');
+  const compact = await ring.boundingBox();
+  assert.ok(compact && compact.x >= 0 && compact.x + compact.width <= 320, 'the Cafe button (and its goal ring) must fit at 320px');
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), '320px HUD must not overflow');
   await page.screenshot({ path: `${outDir}/05-contract-320.png`, fullPage: true });
-  await page.evaluate(() => { window.__game.dayStats.served = 24; window.__game.update(0); });
-  assert.match(await badge.getAttribute('class'), /celebrate/, 'completion must pulse');
-  assert.equal(await badge.getAttribute('aria-valuenow'), '24');
+
+  await page.evaluate(() => { window.__game.dayStats.served = 24; window.__pauseMenu.update(); });
+  assert.equal(await page.evaluate(() => document.querySelector('.pause-btn').classList.contains('goal-celebrate')), true, 'completion must pulse the Cafe button');
+  assert.equal(await page.evaluate(() => document.querySelector('.pause-btn').classList.contains('goal-complete')), true);
   await page.evaluate(original => {
     const G = window.__game;
     G.goal = original.goal;
     Object.assign(G.dayStats, original.stats);
-    G.update(0);
+    window.__pauseMenu.update();
   }, contractFixture);
   await page.setViewportSize({ width: 390, height: 844 });
 
@@ -230,4 +270,5 @@ try {
   console.log(JSON.stringify(report));
 } finally {
   await browser.close();
+  if (server) await new Promise(resolve => server.close(resolve));
 }

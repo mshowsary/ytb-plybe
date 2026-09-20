@@ -7,6 +7,7 @@
 // the way to the cream supply. The rules are about BODIES: the guests' nav grid for guests, the
 // owner-body grid (sim/ownerReach.js, the owner's own collision boxes and room shape) for the owner.
 import test from 'node:test';
+import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { AREA1 } from '../data/area1.js';
 import { createWorld, payZone } from '../src/sim/world.js';
@@ -115,4 +116,22 @@ test('the garden\'s arch opens the street margin only once the garden is built, 
   assert.equal(isFree(after.grid, cell(after, spawn.x, 9.5), 3), false);
   assert.ok(regionAt(AREA1, door.x, door.z), 'the door point is on the deck');
   assert.equal(regionAt(AREA1, spawn.x, spawn.z), null, 'the spawn point is on the street');
+});
+
+test('the stand\'s coins fly out of the jar the player can see, not out of the owner\'s feet', async () => {
+  // st.cash is where the OWNER stands to sweep the jar — behind the counter, 1.7 m from the jar
+  // itself, which is drawn on the counter's end (systems/registerCash.js). The arc used to start
+  // there, so the money appeared to come out of the floor the player was standing on.
+  const { cashVisualSpot } = await import('../src/systems/registerCash.js');
+  const w = allBuilt();
+  const stand = w.stations.get('barIce');
+  const jar = cashVisualSpot(stand);
+  assert.ok(jar, 'the stand has a drawn money spot');
+  assert.ok(Math.hypot(jar.x - stand.x, jar.z - stand.z) < 1.3, 'the jar sits on the counter itself');
+  assert.ok(jar.y > 0.9, 'and on its top, not on the floor');
+  const seat = w.stations.get('seat7');
+  const saucer = cashVisualSpot(seat);
+  assert.ok(Math.hypot(saucer.x - seat.x, saucer.z - seat.z) < 0.6, 'a table tip sits on the table');
+  const src = fs.readFileSync(new URL('../src/systems/stations.js', import.meta.url), 'utf8');
+  assert.match(src, /fx\.coinArc\(vs\.x/, 'and the arc starts there');
 });

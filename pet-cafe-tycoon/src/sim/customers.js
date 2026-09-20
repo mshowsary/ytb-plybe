@@ -304,10 +304,14 @@ function queuePos(st, slot) {
 // currently labelled 'cookie' is still the right target for a 'brownie' wish (and vice versa),
 // since world.js's putOnDisplay/stepOvens flip a family display's live st.product to whichever
 // member is actually on the shelf right now.
-function pickDisplay(w, wish) {
+// ...and in the guest's own room, for the same reason the settle-for target below is: today no wish
+// generator crosses rooms (a café guest is never offered ice cream), so this only makes the rule
+// explicit where a future menu change would otherwise walk a guest through the gate.
+function pickDisplay(w, wish, c) {
   const fam = familyOf(wish.product);
   for (const id of w.displays) {
     const st = w.stations.get(id);
+    if (c && !sameRoom(w, st, c)) continue;
     if (familyOf(st.product) === fam) return st;
   }
   return null;
@@ -316,10 +320,15 @@ function pickDisplay(w, wish) {
 // that's currently stocked — a customer stuck at an empty display has nothing else to switch to
 // AT that same display any more (it only ever holds its own product), so settling now means
 // walking to a different, stocked display instead.
-function anyStockedDisplay(w, excludeProduct) {
+// It settles for a counter IN ITS OWN ROOM. Without that filter this was the one selector in the
+// file that could hand a café guest the garden's stand — which is exactly what happened whenever
+// the kitchen ran dry while the stand was stocked: the guest crossed gate1, queued outside, and
+// banked a café sale into the garden's jar.
+function anyStockedDisplay(w, excludeProduct, c) {
   const excludeFam = familyOf(excludeProduct);
   for (const id of w.displays) {
     const st = w.stations.get(id);
+    if (!sameRoom(w, st, c)) continue;
     if (familyOf(st.product) !== excludeFam && st.stock > 0) return st;
   }
   return null;
@@ -624,7 +633,7 @@ export function stepCustomers(list, w, price, dt) {
         const doorSpot = laneSpot(doorPt, c._doorSlot, -1);
         if (walkTo(c, doorSpot.x, doorSpot.z, w, dt)) {
           releaseSlot(w, pool, c._doorSlot); c._doorSlot = null;
-          const ct = pickDisplay(w, c.wish);
+          const ct = pickDisplay(w, c.wish, c);
           if (!ct) { c.state = 'leave'; break; }
           c.counterId = ct.id; c.arrived = w.seq = (w.seq || 0) + 1; c.state = 'queue';
           setPatience(w, c, PATIENCE); c.mood = 'none';
@@ -674,7 +683,7 @@ export function stepCustomers(list, w, price, dt) {
             // product — there is no "same counter, different item" any more) and walk there.
             // A garden guest has one counter on its menu, so it waits out its patience there.
             if (!c._settled && !c.terraceBound) {
-              const alt = (PATIENCE - c.patience) >= SETTLE_WAIT ? anyStockedDisplay(w, c.wish.product) : null;
+              const alt = (PATIENCE - c.patience) >= SETTLE_WAIT ? anyStockedDisplay(w, c.wish.product, c) : null;
               if (alt) {
                 c._settled = true;
                 const from = c.wish.product, to = alt.product;

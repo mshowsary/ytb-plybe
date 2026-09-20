@@ -26,6 +26,15 @@ function placement(st) {
   return { x: st.x + lx * c + lz * s, y: st.type === 'seat' ? SEAT_TOP_Y : STAND_TOP_Y, z: st.z - lx * s + lz * c, scale };
 }
 
+// Where the money a station holds is DRAWN, for anything that has to aim at it. The collect spot
+// (sim/world.js st.cash) is where the OWNER stands, which for the garden stand is 1.7 m away behind
+// the counter: a coin arc from there flew up out of the owner's own feet instead of out of the jar.
+export function cashVisualSpot(st) {
+  if (!st) return null;
+  const at = placement(st);
+  return { x: at.x, y: at.y, z: at.z };
+}
+
 function makeRegisterStack(st) {
   const group = new THREE.Group();
   group.name = 'registerCash';   // sits ON the till by design; named so audits can tell it from a clip

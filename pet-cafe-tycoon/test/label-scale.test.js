@@ -42,7 +42,7 @@ const worldPerPixel = (w, h) => 2 * cameraDistance(w / h) * TAN_HALF / h;
 
 test('every projected label class is registered with the arbiter', () => {
   // The registry is the ANCHORS table; MANAGED (and therefore `layout.managed`) is derived from it.
-  for (const cls of ['.wish', '.patience', '.demand', '.chalk', '.objCaption', '.zlabel', '.zprice', '.fbtn', '.polaroid', '.pet-identity']) {
+  for (const cls of ['.wish', '.patience', '.demand', '.chalk', '.objCaption', '.zlabel', '.zprice', '.fbtn', '.pet-identity']) {
     assert.match(
       SRC,
       new RegExp(`^\\s*\\['${cls.replace('.', '\\.')}',`, 'm'),
@@ -164,7 +164,7 @@ test('the action button stays under the solver but out of the scale rule', () =>
   assert.match(SRC, /^\s*\['\.fbtn', 0\.5, 0\.5\],/m, '.fbtn is still registered in ANCHORS (so MANAGED/solved)');
   assert.match(SRC, /^\s*\['\.fbtn', 100\],/m, 'and still outranks every label');
   assert.match(SRC, /:is\(\$\{LABEL_SCALED\.join\(','\)\}\)\{scale:var\(--label-scale,1\)\}/, 'the injected CSS scales LABEL_SCALED only');
-  for (const cls of ['.wish', '.patience', '.demand', '.chalk', '.objCaption', '.zlabel', '.zprice', '.polaroid', '.pet-identity']) {
+  for (const cls of ['.wish', '.patience', '.demand', '.chalk', '.objCaption', '.zlabel', '.zprice', '.pet-identity']) {
     assert.ok(LABEL_SCALED.includes(cls), `${cls} keeps the character-relative scale`);
   }
 });

@@ -40,7 +40,6 @@ const ANCHORS = [
   ['.zlabel', 0.5, 0.5],
   ['.zprice', 0.5, 0.5],
   ['.fbtn', 0.5, 0.5],
-  ['.polaroid', 0.5, 1.0],
   // Same anchor as a wish bubble: the tag hangs above the pet it names.
   ['.pet-identity', 0.5, 1.0],
 ];
@@ -67,7 +66,6 @@ const PRIORITY = [
   ['.pet-identity.regular-greeting', 72],
   // The developed photo, on its way to the Pet Book button. Ranked with .zprice: it is a reward
   // readout the player should not lose, but it must yield to a wish bubble and to any tap target.
-  ['.polaroid', 60],
   ['.zprice', 60],
   ['.zlabel', 58],
   ['.demand', 55],
@@ -85,9 +83,11 @@ const PRIORITY = [
 const HIDEABLE = new Set(['.chalk', '.demand', '.pet-identity']);
 
 // HUD furniture that world labels must not sit under. Measured live so it tracks content changes.
-const HUD_KEEPOUT = '#resourceBar,#wallet,#crowd,#dayPill,#goalPill,#hint,#banner,#handsFull,#followers,.meta-reputation,'
-  + '.meta-pawbook,.contractBadge,.skipPill,#joy,.pause-btn,.rewards-cal-btn,.meta-toast,'
-  + '.coach-caption,.friendship-toast,.golden-indicator,.toast,.build-intent-progress';
+// Every permanent HUD node the play field must keep out of. Pared back to the ones that exist:
+// the calm HUD is a wallet, a collection chip and the Café button, and the one moment queue draws
+// through #banner and .toast (ui/moments.js).
+const HUD_KEEPOUT = '#wallet,#banner,.meta-pawbook,.contractBadge,#joy,.pause-btn,'
+  + '.coach-caption,.toast,.build-intent-progress';
 
 const MANAGED = ANCHORS.map(a => a[0]).join(',');
 // Tap targets are solved like every other label (placed first, never nudged or hidden) but never

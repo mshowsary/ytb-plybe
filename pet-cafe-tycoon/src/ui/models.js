@@ -56,9 +56,12 @@ function roleLock(G, world, kind, count) {
     return null;
   }
   if (kind === 'photographer') {
-    const booth = world.stations.get('photo1');
-    if (booth && booth.active) return null;
-    const zone = zoneAdding(world, 'photo1');
+    // The camera, not the old booth: z_photo hangs photoWall1 in the café and photos happen at the
+    // tables (src/sim/petPose.js). Pointing this at the deleted photo1 made roleLock answer
+    // 'hidden' for ever, so the row never appeared and the role could not be hired at all.
+    const camera = world.stations.get('photoWall1');
+    if (camera && camera.active) return null;
+    const zone = zoneAdding(world, 'photoWall1');
     return zone ? { kind: 'zone', zoneId: zone.id } : { kind: 'hidden' };
   }
   return null;

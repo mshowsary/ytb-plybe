@@ -26,14 +26,7 @@ import * as THREE from 'three';
 import { carryCap, familyOf } from '../sim/economy.js';
 import { pantryFor, supplyLevel } from '../sim/supplies.js';
 import { beanIcon, kibbleIcon, sackIcon, coffeeIcon, treatIcon } from './icons.js';
-// Batch 1 (task E1): the ice cream lane's coach lesson needs a cream glyph. Agent D owns icons.js
-// and is landing `creamIcon` in this same batch — a namespace import (unlike a named one) never
-// fails to LINK if the export isn't there yet at whatever moment this file runs, it just reads back
-// `undefined`, so this file works whether it runs before or after that lands. sackIcon is the
-// fallback both before it lands and for any future supply that never gets its own glyph.
-import * as ICONS_NS from './icons.js';
 import { isModalOpen } from './modal.js';
-const creamIcon = () => (typeof ICONS_NS.creamIcon === 'function' ? ICONS_NS.creamIcon() : sackIcon());
 import {
   MECHANIC_LEARNING_VERSION,
   REFRESH_AFTER_FAILURES,
@@ -73,27 +66,15 @@ export const CLOSING_GRACE_METERS = 4;
 // REFILLS_TO_MASTER and REFILL_LESSON_KEYS are re-exported above from sim/mechanicLearning.js, which
 // is where the save boundary bounds them too: one definition, one bound, both sides agreeing.
 
-// Batch 1 (task E1): icecream mirrors coffee exactly (cream instead of beans — same shape as
-// world.js's ALT_PRODUCT/stepMachines contract), so it only needs one more entry per map, not a
-// parallel code path. 'refillIce' is a NEW mechanic id that src/sim/mechanicLearning.js's frozen
-// MECHANIC_IDS/REFILL_LESSON_KEYS whitelist does not know (that file belongs to another task this
-// batch, and the hard rule is edit only files listed as mine) — see the `mark`/`recordFailure`
-// notes below for exactly how this file works around that without touching it.
-// Which machine drinks which supply, and how full it is, both come from src/sim/supplies.js now —
-// this file used to keep its own copy, and its fallback ("anything else, read st.stock") misread
-// any machine that keeps its consumable in a differently named field (the ice cream machine's
-// st.cream). Only the KEY and LABEL maps below are the coach's own, because they are
-// presentation. The blender is deliberately absent: its fruit comes off the bushes rather than out
-// of a pantry, so the two-step "fetch it from the pantry, then pour it in" lesson does not describe
-// it, and the harvest job plus the carry guidance already walk that errand end to end.
-const REFILL_SUPPLY = Object.freeze({ coffee: 'beans', bowl: 'kibble', icecream: 'cream' });
-const REFILL_KEY_BY_TYPE = Object.freeze({ coffee: 'refillCoffee', bowl: 'refillBowl', icecream: 'refillIce' });
-const REFILL_KEY_BY_SUPPLY = Object.freeze({ beans: 'refillCoffee', kibble: 'refillBowl', cream: 'refillIce' });
-const REFILL_LABEL = Object.freeze({ coffee: 'COFFEE', bowl: 'PET TREATS', icecream: 'ICE CREAM' });
+// The two supplies a machine can run dry of, and the lesson each one teaches. The ice cream machine
+// is not here on purpose: it makes cones out of nothing (docs/SHIP-PLAN-2026-09-19.md §1.2), so it
+// can never be starved and never has anything to teach.
+const REFILL_SUPPLY = Object.freeze({ coffee: 'beans', bowl: 'kibble' });
+const REFILL_KEY_BY_TYPE = Object.freeze({ coffee: 'refillCoffee', bowl: 'refillBowl' });
+const REFILL_KEY_BY_SUPPLY = Object.freeze({ beans: 'refillCoffee', kibble: 'refillBowl' });
+const REFILL_LABEL = Object.freeze({ coffee: 'COFFEE', bowl: 'PET TREATS' });
 // Every refill lesson this file knows about, whether or not mechanicLearning.js's whitelist does.
-// refillIce is coach-local: it generalises from mastery and is never written into the saved
-// `proven` payload, so the save schema is untouched.
-export const ALL_REFILL_KEYS = Object.freeze([...REFILL_LESSON_KEYS, 'refillIce']);
+export const ALL_REFILL_KEYS = Object.freeze([...REFILL_LESSON_KEYS]);
 
 const refillStationLevel = supplyLevel;
 
@@ -285,19 +266,12 @@ export function createRefillProgress() {
     hasSack(key) { return sacks.has(`${key}:sack`); },
     sackKeys() { return [...sacks].sort(); },
     // "Two successful refills of any supply mark all refill lessons proven" (plan 3.2's coach note)
-    // generalises to every supply this file knows, ice cream included.
     masteredKeys() { return refills >= REFILLS_TO_MASTER ? [...ALL_REFILL_KEYS] : []; },
     snapshot() { return { sack: [...sacks].sort(), refills }; },
     restore(raw) {
       sacks.clear(); levels.clear();
       refills = 0; lastSack = null; lastSackLeft = 0; primed = false;
       // The same bounding the save boundary applies, so a hand-edited payload buys nothing here.
-      // NOTE: normalizeRefillProgress's SACK_MARKS whitelist (src/sim/mechanicLearning.js) only
-      // knows REFILL_LESSON_KEYS (refillCoffee/refillBowl) — that file is owned by another task
-      // this batch, so a `refillIce:sack` half-credit mark does not survive a real save/reload
-      // round trip yet (see snapshotLearning/restoreLearning below for the same limit on mastery
-      // itself). In-session play is unaffected: this object's own live `sacks`/`refills` state
-      // credits ice refills exactly like beans/kibble the whole time the game stays open.
       const half = normalizeRefillProgress(raw);
       for (const entry of half.sack) sacks.add(entry);
       refills = half.refills;
@@ -399,30 +373,9 @@ export function createCoachModeGate({ hold = MODE_HOLD_SECONDS, fade = MODE_FADE
   };
 }
 
-// A pantry "supports" a supply if its DATA says so explicitly (coldPantry1's `supplies: ['cream']`,
-// data/area1.js) or, for the original interior pantry with no `supplies` field at all, if the
-// supply is one of the two classic ones. Batch 1 (task E1): coldPantry1 stocks cream only, so
-// picking the FIRST active pantry (the old contract) would route a thirsty ice cream refill to the
-// wrong building entirely.
-//
-// Reads `G.world.area.stations` (the original authored data, kept on the sim world as `.area`)
-// rather than the runtime station object: createWorld (src/sim/world.js, not owned by this task)
-// copies only a fixed field list onto each runtime station and `supplies` is not among them, so
-// `st.supplies` is always undefined at runtime no matter what data/area1.js says (verified against
-// the real AREA1 data — see test/bot-decide-icecream.test.js's botDecide.js-side coverage of the
-// identical gap). Rather than touch world.js, this reads the one place the real data still lives.
-// The rule for which pantry hands out which supply lives in src/sim/supplies.js, beside the supply
-// table itself, so the coach, the bot and the objective arrow cannot drift apart about it. `strict`
-// keeps this function's original contract: asked for a specific supply, it answers null rather than
-// pointing the hand at a pantry that does not stock it.
-function pantryStation(G, supply = null) {
-  if (!G?.world) return null;
-  return supply ? pantryFor(G.world, supply, true) : pantryFor(G.world, null);
-}
-
-// Structural lookup only: each pantry choice button carries its own supply id in `data-supply`
-// (src/ui/sheets.js renderPantry), so this reads that instead of trusting a fixed button count/
-// order. That makes it correct for a pantry sheet with ONE choice (coldPantry1 offers cream only)
+// A pantry "supports" a supply if its DATA says so explicitly (`supplies: [...]`), and otherwise
+// if the supply is one of the two the café runs on. Keeping the data rule means a future pantry that
+// stocks only one thing still routes correctly — that is how the (now cut) cold pantry worked.
 // exactly as much as for one with two (or, once agent D's third row lands on the interior pantry
 // sheet, three) — no English title or button copy participates in mechanic recognition either way,
 // so localization cannot change Task-29 learning.
@@ -442,8 +395,6 @@ function holdTarget(G, suppressed) {
     let key = null, y = 1.15;
     if (st.type === 'coffee' && !suppressed.has('refillCoffee') && G.carry.sack === 'beans' && G.carry.sackLeft > 0 && st.beans < 20) {
       key = 'refillCoffee'; y = 1.3;
-    } else if (st.type === 'icecream' && !suppressed.has('refillIce') && G.carry.sack === 'cream' && G.carry.sackLeft > 0 && st.cream < 20) {
-      key = 'refillIce'; y = 1.3;
     } else if (st.type === 'blender' && !suppressed.has('blend') && G.carry.fruit > 0 && st.fruit < 9) {
       key = 'blend'; y = 1.25;
     } else if (st.type === 'bowl' && !suppressed.has('refillBowl') && G.carry.sack === 'kibble' && G.carry.sackLeft > 0 && st.stock < st.capacity) {
@@ -463,7 +414,6 @@ function snapshotHold(G, target) {
   if (!st) return null;
   return {
     beans: st.beans || 0,
-    cream: st.cream || 0,
     machineFruit: st.fruit || 0,
     stock: st.stock || 0,
     stage: st.stage || 0,
@@ -475,7 +425,6 @@ function holdCompleted(G, target, snap) {
   if (!target || !snap) return false;
   const st = G.world.stations.get(target.stationId); if (!st) return false;
   if (target.key === 'refillCoffee') return (st.beans || 0) > snap.beans || (G.carry.sackLeft || 0) < snap.sackLeft;
-  if (target.key === 'refillIce') return (st.cream || 0) > snap.cream || (G.carry.sackLeft || 0) < snap.sackLeft;
   if (target.key === 'blend') return (st.fruit || 0) > snap.machineFruit || (G.carry.fruit || 0) < snap.fruit;
   if (target.key === 'refillBowl') return (st.stock || 0) > snap.stock || (G.carry.sackLeft || 0) < snap.sackLeft;
   if (target.key === 'harvest') return (st.stage || 0) < snap.stage || (G.carry.fruit || 0) > snap.fruit;
@@ -524,7 +473,7 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
     return out;
   }
   function recordFailure(key) {
-    if ((!mechanicIsKnown(key) && !isRefillIceKey(key)) || !proven.has(key)) return 0;
+    if (!mechanicIsKnown(key) || !proven.has(key)) return 0;
     const n = Math.min(REFRESH_AFTER_FAILURES, (failures.get(key) || 0) + 1);
     failures.set(key, n);
     return n;
@@ -538,8 +487,8 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
     root.classList.toggle('has-caption', !!iconHtml);
   }
   // Route hints name one of five things. Each has a glyph already drawn in ui/icons.js.
-  const SUPPLY_ICON = { beans: beanIcon, kibble: kibbleIcon, cream: creamIcon };
-  const STATION_ICON = { COFFEE: coffeeIcon, 'PET TREATS': treatIcon, 'ICE CREAM': creamIcon };
+  const SUPPLY_ICON = { beans: beanIcon, kibble: kibbleIcon };
+  const STATION_ICON = { COFFEE: coffeeIcon, 'PET TREATS': treatIcon };
   const supplyIcon = supply => (SUPPLY_ICON[supply] || sackIcon)();
   const stationIcon = label => (STATION_ICON[label] || sackIcon)();
   function resetCandidate() {
@@ -559,13 +508,8 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
     if (G) G.coachCueVisible = true;
     root.classList.remove('hidden');
   }
-  // 'refillIce' is not in mechanicLearning.js's MECHANIC_IDS whitelist (that file is owned by
-  // another task this batch — see the ALL_REFILL_KEYS comment above), so `mechanicIsKnown` alone
-  // would silently refuse to ever mark it proven, leaving the lesson nagging forever. Recognise it
-  // here explicitly instead of touching that shared file.
-  function isRefillIceKey(key) { return key === 'refillIce'; }
   function mark(key) {
-    if (!key || (!mechanicIsKnown(key) && !isRefillIceKey(key))) return;
+    if (!key || !mechanicIsKnown(key)) return;
     proven.add(key); failures.delete(key); resetCandidate(); hide();
   }
   // The objective guidance (systems/objective.js) reads and writes the same proven set, so "the
@@ -576,21 +520,6 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
     G.markMechanic = key => { if (key && mechanicIsKnown(key)) proven.add(key); };
   }
 
-  function advanceCandidate(key, dt, distance = null) {
-    if (key !== candidateKey) {
-      candidateKey = key; candidateT = 0; candidateDistance = distance;
-      activeHold = null; activeHoldSnap = null;
-      return 'natural';
-    }
-    if (progressResetHides(distance, candidateDistance)) {
-      candidateT = 0; candidateDistance = distance;
-      hide();
-      return 'natural';
-    }
-    candidateT += Math.max(0, dt);
-    if (distance != null && (candidateDistance == null || distance < candidateDistance)) candidateDistance = distance;
-    return coachEscalationStage(candidateT, reducedMotion());
-  }
 
   // Install before platform restore. Cloud load validation now preserves the same canonical learning
   // payload through sim/save.js, so this wrapper round-trips through both live snapshots and host IO.
@@ -648,8 +577,7 @@ export function createInteractionCoach(G = null, S = null, layout = null) {
         // The animated hold-dots above the puck already say "hold"; the caption only needs to say
         // WHAT is being refilled. A plain stay-put hold needs no caption at all.
         setCaption(candidateT >= 1.5
-          ? (hold.key === 'refillCoffee' ? beanIcon() : hold.key === 'refillBowl' ? kibbleIcon()
-            : hold.key === 'refillIce' ? creamIcon() : '')
+          ? (hold.key === 'refillCoffee' ? beanIcon() : hold.key === 'refillBowl' ? kibbleIcon() : '')
           : '');
         reveal(hold.key, candidateT >= 8 && candidateT < 9.5 ? 'demo' : 'static'); return true;
       },

@@ -183,11 +183,10 @@ test('the Photographer spawns at HIRE_SPAWN in the game and in the bot, never on
   assert.doesNotMatch(bot, /photoDesk1|PHOTOGRAPHER_FALLBACK/);
 });
 
-test('the Workers sheet lists no Photographer before the Pet camera is bought', async () => {
-  // The positive half of this rule — the row APPEARS once the camera is bought — lives in
-  // src/ui/models.js, which still gates on the deleted photo1 station and is owned by another lane
-  // this batch. That one-line change is listed in this batch's wiringNeeded; until it lands the row
-  // is never offered, so asserting it here would be asserting something that is not true yet.
+test('the Workers sheet lists the Photographer once the Pet camera is bought, and not before', async () => {
+  // Both halves. The positive one is here because the merge shipped a roleLock still asking for the
+  // deleted photo1 booth: it answered 'hidden' for ever, buildWorkerRows skips a hidden lock, and the
+  // role became unhireable while the bot went on buying it — a whole staff role with no door.
   const { buildKioskModel } = await import('../src/ui/models.js');
   const G = {
     coins: 999999, up: {}, staff: { runner: 0, cashier: 0, cleaner: 0, barista: 0, photographer: 0 },
@@ -199,4 +198,13 @@ test('the Workers sheet lists no Photographer before the Pet camera is bought', 
   const before = buildKioskModel(G, early, 'workers').workers.map(r => r.kind);
   assert.equal(before.includes('photographer'), false, 'no row for a role with nothing to do yet');
   assert.ok(before.includes('runner'), 'the other roles are listed as before');
+
+  const late = createWorld(AREA1, {}, 6);
+  buildThrough(late, 'z_photo');
+  assert.ok(late.stations.get('photoWall1').active, 'the camera is up');
+  const rows = buildKioskModel(G, late, 'workers').workers;
+  const row = rows.find(r => r.kind === 'photographer');
+  assert.ok(row, 'the Photographer can be hired once the camera exists');
+  assert.equal(row.hireCost, 3200);
+  assert.equal(row.lock, undefined, 'and is offered, not locked behind a teaser');
 });

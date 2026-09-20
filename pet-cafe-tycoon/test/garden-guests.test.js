@@ -240,3 +240,35 @@ test('the ice cream machine makes cones with no supply, and the stand\'s jar sur
   assert.ok(restoreStationState(w3, old));
   assert.equal(w3.stations.get('icecream1').stock, 4);
 });
+
+test('a café guest with an empty kitchen settles for another café counter, never for the stand', () => {
+  // The merge shipped one selector without the room filter: anyStockedDisplay, the "stuck 6 s at an
+  // empty counter, take something else" rule. With the kitchen dry and the stand stocked — the normal
+  // state while the owner works outside — it handed a café guest barIce, and the guest walked out
+  // through gate1, queued on the deck and paid a café sale into the garden's jar. The garden tests
+  // above could not see it, because they refill every counter every frame.
+  const w = allBuilt();
+  w.dayState = { day: 15, t: 10, phase: 'morning' };
+  const stand = w.stations.get('barIce');
+  const c = createCustomer(1, 'cat', 0, AREA1);
+  assert.equal(c.terraceBound, false);
+  const list = [c];
+  let onDeckSamples = 0, wentToStand = false;
+  const counters = new Set();
+  for (let t = 0; t < 120; t += DT) {
+    for (const id of w.displays) {            // the kitchen is dry; only the stand has stock
+      const st = w.stations.get(id);
+      st.stock = st.id === 'barIce' ? st.capacity : 0;
+    }
+    stand.stock = stand.capacity;
+    stepCustomers(list, w, price, DT);
+    if (c.counter) counters.add(c.counter);
+    if (c.counter === 'barIce') wentToStand = true;
+    if (onDeck(c)) onDeckSamples++;
+    if (c.done) break;
+  }
+  assert.equal(wentToStand, false, 'the stand is not on a café guest\'s menu, however hungry the café is');
+  assert.equal(onDeckSamples, 0, 'and it never crosses the gate');
+  assert.equal(stand.pile | 0, 0, 'so nothing of the café\'s lands in the garden jar');
+  for (const id of counters) assert.equal(garden(w, w.stations.get(id)), false, `${id} is a café counter`);
+});

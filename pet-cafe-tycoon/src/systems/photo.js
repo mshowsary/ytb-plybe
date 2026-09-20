@@ -26,10 +26,7 @@ export function poseForSpecies(species) { return SPECIES_POSE[species] || 'loaf'
 // the time and shows itself by dropping `hidden` (src/ui/meta.js, pawSheet.js, cafeJournal.js and
 // friends), so they cannot be detected through ui/sheets.js's own isOpen — which covers only the
 // bottom sheets and the day-summary card.
-const OVERLAY_ROOTS = [
-  '.meta-book-root:not(.hidden)', '.paw-root:not(.hidden)', '.career-root:not(.hidden)',
-  '.party-root:not(.hidden)', '.social-root:not(.hidden)',
-].join(',');
+const OVERLAY_ROOTS = ['.meta-book-root:not(.hidden)', '.paw-root:not(.hidden)'].join(',');
 
 export function createPhotoStudio(G, S, ctx) {
   const { world, fx, els, sheets, P } = ctx;
@@ -120,6 +117,8 @@ export function createPhotoStudio(G, S, ctx) {
       // The rewarded Golden Shot doubles photo tips for the rest of the shift
       // (systems/rewardsSystem.js). The tip becomes coins on the table, inside the sim, so the
       // multiplier has to reach the sim: it rides on the world like dayState/stars already do.
+      // No offer writes G.goldenShotMult since the hidden ad chips went; the multiplier reads 1
+      // until the ad batch gives photo tips a boost of their own again.
       world.photoTipMult = G.goldenShotMult || 1;
       // The owner came to take the picture. Proximity IS the interaction — there is no button, no
       // station to stand at and nothing to tap first; the ring appears and the shot is the timing.

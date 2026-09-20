@@ -163,6 +163,7 @@ test('the pocket check runs on every build, and the headless walk moves by the p
   assert.match(zones, /ownerPocketRescue\(area, world\.built, ownerBodyBoxes\(world\), P\)/);
   const stations = fs.readFileSync(new URL('../src/systems/stations.js', import.meta.url), 'utf8');
   assert.match(stations, /bodyBoxes = ownerBodyBoxes\(world\);/);
-  assert.match(stations, /const BODY_R = OWNER_BODY_R;/);
+  assert.match(stations, /import \{[^}]*OWNER_BODY_R[^}]*\} from '\.\.\/sim\/ownerReach\.js';/);
+  assert.doesNotMatch(stations, /const BODY_R = 0\.46/, 'no private copy of the body radius');
   assert.match(stations, /moveOwnerBody\(P, P\.x \+ P\.vx \* dt, P\.z \+ P\.vz \* dt, playerBoxes\(\), area, world\.built\)/);
 });
