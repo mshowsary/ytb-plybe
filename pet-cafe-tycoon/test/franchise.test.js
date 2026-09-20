@@ -362,17 +362,20 @@ test('the offer preview reports the branch the player would actually get', () =>
 
 // ---- a bug this feature UNCOVERED, outside its own files ------------------------------------------
 // saveSchema's decor normalisation is documented as two passes: pass 1 "zone gate only", pass 2 the
-// star gate once pawBest is known. But pass 1 calls decorUnlocked(item, builtSet) with `bestStar`
-// left at its default 0, so the STAR gate is applied there too — with a rating of zero. Every
-// ★-gated decoration a player owns (data/decor.js's 130-900 coin star sets) is therefore dropped
-// from the save on EVERY load, franchise or not, and the +1 reputation each one holds goes with it.
-//
-// Marked `todo` rather than asserted, because the fix belongs to whoever owns that normaliser:
-// pass PAW_MAX_STAR (or skip the star check) in pass 1 and let pass 2 apply the real rating, which
-// is exactly what the comment above it already says it does.
-test('★-gated decor survives a reload at all (pre-existing pass-1 bug)', { todo: true }, () => {
+// star gate once pawBest is known — and pass 1 no longer applies a star gate of its own. It used to
+// call decorUnlocked(item, builtSet) with `bestStar` at its default 0, so every ★-gated decoration a
+// player owned (data/decor.js's 130-900 coin star sets) was dropped from the save on EVERY load,
+// franchise or not, and the +1 reputation each one holds went with it. Pass 1 now passes the top
+// star (zone gate only) and pass 2 applies the real rating, which is what the comment above it
+// always said it did.
+test('★-gated decor survives a reload', () => {
   const owned = goldenCafe({ meta: { ...goldenCafe().meta, decor: ['d_star1_rug'] } });
   const canonical = normalizeSave(owned, AREA1);
   assert.equal(canonical.meta.pawBest, PAW_MAX_STAR);
   assert.deepEqual(canonical.meta.decor, ['d_star1_rug']);
+
+  // ...and a rating that never earned the set still does not keep it: the star gate moved, it did
+  // not go. A hand-edited save claiming a ★1 rug at no stars loses the rug.
+  const unearned = goldenCafe({ meta: { ...goldenCafe().meta, decor: ['d_star1_rug'], pawBest: 0, pawStars: [] } });
+  assert.deepEqual(normalizeSave(unearned, AREA1).meta.decor, []);
 });

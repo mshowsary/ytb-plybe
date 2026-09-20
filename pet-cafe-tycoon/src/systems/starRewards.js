@@ -7,7 +7,11 @@
 //
 //   ★1  a cat moves in — the first EARNED resident, on top of the one the café opened with —
 //       and the awning changes colour.
-//   ★2  a décor set goes on sale in the Shop, and arrivals rise 10%.
+//   ★2  a décor set goes on sale in the Shop, arrivals rise 10% — and a Cleaner joins, free.
+//       The helper is not a garnish: measured over 60 days with the Pet Book actually filling, the
+//       arrivals bonus alone pushed guests who gave up on a table from 0.011 to 0.031 per guest,
+//       three times past the quiet gate, because more guests meet the same four tables. A star that
+//       brings custom has to bring the hands to turn the tables over with it.
 //   ★3  legendary pets start visiting, and café theme 1 goes on sale.
 //   ★4  one more resident slot, and themes 2-5 go on sale.
 //   ★5  the Golden Paw ceremony (systems/goldenPaw.js watches the rating itself and runs it during
@@ -27,6 +31,7 @@
 // The resident it admits walks in on its own the next morning: systems/residentPets.js reconciles
 // its on-screen roster against meta.residents at the day tick, exactly as it does for a Bestie.
 import { admitResident, reconcileResidents, currentResidentStars } from './residentPets.js';
+import { WORKER_UPGRADES } from '../sim/economyConfig.js';
 import { PET_PROFILES, PET_SPECIES, petKey } from '../sim/petBook.js';
 import { PAW_MAX_STAR } from '../sim/pawRating.js';
 
@@ -42,6 +47,19 @@ function fallbackResidentKeys() {
     for (let variant = 0; variant < PET_PROFILES[species].length - 1; variant++) out.push(petKey(species, variant));
   }
   return out;
+}
+
+// The star that raises arrivals (sim/pawRating.js PAW_ARRIVAL_STAR) also hires the café's first
+// Cleaner. If one is already on the payroll the gift is a level on that ladder instead, so the
+// reward is never nothing — and never a second body the player did not ask for.
+export const PAW_HELPER_STAR = 2;
+export function grantHelper(G) {
+  if (!G || !G.staff) return null;
+  if ((G.staff.cleaner | 0) <= 0) { G.staff.cleaner = 1; return 'cleaner'; }
+  const levels = G.staffLevels && G.staffLevels.cleaner;
+  const cap = (WORKER_UPGRADES.speed || []).length;   // the authored ladder, not the endless tail
+  if (levels && (levels.speed | 0) < cap) { levels.speed = (levels.speed | 0) + 1; return 'cleanerSpeed'; }
+  return null;
 }
 
 /** The key a star should admit, given who already lives here. null when everyone authored is in. */
@@ -73,7 +91,8 @@ export function applyStarRewards(G, gained) {
     const resident = key && admitResident(meta, key, stars) ? key : null;
     // ...and ★4's extra slot may also let an already-earned Bestie in who had nowhere to sit.
     reconcileResidents(meta, stars);
-    out.push({ star, resident, slots: stars, ceremony: star >= PAW_MAX_STAR });
+    const helper = star === PAW_HELPER_STAR ? grantHelper(G) : null;
+    out.push({ star, resident, slots: stars, helper, ceremony: star >= PAW_MAX_STAR });
   }
   return out;
 }

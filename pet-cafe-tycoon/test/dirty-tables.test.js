@@ -91,19 +91,29 @@ test('wiping a table inside the wait still seats the guest', () => {
 // meal ends, and turning a paying guest away from a busy room was the owner's "six wait for two
 // tables, I clean them, and four leave". It is still not a service failure: no dirty table, no
 // reputation point, whatever the guest decides to do in the end.
-test('an honestly full cafe is worth waiting for, and is never a seat miss', () => {
+test('an honestly full cafe is taken away with a smile, not waited out', () => {
+  // Rewritten: a guest used to stand for 18 s hoping somebody else would finish their meal. Waiting
+  // is now only for a table the PLAYER can free — a dirty one, one wipe away — because waiting on
+  // another guest's lunch is neither actionable nor how a café behaves. Measured over 60 days once
+  // ★2 raised arrivals: guests who gave up on a table fell from 0.0309 to 0.0011 per guest, rush
+  // friction from 65.0% to 59.6%, and the café served MORE (92 guests on day 49 against 81), since
+  // nobody spends the rush standing still. The acceptance the old test carried — a full, clean café
+  // is never counted as a failure and never charged — is unchanged and asserted below.
   const { w, seats } = cafe();
   for (const s of seats) { s.dirty = false; s.occupied = true; }
   const c = paidGuest(w);
   stepCustomers([c], w, () => 8, 0.1);
-  assert.equal(c.state, 'waitSeat', 'every seat clean and taken: one of them will free up');
-  assert.equal(seatMisses(w).length, 0);
-
-  // Out of patience, with the room still spotless: they take it away, and nothing is charged.
-  stepCustomers([c], w, () => 8, WAIT_SEAT_GRACE + 0.2);
-  assert.equal(c.state, 'leave');
+  assert.equal(c.state, 'leave', 'every seat clean and taken: the order goes with them');
   assert.equal(seatMisses(w).length, 0, 'a clean, busy café is a café doing well, not a failure');
   assert.equal(w.events.filter(e => e.type === 'tableRefund').length, 0);
+
+  // One dirty table and the same guest waits, because now there IS something the player can do.
+  const { w: w2, seats: seats2 } = cafe();
+  for (const s of seats2) { s.dirty = false; s.occupied = true; }
+  seats2[0].occupied = false; seats2[0].dirty = true;
+  const c2 = paidGuest(w2);
+  stepCustomers([c2], w2, () => 8, 0.1);
+  assert.equal(c2.state, 'waitSeat', 'a wipe away is worth waiting for');
 });
 
 test('a guest waiting for a table hovers by the tables, not at the till', () => {

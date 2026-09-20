@@ -852,11 +852,12 @@ export function stepCustomers(list, w, price, dt) {
       case 'waitSeat': {
         const seat=pickSeat(w, c);
         if(seat){seat.occupied=true;c.seat=seat;c.seatId=seat.id;c.state='toSeat';c.mover.hasTarget=false;break;}
-        // Keep waiting while ANY table could still come free — dirty (someone will wipe it) or
-        // occupied (that meal will end). It used to be dirtyTablesBlockingSeats, which needs a free
-        // DIRTY seat, so wiping the last two tables and letting two guests take them threw every
-        // other waiter out of the café. See seatsMightFree in sim/serviceQuality.js.
-        if(!seatsMightFree(w,st=>sameRoom(w,st,c))){c.state='leave';c.mover.hasTarget=false;break;}
+        // Once a guest has decided to wait, they wait out their own patience — the reason they
+        // started is never re-checked. Re-checking is what made wiping a table LOOK like an
+        // eviction: the player cleaned two tables, two guests sat, and every other waiter was told
+        // there was nothing left to hope for and walked out (the owner's day-18 report, and
+        // tools/seating-smoke.js's own subject). Deciding to wait is the part that needs a reason,
+        // and that lives in proceedToSeatOrLeave: a table the player can free.
         c.dirtyWait=(c.dirtyWait||0)+dt;
         if(c.waitSeatPoint)walkTo(c,c.waitSeatPoint.x,c.waitSeatPoint.z,w,dt);
         // Out of patience for a table? They take it away. They keep what they bought and the café

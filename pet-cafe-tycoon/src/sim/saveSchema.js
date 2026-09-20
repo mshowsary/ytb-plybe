@@ -347,7 +347,7 @@ function normalizePetFriendship(raw) {
 
 // Owned decor. Unknown ids vanish; duplicates collapse; the result is emitted in catalogue order
 // so re-validating an already canonical save produces a byte-identical array.
-function normalizeDecor(raw, builtSet = null) {
+function normalizeDecor(raw, builtSet = null, bestStar = PAW_MAX_STAR) {
   if (!Array.isArray(raw)) return [];
   const wanted = new Set();
   for (const id of raw.slice(0, 128)) if (typeof id === 'string' && DECOR_ID_SET.has(id)) wanted.add(id);
@@ -355,7 +355,13 @@ function normalizeDecor(raw, builtSet = null) {
   // normalizeStars (skips a station whose builtBy is not built). economy.buyDecor refuses to sell a
   // locked row, so a save that holds one is hand-edited -- and it must not keep the item OR the +1
   // reputation of headroom the item would otherwise buy below.
-  return DECOR_IDS.filter(id => wanted.has(id) && decorUnlocked(DECOR_BY_ID.get(id), builtSet));
+  //
+  // The STAR gate is not this pass's to apply. Pass 1 runs before the rating is known, and calling
+  // decorUnlocked with the default 0 threw away every ★-gated piece a player owned on EVERY load —
+  // the pre-existing bug test/franchise.test.js has carried as a TODO. Pass 1 therefore passes the
+  // top star (zone gate only); pass 2 below re-filters with the real pawBest, which is the star
+  // check that decides.
+  return DECOR_IDS.filter(id => wanted.has(id) && decorUnlocked(DECOR_BY_ID.get(id), builtSet, bestStar));
 }
 
 // Accessories bought in the retired spa's boutique: unknown ids vanish, duplicates collapse,
@@ -702,7 +708,10 @@ export function validateAndMigrateSave(raw, area = null) {
   // is what stops a legitimately bought decoration's reputation from being clamped away on reload;
   // it is still bounded, because the decor list itself was just validated against the catalogue.
   // Unversioned legacy saves without completedDays keep their historical reputation instead.
-  const reputation = hasCompletedDays ? Math.min(rawRep, completedDays * 3 + decorZoneGated.length) : rawRep;
+  // The decor term is finished in pass 2 (`reputation`, below): it must count the pieces this save
+  // actually KEEPS, and the star gate that decides that needs pawBest. Counting the zone-gated list
+  // here would hand a forged save one point of headroom per ★-gated piece it never earned.
+  const repCeiling = decorOwned => (hasCompletedDays ? Math.min(rawRep, completedDays * 3 + decorOwned) : rawRep);
   // (The lifetime reputation ENTITLEMENT that used to be derived here went with the reputation gate
   // on café themes -- Batch E1 re-gated them on a Café Star, which normalizeMeta clamps below.)
   const shiftRatings = normalizeShiftRatings(metaRaw.shiftRatings, Math.max(completedDays, day.dayState._ended ? day.dayState.day : 0));
@@ -774,6 +783,7 @@ export function validateAndMigrateSave(raw, area = null) {
   // café — the same gate the terrace rows have had since Batch 1.
   const decorOwned = branchCarryOver ? normalizeDecor(metaRaw.decor, carryOverZones) : decorZoneGated;
   const decor = decorOwned.filter(id => decorUnlocked(DECOR_BY_ID.get(id), branchCarryOver ? carryOverZones : buildState.builtSet, pawBest));
+  const reputation = repCeiling(decor.length);
   const normalized = {
     v: CURRENT_SAVE_VERSION,
     coins: clampInt(raw.coins, 0, SAVE_LIMITS.maxCoins, 0),

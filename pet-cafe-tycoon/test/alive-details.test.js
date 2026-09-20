@@ -48,15 +48,27 @@ test('a pet hops the moment it becomes happy, and only on the transition', () =>
 });
 
 test('and flicks its ears — as a head roll, because the ears are merged into the head', () => {
+  // Measured as AMPLITUDE, never against a fixed number or a second pet: every pet starts its idle
+  // clock at a random phase (render/pets.js `_t`), so the roll a settled head happens to be at
+  // depends on when it was born. What the flick is, is a swing much bigger than the idle sway; what
+  // settling is, is that swing being gone.
   const pet = createPet('cat', 1);
-  pet.update(1 / 60, false, 0);
-  const rest = pet.head.rotation.z;
+  pet._t = 0;                                       // every pet starts its idle clock at a random
+  pet.update(1 / 60, false, 0);                     // phase; pin it so the windows below are exact
+  const amplitude = frames => {
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < frames; i++) { pet.update(1 / 60, false); const z = pet.head.rotation.z; lo = Math.min(lo, z); hi = Math.max(hi, z); }
+    return hi - lo;
+  };
+  const idle = amplitude(60);
   pet.setMood('happy');
-  let swing = 0;
-  for (let i = 0; i < 40; i++) { pet.update(1 / 60, false); swing = Math.max(swing, Math.abs(pet.head.rotation.z - rest)); }
-  assert.ok(swing > 0.05, `the flick never happened (peak roll ${swing.toFixed(3)} rad)`);
-  for (let i = 0; i < 120; i++) pet.update(1 / 60, false);
-  assert.ok(Math.abs(pet.head.rotation.z) < 0.12, 'and it settles back into the idle sway');
+  const flick = amplitude(40);
+  assert.ok(flick > 0.05, `the flick never happened (peak-to-peak ${flick.toFixed(3)} rad)`);
+  assert.ok(flick > idle * 2, `the flick is bigger than the idle sway (${flick.toFixed(3)} vs ${idle.toFixed(3)} rad)`);
+  amplitude(120);                                   // let it decay
+  // What remains is the happy sway the mood keeps running (sin(_t*3)*0.08), not the flick.
+  const after = amplitude(60);
+  assert.ok(after < flick * 0.6, `and it settles back into the happy sway (${after.toFixed(3)} rad against a ${flick.toFixed(3)} rad flick)`);
 });
 
 test('a mood that is not happy moves nothing', () => {

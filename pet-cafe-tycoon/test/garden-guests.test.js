@@ -127,10 +127,12 @@ test('a long shift in both rooms: nobody but staff crosses the gate, and every g
 test('a café guest waiting for a table waits in the café, beside a café table, never in the gate apron', () => {
   const w = allBuilt();
   w.dayState = { day: 15, t: 10, phase: 'morning' };
-  // Every café table busy (worth waiting for), every garden table dirty and empty right by the gate.
+  // Every café table DIRTY (waiting is only ever for a table the player can wipe — see
+  // sim/serviceQuality.js seatsMightFree), and every garden table dirty and empty right by the gate,
+  // so the nearest wait spot of all is on the wrong side of the fence.
   for (const st of w.stations.values()) {
     if (st.type !== 'seat') continue;
-    if (garden(w, st)) { st.dirty = true; st.occupied = false; } else { st.occupied = true; st.dirty = false; }
+    st.dirty = true; st.occupied = false;
   }
   const [apron] = gateApron(AREA1);
   // Several guests paying at the till nearest the gate, so the nearest wait spots are contested.

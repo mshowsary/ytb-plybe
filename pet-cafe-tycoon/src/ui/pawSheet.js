@@ -26,7 +26,8 @@ import {
 import { decorSetForStar, DECOR_BY_ID } from '../../data/decor.js';
 import { RENOVATIONS } from '../sim/career.js';
 import { openModal, closeModal } from './modal.js';
-import { pawIcon, heartIcon, personIcon, sparkleIcon, checkIcon, starIcon, cafeIcon } from './icons.js';
+import { PAW_HELPER_STAR } from '../systems/starRewards.js';
+import { pawIcon, heartIcon, personIcon, sparkleIcon, checkIcon, starIcon, cafeIcon, broomIcon } from './icons.js';
 
 // ---- glyphs ---------------------------------------------------------------------------------
 // icons.js is not this task's file, so the kinds it has no glyph for are drawn here in its idiom
@@ -138,6 +139,8 @@ export function starRewards(star) {
   // The arrivals bonus lands once, at PAW_ARRIVAL_STAR — so only that star's row promises it.
   const out = [];
   if (s === PAW_ARRIVAL_STAR) out.push({ kind: 'guests', value: `+${Math.round(PAW_ARRIVAL_BONUS_PER_STAR * 100)}%` });
+  // The same star hires the Cleaner that keeps the extra guests in seats (systems/starRewards.js).
+  if (s === PAW_HELPER_STAR) out.push({ kind: 'helper' });
   if (pawAwningSetIndex(s) !== pawAwningSetIndex(s - 1)) out.push({ kind: 'awning' });
   const set = decorSetForStar(s);
   if (set.length) out.push({ kind: 'decor', count: set.length, icon: (DECOR_BY_ID.get(set[0]) || {}).icon || '' });
@@ -157,7 +160,8 @@ export function themesUnlockedAt(star) {
   return RENOVATIONS.filter(r => (r.star | 0) === s).length;
 }
 const REWARD_ARIA = {
-  guests: r => `${r.value} more guests`, awning: () => 'a new awning', decor: r => `${r.count} new décor pieces`,
+  guests: r => `${r.value} more guests`, helper: () => 'a Cleaner joins the café',
+  awning: () => 'a new awning', decor: r => `${r.count} new décor pieces`,
   resident: r => (r.slot ? 'a pet moves in, and room for one more' : 'a pet moves in'),
   legendary: () => 'legendary pets start visiting',
   theme: r => (r.count === 1 ? 'a café makeover goes on sale' : `${r.count} café makeovers go on sale`),
@@ -165,6 +169,7 @@ const REWARD_ARIA = {
 };
 function rewardHtml(r) {
   if (r.kind === 'guests') return `<i>${personIcon()}</i><b>${r.value}</b>`;
+  if (r.kind === 'helper') return `<i>${personIcon()}</i><i>${broomIcon()}</i>`;
   if (r.kind === 'awning') return `<i>${cafeIcon()}</i>`;
   if (r.kind === 'decor') return `<i>${r.icon}</i><b>×${r.count}</b>`;
   if (r.kind === 'resident') return `<i>${heartIcon()}</i><i>${pawIcon()}</i>`;

@@ -127,3 +127,26 @@ test('the whole ladder lands through the real settlement path, in order, once ea
   assert.deepEqual(applyStarRewards(g, again.gained), []);
   assert.equal(meta.residents.length, 2, 'the opening cat plus exactly one earned resident');
 });
+
+test('the star that brings more guests also brings the hands to serve them', async () => {
+  // ★2 raises arrivals 10%. Measured over 60 days with the Pet Book filling, that alone tripled the
+  // guests who gave up on a table (0.011 -> 0.031 per guest, against a 0.02 gate): the same four
+  // tables, more custom. The star hires the café's first Cleaner with it, and gives a Cleaner speed
+  // level instead when one is already on the payroll, so the reward is never nothing.
+  const { applyStarRewards, grantHelper, PAW_HELPER_STAR } = await import('../src/systems/starRewards.js');
+  assert.equal(PAW_HELPER_STAR, 2);
+
+  const fresh = { meta: { residents: [], pawBest: 2 }, staff: { runner: 0, cashier: 0, cleaner: 0 }, staffLevels: { cleaner: { speed: 0 } } };
+  const out = applyStarRewards(fresh, [2]);
+  assert.equal(fresh.staff.cleaner, 1, 'a Cleaner joins');
+  assert.equal(out[0].helper, 'cleaner');
+
+  const staffed = { meta: { residents: [], pawBest: 2 }, staff: { runner: 0, cashier: 0, cleaner: 1 }, staffLevels: { cleaner: { speed: 0 } } };
+  assert.equal(grantHelper(staffed), 'cleanerSpeed');
+  assert.equal(staffed.staff.cleaner, 1, 'no second body nobody asked for');
+  assert.equal(staffed.staffLevels.cleaner.speed, 1);
+
+  const other = { meta: { residents: [], pawBest: 3 }, staff: { cleaner: 0 }, staffLevels: { cleaner: { speed: 0 } } };
+  applyStarRewards(other, [3]);
+  assert.equal(other.staff.cleaner, 0, 'only the arrivals star hires');
+});
