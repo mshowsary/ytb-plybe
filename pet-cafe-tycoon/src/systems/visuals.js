@@ -1,7 +1,7 @@
 // src/systems/visuals.js — builds a mesh per station, keeps physical stock props in sync, owns the
 // Task-31 glanceable stock truth, and runs Task-32's one-shot construction reveal.
 import * as THREE from 'three';
-import { ovenMesh, counterMesh, checkoutMesh, tableMesh, hireDeskMesh, bowlMesh, bushMesh, coffeeMesh, pantryMesh, blenderMesh, signParts, stationStarParts, fruitGardenMesh, itemGeoFor, cashPile, dirtyMesh, zoneRing, icecreamMesh, fountainMesh } from '../render/props.js';
+import { ovenMesh, counterMesh, checkoutMesh, tableMesh, hireDeskMesh, bowlMesh, bushMesh, coffeeMesh, pantryMesh, blenderMesh, signParts, stationStarParts, fruitGardenMesh, itemGeoFor, cashPile, dirtyMesh, zoneRing, icecreamMesh, fountainMesh, jukeboxMesh } from '../render/props.js';
 import { photoWallMesh } from '../render/photoWall.js';
 import { addParts, part, merge } from '../render/geo.js';
 import { C, toonMaterial } from '../render/palette.js';
@@ -85,7 +85,7 @@ function updateItemStack(stack, product, stock, dt, pop) {
 const MESH_FOR = {
   oven: ovenMesh, display: counterMesh, checkout: checkoutMesh, seat: tableMesh, hire: hireDeskMesh,
   bowl: bowlMesh, bush: bushMesh, coffee: coffeeMesh, pantry: pantryMesh, blender: blenderMesh,
-  icecream: icecreamMesh, decor: fountainMesh, wall: photoWallMesh,
+  icecream: icecreamMesh, decor: fountainMesh, wall: photoWallMesh, jukebox: jukeboxMesh,
   gate: () => new THREE.Group(),
 };
 // ── what a station says it is, without a word (ship plan §1.9) ──────────────────────────────────
@@ -361,7 +361,7 @@ const STATION_SHADOW_RADIUS = {
   // bowl was 0.3, sized for the pink ring that used to be the whole treat bar; it is a 0.72 m
   // feeding stand with its own kibble bin now (props.js bowlMesh), and a 0.3 m shadow under it left
   // the corners of the stand floating.
-  hire: 0.48, bush: 0.38, bowl: 0.42,
+  hire: 0.48, bush: 0.38, bowl: 0.42, jukebox: 0.42,
 };
 function stationShadowRadius(st) {
   const base = STATION_SHADOW_RADIUS[st.type];

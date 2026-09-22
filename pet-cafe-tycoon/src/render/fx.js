@@ -35,6 +35,22 @@ export function createFx(scene, camera, layer, walletEl) {
       parts.push({ x: x + (Math.random() - 0.5) * 0.12, y, z: z + (Math.random() - 0.5) * 0.12,
         vx: Math.cos(a) * 0.09, vy: 0.42 + Math.random() * 0.22, vz: Math.sin(a) * 0.09,
         life: 1.1 + Math.random() * 0.5, grav: 0, r: c.r, g: c.g, b: c.b, sz: 0.5 + Math.random() * 0.4 }); } };
+  // Celebration pieces. Confetti is paper: a slow fall (grav 0.18) with a sideways drift and a long
+  // life, rained over an area. A firework is a sphere of sparks thrown out from one point in the air,
+  // barely pulled down. Both ride the same instanced pool, so a party is still one draw call.
+  const PARTY = ['#FF8A80', '#FFD84D', '#7BC47F', '#6EC6FF', '#8B7CF6', '#FFFFFF'];
+  F.confetti = (x, z, spread = 4, n = 40) => {
+    for (let i = 0; i < n && parts.length < MAXP; i++) { _c.set(PARTY[i % PARTY.length]);
+      parts.push({ x: x + (Math.random() - 0.5) * spread * 2, y: 3.2 + Math.random() * 1.6, z: z + (Math.random() - 0.5) * spread * 2,
+        vx: (Math.random() - 0.5) * 0.8, vy: -0.2 - Math.random() * 0.4, vz: (Math.random() - 0.5) * 0.8,
+        life: 2.2 + Math.random() * 1.2, grav: 0.02, r: _c.r, g: _c.g, b: _c.b, sz: 0.55 + Math.random() * 0.4 }); } };
+  F.firework = (x, y, z, hex, n = 40) => { const c = new THREE.Color(hex || PARTY[(Math.random() * 5) | 0]);
+    for (let i = 0; i < n && parts.length < MAXP; i++) {
+      const u = Math.random() * 2 - 1, a = Math.random() * Math.PI * 2, r = Math.sqrt(1 - u * u), sp = 2.6 + Math.random() * 0.8;
+      parts.push({ x, y, z, vx: r * Math.cos(a) * sp, vy: u * sp + 0.6, vz: r * Math.sin(a) * sp,
+        life: 1.0 + Math.random() * 0.5, grav: 0.35, r: c.r, g: c.g, b: c.b, sz: 1.4 + Math.random() * 0.9 }); }
+    // the flash at the centre, so the burst reads as one bang and not as scattered dots
+    for (let i = 0; i < 4 && parts.length < MAXP; i++) parts.push({ x, y, z, vx: 0, vy: 0, vz: 0, life: 0.22, grav: 0, r: 1, g: 1, b: 0.9, sz: 4.5 }); };
   F.hearts = (x, y, z, n = 3) => { for (let i = 0; i < n && hearts.length < 24; i++) { const m = new THREE.Mesh(hg, hm); m.name = 'fx:heart'; m.scale.setScalar(0.18); m.position.set(x + (Math.random() - 0.5) * 0.5, y, z + (Math.random() - 0.5) * 0.3); scene.add(m); hearts.push({ m, life: 1.2, vx: (Math.random() - 0.5) * 0.4 }); } };
   const tmp = { sx: 0, sy: 0, visible: true };
   F.coinArc = (x, y, z, n = 6, onArrive) => { F.project(x, y, z, tmp); const r = walletEl.getBoundingClientRect(); const tx = r.left + 24, ty = r.top + r.height / 2; let first = true;

@@ -58,6 +58,7 @@ import {
 } from './sim/pawRating.js';
 import { createRenovationUI } from './ui/renovation.js';
 import { createAudio } from './audio/synth.js';
+import { presentationScheduler } from './core/presentationScheduler.js';
 import { createStations } from './systems/stations.js';
 import { createPhotoStudio } from './systems/photo.js';
 import { addFollowers, followersForDiscovery } from './sim/followers.js';
@@ -68,6 +69,7 @@ import { createStaff } from './systems/staff.js';
 import { createVisuals } from './systems/visuals.js';
 import { createRegisterCash } from './systems/registerCash.js';
 import { createOffers, REWARD_ID } from './systems/offers.js';
+import { createParty } from './systems/party.js';
 import { createObjective } from './systems/objective.js';
 import { createIntro } from './systems/intro.js';
 import { jobTarget } from './sim/jobs.js';
@@ -291,6 +293,7 @@ export function createGame(S, area, els, platform = null) {
   // for the next arrival tick (systems/customers.js inviteSpecialNow).
   ctx.customerSystem = customers;
   const offers = createOffers(G, S, ctx, platform);
+  const party = createParty(G, S, ctx, platform);
   G.meta.servicePolicy = normalizeServicePolicy(G.meta.servicePolicy);
   const objective = createObjective(G, S, ctx); const intro = createIntro(G, S, ctx);
 
@@ -333,7 +336,7 @@ export function createGame(S, area, els, platform = null) {
     // frame. tools/bot.js keeps the identical order.
     customers.update(dt); photoStudio.update(dt); staff.update(dt); intro.update(dt);
     ambience.update(dt); renovationDecor.update(dt);
-    { const night = S.daylight ? S.daylight.lights : 0; ambience.setNight(night); environment.setNight(night); environment.updateFireflies(dt); } visuals.update(dt); registerCash.update(dt); objective.update(dt); offers.update(dt); fx.update(dt); hud.update();
+    { const night = S.daylight ? S.daylight.lights : 0; ambience.setNight(night); environment.setNight(night); environment.updateFireflies(dt); } visuals.update(dt); registerCash.update(dt); objective.update(dt); offers.update(dt); party.update(dt); fx.update(dt); hud.update();
 
     G.serviceStreak.t = Math.max(0, G.serviceStreak.t - dt);
     for (const e of world.events) {
@@ -388,9 +391,7 @@ export function createGame(S, area, els, platform = null) {
     // environment has to hear about it the moment it is built — not only at load.
     if (world.events.some(e => e.type === 'built')) syncRegions();
     if (world.events.some(e => e.type === 'built') && cafeCompletion(G).roomComplete) {
-      // The building itself, ticked. A trophy would have claimed a prize that is not being given.
-      hud.banner(cue([sparkleIcon(), cafeIcon(), checkIcon()], 'Your cafe is built'), 2400); audio.play('chime');
-      if (!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) fx.burst(P.x, 1.1, P.z, '#75BDA0', 18);
+      grandOpening();
       syncCareerPresentation();
     }
     // Material mutations are only serialized after every system and every world/day event consumer
@@ -405,6 +406,27 @@ export function createGame(S, area, els, platform = null) {
   // own. Both closures already exist in this scope by the time any caller can reach G.dev; the
   // function-declared `openDaySummary` below is hoisted, so declaration order here does not matter.
   G.dev = { finishDayTransition, openDaySummary };
+
+  // GRAND OPENING. The last plot paid is the end of the build — the player finished a café, and
+  // this is the moment that says so: the camera pulls back over everything they built, the room
+  // cheers (every guest waves), fireworks go up over the garden and confetti rains on the floor.
+  // Five seconds, then the ordinary café carries on — the loop after this is service, pets, stars.
+  function grandOpening() {
+    const reduced = !!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const pts = [];
+    for (const z of world.area.zones) { pts.push({ x: z.x, y: 0, z: z.z }); pts.push({ x: z.x, y: 1.6, z: z.z }); }
+    if (pts.length) S.establish(pts, { hold: 4.2, glide: 1.6, margin: 0.06 });
+    hud.banner(cue([sparkleIcon(), cafeIcon(), checkIcon()], 'Grand opening! Your cafe is complete'), 4200);
+    audio.play('fanfare');
+    customers.wave?.();
+    if (reduced) return;
+    let cx = 0, cz = 0; for (const p of pts) { cx += p.x; cz += p.z; } cx /= pts.length || 1; cz /= pts.length || 1;
+    for (let i = 0; i < 9; i++) presentationScheduler.schedule(() => {
+      const p = pts[(i * 5) % pts.length] || { x: cx, z: cz };
+      fx.firework(p.x, 4.2 + (i % 3) * 0.6, p.z); audio.play('pop2');
+      if (i % 3 === 0) fx.confetti(cx, cz, 6, 50);
+    }, 350 + i * 420);
+  }
 
   // LAST CALL (Batch E1, ship plan §1.6: "a short 'last call' close instead of 40 s of empty café").
   // The closing phase is 15 s now, not 30, and it opens on a beat instead of on silence: the moon
@@ -591,7 +613,7 @@ export function createGame(S, area, els, platform = null) {
     environment.setSeason(seasonForDay(G.dayState.day).id);
     if (!G.meta.rewards) G.meta.rewards = { calendar: { lastKey: null, streak: 0 } };
     else G.meta.rewards.calendar = normalizeCalendar(G.meta.rewards.calendar);
-    customers.teardown(); staff.teardown(); G.customers = []; G.staffList = []; world.payAcc = {}; world.built.clear();
+    customers.teardown(); staff.teardown(); party.teardown(); G.customers = []; G.staffList = []; world.payAcc = {}; world.built.clear();
     for (const id of (canonical.builds && canonical.builds.a1) || []) world.built.add(id);
     for (const k of Object.keys(world.partial)) delete world.partial[k]; Object.assign(world.partial, canonical.partial || {});
     for (const st of world.stations.values()) st.active = !st.builtBy || world.built.has(st.builtBy);

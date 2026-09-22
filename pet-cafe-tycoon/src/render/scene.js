@@ -87,7 +87,9 @@ export function createScene(canvas) {
     const a = camera.aspect;
     // Portrait needs room for touch UI; landscape benefits from a closer, more premium read.
     const want = a <= 0.8 ? 10 : a >= 1.25 ? 16.25 : a <= 1 ? lerp(10, 13, (a - 0.8) / 0.2) : lerp(13, 16.25, (a - 1) / 0.25);
-    S.dist = want / (2 * Math.tan(FOV * Math.PI / 360) * camera.aspect);
+    // Width alone left a 16:9 screen seeing ~9 m of height — a rug and a counter, never the café.
+    // Landscape also keeps at least 12.5 m of floor top-to-bottom so the room reads as a place.
+    S.dist = Math.max(want / (2 * Math.tan(FOV * Math.PI / 360) * camera.aspect), 12.5 / (2 * Math.tan(FOV * Math.PI / 360)));
     const size = innerWidth < 700 ? 1024 : 2048;
     if (sun.shadow.mapSize.width !== size) { sun.shadow.mapSize.set(size, size); sun.shadow.map = null; sun.shadow.needsUpdate = true; }
     if (S.post) S.post.setSize(w, h, basePixelRatio * renderScale);

@@ -189,7 +189,7 @@ export function createOffers(G, S, ctx, platform) {
   const isDev = !platform || !platform.inPlayables;
   const ui = createOfferUI(isDev, els);
 
-  let current = null, holdKey = '', holdT = 0, busy = false, tick = 0;
+  let current = null, holdKey = '', holdT = 0, busy = false, tick = 0, presented = false;
   const dismissed = { guest: -1, service: -1 };
   // The two world actors. Each is { P, group, t, state } or null.
   let silhouette = null, pup = null;
@@ -359,7 +359,7 @@ export function createOffers(G, S, ctx, platform) {
   }
 
   function clearOffer() {
-    current = null; holdKey = ''; holdT = 0;
+    current = null; holdKey = ''; holdT = 0; presented = false;
     ui.hide();
     hideSilhouette();
     sendPupHome();
@@ -494,17 +494,30 @@ export function createOffers(G, S, ctx, platform) {
         userPaused: !!G.userPaused,
         inputActive: !!(input && (input.active || input.pressed)),
       });
-      if (!adReady || !allowed) { clearOffer(); return; }
+      if (!adReady) { clearOffer(); return; }
+      if (!allowed) {
+        // Once an offer has actually appeared IN THE WORLD -- the silhouette waiting at the door,
+        // the pup with its sack -- it is not screen UI that should vanish the instant a thumb
+        // touches the joystick, which is most of a real session: measured, that hid the pet within
+        // a frame of the player taking a single step, so it could only ever be seen by someone
+        // standing dead still, and the tap that would have explained it was hidden by the very same
+        // rule. Only the TAPPABLE pill and pad step aside here -- so a raised thumb never covers the
+        // controls -- while the pet itself stays put and keeps sparkling until it is claimed,
+        // refused, or a fresh look at nextOffer() below says it is genuinely no longer on offer.
+        if (!presented) clearOffer(); else ui.hide();
+        return;
+      }
 
       const next = nextOffer();
       if (!next) { clearOffer(); return; }
-      if (next.key !== holdKey) { holdKey = next.key; holdT = 0; current = null; ui.hide(); return; }
+      if (next.key !== holdKey) { holdKey = next.key; holdT = 0; current = null; presented = false; ui.hide(); return; }
       holdT += 0.25;
       current = next;
       if (holdT < OFFER_SETTLE_SECONDS) return;
       platform?.noteAdEligible?.('rewarded', `${next.placement}:${G.dayState.day}:${next.key}`);
       presentWorld(next);
       ui.setOffer(next);
+      presented = true;
     },
     teardown() { ui.destroy(); hideSilhouette(); removePup(); },
   };

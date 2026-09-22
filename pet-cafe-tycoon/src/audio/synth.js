@@ -140,6 +140,14 @@ export function createAudio() {
       noise({ ft: 'bandpass', f0: 1800, f1: 650, q: 0.7, dur: 0.22, vol: 0.08, att: 0.02 });
       tone({ type: 'sine', f0: 540, f1: 380, dur: 0.18, vol: 0.06 });
     },
+    // The grand opening: a rising major arpeggio, then the chord held under a sparkle.
+    fanfare: () => {
+      if (!ctx) return; const t = ctx.currentTime;
+      [523, 659, 784, 1047].forEach((f, i) => tone({ type: 'triangle', f0: f, dur: 0.22, vol: 0.16, at: t + i * 0.12 }));
+      [523, 659, 784].forEach(f => tone({ type: 'sine', f0: f, dur: 1.1, vol: 0.1, at: t + 0.5 }));
+      [1568, 2093, 2637].forEach((f, i) => tone({ type: 'sine', f0: f, dur: 0.18, vol: 0.05, at: t + 0.62 + i * 0.07 }));
+    },
+    pop2: () => noise({ ft: 'bandpass', f0: 900, f1: 300, q: 0.8, dur: 0.18, vol: 0.09 }),
     clean: () => {
       if (!ctx) return; const t = ctx.currentTime;
       noise({ ft: 'highpass', f0: 1500, f1: 4200, q: 0.5, dur: 0.16, vol: 0.055, att: 0.02, at: t });
@@ -157,9 +165,13 @@ export function createAudio() {
     rush:      { gap: 0.285, roots: [293.66, 349.23, 392.00, 329.63], notes: [0, 4, 7, 9, 12, 14], vol: 0.058, dur: 0.34 },
     afternoon: { gap: 0.52, roots: [246.94, 293.66, 329.63, 261.63], notes: [0, 4, 7, 11, 12], vol: 0.05, dur: 0.58 },
     closing:   { gap: 0.72, roots: [220.00, 246.94, 261.63, 196.00], notes: [0, 7, 11, 14], vol: 0.042, dur: 0.78 },
+    // The Pet Party (systems/party.js): a bouncy major loop over the day's music while it lasts.
+    party:     { gap: 0.2, roots: [392.00, 440.00, 349.23, 392.00], notes: [0, 4, 7, 12, 7, 4, 9, 7], vol: 0.06, dur: 0.2 },
   };
   const ratio = semis => Math.pow(2, semis / 12);
 
+  let partyOn = false;
+  A.setParty = on => { if (partyOn === !!on) return; partyOn = !!on; musicStep = 0; musicClock = Math.min(musicClock, 0.05); };
   A.setMusicPhase = phase => {
     if (!MUSIC[phase] || phase === musicPhase) return;
     musicPhase = phase; musicStep = 0; musicClock = Math.min(musicClock, 0.15);
@@ -168,7 +180,7 @@ export function createAudio() {
 
   A.musicUpdate = dt => {
     if (!ctx || !music || paused || hostMuted || !musicOn || ctx.state !== 'running') return;
-    const cfg = MUSIC[musicPhase] || MUSIC.morning;
+    const cfg = partyOn ? MUSIC.party : (MUSIC[musicPhase] || MUSIC.morning);
     musicClock -= dt;
     if (musicClock > 0) return;
     musicClock += cfg.gap;
@@ -177,6 +189,7 @@ export function createAudio() {
     const semi = cfg.notes[musicStep % cfg.notes.length];
     const f = root * ratio(semi);
     tone({ type: 'triangle', f0: f, dur: cfg.dur, vol: cfg.vol, att: 0.025, lp: 1800 }, music);
+    if (partyOn && musicStep % 2 === 1) noise({ ft: 'highpass', f0: 7000, dur: 0.035, vol: 0.025 });
     if (musicStep % 4 === 0) tone({ type: 'sine', f0: root / 2, dur: Math.min(0.65, cfg.dur + 0.1), vol: cfg.vol * 0.68, att: 0.03, lp: 700 }, music);
     musicStep++;
   };

@@ -65,6 +65,14 @@ const dist2 = (a, b) => (a.x - b.x) ** 2 + (a.z - b.z) ** 2;
 // velocity damp (18/s) falls from full speed to under it in ~0.17 s, so a deliberate stop still
 // hands over in about 0.4 s and feels instant, while a pass-by never does.
 const DWELL_SPEED = 0.15, DWELL_TIME = 0.25, DWELL_FACING = 0.3;
+// How long to let the owner stand at a display that is the RIGHT counter but has no room right
+// now — a Runner or a sale filled the last slot a moment before they arrived. Standing there costs
+// nothing and the tray drops the instant a slot frees (a customer buys one), so most of the time
+// this never fires at all. But if it stays full the whole time, there is nowhere to put the tray
+// down, and that used to leave the owner stuck holding it with no explanation and no way out — the
+// exact gap the old RETURN crate covered. After this long with no room, it goes home the same way
+// every other "nowhere to put this" case already does (see flyBackHeld).
+const COUNTER_FULL_GRACE = 2.5;
 const AUTO_CASH_RADIUS = 1.2;
 // Batch 7 (the owner's rule: "remove the chore, not the state") -- wiping is a walk-past, not an
 // errand. Widened from 1.35m so a seat gets wiped simply by the owner passing near it on the way to
@@ -216,6 +224,7 @@ export function createStations(G, S, ctx) {
     return true;
   }
   const stopGave = st => { const s = stops.get(st.id); return !!(s && s.gave); };
+  const stopDwell = st => { const s = stops.get(st.id); return s ? s.t : 0; };
   const markGave = st => { const s = stops.get(st.id); if (s) s.gave = true; };
 
   // "Another machine": one that cannot take what is in the owner's hands, so stopping at it sends
@@ -491,6 +500,11 @@ export function createStations(G, S, ctx) {
             const m = owner.popItem(); const key = m.userData.product || st.product;
             putOnDisplay(world, st.id, key, 1); dropT = 0.15; hints.counter = 1; audio.play('drop');
             fx.burst(st.x, 1.3, st.z, PRODUCTS[key].color, 4);
+          } else if (stopOk && held && st.stock >= st.capacity && stopDwell(st) > COUNTER_FULL_GRACE) {
+            // The right counter, but a Runner (or a sale) beat us to the last slot and it is still
+            // full a couple of seconds later. There is nowhere to put this tray down — it goes home,
+            // same as any other load with nowhere to land.
+            flyBackHeld(held);
           }
           // The garden stand's cash jar empties itself into the wallet as the owner passes behind the
           // counter — the same walk-past rule as a register's tray, from the spot the owner stocks it.

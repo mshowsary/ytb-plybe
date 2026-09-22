@@ -1473,3 +1473,32 @@ export function cashPile(max = 60) {
   };
   return im;
 }
+// jukebox1 — the café's music box, and the Pet Party offer (systems/party.js). A 1950s cabinet:
+// wooden body with a rounded crown, a glass window with a record inside, a chrome grille, and a
+// neon arch. The arch and the bubble tubes are a separate emissive mesh (userData.lights) so the
+// party can cycle their colour; everything else is one merged toon mesh. Local +z is the front.
+export function jukeboxMesh() {
+  const g = new THREE.Group();
+  const W = 0.72, D = 0.5, H = 1.0;
+  g.add(mesh([
+    part('rbox', [W, H, D, 0.06], C.woodDark, { y: H / 2, tex: 'wood' }),
+    part('cyl', [W / 2, W / 2, D, 18], C.wood, { y: H, rx: Math.PI / 2, tex: 'wood' }),        // the crown
+    part('box', [W + 0.06, 0.08, D + 0.06], C.woodDark, { y: 0.04 }),                           // plinth
+    part('box', [0.5, 0.3, 0.02], '#2E3A4A', { y: 0.98, z: D / 2 + 0.005 }),                     // window
+    part('cyl', [0.12, 0.12, 0.012, 16], '#1E1E24', { y: 0.98, z: D / 2 + 0.02, rx: Math.PI / 2 }), // record
+    part('cyl', [0.04, 0.04, 0.014, 10], C.coral, { y: 0.98, z: D / 2 + 0.024, rx: Math.PI / 2 }),  // label
+    part('box', [0.5, 0.34, 0.02], C.metal, { y: 0.5, z: D / 2 + 0.005 }),                       // grille
+    ...[0, 1, 2, 3, 4].map(i => part('box', [0.46, 0.022, 0.012], '#8C99A3', { y: 0.37 + i * 0.066, z: D / 2 + 0.018 })),
+    part('box', [0.16, 0.05, 0.03], C.cream, { y: 0.77, z: D / 2 + 0.01 }),                      // song buttons
+  ]));
+  const lights = new THREE.Mesh(merge([
+    // the neon arch hugging the crown, and two bubble tubes down the front corners
+    part('cyl', [W / 2 + 0.015, W / 2 + 0.015, 0.05, 18, ], '#fff', { y: H, z: D / 2 - 0.02, rx: Math.PI / 2 }),
+    part('cyl', [0.03, 0.03, 0.8, 8], '#fff', { x: -W / 2 + 0.03, y: 0.5, z: D / 2 - 0.01 }),
+    part('cyl', [0.03, 0.03, 0.8, 8], '#fff', { x: W / 2 - 0.03, y: 0.5, z: D / 2 - 0.01 }),
+  ]), emissiveMaterial('#FF9EC0'));
+  lights.castShadow = false;
+  g.add(lights);
+  g.userData.lights = lights;
+  return g;
+}

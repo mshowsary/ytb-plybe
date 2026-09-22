@@ -410,6 +410,10 @@ export function hamsterIcon() {
 // The rewarded-offer play triangle (ship plan §1.7a: "a ▶ badge on the build pad"). One shape for
 // every rewarded surface in the game — the pad badge, the offer bubble and the day summary's ×2 —
 // so "this costs a video" is the same picture wherever the player meets it.
+export function musicIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 17.5V6.2l10-2.2v11.3" fill="none" stroke="#3B2E2A" stroke-width="2" stroke-linejoin="round"/>'
+    + '<ellipse cx="6.8" cy="17.6" rx="2.9" ry="2.3" fill="#FF6F91"/><ellipse cx="16.8" cy="15.4" rx="2.9" ry="2.3" fill="#8B7CF6"/></svg>';
+}
 export function playIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="#8B7CF6" stroke="#5145AE" stroke-width="1.4"/>'
     + '<path d="M9.7 7.9l7 4.1-7 4.1z" fill="#FFF4E6"/></svg>';

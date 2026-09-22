@@ -98,6 +98,10 @@ export const AREA1 = {
     // door gap runs z 3.0-5.4 (render/props.js buildStatic) and the two buyable hanging plants
     // (data/decor.js d_plant_hang_a/c) own the wall at z 0.0 and z 2.2, leaving exactly z 0.89-1.31
     // clear of both by the 0.9 m the décor layout test requires.
+    // The jukebox against the west wall just north of the door (gap z 3.0-5.4), facing the room: the
+    // first thing a guest walks past, and the Pet Party offer (systems/party.js). The door corner
+    // south of the gap was tried first and the fence-corner planter hid it from the camera.
+    { id: 'jukebox1', type: 'jukebox', x: -9.5, z: 2.6,  rot: Math.PI / 2, fw: 0.8, fd: 0.6, front: 1.0 },
     { id: 'photoWall1', type: 'wall', x: -9.74, z: 1.1, rot: Math.PI / 2, fw: 1.6, fd: 0.3, builtBy: 'z_photo' },
 
     // The Ice cream garden (docs/SHIP-PLAN-2026-09-19.md §1.2). One room: the owner's gate in the

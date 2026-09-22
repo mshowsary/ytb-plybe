@@ -113,6 +113,13 @@ export const QUEUED_SECONDS = 6;
 export const PAN_METERS = 6;
 /** At most this many lessons may be waiting for the lane; the rest are dropped rather than stacked. */
 export const QUEUE_MAX = 2;
+/**
+ * A player who is busy is never interrupted. A lesson whose subject is off screen waits until the
+ * player has stood still this long (the "I don't know what to do" pause), and the camera only ever
+ * pans for a player who is already standing still — never out from under a walking one.
+ */
+export const STUCK_SECONDS = 3.5;
+export const STILL_TO_PAN = 1.2;
 /** How close the owner must be to a station's front for a "stand here" lesson to count as done. */
 const REACH_METERS = 1.45;
 
@@ -395,6 +402,7 @@ export function createFirstLook(G, S, ctx) {
   const armed = [];                 // [{ lesson, t }] waiting for the lane, oldest first
   let active = null;                // { lesson, phase, t, release, panned, glyphKey }
   const tmp = { sx: 0, sy: 0, visible: true };
+  let stillT = 0;                   // seconds since the player last moved or touched anything
 
   // The one fact a lesson cannot read off the world: the player opened the Café card. Every sheet
   // pauses the café, so no update runs while one is up — the tap is captured here instead, in the
@@ -446,8 +454,8 @@ export function createFirstLook(G, S, ctx) {
     // The pan, and only when it buys something: a subject already close and on screen needs no
     // camera move at all, and a camera move is the most expensive thing this system can spend.
     if (point && lesson.pan && S && typeof S.establish === 'function' && !reducedMotion()) {
-      let far = Math.hypot(G.P.x - point.x, G.P.z - point.z) > PAN_METERS;
-      if (!far && fx && typeof fx.project === 'function') {
+      let far = stillT >= STILL_TO_PAN && Math.hypot(G.P.x - point.x, G.P.z - point.z) > PAN_METERS;
+      if (!far && stillT >= STILL_TO_PAN && fx && typeof fx.project === 'function') {
         fx.project(point.x, 1.2, point.z, tmp);
         far = !tmp.visible;
       }
@@ -558,6 +566,17 @@ export function createFirstLook(G, S, ctx) {
     handEl.classList.remove('hidden');
   }
 
+  // Worth showing now? A HUD lesson and a guest-blocking one always are; anything else only when
+  // the player can already see its subject, or has stopped and looks unsure what to do next.
+  function wantsLook(lesson) {
+    if (lesson.ui || lesson.blocking || stillT >= STUCK_SECONDS) return true;
+    let p = null;
+    try { p = lesson.focus(L); } catch (_) { p = null; }
+    if (!p || !fx || typeof fx.project !== 'function') return true;
+    fx.project(p.x, 1.2, p.z, tmp);
+    return tmp.visible && Math.hypot(G.P.x - p.x, G.P.z - p.z) <= PAN_METERS;
+  }
+
   const api = {
     /** Which lessons this save has already been shown. */
     seen(id) { return seen.has(id); },
@@ -587,6 +606,9 @@ export function createFirstLook(G, S, ctx) {
       const rush = G.dayState && G.dayState.phase === 'rush';
       const paused = !!G.userPaused;
       const modal = isModalOpen();
+      const input = ctx.input;
+      const moving = !!(G._force || (input && (input.active || input.pressed)));
+      stillT = moving ? 0 : stillT + step;
 
       // ---- arm ------------------------------------------------------------------------------
       // Purchases are read off the world event the build itself emits, on the same frame; every
@@ -637,7 +659,7 @@ export function createFirstLook(G, S, ctx) {
         // During a rush that matters: a patient lesson (build, hire) sitting at the front is right
         // to wait, but it must not also hold back the one kind of lesson a rush DOES allow, the one
         // a guest is waiting on.
-        const i = armed.findIndex(a => laneOpen({ intro, rush, blocking: !!a.lesson.blocking, paused, modal }));
+        const i = armed.findIndex(a => laneOpen({ intro, rush, blocking: !!a.lesson.blocking, paused, modal }) && wantsLook(a.lesson));
         if (i >= 0) {
           const head = armed.splice(i, 1)[0];
           // Its subject may have gone away while it waited (the table got wiped, the pose ended).

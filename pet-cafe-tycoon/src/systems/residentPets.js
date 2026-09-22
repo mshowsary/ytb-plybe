@@ -114,7 +114,7 @@ const RESIDENT_SPOTS = [
   { furniture: windowCushionMesh, x: -5.0, y: 0, z: -6.5, ry: 0, petRy: 0.22 },
   { furniture: catTreeMesh, x: 9.15, y: 0, z: -4.85, ry: 0.2, petRy: -0.15 },
   { furniture: catBedMesh, x: -9.0, y: 0, z: -4.6, ry: 0, petRy: 0.45 },
-  { furniture: dogBasketMesh, x: -8.9, y: 0, z: 2.3, ry: -0.4, petRy: 0 },
+  { furniture: dogBasketMesh, x: -8.75, y: 0, z: 2.0, ry: -0.4, petRy: 0 },   // beside the jukebox (area1 jukebox1)
   // --- garden, past the south fence: no navigation grid out here, and environment.js's lawn tops
   //     out at y ~= -0.42, which is why the hutch is dropped to -0.44 instead of sitting at 0.
   //
