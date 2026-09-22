@@ -12,6 +12,7 @@ on:
       - 'pet-cafe-tycoon/index.html'
       - 'pet-cafe-tycoon/package.json'
       - 'pet-cafe-tycoon/package-lock.json'
+      - 'pet-cafe-v2/**'
 
 permissions:
   contents: read
@@ -53,6 +54,10 @@ jobs:
         working-directory: pet-cafe-tycoon
         run: npm run build
 
+      # Pet Café v2 (the rebuild) is published beside v1 at /v2/ until it replaces it.
+      - name: Build v2
+        working-directory: pet-cafe-v2
+        run: npm ci && npm run build && cp -r dist ../pet-cafe-tycoon/dist/v2
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 

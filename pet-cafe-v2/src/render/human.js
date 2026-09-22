@@ -1,0 +1,252 @@
+// src/render/human.js — stylized café people with merged detail geometry and a five-draw-call budget.
+import * as THREE from 'three';
+import { part, merge } from './geo.js';
+import { C, toonMaterial } from './palette.js';
+import { damp } from '../core/tween.js';
+
+let _bWaitGeo = null, _bAngryGeo = null;
+function bWaitGeo() { return _bWaitGeo || (_bWaitGeo = merge([part('sph', [0.06, 8], C.white, { x: -0.15 }), part('sph', [0.06, 8], C.white), part('sph', [0.06, 8], C.white, { x: 0.15 })])); }
+function bAngryGeo() { return _bAngryGeo || (_bAngryGeo = merge([part('rbox', [0.08, 0.3, 0.08, 0.03], '#FF3B3B', { y: 0.05 }), part('sph', [0.06, 8], '#FF3B3B', { y: -0.2 })])); }
+
+export const SHIRTS = ['#FFB3C1', '#8FD3FF', '#FFE08A', '#B5F2C8', '#D9B8FF'];
+export const HAIR = ['#3B2E2A', '#8A5A2B', '#E8C36A', '#C94F3D'];
+export const SKIN = ['#FFD9B3', '#E0B48C', '#A9744F'];
+
+const HIP_Y = 0.55, SHOULDER_Y = 1.25;
+
+let _legGeo = null;
+function legGeo() {
+  if (_legGeo) return _legGeo;
+  _legGeo = merge([
+    part('rbox', [0.22, 0.5, 0.25, 0.055], C.ink, { y: -0.25 }),
+    part('rbox', [0.28, 0.14, 0.38, 0.045], '#584741', { y: -0.54, z: 0.055 }),
+    part('box', [0.26, 0.035, 0.36], '#2D2725', { y: -0.62, z: 0.055 }),
+  ]);
+  return _legGeo;
+}
+
+const _geoCache = new Map();
+function geosFor(role, shirtHex, hairHex, skinHex) {
+  const key = role + '|' + shirtHex + '|' + hairHex + '|' + skinHex;
+  let g = _geoCache.get(key);
+  if (g) return g;
+
+  const bodyParts = [
+    // The torso is the largest cloth surface in the game and the one the eye lands on: with the
+    // Batch 8 grain atlas it reads as a woven shirt rather than a painted block. Legs and shoes stay
+    // untagged — at the game's wide camera the weave would only be noise there.
+    part('rbox', [0.64, 0.7, 0.43, 0.1], shirtHex, { y: 0.95, tex: 'fabric' }),
+    part('rbox', [0.5, 0.11, 0.045, 0.025], C.cream, { y: 1.23, z: 0.235 }),
+  ];
+
+  if (role === 'runner' || role === 'owner') {
+    bodyParts.push(
+      // The apron, likewise cloth — and it is the panel that tells a player who works here.
+      part('rbox', [0.51, 0.54, 0.075, 0.035], C.cream, { y: 0.86, z: 0.235, tex: 'fabric' }),
+      part('rbox', [0.31, 0.19, 0.035, 0.02], '#F5E5CF', { y: 0.8, z: 0.283 }),
+      part('box', [0.54, 0.055, 0.05], '#E9D4BA', { y: 1.04, z: 0.27 }),
+    );
+  }
+  if (role === 'cashier') {
+    bodyParts.push(
+      part('rbox', [0.56, 0.42, 0.055, 0.03], C.accent, { y: 1.02, z: 0.225, tex: 'fabric' }),
+      part('sph', [0.035, 7], '#FFF4E6', { x: -0.13, y: 1.08, z: 0.26 }),
+      part('sph', [0.035, 7], '#FFF4E6', { x: 0.13, y: 1.08, z: 0.26 }),
+    );
+  }
+
+  const armParts = [
+    part('rbox', [0.17, 0.49, 0.17, 0.05], shirtHex, { y: -0.245 }),
+    part('rbox', [0.18, 0.08, 0.18, 0.03], role === 'owner' || role === 'runner' ? C.cream : shirtHex, { y: -0.5 }),
+    part('sph', [0.1, 8], skinHex, { y: -0.59 }),
+  ];
+  const armGeo = merge(armParts);
+
+  const faceZ = 0.275;
+  const headParts = [
+    part('rbox', [0.5, 0.5, 0.5, 0.14], skinHex, { y: 1.62 }),
+    part('sph', [0.07, 8], skinHex, { x: -0.27, y: 1.62, z: 0 }),
+    part('sph', [0.07, 8], skinHex, { x: 0.27, y: 1.62, z: 0 }),
+    part('sph', [0.05, 8], C.ink, { x: -0.11, y: 1.67, z: faceZ }),
+    part('sph', [0.05, 8], C.ink, { x: 0.11, y: 1.67, z: faceZ }),
+    part('sph', [0.017, 6], '#FFFFFF', { x: -0.095, y: 1.686, z: faceZ + 0.04 }),
+    part('sph', [0.017, 6], '#FFFFFF', { x: 0.125, y: 1.686, z: faceZ + 0.04 }),
+    part('sph', [0.035, 7], '#C98A73', { y: 1.58, z: faceZ + 0.025 }),
+    part('box', [0.11, 0.022, 0.025], '#71453D', { y: 1.505, z: faceZ + 0.032 }),
+    part('sph', [0.045, 8], C.pink, { x: -0.19, y: 1.55, z: 0.25 }),
+    part('sph', [0.045, 8], C.pink, { x: 0.19, y: 1.55, z: 0.25 }),
+  ];
+
+  if (role === 'owner') {
+    headParts.push(
+      part('cyl', [0.29, 0.3, 0.12, 12], '#F7ECDD', { y: 1.92 }),
+      part('rbox', [0.54, 0.12, 0.48, 0.05], C.cream, { y: 1.92 }),
+      part('sph', [0.23, 12], C.cream, { x: -0.18, y: 2.08, sy: 0.82 }),
+      part('sph', [0.26, 12], C.cream, { y: 2.13, sy: 0.82 }),
+      part('sph', [0.23, 12], C.cream, { x: 0.18, y: 2.08, sy: 0.82 }),
+      part('box', [0.22, 0.055, 0.035], C.coral, { y: 1.36, z: 0.23, rz: 0.36 }),
+      part('box', [0.22, 0.055, 0.035], C.coral, { y: 1.36, z: 0.23, rz: -0.36 }),
+    );
+  } else if (role === 'runner') {
+    headParts.push(
+      part('rbox', [0.55, 0.18, 0.53, 0.08], C.cream, { y: 1.86 }),
+      part('box', [0.35, 0.08, 0.23], C.cream, { y: 1.79, z: 0.31 }),
+      part('rbox', [0.46, 0.13, 0.43, 0.05], hairHex, { y: 1.79, z: -0.04 }),
+    );
+  } else {
+    headParts.push(
+      part('rbox', [0.53, 0.2, 0.52, 0.09], hairHex, { y: 1.84, z: -0.02 }),
+      part('rbox', [0.48, 0.2, 0.12, 0.05], hairHex, { y: 1.78, z: 0.23 }),
+      part('rbox', [0.1, 0.27, 0.43, 0.05], hairHex, { x: -0.245, y: 1.72, z: -0.03 }),
+      part('rbox', [0.1, 0.27, 0.43, 0.05], hairHex, { x: 0.245, y: 1.72, z: -0.03 }),
+    );
+    if (role === 'cashier') {
+      headParts.push(part('rbox', [0.2, 0.065, 0.04, 0.025], C.accent, { y: 1.87, z: 0.27 }));
+    }
+  }
+
+  const bodyHeadGeo = merge([...bodyParts, ...headParts]);
+  g = { legGeo: legGeo(), bodyHeadGeo, armGeo };
+  _geoCache.set(key, g);
+  return g;
+}
+
+export function createHuman(variant = {}, role = 'customer') {
+  const shirtHex = typeof variant.shirt === 'string' ? variant.shirt : SHIRTS[variant.shirt ?? 0];
+  const hairHex = HAIR[variant.hair ?? 0];
+  const skinHex = SKIN[variant.skin ?? 0];
+  const G = geosFor(role, shirtHex, hairHex, skinHex);
+  const mat = toonMaterial();
+  const group = new THREE.Group();
+  group.name = 'human:' + role;   // so tools/scene-cost.mjs can attribute cost to a system, not a "Group(5 children)"
+  // ---- the limbs are INSTANCED (ship plan §1.9's peak budget) -----------------------------------
+  // A person was five meshes: two legs, two arms and a torso-and-head. The legs are the same
+  // geometry on the same material, and so are the arms, so four of those five were two pairs of
+  // identical draws — 2 wasted calls per character, and a rush puts nine or ten people on the floor.
+  //
+  // legL/legR/armL/armR stay as plain Object3D "bones" holding exactly the transforms the animation
+  // below already writes (and armR keeps `hand`, so carried items and the tray are untouched); each
+  // frame their local matrices are copied into a two-instance InstancedMesh. Nothing about the pose
+  // code changes, which is the point: the rig is the same rig, drawn twice instead of four times.
+  const legL = new THREE.Object3D(); legL.position.set(-0.15, HIP_Y, 0);
+  const legR = new THREE.Object3D(); legR.position.set(0.15, HIP_Y, 0);
+  const legsIM = new THREE.InstancedMesh(G.legGeo, mat, 2);
+  legsIM.castShadow = false; legsIM.receiveShadow = true;
+  // An InstancedMesh culls on its own boundingSphere when one is set, and on the bare GEOMETRY's
+  // otherwise — which for a leg is a sphere at the character's hip that ignores the second instance
+  // and every pose. Turning culling off instead cost more than instancing saved: an actor standing
+  // off screen still drew its legs and arms. A fixed, generous sphere around the whole rig is the
+  // right answer — it never has to be recomputed as the limbs swing, and it culls truthfully.
+  legsIM.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 1.1);
+  // No sun shadow (ship plan §1.9's peak budget). A person's torso-and-head was the one caster on
+  // this rig, and it is the most expensive one in the game to keep: every actor on stage drew a
+  // second time into the shadow map, ~2.5k triangles each, and a rush puts sixteen of them there.
+  // Every character already carries a contact shadow (render/contactShadows.js — one instanced draw
+  // call for the whole café), which is what actually reads as "standing on the floor" at this
+  // camera; the cast shadow was a soft blob three metres away that the room's own props overlapped.
+  const bodyHead = new THREE.Mesh(G.bodyHeadGeo, mat); bodyHead.castShadow = false; bodyHead.receiveShadow = true;
+  const armL = new THREE.Object3D(); armL.position.set(-0.44, SHOULDER_Y, 0);
+  const armR = new THREE.Object3D(); armR.position.set(0.44, SHOULDER_Y, 0);
+  const armsIM = new THREE.InstancedMesh(G.armGeo, mat, 2);
+  armsIM.castShadow = false; armsIM.receiveShadow = true;
+  armsIM.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 1.3);
+  group.add(legL, legR, bodyHead, armL, armR, legsIM, armsIM);
+  // The bones are transform-only, so their world matrices must still be maintained (armR carries the
+  // hand and the carry stack) but they draw nothing themselves.
+  const syncLimbs = () => {
+    legL.updateMatrix(); legR.updateMatrix(); armL.updateMatrix(); armR.updateMatrix();
+    legsIM.setMatrixAt(0, legL.matrix); legsIM.setMatrixAt(1, legR.matrix);
+    armsIM.setMatrixAt(0, armL.matrix); armsIM.setMatrixAt(1, armR.matrix);
+    legsIM.instanceMatrix.needsUpdate = true; armsIM.instanceMatrix.needsUpdate = true;
+  };
+  const hand = new THREE.Object3D(); hand.position.set(0, -0.59, 0); armR.add(hand);
+  const stack = new THREE.Group(); stack.name = 'carry-stack'; stack.position.set(0, 1.05, 0.42); group.add(stack);
+
+  syncLimbs();   // so a character drawn before its first update() has legs and arms, not nothing
+  const bubble = new THREE.Group(); bubble.position.set(0, 2.25, 0); bubble.visible = false; group.add(bubble);
+  const bWait = new THREE.Mesh(bWaitGeo(), mat); bWait.castShadow = false; bWait.receiveShadow = true;
+  const bAngry = new THREE.Mesh(bAngryGeo(), mat); bAngry.castShadow = false; bAngry.receiveShadow = true;
+  bubble.add(bWait, bAngry);
+
+  const H = {
+    group, hand, stack, height: 2.04, _t: 0, _idleT: Math.random() * 6, _face: 0, _carryN: 0,
+    _armBase: 0, _sitting: false, _tapT: 0, _wipeT: 0, _wipeP: 0,
+    // Squash and stretch. The rig already swings arms and legs, but nothing about it had WEIGHT:
+    // a character reached full speed and stopped dead at the same silhouette. One spring driven by
+    // acceleration covers both -- stretch when pushing off, squash when planting -- and it is the
+    // single cheapest thing that makes a character read as a body rather than a sliding prop.
+    _sq: 0, _sqV: 0, _lastSp: 0, _base: 1, _stepPhase: 0, onStep: null,
+  };
+  H.setBaseScale = s => { H._base = Number(s) > 0 ? Number(s) : 1; };
+  H.pop = (amount = 0.18) => { H._sqV += amount; };
+  H.setCarry = n => { H._carryN = n | 0; };
+  H.setMood = m => { bubble.visible = m !== 'none'; bWait.visible = m === 'wait'; bAngry.visible = m === 'angry'; };
+  H.tap = () => { H._tapT = 0.2; };
+  H.greet = () => { H._greetT = 1.2; };
+  // Program §6.3: the cleaner used to stand perfectly still for the 1.6 s it takes to wipe a
+  // table. systems/staff.js calls this every frame the sim's cleaner is in its 'cleaning' state;
+  // each call just refreshes the window (it never restarts the stroke), so the sweep runs
+  // continuously while the work lasts and tails off when the worker moves on instead of cutting
+  // out mid-stroke. Same shape as H.tap above, with a phase of its own so the arm keeps swinging.
+  H.wipe = (seconds = 0.35) => { H._wipeT = Math.max(H._wipeT, Math.max(0, seconds)); };
+  H.sit = () => { H._sitting = true; group.position.y = -0.35; legL.rotation.x = -1.5; legR.rotation.x = -1.5; syncLimbs(); };
+  H.stand = () => { H._sitting = false; group.position.y = 0; legL.rotation.x = 0; legR.rotation.x = 0; syncLimbs(); };
+  H.update = (dt, vx, vz) => {
+    const sp = Math.hypot(vx, vz); const moving = sp > 0.05;
+    if (moving) H._face = Math.atan2(vx, vz);
+    let d = H._face - group.rotation.y; d = Math.atan2(Math.sin(d), Math.cos(d)); group.rotation.y += d * Math.min(1, dt * 14);
+    H._t += dt * (moving ? 11 : 0); H._idleT += dt * 2;
+    const sw = moving ? Math.sin(H._t) * 0.6 : 0;
+    legL.rotation.x = sw; legR.rotation.x = -sw;
+    const bob = moving ? Math.abs(Math.sin(H._t)) * 0.05 : Math.sin(H._idleT) * 0.02;
+    bodyHead.position.y = bob;
+    H._armBase = damp(H._armBase, H._carryN > 0 ? -1.35 : 0, 20, dt);
+    const armSwing = H._carryN > 0 ? 0 : (moving ? Math.sin(H._t) * 0.35 : 0);
+    armL.position.y = SHOULDER_Y + bob; armR.position.y = SHOULDER_Y + bob;
+    armL.rotation.x = H._armBase - armSwing; armR.rotation.x = H._armBase + armSwing;
+    if (H._tapT > 0) {
+      H._tapT = Math.max(0, H._tapT - dt);
+      const k = Math.sin((1 - H._tapT / 0.2) * Math.PI);
+      armR.rotation.x -= k * 0.6;
+    }
+    // The wipe: the right arm reaches out over the table (rotation.x) and sweeps side to side
+    // (rotation.z). rotation.z is touched by nothing else on this rig, so it is damped back to a
+    // clean 0 once the window lapses rather than being left mid-sweep.
+    if (H._wipeT > 0) {
+      H._wipeT = Math.max(0, H._wipeT - dt);
+      H._wipeP += dt * 8.5;
+      const sweep = Math.sin(H._wipeP);
+      armR.rotation.x -= 1.05 + sweep * 0.1;
+      armR.rotation.z = damp(armR.rotation.z, -0.5 + sweep * 0.55, 26, dt);
+    } else if (armR.rotation.z !== 0) {
+      armR.rotation.z = damp(armR.rotation.z, 0, 12, dt);
+      if (Math.abs(armR.rotation.z) < 1e-3) armR.rotation.z = 0;
+    }
+
+    // Acceleration drives the spring; the spring drives the silhouette.
+    if (H._greetT > 0) {
+      H._greetT = Math.max(0, H._greetT - dt);
+      const p = 1 - H._greetT / 1.2, e = Math.sin(p * Math.PI) ** 2;
+      if (!H._carryN) { armL.rotation.x -= 1.8 * e; armL.rotation.z = Math.sin(p * Math.PI * 6) * .22 * e; }
+    } else armL.rotation.z = 0;
+    const accel = (sp - H._lastSp) / Math.max(dt, 1e-4);
+    H._lastSp = sp;
+    H._sqV += Math.max(-0.9, Math.min(0.9, accel * 0.0062));
+    H._sqV -= H._sq * 38 * dt;            // restoring force
+    H._sqV *= Math.exp(-7.5 * dt);        // damping, so it settles rather than wobbling
+    H._sq = Math.max(-0.16, Math.min(0.16, H._sq + H._sqV * dt));
+    const sy = 1 + H._sq, sxz = 1 - H._sq * 0.5;
+    group.scale.set(H._base * sxz, H._base * sy, H._base * sxz);
+
+    // Last: every pose above is written onto the bones, and this is what actually draws them.
+    syncLimbs();
+
+    // Footfall: the leg swing crosses zero twice a stride, which is exactly when a foot lands.
+    if (moving && H.onStep) {
+      const phase = Math.sin(H._t);
+      if (H._stepPhase <= 0 && phase > 0) H.onStep(group.position);
+      H._stepPhase = phase;
+    }
+  };
+  return H;
+}

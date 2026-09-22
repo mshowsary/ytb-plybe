@@ -1,0 +1,74 @@
+:root{--edge:12px;--sat:env(safe-area-inset-top,0px);--sab:env(safe-area-inset-bottom,0px);--sal:env(safe-area-inset-left,0px);--sar:env(safe-area-inset-right,0px);--ink:#3E302B;--milk:#FFF9F1}
+@media(max-width:360px){:root{--edge:8px}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden;background:#BFE3F2;font-family:ui-rounded,"Arial Rounded MT Bold","Nunito",system-ui,sans-serif;user-select:none;-webkit-user-select:none;touch-action:none}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block}
+#fx,#ui{position:fixed;inset:0;pointer-events:none}
+#ui{touch-action:none;pointer-events:auto}
+#ui{z-index:5}#fx{z-index:7}
+.ui,button{pointer-events:auto}
+.hidden{display:none!important}
+
+#loading{position:fixed;inset:0;z-index:50;display:grid;place-items:center;background:#FFF4E6}
+#loading .paw{font-size:64px;animation:bob 1s ease-in-out infinite}
+@keyframes bob{50%{transform:translateY(-10px)}}
+
+/* coins, top-left */
+.wallet{position:fixed;left:calc(var(--edge) + var(--sal));top:calc(var(--edge) + var(--sat));display:flex;align-items:center;gap:8px;height:46px;padding:0 16px 0 10px;border-radius:16px;background:var(--milk);color:var(--ink);box-shadow:0 4px 14px #271b1530;font-weight:900;font-size:20px;font-variant-numeric:tabular-nums}
+.wallet.bump{animation:bump .25s ease}
+@keyframes bump{50%{transform:scale(1.12)}}
+.coin{width:24px;height:24px;flex:none;border-radius:50%;background:radial-gradient(circle at 35% 35%,#FFF6B0,#FFD84D 60%,#E0A800);box-shadow:inset 0 -2px 0 #0002}
+.sound{position:fixed;right:calc(var(--edge) + var(--sar));top:calc(var(--edge) + var(--sat));width:46px;height:46px;border:0;border-radius:16px;background:var(--milk);box-shadow:0 4px 14px #271b1530;font-size:20px;cursor:pointer}
+
+/* a big moment */
+.banner{position:fixed;left:50%;top:calc(var(--edge) + var(--sat) + 60px);transform:translate(-50%,-30px);opacity:0;transition:transform .3s cubic-bezier(.2,1.4,.4,1),opacity .25s;max-width:calc(100vw - 24px);padding:12px 22px;border-radius:18px;background:linear-gradient(90deg,#FF8FB1,#FFB86B);color:#fff;font-weight:900;font-size:20px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 8px 22px #0003;text-shadow:0 2px 0 #0002;pointer-events:none}
+.banner.show{transform:translate(-50%,0);opacity:1}
+@media(max-width:420px){.banner{font-size:16px;padding:10px 16px}}
+
+/* world-anchored bubbles */
+.bub{position:absolute;left:0;top:0;display:flex;align-items:center;gap:2px;padding:4px 8px;border-radius:14px;background:#FFFFFFF2;box-shadow:0 3px 10px #0003;font-size:20px;line-height:1;white-space:nowrap;translate:-50% -100%}
+.bub::after{content:"";position:absolute;left:50%;bottom:-5px;width:10px;height:10px;background:inherit;transform:translateX(-50%) rotate(45deg);border-radius:2px}
+.bub b{font-size:13px;color:var(--ink);font-weight:900}
+.bub.pop{animation:pop .25s cubic-bezier(.2,1.6,.4,1)}
+@keyframes pop{from{scale:.3}to{scale:1}}
+.bub.urgent{background:#FFE1D6}
+.bub.need{background:#FFF3C4;animation:nudge 1.2s ease-in-out infinite}
+.bub.need.soft{animation:none;opacity:.92}
+.bub.mood{background:transparent;box-shadow:none;font-size:22px}.bub.mood::after{display:none}
+.bub.small{font-size:16px}
+.bub.prog{padding:4px;background:transparent;box-shadow:none}.bub.prog::after{display:none}
+@keyframes nudge{50%{translate:-50% calc(-100% - 5px)}}
+.ring{display:block;width:30px;height:30px;border-radius:50%;background:conic-gradient(#7ED69A calc(var(--p)*360deg),#FFFFFF99 0);box-shadow:0 2px 8px #0003}
+
+/* coins flying to the wallet, and floating numbers */
+.fcoin{position:absolute;left:0;top:0;width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#FFF6B0,#FFD84D 60%,#E0A800);box-shadow:0 2px 4px #0003}
+.fnum{position:absolute;transform:translate(-50%,-50%);font-weight:900;font-size:20px;color:#FFD84D;text-shadow:0 2px 0 #7a5a00,0 0 6px #0005;animation:rise 1s ease-out forwards;pointer-events:none}
+@keyframes rise{to{transform:translate(-50%,-160%);opacity:0}}
+
+/* build pad price labels */
+.padlabel{position:absolute;left:0;top:0;translate:-50% -50%;display:flex;align-items:center;gap:6px;padding:5px 10px 5px 7px;border-radius:14px;background:#FFF9F1EE;box-shadow:0 3px 12px #0003;color:var(--ink);font-weight:900;font-size:17px;font-variant-numeric:tabular-nums}
+.padlabel .coin{width:20px;height:20px}
+.padlabel.afford{background:#DFF7E6}
+.padlabel .boost{border:0;border-radius:10px;padding:5px 8px;background:#8B7CF6;color:#fff;font-weight:900;font-size:13px;cursor:pointer;box-shadow:0 2px 6px #0003}
+
+/* the party */
+.partybadge{position:absolute;left:0;top:0;translate:-50% -100%;display:flex;align-items:center;gap:4px;height:46px;padding:0 12px 0 6px;border:2px solid #fff;border-radius:23px;background:#FFF4E6;box-shadow:0 6px 18px #0004;font-size:20px;font-weight:900;color:var(--ink);cursor:pointer;animation:bobb 1.6s ease-in-out infinite}
+.partybadge .play{width:32px;height:32px;border-radius:50%;background:#8B7CF6;position:relative}
+.partybadge .play::after{content:"";position:absolute;left:12px;top:9px;border-left:11px solid #fff;border-top:7px solid transparent;border-bottom:7px solid transparent}
+@keyframes bobb{50%{translate:-50% calc(-100% - 6px)}}
+.partychip{position:fixed;left:calc(var(--edge) + var(--sal));top:calc(var(--edge) + var(--sat) + 56px);padding:8px 12px;border-radius:14px;background:linear-gradient(90deg,#FF8FB1,#8B7CF6);color:#fff;font-weight:900;font-size:16px;box-shadow:0 4px 14px #0003;font-variant-numeric:tabular-nums;z-index:7;pointer-events:none}
+
+/* the one guide arrow */
+.guide{position:absolute;left:0;top:0;pointer-events:none}
+.guide .arrow{translate:-50% -100%;font-size:34px;color:#FFD84D;text-shadow:0 3px 0 #C98A00,0 0 10px #0004;animation:gbob .8s ease-in-out infinite}
+.guide.edge .arrow{translate:-50% -50%;animation:none;font-size:30px}
+@keyframes gbob{50%{margin-top:-10px}}
+
+/* joystick and the "drag to move" hand */
+.joy{position:fixed;left:0;top:0;width:110px;height:110px;margin:-55px 0 0 -55px;border-radius:50%;background:#FFFFFF33;border:3px solid #FFFFFF99;pointer-events:none}
+.joy-knob{position:absolute;left:50%;top:50%;width:48px;height:48px;border-radius:50%;background:#FFFFFFE6;box-shadow:0 3px 10px #0003}
+.hand{position:fixed;left:50%;bottom:calc(18% + var(--sab));width:140px;height:60px;margin-left:-70px;pointer-events:none}
+.hand .track{position:absolute;left:10px;right:10px;top:36px;height:6px;border-radius:3px;background:#FFFFFF88}
+.hand .finger{position:absolute;left:0;top:0;font-size:40px;animation:swipe 1.6s ease-in-out infinite}
+@keyframes swipe{0%,100%{transform:translateX(0)}50%{transform:translateX(90px)}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important}}
