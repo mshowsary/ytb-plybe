@@ -32,13 +32,13 @@ field, **pets are the hook**, and ads are opt-in rewards that never gate anythin
 | `src/main.js` | boot, frame loop, platform (YouTube Playables SDK) wiring |
 | `src/game.js` | creates the game object `G`, wires every system, the per-frame `update`, save snapshot/restore, the day summary |
 | `src/sim/` | pure simulation, no DOM/three.js: `world.js` (stations, machines, zones), `customers.js` (guest state machine, seating, queues), `staff.js`, `economy.js` + `economyConfig.js` (all prices and tunables), `day.js`, `pawRating.js` (Café Stars engine), `dailyGoal.js`, `petBook.js`, `petArrivals.js`, `petPose.js` (photos at tables), `adPacing.js` + `rewards.js` (ad caps, daily gift), `save.js` + `saveSchema.js`, `nav.js` + `mover.js` + `ownerReach.js` (pathfinding/collision), `supplies.js`, `carry.js` |
-| `src/systems/` | glue between sim and screen: `stations.js` (owner movement + every station interaction), `customers.js`, `staff.js`, `zones.js` (build pads), `visuals.js` (station meshes, need bubbles, signs), `offers.js` (rewarded offers in the world), `firstLook.js` (one-time tutorials), `objective.js` (guidance arrow/trail), `starRewards.js`, `photo.js`, `residentPets.js`, `rewardsSystem.js` (daily gift, golden hour) |
+| `src/systems/` | glue between sim and screen: `party.js` (jukebox + Pet Party offer), `stations.js` (owner movement + every station interaction), `customers.js`, `staff.js`, `zones.js` (build pads), `visuals.js` (station meshes, need bubbles, signs), `offers.js` (rewarded offers in the world), `firstLook.js` (one-time tutorials), `objective.js` (guidance arrow/trail), `starRewards.js`, `photo.js`, `residentPets.js`, `rewardsSystem.js` (daily gift, golden hour) |
 | `src/ui/` | DOM UI: `hud.js` (wallet), `pauseMenu.js` (the Café card), `shop.js` + `sheets.js` (the Shop), `meta.js` (Pet Book), `pawSheet.js` (Café Stars), `daySummary.js`, `moments.js` (one queue for banners/toasts/reveals), `modal.js` (every sheet pauses the game), `labelLayout.js` (arbiter for all world-anchored labels), `icons.js` |
 | `src/render/` | three.js: `scene.js` (fixed camera), `props.js` (all procedural station/furniture meshes), `environment.js` (lawn, garden, play yard, streets), `geo.js` (mesh/merge helpers), `human.js`, `pets.js`, `post.js`, `daylight.js`, `fx.js` |
 | `src/platform/` | YouTube Playables SDK wrapper (pause/resume, audio gating, ads, cloud save). Already compliant — change with care |
 | `docs/SHIP-PLAN-2026-09-19.md` | the design contract for the current ship: what was cut, why, and the intended design of every area |
 
-## State of the game (2026-09-20)
+## State of the game (2026-09-22)
 
 Shipped in the last two days: the pet spa removed (saves refunded); the terrace is a self-serve
 **Ice cream garden** with its own street entrance and guests; **photos of pets at their tables** and
@@ -48,6 +48,12 @@ bushes; **Café Stars** with real rewards; pets arrive as the café grows; one d
 is already working at t=0; **four rewarded offers in the world** (special guest at the door, helper
 pup in a rush, build boost on a half-paid pad, double-your-day at closing) plus a free daily gift;
 **First Look** one-time tutorials; pictogram signs on every station; frame budget met.
+
+Added 2026-09-22: a **jukebox** by the door (`systems/party.js`) whose ▶ ♫ ×2 badge offers a rewarded
+60-second **Pet Party** (double sales, party music, confetti) when guests are in, twice a day; a
+**grand opening** when the last plot is bought (`game.js grandOpening`); First Look lessons only
+appear when their subject is on screen or the player has stood still 3.5 s; a wider landscape camera
+and a portrait camera that looks ahead of the owner.
 
 Not yet verified by a human playing it: everything above. The owner should play days 1–10 and report
 what feels wrong. Known soft spots: guests still queue a while when the owner is busy (one person

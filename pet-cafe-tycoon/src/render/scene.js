@@ -227,15 +227,19 @@ export function createScene(canvas) {
     sun.position.copy(target).add(sunOffset); sun.target.position.copy(target);
   }
 
+  // Portrait looks a little AHEAD of the owner (toward screen-up, where the counters and the kitchen
+  // are) instead of centring them: centred, the bottom third of a phone was lawn outside the fence.
+  const lead = () => (camera.aspect <= 0.8 ? 1.4 : 0);
   S.follow = (x, z, dt) => {
-    goal.set(x, 0, z); target.x = damp(target.x, goal.x, 6, dt); target.z = damp(target.z, goal.z, 6, dt);
+    const k = lead();
+    goal.set(x - Math.sin(YAW) * k, 0, z - Math.cos(YAW) * k); target.x = damp(target.x, goal.x, 6, dt); target.z = damp(target.z, goal.z, 6, dt);
     // A player who starts walking has stopped looking at the opening shot. Measured from where the
     // camera was established rather than from an input event, so this needs nothing plumbed in from
     // the input layer and works for a tap-to-move as well as the stick.
-    if (estT > estGlide && Math.hypot(x - estFromX, z - estFromZ) > 0.6) estT = estGlide;
+    if (estT > estGlide && Math.hypot(goal.x - estFromX, goal.z - estFromZ) > 0.6) estT = estGlide;
     place(dt);
   };
-  S.snap = (x, z) => { S.releaseEstablish(); target.set(x, 0, z); place(); };
+  S.snap = (x, z) => { S.releaseEstablish(); const k = lead(); target.set(x - Math.sin(YAW) * k, 0, z - Math.cos(YAW) * k); place(); };
 
   // Metres of world covered by one CSS pixel of viewport height, at the camera target's depth.
   // S.dist is owned here (S.resize sets it) and FOV lives here too, so this is the only place that
