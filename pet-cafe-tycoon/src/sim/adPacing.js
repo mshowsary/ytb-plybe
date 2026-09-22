@@ -10,7 +10,7 @@
 //
 //   dayend    the ×2 button on the day summary            1 per game day
 //   guest     the sparkly Special Guest at the door       1 per game day
-//   service   the Helper Pup OR the Build Boost ▶ badge   1 per game day (they share this slot)
+//   service   Helper Pup, Build Boost, OR Pet Party        1 per game day (they share this slot)
 //   calendar  the daily gift                              1 per REAL day, keyed in meta.rewards
 //
 // The first three are shift-keyed in `meta.rewardedDays`; the calendar is real-day keyed in

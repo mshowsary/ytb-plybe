@@ -494,7 +494,7 @@ export function createOffers(G, S, ctx, platform) {
         userPaused: !!G.userPaused,
         inputActive: !!(input && (input.active || input.pressed)),
       });
-      if (!adReady) { clearOffer(); return; }
+      if (!adReady || G.party?.active) { clearOffer(); return; }
       if (!allowed) {
         // Once an offer has actually appeared IN THE WORLD -- the silhouette waiting at the door,
         // the pup with its sack -- it is not screen UI that should vanish the instant a thumb

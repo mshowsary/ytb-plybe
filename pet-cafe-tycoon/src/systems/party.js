@@ -6,17 +6,16 @@
 // starts a 60-second party: every sale pays double, the music turns bouncy, the jukebox's neon cycles,
 // confetti falls and the tables throw hearts. Ignoring it costs nothing.
 //
-// Rules it keeps (ship plan §1.7a): never in the first 45 s of a session, never under a sheet or a
-// pause or a First Look lesson, never while the day is closing, two parties a day at most with a
-// breather between them. The party runs on dt, so a paused game (or the ad itself) never spends it.
+// The party shares the day's service reward with Helper Pup and Build Boost. That keeps the café to
+// three in-shift rewarded moments at most, and the saved claim survives a reload. The party runs on
+// dt, so a paused game (or the ad itself) never spends it.
 import { cue } from '../ui/hud.js';
 import { musicIcon, coinIcon, playIcon, sparkleIcon } from '../ui/icons.js';
+import { markRewardedClaim, placementClaimedForShift } from '../sim/adPacing.js';
 
 export const PARTY_SECONDS = 60;
-export const PARTY_PER_DAY = 2;
-export const PARTY_BREATHER = 150;       // seconds of ordinary café between two parties
-export const PARTY_MIN_SESSION = 45;
-export const PARTY_MIN_GUESTS = 2;
+export const PARTY_MIN_SESSION = 60;
+export const PARTY_MIN_GUESTS = 3;
 export const PARTY_REWARD_ID = 'pet-cafe-pet-party';
 
 const NOTE_COLORS = ['#FF8FB1', '#8B7CF6', '#FFD84D', '#6EC6FF'];
@@ -25,9 +24,10 @@ function ensureStyles() {
   if (typeof document === 'undefined' || document.getElementById(STYLE_ID)) return;
   const s = document.createElement('style'); s.id = STYLE_ID;
   s.textContent = `
-    .party-badge{position:absolute;transform:translate(-50%,-100%);display:flex;align-items:center;gap:3px;height:48px;padding:0 12px 0 6px;border:2px solid #fff;border-radius:22px;background:#FFF4E6F2;box-shadow:0 6px 18px #0004;cursor:pointer;pointer-events:auto;font:950 16px/1 ui-rounded,system-ui,sans-serif;color:#3B2E2A;animation:party-bob 1.8s ease-in-out infinite;touch-action:manipulation}
+    .party-badge{position:absolute;transform:translate(-50%,-100%);display:flex;align-items:center;gap:3px;height:48px;padding:0 9px 0 6px;border:2px solid #fff;border-radius:22px;background:#FFF4E6F2;box-shadow:0 6px 18px #0004;cursor:pointer;pointer-events:auto;font:950 16px/1 ui-rounded,system-ui,sans-serif;color:#3B2E2A;animation:party-bob 1.8s ease-in-out infinite;touch-action:manipulation}
     .party-badge svg{width:32px;height:32px;display:block}
     .party-badge .pb-note svg{width:22px;height:22px}
+    .party-badge .pb-ad{margin-left:2px;padding:4px 5px;border:1px solid #8B7CF68f;border-radius:7px;background:#eee8ff;color:#5f50bb;font:950 9px/1 system-ui,sans-serif;letter-spacing:.05em}
     .party-badge[disabled]{opacity:.6}
     @keyframes party-bob{0%,100%{transform:translate(-50%,-100%)}50%{transform:translate(-50%,calc(-100% - 5px))}}
     .party-chip{position:fixed;left:calc(var(--hud-edge,12px) + var(--sal,0px));top:calc(var(--hud-edge,12px) + 112px + var(--sat,0px));z-index:15;display:flex;align-items:center;gap:5px;height:40px;padding:0 12px 0 8px;border-radius:14px;background:linear-gradient(90deg,#FF8FB1,#8B7CF6);color:#fff;box-shadow:0 4px 14px #271b1530;font:900 15px/1 ui-rounded,system-ui,sans-serif;font-variant-numeric:tabular-nums;pointer-events:none}
@@ -47,15 +47,14 @@ export function createParty(G, S, ctx, platform) {
   const dom = typeof document !== 'undefined';
   const jukebox = world.stations.get('jukebox1') || null;
   const proj = { sx: 0, sy: 0, visible: false };
-  let partyT = 0, breather = 0, busy = false, noteT = 0, confettiT = 0, heartT = 0, hue = 0, tick = 0, showBadge = false;
-  const claims = new Map();               // day -> parties thrown (session memory; an ad is never owed)
+  let partyT = 0, busy = false, noteT = 0, confettiT = 0, heartT = 0, hue = 0, tick = 0, showBadge = false;
 
   let badge = null, chip = null, chipNum = null;
   if (dom) {
     ensureStyles();
     badge = document.createElement('button');
     badge.type = 'button'; badge.className = 'party-badge hidden';
-    badge.innerHTML = `${playIcon()}<span class="pb-note">${musicIcon()}</span><span>×2</span>`;
+    badge.innerHTML = `${playIcon()}<span class="pb-note">${musicIcon()}</span><span>×2</span><small class="pb-ad">AD</small>`;
     badge.setAttribute('aria-label', 'Watch an ad to throw a pet party: every sale pays double for a minute');
     (els && els.fx ? els.fx : document.body).appendChild(badge);
     chip = document.createElement('div');
@@ -77,12 +76,13 @@ export function createParty(G, S, ctx, platform) {
     return !!platform && (platform.rewardedAvailable || !platform.inPlayables) && platform.canRequestAd?.('rewarded') !== false;
   }
   function offerable() {
-    if (!jukebox || !jukebox.active || partyT > 0 || busy || breather > 0) return false;
+    if (!jukebox || !jukebox.active || partyT > 0 || busy) return false;
     const d = G.dayState; if (!d) return false;
     if (d.phase === 'closing' || d._ended) return false;
-    if ((claims.get(d.day | 0) || 0) >= PARTY_PER_DAY) return false;
+    if (placementClaimedForShift(G.meta, 'service', d.day)) return false;
     if ((G.time || 0) < PARTY_MIN_SESSION) return false;
     if ((sheets && sheets.isOpen) || G.userPaused || G.firstLookActive) return false;
+    if (ctx.offers?.current) return false;
     if (guestsInside() < PARTY_MIN_GUESTS) return false;
     return adReady();
   }
@@ -95,8 +95,10 @@ export function createParty(G, S, ctx, platform) {
     busy = false; if (badge) badge.disabled = false;
     if (!earned) return;
     const day = G.dayState.day | 0;
-    claims.set(day, (claims.get(day) || 0) + 1);
+    if (!markRewardedClaim(G.meta, day, 'service')) return;
     start();
+    G.requestCheckpoint?.('pet-party');
+    if (platform && G.snapshot) platform.save(G.snapshot());
   }
 
   function start() {
@@ -107,7 +109,7 @@ export function createParty(G, S, ctx, platform) {
   }
 
   function stop() {
-    partyT = 0; breather = PARTY_BREATHER;
+    partyT = 0;
     audio.setParty?.(false);
     if (G.boosts) G.boosts.x2Until = 0;
     const l = lights(); if (l) l.material.color.set('#FF9EC0').multiplyScalar(1.6);
@@ -152,12 +154,11 @@ export function createParty(G, S, ctx, platform) {
     update(dt) {
       const step = Math.max(0, Number(dt) || 0);
       if (partyT > 0) stepParty(step);
-      else if (breather > 0) breather = Math.max(0, breather - step);
       tick -= step;
       if (tick <= 0) { tick = 0.25; showBadge = offerable(); }
       placeBadge(showBadge && !busy);
     },
-    teardown() { if (partyT > 0) stop(); breather = 0; claims.clear(); },
+    teardown() { if (partyT > 0) stop(); },
   };
   G.party = api;
   return api;

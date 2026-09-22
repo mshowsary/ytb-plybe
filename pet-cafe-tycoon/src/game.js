@@ -293,6 +293,7 @@ export function createGame(S, area, els, platform = null) {
   // for the next arrival tick (systems/customers.js inviteSpecialNow).
   ctx.customerSystem = customers;
   const offers = createOffers(G, S, ctx, platform);
+  ctx.offers = offers;
   const party = createParty(G, S, ctx, platform);
   G.meta.servicePolicy = normalizeServicePolicy(G.meta.servicePolicy);
   const objective = createObjective(G, S, ctx); const intro = createIntro(G, S, ctx);
