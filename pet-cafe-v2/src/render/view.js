@@ -2,7 +2,7 @@
 // counter, how much flour each oven has, which tables need wiping. Builds pop in when bought.
 import { modelFor } from './props.js';
 import { shelfSlot } from './items.js';
-import { OVEN_FLOUR } from '../game/layout.js';
+import { MACHINE_CAP, SUPPLIES } from '../game/layout.js';
 import { easeOutBack } from '../core/tween.js';
 
 export function createView(ctx) {
@@ -30,16 +30,17 @@ export function createView(ctx) {
         const k = easeOutBack(v.pop); v.group.scale.set(k, k, k);
       }
       v.group.visible = true;
-      if (st.type === 'oven') {
-        v.setFlour(st.flour / OVEN_FLOUR);
-        v.setBaking(st.baking, t);
+      if (st.type === 'machine') {
+        v.setLevel(st.level / MACHINE_CAP);
+        v.setBusy(st.busy, t);
         for (let i = 0; i < st.tray; i++) {
           const s = shelfSlot(i, 4, 0.22, 0.2);
           items.add(st.product, st.x + v.tray.x + s.x, v.tray.y, st.z + v.tray.z + s.z);
         }
-        if (st.baking && Math.random() < dt * 1.5) fx.steam(st.x, 2.4, st.z - 0.35);
-        if (st.flour <= 0) bubbles.show('oven' + st.id, st.x - 0.48, 2.0, st.z, '🌾<b>!</b>', 'need');
-        else if (st.flour <= 2) bubbles.show('oven' + st.id, st.x - 0.48, 2.0, st.z, '🌾', 'need soft');
+        if (st.busy && Math.random() < dt * 1.5) fx.steam(st.x + (st.model === 'oven' ? 0 : 0.25), st.model === 'oven' ? 2.4 : 1.6, st.z - 0.3);
+        const e = SUPPLIES[st.supply].emoji;
+        if (st.level <= 0) bubbles.show('m' + st.id, st.x - 0.48, 2.0, st.z, e + '<b>!</b>', 'need');
+        else if (st.level <= 2) bubbles.show('m' + st.id, st.x - 0.48, 2.0, st.z, e, 'need soft');
       } else if (st.type === 'counter') {
         for (let i = 0; i < st.stock; i++) {
           const s = shelfSlot(i, 4, 0.38, 0.28);
@@ -51,6 +52,8 @@ export function createView(ctx) {
           if (st.tip > 0) items.add('tip', st.x + v.tipAt.x, v.tipAt.y, st.z + v.tipAt.z);
           if (!W.staff.has('cleaner')) bubbles.show('tbl' + st.id, st.x, 1.6, st.z, '🧽', 'need soft');
         }
+      } else if (st.type === 'pantry') {
+        for (const kind in v.rows) v.rows[kind].visible = W.built('machine').some(m => m.supply === kind);
       } else if (st.type === 'jukebox') {
         const hue = party ? (t * 0.35) % 1 : 0.94;
         v.lights.material.color.setHSL(hue, 0.9, party ? 0.62 : 0.72).multiplyScalar(1.5);

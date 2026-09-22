@@ -25,8 +25,7 @@ export function createNav() {
       { x0: r.x0 - t, x1: r.doorX0, z0: r.z1 - 0.12, z1: r.z1 + 0.25 },     // front, left of door
       { x0: r.doorX1, x1: r.x1 + t, z0: r.z1 - 0.12, z1: r.z1 + 0.25 },     // front, right of door
       { x0: r.x0, x1: -6.3, z0: -2.0, z1: -1.2 },                           // bar end left of the till
-      { x0: 1.3, x1: 2.5, z0: r.z0, z1: r.z0 + 0.85 },                      // kitchen sink
-      { x0: 2.55, x1: 3.45, z0: r.z0, z1: r.z0 + 0.85 },                    // fridge
+      { x0: 2.4, x1: 3.5, z0: r.z0, z1: r.z0 + 0.85 },                      // kitchen sink
     ];
   }
 

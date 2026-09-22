@@ -4,6 +4,8 @@
 import * as THREE from 'three';
 import { part, merge } from './geo.js';
 import { toonMaterial } from './palette.js';
+import { sackParts } from './props.js';
+import { SUPPLIES } from '../game/layout.js';
 
 function cookieGeo() {
   const P = [part('cyl', [0.12, 0.125, 0.045, 14], '#D89A52', { y: 0.022 })];
@@ -18,15 +20,23 @@ function cupcakeGeo() {
   P.push(part('sph', [0.028, 8], '#E0304F', { y: 0.25 }));
   return merge(P);
 }
-function sackGeo() {
+function coffeeGeo() {
   return merge([
-    part('rbox', [0.34, 0.36, 0.24, 0.08], '#F3E6CC', { y: 0.18, tex: 'fabric' }),
-    part('cyl', [0.07, 0.11, 0.1, 8], '#F3E6CC', { y: 0.4, tex: 'fabric' }),
-    part('cyl', [0.075, 0.075, 0.03, 8], '#B98A4E', { y: 0.37 }),
-    part('box', [0.345, 0.1, 0.245], '#6FA8DC', { y: 0.2 }),
-    part('sph', [0.035, 6], '#FFFFFF', { y: 0.2, z: 0.125, sz: 0.3 }),
+    part('cyl', [0.11, 0.11, 0.015, 14], '#FFFFFF', { y: 0.008 }),
+    part('cyl', [0.07, 0.055, 0.1, 12], '#FFFFFF', { y: 0.06 }),
+    part('cyl', [0.062, 0.062, 0.01, 12], '#7A4A2A', { y: 0.106 }),
+    part('cyl', [0.03, 0.03, 0.012, 8], '#F3E1C8', { y: 0.11 }),
+    part('cyl', [0.022, 0.022, 0.05, 6], '#FFFFFF', { x: 0.08, y: 0.065, rx: Math.PI / 2, sx: 1, sz: 0.4 }),
   ]);
 }
+function treatGeo() {
+  return merge([
+    part('box', [0.14, 0.04, 0.05], '#E8C08A', { y: 0.025 }),
+    part('sph', [0.035, 7], '#E8C08A', { x: -0.075, y: 0.025, z: 0.022 }), part('sph', [0.035, 7], '#E8C08A', { x: -0.075, y: 0.025, z: -0.022 }),
+    part('sph', [0.035, 7], '#E8C08A', { x: 0.075, y: 0.025, z: 0.022 }), part('sph', [0.035, 7], '#E8C08A', { x: 0.075, y: 0.025, z: -0.022 }),
+  ]);
+}
+const sackGeo = kind => () => merge(sackParts(kind, 0, 0, 0));
 function trayGeo() {
   return merge([
     part('box', [0.5, 0.025, 0.38], '#B9834A', { y: 0.012, tex: 'wood' }),
@@ -44,7 +54,7 @@ function plateGeo() {
   ]);
 }
 
-const KINDS = { cookie: cookieGeo, cupcake: cupcakeGeo, flour: sackGeo, tray: trayGeo, tip: tipGeo, plate: plateGeo };
+const KINDS = { cookie: cookieGeo, cupcake: cupcakeGeo, coffee: coffeeGeo, treat: treatGeo, flour: sackGeo('flour'), beans: sackGeo('beans'), kibble: sackGeo('kibble'), tray: trayGeo, tip: tipGeo, plate: plateGeo };
 const MAX = 160;
 
 export function createItems(scene) {
@@ -52,7 +62,7 @@ export function createItems(scene) {
   const pools = {};
   for (const [k, fn] of Object.entries(KINDS)) {
     const im = new THREE.InstancedMesh(fn(), mat, MAX);
-    im.count = 0; im.castShadow = true; im.receiveShadow = true; im.frustumCulled = false;
+    im.count = 0; im.castShadow = false; im.receiveShadow = true; im.frustumCulled = false;
     scene.add(im); pools[k] = { im, n: 0 };
   }
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(), e = new THREE.Euler();
@@ -72,9 +82,10 @@ export function createItems(scene) {
 // Where item i of n sits in a carried stack, relative to the chest (local +z is forward).
 // Pastries ride on a tray in two columns; sacks stack straight up in the arms.
 export function stackSlot(kind, i) {
-  if (kind === 'flour') return { x: 0, y: i * 0.33, z: 0 };
+  if (SUPPLIES[kind]) return { x: 0, y: i * 0.38, z: 0 };
   const layer = (i / 2) | 0, col = i % 2;
-  return { x: col ? 0.11 : -0.11, y: 0.03 + layer * (kind === 'cupcake' ? 0.24 : 0.05), z: 0 };
+  const h = kind === 'cupcake' ? 0.24 : kind === 'coffee' ? 0.13 : 0.05;
+  return { x: col ? 0.11 : -0.11, y: 0.03 + layer * h, z: 0 };
 }
 
 // Where item i sits on a display (a grid of 4 across, 2 deep), relative to the shelf centre.

@@ -73,7 +73,7 @@ export function createRoom(scene) {
   P.push(part('box', [0.04, 1.1, 1.6], COL.window, { x: x0 + 0.03, y: 2.0, z: 1.2 }));
   P.push(part('box', [0.1, 1.24, 0.1], COL.frame, { x: x0 + 0.05, y: 2.0, z: 0.4 }));
   P.push(part('box', [0.1, 1.24, 0.1], COL.frame, { x: x0 + 0.05, y: 2.0, z: 2.0 }));
-  P.push(part('box', [0.16, 0.1, 1.8], COL.frame, { x: x0 + 0.08, y: 1.42, z: 1.2 }));
+  P.push(part('box', [0.46, 0.08, 1.8], COL.frame, { x: x0 + 0.23, y: 1.42, z: 1.2 }));      // a deep sill: the cat sleeps here
   for (const [pz, c] of [[-0.9, '#F5A25D'], [3.0, '#8FD3FF']]) {
     P.push(part('box', [0.06, 0.62, 0.52], COL.trim, { x: x0 + 0.04, y: 1.95, z: pz }));
     P.push(part('box', [0.07, 0.5, 0.4], c, { x: x0 + 0.05, y: 1.95, z: pz }));
@@ -108,15 +108,13 @@ export function createRoom(scene) {
   P.push(part('box', [-6.3 - x0 + 0.05, 0.07, 0.9], '#F3E4CC', { x: (x0 - 6.3) / 2, y: 1.03, z: -1.6 }));
 
   // ---- the rest of a working kitchen: a sink and a fridge in the back-right corner ----------
-  P.push(part('rbox', [1.2, 0.9, 0.8, 0.05], '#DCE6EA', { x: 1.9, y: 0.45, z: z0 + 0.45 }));
-  P.push(part('box', [1.24, 0.05, 0.84], '#9FB1BA', { x: 1.9, y: 0.92, z: z0 + 0.45 }));
-  P.push(part('box', [0.6, 0.06, 0.45], '#7E939C', { x: 1.9, y: 0.93, z: z0 + 0.45 }));
-  P.push(part('cyl', [0.025, 0.025, 0.3, 6], '#C9D3D8', { x: 1.9, y: 1.08, z: z0 + 0.16 }));
-  P.push(part('box', [0.04, 0.04, 0.2], '#C9D3D8', { x: 1.9, y: 1.22, z: z0 + 0.25 }));
-  P.push(part('rbox', [0.9, 2.0, 0.8, 0.08], '#F4F7F8', { x: 3.0, y: 1.0, z: z0 + 0.45 }));
-  P.push(part('box', [0.04, 0.5, 0.04], '#AEB9BF', { x: 2.65, y: 1.35, z: z0 + 0.87 }));
-  P.push(part('box', [0.04, 0.3, 0.04], '#AEB9BF', { x: 2.65, y: 0.65, z: z0 + 0.87 }));
-  P.push(part('box', [0.88, 0.02, 0.02], '#D5DEE2', { x: 3.0, y: 1.1, z: z0 + 0.86 }));
+  const SX = 2.95;
+  P.push(part('rbox', [1.1, 0.9, 0.8, 0.05], '#DCE6EA', { x: SX, y: 0.45, z: z0 + 0.45 }));
+  P.push(part('box', [1.14, 0.05, 0.84], '#9FB1BA', { x: SX, y: 0.92, z: z0 + 0.45 }));
+  P.push(part('box', [0.56, 0.06, 0.45], '#7E939C', { x: SX, y: 0.93, z: z0 + 0.45 }));
+  P.push(part('cyl', [0.025, 0.025, 0.3, 6], '#C9D3D8', { x: SX, y: 1.08, z: z0 + 0.16 }));
+  P.push(part('box', [0.04, 0.04, 0.2], '#C9D3D8', { x: SX, y: 1.22, z: z0 + 0.25 }));
+  for (let i = 0; i < 3; i++) P.push(part('cyl', [0.1, 0.1, 0.02, 12], '#FFFFFF', { x: SX + 0.3, y: 0.96 + i * 0.022, z: z0 + 0.55 }));
 
   // ---- décor: potted plants in the corners ----------------------------------------------
   const plant = (x, z, s = 1) => {

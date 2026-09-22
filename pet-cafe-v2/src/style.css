@@ -46,7 +46,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE3F2;font-family:ui
 @keyframes rise{to{transform:translate(-50%,-160%);opacity:0}}
 
 /* build pad price labels */
-.padlabel{position:absolute;left:0;top:0;translate:-50% -50%;display:flex;align-items:center;gap:6px;padding:5px 10px 5px 7px;border-radius:14px;background:#FFF9F1EE;box-shadow:0 3px 12px #0003;color:var(--ink);font-weight:900;font-size:17px;font-variant-numeric:tabular-nums}
+.padlabel{pointer-events:none;position:absolute;left:0;top:0;translate:-50% -50%;display:flex;align-items:center;gap:6px;padding:5px 10px 5px 7px;border-radius:14px;background:#FFF9F1EE;box-shadow:0 3px 12px #0003;color:var(--ink);font-weight:900;font-size:17px;font-variant-numeric:tabular-nums}
 .padlabel .coin{width:20px;height:20px}
 .padlabel.afford{background:#DFF7E6}
 .padlabel .boost{border:0;border-radius:10px;padding:5px 8px;background:#8B7CF6;color:#fff;font-weight:900;font-size:13px;cursor:pointer;box-shadow:0 2px 6px #0003}
@@ -56,7 +56,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE3F2;font-family:ui
 .partybadge .play{width:32px;height:32px;border-radius:50%;background:#8B7CF6;position:relative}
 .partybadge .play::after{content:"";position:absolute;left:12px;top:9px;border-left:11px solid #fff;border-top:7px solid transparent;border-bottom:7px solid transparent}
 @keyframes bobb{50%{translate:-50% calc(-100% - 6px)}}
-.partychip{position:fixed;left:calc(var(--edge) + var(--sal));top:calc(var(--edge) + var(--sat) + 56px);padding:8px 12px;border-radius:14px;background:linear-gradient(90deg,#FF8FB1,#8B7CF6);color:#fff;font-weight:900;font-size:16px;box-shadow:0 4px 14px #0003;font-variant-numeric:tabular-nums;z-index:7;pointer-events:none}
+.partychip{position:fixed;left:calc(var(--edge) + var(--sal));top:calc(var(--edge) + var(--sat) + 104px);padding:8px 12px;border-radius:14px;background:linear-gradient(90deg,#FF8FB1,#8B7CF6);color:#fff;font-weight:900;font-size:16px;box-shadow:0 4px 14px #0003;font-variant-numeric:tabular-nums;z-index:7;pointer-events:none}
 
 /* the one guide arrow */
 .guide{position:absolute;left:0;top:0;pointer-events:none}
@@ -72,3 +72,25 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE3F2;font-family:ui
 .hand .finger{position:absolute;left:0;top:0;font-size:40px;animation:swipe 1.6s ease-in-out infinite}
 @keyframes swipe{0%,100%{transform:translateX(0)}50%{transform:translateX(90px)}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important}}
+
+/* the Pet Book chip (under the wallet), the new-friend card, and the book itself */
+.petchip{position:fixed;left:calc(var(--edge) + var(--sal));top:calc(var(--edge) + var(--sat) + 54px);display:flex;align-items:center;gap:6px;height:42px;padding:0 13px 0 10px;border:0;border-radius:14px;background:var(--milk);color:var(--ink);box-shadow:0 4px 14px #271b1530;font:900 16px ui-rounded,system-ui,sans-serif;font-variant-numeric:tabular-nums;cursor:pointer}
+.petchip span{font-size:20px}
+.petchip.bump{animation:bump .3s ease}
+.petchip .dot{position:absolute;right:-3px;top:-3px;width:12px;height:12px;border-radius:50%;background:#FF6B5E;box-shadow:0 0 0 2px #fff}
+.petcard{position:fixed;left:50%;top:calc(var(--edge) + var(--sat) + 8px);transform:translate(-50%,-140%);transition:transform .35s cubic-bezier(.2,1.3,.4,1);display:flex;align-items:center;gap:10px;padding:8px 16px 8px 8px;border-radius:18px;background:#FFF9F1;box-shadow:0 8px 24px #0003;border:3px solid var(--r,#9FB7C9);pointer-events:none;max-width:calc(100vw - 130px);z-index:8}
+.petcard.show{transform:translate(-50%,0)}
+.pc-face{font-size:34px;width:48px;height:48px;display:grid;place-items:center;border-radius:14px;background:#FFF1DC}
+.pc-txt{display:flex;flex-direction:column;line-height:1.15;color:var(--ink);min-width:0}
+.pc-txt small{font-size:11px;font-weight:900;color:#E0705F;text-transform:uppercase;letter-spacing:.06em}
+.pc-txt b{font-size:17px}.pc-txt em{font-size:12px;font-style:normal;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sheet{position:fixed;inset:0;z-index:30;display:grid;place-items:center;background:#1d14104d;padding:16px}
+.sheet-card{width:min(520px,100%);max-height:calc(100vh - 32px);overflow:auto;border-radius:22px;background:#FFF9F1;box-shadow:0 18px 50px #0005;padding:14px}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;color:var(--ink);font-size:20px}
+.sheet-head .close{width:40px;height:40px;border:0;border-radius:12px;background:#F1E4D2;font-size:18px;cursor:pointer}
+.grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.pet{min-width:0;overflow:hidden;aspect-ratio:1/1.15;border-radius:14px;background:#EFE4D6;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px;text-align:center;color:var(--ink)}
+.pet span{font-size:24px;width:40px;height:40px;display:grid;place-items:center;border-radius:50%;background:var(--coat,transparent)}.pet b{font-size:11px}.pet em{font-size:9px;font-style:normal;opacity:.65;line-height:1.1}
+.pet.met{background:#FFFFFF;box-shadow:inset 0 0 0 3px var(--r)}
+.pet.locked{opacity:.55}.pet.legend{background:#FFF3C4}
+@media(max-width:440px){.grid{gap:5px}.pet span{font-size:20px;width:34px;height:34px}.pet em{display:none}.pet b{font-size:10px}}

@@ -1,5 +1,6 @@
 // src/game/actors.js — what guests, staff and the owner share: walking a path, and a visible stack.
 import { stackSlot } from '../render/items.js';
+import { SUPPLIES } from './layout.js';
 
 // Walk a nav path at `speed`. go() is cheap to call every frame: it only re-plans for a new goal.
 export function makeWalker(nav, x, z, speed, mask = 'staff') {
@@ -39,7 +40,7 @@ export function drawStack(items, H, carry) {
   const ry = H.group.rotation.y, s = H.group.scale.y;
   const fx = Math.sin(ry), fz = Math.cos(ry), rx = Math.cos(ry), rz = -Math.sin(ry);
   const bx = H.group.position.x + fx * 0.46, bz = H.group.position.z + fz * 0.46, by = H.group.position.y + 1.02 * s;
-  if (carry.kind !== 'flour') items.add('tray', bx, by - 0.03, bz, ry);
+  if (!SUPPLIES[carry.kind]) items.add('tray', bx, by - 0.03, bz, ry);
   for (let i = 0; i < carry.n; i++) {
     const o = stackSlot(carry.kind, i);
     items.add(carry.kind, bx + rx * o.x, by + o.y, bz + rz * o.x, ry);

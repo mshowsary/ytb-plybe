@@ -55,7 +55,7 @@ export function createPads(ctx) {
       ghost.position.set(st.x, 0, st.z); ghost.rotation.y = st.rot || 0;
     }
     scene.add(ghost);
-    const label = document.createElement('div'); label.className = 'padlabel ui';
+    const label = document.createElement('div'); label.className = 'padlabel';   // touches pass through (only the ▶ button is tappable)
     label.innerHTML = '<span class="coin"></span><b></b><button class="boost" aria-label="Watch a video to pay half">▶ ½</button>';
     layer.appendChild(label);
     const boost = label.querySelector('.boost');

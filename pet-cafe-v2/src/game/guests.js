@@ -15,7 +15,11 @@ export function createGuests(ctx) {
   const list = [];
   let spawnT = 2, nextId = 1;
   const till = W.stations.get('till1');
-  const leashMat = new THREE.LineBasicMaterial({ color: '#6B4A33' });
+  // every leash in the café is one line object (two points per guest), so a full house costs one draw
+  const MAXG = 16, leashPos = new Float32Array(MAXG * 6);
+  const leashGeo = new THREE.BufferGeometry(); leashGeo.setAttribute('position', new THREE.BufferAttribute(leashPos, 3));
+  const leashes = new THREE.LineSegments(leashGeo, new THREE.LineBasicMaterial({ color: '#6B4A33' }));
+  leashes.frustumCulled = false; scene.add(leashes);
 
   function spawn() {
     const products = W.built('counter').map(c => c.product);
@@ -23,14 +27,12 @@ export function createGuests(ctx) {
     const product = products[Math.floor(Math.random() * products.length)];
     const H = createHuman({ shirt: SHIRTS[(Math.random() * SHIRTS.length) | 0], hair: (Math.random() * 4) | 0, skin: (Math.random() * 3) | 0 }, 'customer');
     scene.add(H.group);
-    const species = Math.random() < 0.5 ? 'cat' : 'dog';
-    const pet = createPet(species, (Math.random() * 4) | 0);
+    const [species, variant] = W.pickPet();
+    const pet = createPet(species, variant);
     scene.add(pet.group);
     const w = makeWalker(nav, STREET.spawn.x, STREET.spawn.z, SPEED, 'guest');
     pet.group.position.set(w.x + 0.6, 0, w.z);
-    const leashGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
-    const leash = new THREE.Line(leashGeo, leashMat); leash.frustumCulled = false; scene.add(leash);
-    const g = { id: nextId++, H, pet, leash, w, product, want: 1 + (Math.random() < 0.4 ? 1 : 0), carry: { kind: null, n: 0 },
+    const g = { id: nextId++, H, pet, species, variant, w, product, want: 1 + (Math.random() < 0.4 ? 1 : 0), carry: { kind: null, n: 0 },
       state: 'enter', t: 0, wait: 0, spot: null, counter: null, table: null, sad: false };
     g.w.go(STREET.inside.x, STREET.inside.z);
     list.push(g);
@@ -61,20 +63,22 @@ export function createGuests(ctx) {
     return tables.length ? tables[(Math.random() * tables.length) | 0] : null;
   }
 
-  function update(dt, serverAtTill) {
+  function update(dt, serverAtTill, rush = false) {
     // arrivals: more tables and more counters bring more guests
     const tables = W.built('table').length, counters = W.built('counter').length;
-    const interval = Math.max(2.6, 7.5 - tables * 0.45 - (counters - 1) * 1.2);
+    const interval = Math.max(2.2, 7.5 - tables * 0.45 - (counters - 1) * 0.9) * (rush ? 0.45 : 1);
     spawnT -= dt;
-    if (spawnT <= 0 && list.length < 4 + tables * 1.5) { spawn(); spawnT = interval * (0.7 + Math.random() * 0.6); }
+    if (spawnT <= 0 && list.length < Math.min(rush ? 13 : 11, 4 + tables * 1.3 + (rush ? 2 : 0))) { spawn(); spawnT = interval * (0.7 + Math.random() * 0.6); }
 
+    let leashN = 0;
     for (let i = list.length - 1; i >= 0; i--) {
       const g = list[i]; g.t += dt;
       const arrived = g.w.step(dt);
       let face = null;
       switch (g.state) {
         case 'enter':
-          if (arrived) { if (claimCounterSpot(g)) g.state = 'toCounter'; else { g.state = 'lineup'; g.w.go(g.w.x - 1.5, 1.0); } }
+          if (arrived) {
+            W.meet(g.species, g.variant); if (claimCounterSpot(g)) g.state = 'toCounter'; else { g.state = 'lineup'; g.w.go(g.w.x - 1.5, 1.0); } }
           break;
         case 'lineup':           // both spots at the counter are taken: wait nearby, then step up
           g.wait += dt;
@@ -130,7 +134,10 @@ export function createGuests(ctx) {
           break;
         case 'leave':
           if (arrived) {
-            if (g.w.gx === STREET.door.x && g.w.gz === STREET.door.z) g.w.go(-12, STREET.spawn.z);
+            // out of the door, then along the pavement (a point on the walk grid), then straight off
+            // the edge of the world — never around the back of the building
+            if (g.leg === undefined && g.w.gx === STREET.door.x && g.w.gz === STREET.door.z) { g.leg = 1; g.w.go(-7.5, STREET.spawn.z); }
+            else if (g.leg === 1) { g.leg = 2; g.w.path = [{ x: -15, z: STREET.spawn.z }]; g.w.gx = -15; }
             else { remove(g, i); continue; }
           }
           break;
@@ -141,19 +148,20 @@ export function createGuests(ctx) {
       g.H.setCarry(g.carry.n);
       if (g.state === 'eating') {
         g.pet.update(dt, false, 0);
-        if (g.carry.n) items.add(g.product, g.table.x - 0.25, 0.81, g.table.z, 0);
-        items.add('plate', g.table.x - 0.25, 0.8, g.table.z);
+        // a pet treat is for the pet: it sits on the pet's side of the table
+        const side = g.product === 'treat' ? 0.25 : -0.25;
+        if (g.carry.n) items.add(g.product, g.table.x + side, 0.82, g.table.z, 0);
+        items.add('plate', g.table.x + side, 0.8, g.table.z);
+        if (g.product === 'treat' && g.carry.n && (g.t % 3) < 1.2) bubbles.show('pet' + g.id, g.table.spots.chairs[1].x, 1.35, g.table.z, '💕', 'mood');
       } else {
         g.pet.followTarget(g.w.x, g.w.z, g.H.group.rotation.y, dt, nav.walkable);
         drawStack(items, g.H, g.carry);
       }
-      // leash from hand to collar (hidden while seated)
-      const pos = g.leash.geometry.attributes.position;
-      g.leash.visible = g.state !== 'eating';
-      if (g.leash.visible) {
-        const hp = g.H.group.position, pp = g.pet.group.position, ry = g.H.group.rotation.y;
-        pos.setXYZ(0, hp.x + Math.cos(ry) * 0.42, 0.75, hp.z - Math.sin(ry) * 0.42);
-        pos.setXYZ(1, pp.x, 0.35 * g.pet.group.scale.y + 0.1, pp.z); pos.needsUpdate = true;
+      // leash from hand to collar (none while seated)
+      if (g.state !== 'eating' && leashN < MAXG) {
+        const hp = g.H.group.position, pp = g.pet.group.position, ry = g.H.group.rotation.y, k = leashN++ * 6;
+        leashPos[k] = hp.x + Math.cos(ry) * 0.42; leashPos[k + 1] = 0.75; leashPos[k + 2] = hp.z - Math.sin(ry) * 0.42;
+        leashPos[k + 3] = pp.x; leashPos[k + 4] = 0.35 * g.pet.group.scale.y + 0.1; leashPos[k + 5] = pp.z;
       }
       // what they want, over their head
       const hy = g.state === 'eating' ? 1.9 : 2.45;
@@ -168,11 +176,12 @@ export function createGuests(ctx) {
         bubbles.show('g' + g.id, g.w.x, hy, g.w.z, '❤️', 'mood');
       }
     }
+    leashGeo.setDrawRange(0, leashN * 2); leashGeo.attributes.position.needsUpdate = true;
   }
 
   function remove(g, i) {
     releaseCounterSpot(g);
-    scene.remove(g.H.group, g.pet.group, g.leash); g.leash.geometry.dispose();
+    scene.remove(g.H.group, g.pet.group);
     list.splice(i, 1);
   }
 

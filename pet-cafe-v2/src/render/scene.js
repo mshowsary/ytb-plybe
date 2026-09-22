@@ -38,7 +38,7 @@ export function createScene(canvas) {
     // Frame about 13 m across on a phone held upright and about 15 m of floor top-to-bottom on a
     // wide screen, whichever needs the camera further back. Characters stay big enough to read.
     const t = Math.tan(FOV * Math.PI / 360);
-    const across = camera.aspect < 1 ? 11.5 : 17;
+    const across = camera.aspect < 1 ? 12.2 : 17;
     dist = Math.max(across / (2 * t * camera.aspect), 11.5 / (2 * t));
     if (camera.aspect < 0.62) dist = Math.min(dist, 27);
   };
@@ -48,13 +48,14 @@ export function createScene(canvas) {
 
   // The camera leans a third of the way toward the middle of the café, so the room stays framed.
   const MID = { x: -1.7, z: 0 };
+  const pull = () => camera.aspect < 1 ? 0.5 : 0.3;   // phones lean further in, so both walls stay in frame
   S.follow = (x, z, dt) => {
-    goal.set(lerp(x, MID.x, 0.3), 0, lerp(z, MID.z, 0.3) - lead());
+    goal.set(lerp(x, MID.x, pull()), 0, lerp(z, MID.z, pull()) - lead());
     const k = dt > 0 ? 1 - Math.exp(-6 * dt) : 1;
     target.lerp(goal, k);
     place(dt);
   };
-  S.snap = (x, z) => { target.set(lerp(x, MID.x, 0.3), 0, lerp(z, MID.z, 0.3) - lead()); place(0); };
+  S.snap = (x, z) => { target.set(lerp(x, MID.x, pull()), 0, lerp(z, MID.z, pull()) - lead()); place(0); };
   S.shake = a => { shake = Math.max(shake, a); };
   // A held shot (the grand opening): look at `p` from `d` for `t` seconds, then glide home.
   S.look = (p, d, t) => { override = { x: p.x, z: p.z, d }; overrideT = t; };
