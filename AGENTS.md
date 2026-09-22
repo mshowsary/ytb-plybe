@@ -1,12 +1,24 @@
-# Pet Café development and certification
+# Pet Café — how to work on it
 
-The user has explicitly requested batched development, not full certification after each task.
+The owner plays the build. That is the gate. Everything below exists to keep a change cheap.
 
-- Fast Checks are the ordinary development gate: focused tests, full unit/simulation suite and build.
-- Production is manual-only. Run `suite=lifecycle` to diagnose lifecycle changes without economy simulations. Use `suite=all` for a coherent batch (roughly ten tasks), a meaningful integration checkpoint, or release.
-- A failed certification blocks claiming certification and release. It does not by itself prohibit implementing independent tasks on a development branch. Fix demonstrated failures; record dependent tasks as unverified. Do not spend a turn merely waiting or restating that a gate is red.
-- Certification is tied to the run's SHA, not the moving branch head. New development cannot retroactively invalidate that SHA's evidence. Certify the eventual release SHA before release.
-- Keep every genuine acceptance assertion. Do not mark failing checks successful, skip tests to force green, or claim a diagnostic suite is full certification.
-- Production's suites run independently; within a suite the runner records all check failures. Inspect its named result/log rather than rerunning the entire matrix to discover the next failure.
-- Earlier roadmap stop rules mean a certification/release boundary under this user-requested cadence, not an instruction to halt all development indefinitely.
-- Do not overwrite other agents' newer remote work or force-push. Keep main unchanged.
+## Every change
+- Make the smallest edit that does the job, then `npm run build` in `pet-cafe-tycoon/`. Build green = done.
+- If you touched pure sim logic that has a matching unit test file, you may run that one file
+  (`node --test test/<name>.test.js`). Never the whole suite by default.
+- Say in plain words what changed and what the owner should look at when they play.
+
+## Never, unless the owner asks for it by name
+- Full `npm test`, smoke tools (`tools/*-smoke.mjs`), `scene-cost`, bots, economy/balance sweeps,
+  certification, screenshots matrices, multi-agent workflows. They peg the laptop for hours and
+  have not caught what the owner catches in one playthrough.
+- Reading `docs/archive/` — it is history, not the brief. The brief is `docs/SHIP-PLAN-2026-09-19.md`
+  and `pet-cafe-tycoon/HANDOFF.md`.
+- Updating a test to "prove" a change. Tests follow the game, not the other way round; if a test
+  breaks because the design changed, fix or delete the test in the same edit.
+
+## Safety
+- `tools/jev-*.js` are third-party files with a secret in them: never open, stage, commit or push.
+  Stage explicit paths; never `git add -A` / `git add .` over `tools/`.
+- Don't commit `debug.log`, `output/`, `PLAYABLES-BUILD-PROMPT.md`, `pet-cafe-handoff.zip`.
+- Ask before pushing (a push deploys to the live Pages site). Never force-push. Keep `main` unchanged.
