@@ -36,15 +36,16 @@ test('initial world has only pre-built stations active', () => {
 // The crate is replaced by the load flying home on its own (systems/stations.js flyBackHeld) and
 // the kiosk by the one Shop the Cafe card and the staff desk already open: 31 - 2 = 29 stations,
 // still 12 zones.
-test('AREA1 has 29 stations and 12 zones', () => {
-  assert.equal(AREA1.stations.length, 29);
+test('AREA1 has 30 stations and 12 zones', () => {
+  // 29 + the jukebox by the door (systems/party.js).
+  assert.equal(AREA1.stations.length, 30);
   assert.equal(AREA1.zones.length, 12);
 });
-test('exactly oven1, dispCookie, register1 and the two opening tables are active at start', () => {
+test('exactly oven1, dispCookie, register1, the jukebox and the two opening tables are active at start', () => {
   const w = createWorld(AREA1);
   const active = [...w.stations.values()].filter(st => st.active).map(st => st.id).sort();
   // seat1/seat2 joined this set in Batch E1 -- see the opening-cafe note above.
-  assert.deepEqual(active, ['dispCookie', 'oven1', 'register1', 'seat1', 'seat2']);
+  assert.deepEqual(active, ['dispCookie', 'jukebox1', 'oven1', 'register1', 'seat1', 'seat2']);
 });
 test('building the whole zone chain in order activates every station and rebuilds w.boxes', () => {
   const w = createWorld(AREA1);
@@ -55,8 +56,8 @@ test('building the whole zone chain in order activates every station and rebuild
   // gone), so the whole chain leaves every station active.
   const inactive = [...w.stations.values()].filter(st => !st.active);
   assert.deepEqual(inactive.map(st => st.id), []);
-  // 29 stations - gate1 and photoWall1 (both non-blocking, never in w.boxes) = 27.
-  assert.equal(w.boxes.length, 27);
+  // 30 stations - gate1 and photoWall1 (both non-blocking, never in w.boxes) = 28.
+  assert.equal(w.boxes.length, 28);
 });
 test('paying a zone drains and completes', () => {
   const w = createWorld(AREA1);

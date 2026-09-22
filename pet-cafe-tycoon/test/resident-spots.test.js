@@ -21,6 +21,7 @@ test('no resident home stands within a metre of a station front or a queue slot'
   const regions = AREA1.regions || [];
   for (const home of residentHomes()) {
     for (const st of world.stations.values()) {
+      if (st.type === 'jukebox') continue;  // nobody works at it; the dog basket sits beside it on purpose
       // A home's lawn spot only ever coexists with stations outside the region that paves it over.
       if (home.pavedBy && regions.some(r => r.builtBy === home.pavedBy && inRegion(st, r))) continue;
       const spots = [['front', st.front], ...(st.queue || []).map((q, i) => ['q' + i, q])];

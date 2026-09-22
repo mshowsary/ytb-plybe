@@ -85,6 +85,7 @@ test('interior slots sit inside the room and clear every station footprint', () 
     assert.ok(Math.abs(item.slot.x) <= w / 2, `${item.id} x out of bounds`);
     assert.ok(Math.abs(item.slot.z) <= d / 2, `${item.id} z out of bounds`);
     for (const st of AREA1.stations) {
+      if (item.kind === 'hanging' && st.type === 'jukebox') continue;  // a planter hung above a 1.4 m jukebox
       const gap = Math.hypot(st.x - item.slot.x, st.z - item.slot.z);
       assert.ok(gap >= 0.9, `${item.id} is ${gap.toFixed(2)}m from station ${st.id}`);
     }

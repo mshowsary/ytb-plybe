@@ -73,7 +73,7 @@ test('co-active plot centres are at least a body apart', () => {
 // seconds of buying it; z_hire's pad sat 0.10 m from the desk and raised HIRE at once; z_blender's
 // raised the pantry's SUPPLIES. Tables, the gate, the fountain and a wall-mounted board have no working spot to arm.
 const PAD_CLEARANCE = 1.6;
-const NO_WORK_SPOT = new Set(['seat', 'gate', 'decor', 'wall']);
+const NO_WORK_SPOT = new Set(['seat', 'gate', 'decor', 'wall', 'jukebox']);  // the jukebox is tapped, never stood at
 function allBuilt() {
   const w = createWorld(AREA1);
   for (const z of AREA1.zones) { let g = 0; while (!w.built.has(z.id) && g++ < 1000) payZone(w, z.id, 1e9, 1); }
