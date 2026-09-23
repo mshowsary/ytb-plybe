@@ -6,6 +6,8 @@ import { part, merge, mesh } from './geo.js';
 import { PRODUCTS, SUPPLIES } from '../game/layout.js';
 import * as L from '../game/layout.js';
 import { beachModelFor } from './propsBeach.js';
+import { kitHas, kitClone, createBatch } from './kit.js';
+export const TOWN_STATION_KIT = ['restaurant/oven', 'restaurant/table_round_A_small', 'restaurant/chair_A', 'restaurant/plate'];
 
 const WOOD = '#B9834A', WOOD_D = '#8E6236', TOP = '#F3E4CC', STEEL = '#C9D3D8', INK = '#3B2E2A';
 const SIGN_YAW = 0.36;                     // boards turn to face the camera (scene.js YAW)
@@ -49,7 +51,35 @@ function machineBase(accent, band) {
     part('box', [0.96, 0.02, 0.46], '#9AA5AB', { x: 0.1, y: 0.955, z: 0.25, tex: 'metal' }),
   ];
 }
+function kitOvenModel(def) {
+  const pr = PRODUCTS[def.product], band = SUPPLIES[pr.supply].band;
+  const g = new THREE.Group();
+  const OB = createBatch(); OB.put('restaurant/oven', 0.12, 0, -0.2, 0, 0.62); OB.bake(g);
+  const TOP = 1.26;
+  // the flour hopper stands on the oven's back-left corner; the baking tray sits on the top front
+  g.add(mesh([
+    part('cyl', [0.21, 0.19, 0.5, 14], '#FFFFFF', { x: -0.5, y: TOP + 0.25, z: -0.3 }),
+    part('cyl', [0.23, 0.23, 0.05, 14], band, { x: -0.5, y: TOP + 0.5, z: -0.3 }),
+    part('cyl', [0.23, 0.23, 0.05, 14], band, { x: -0.5, y: TOP + 0.01, z: -0.3 }),
+    part('box', [0.1, 0.4, 0.02], '#BFE4F5', { x: -0.5, y: TOP + 0.26, z: -0.095 }),
+    part('box', [0.9, 0.03, 0.5], '#9AA5AB', { x: 0.12, y: TOP + 0.01, z: 0.18, tex: 'metal' }),
+  ]));
+  const fill = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 1, 12), new THREE.MeshToonMaterial({ color: '#FFFDF6' }));
+  fill.position.set(-0.5, TOP + 0.03, -0.3); g.add(fill);
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.18), new THREE.MeshBasicMaterial({ color: '#FFB25E', toneMapped: false, transparent: true, opacity: 0.55 }));
+  glow.position.set(0.12, 0.62, 0.62); g.add(glow);
+  const sign = signBoard(pr.emoji, pr.accent); sign.position.set(0.3, TOP + 0.95, -0.35);
+  g.add(sign, mesh([part('cyl', [0.02, 0.02, 0.7, 6], WOOD_D, { x: 0.3, y: TOP + 0.55, z: -0.4 })]));
+  return {
+    group: g,
+    tray: { x: 0.12, y: TOP + 0.03, z: 0.18 },
+    setLevel(f) { fill.scale.y = Math.max(0.02, f) * 0.44; fill.position.y = TOP + 0.03 + fill.scale.y / 2; },
+    setBusy(on, t) { glow.material.opacity = on ? 0.45 + Math.sin(t * 8) * 0.12 : 0.0; },
+  };
+}
+
 export function machineModel(def) {
+  if (PRODUCTS[def.product].model === 'oven' && kitHas('restaurant/oven')) return kitOvenModel(def);
   const pr = PRODUCTS[def.product], band = SUPPLIES[pr.supply].band, accent = pr.accent;
   def = { ...def, model: pr.model };
   const g = new THREE.Group();
@@ -197,7 +227,27 @@ export function pantryModel() {
 }
 
 // ---- a table and its two chairs ------------------------------------------------------------------
+function kitTableModel() {
+  const g = new THREE.Group();
+  // the table and both chairs share the kit's one material: merged, they are a single draw call
+  const B = createBatch();
+  B.put('restaurant/table_round_A_small', 0, 0, 0, 0, 0.72);
+  B.put('restaurant/chair_A', -0.8, 0, 0, Math.PI / 2, 0.78);
+  B.put('restaurant/chair_A', 0.8, 0, 0, -Math.PI / 2, 0.78);
+  B.bake(g);
+  const dirty = mesh([
+    part('cyl', [0.15, 0.12, 0.02, 12], '#FFFFFF', { x: -0.2, y: 0.74 }),
+    part('cyl', [0.15, 0.12, 0.02, 12], '#FFFFFF', { x: 0.2, y: 0.74, z: 0.05 }),
+    part('sph', [0.03, 5], '#C8843E', { x: -0.16, y: 0.76 }), part('sph', [0.025, 5], '#C8843E', { x: 0.24, y: 0.76, z: 0.08 }),
+    part('cyl', [0.05, 0.04, 0.09, 8], '#FFFFFF', { x: 0.05, y: 0.78, z: 0.22 }),
+    ...[[-0.3, 0.2], [0.1, -0.15], [0.32, -0.1], [-0.05, 0.3]].map(([x, z]) => part('sph', [0.018, 4], '#D9A06A', { x, y: 0.735, z })),
+  ], { cast: false });
+  dirty.visible = false; g.add(dirty);
+  return { group: g, dirty, tipAt: { x: 0, y: 0.74, z: 0.25 } };
+}
+
 export function tableModel() {
+  if (kitHas('restaurant/table_round_A_small')) return kitTableModel();
   const g = new THREE.Group();
   const chair = x => {
     const s = Math.sign(x);

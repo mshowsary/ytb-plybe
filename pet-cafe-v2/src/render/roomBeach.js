@@ -11,11 +11,11 @@ import { part, mesh } from './geo.js';
 import { ROOM } from '../game/layout.js';
 
 const C = {
-  sand: '#F2E3C0', sandWet: '#DCC89C', sandDark: '#E6D3A8', sea: '#2FB3D6', seaDeep: '#1C8CC0', foam: '#FFFFFF',
-  deck: '#A8703F', deckDark: '#8C5A30', deckLight: '#BD8350', post: '#6E4A2A', rope: '#F1E2C0',
+  sand: '#EFE3C8', sandWet: '#DCCDA8', sandDark: '#E4D6B6', sea: '#5CB9D0', seaDeep: '#3C98BE', foam: '#FFFFFF',
+  deck: '#B98A5E', deckDark: '#9C7049', deckLight: '#C99B6E', post: '#6E4A2A', rope: '#F1E2C0',
   thatch: '#C9A04E', thatchD: '#A9822F', leaf: '#3FAE5E', leafD: '#2E8C4A', trunk: '#8A6240',
 };
-const STRIPES = [['#FF6F61', '#FFFFFF'], ['#2FB3D6', '#FFFFFF'], ['#FFC23D', '#FFFFFF'], ['#7BC47F', '#FFFFFF']];
+const STRIPES = [['#E99C8C', '#FFFFFF'], ['#7CC6B8', '#FFFFFF'], ['#E9C27A', '#FFFFFF'], ['#9CC79A', '#FFFFFF']];
 
 // A palm with a curved, ringed trunk and drooping fronds (each frond two bent segments).
 export function palmParts(x, z, s = 1, lean = 0.25, dir = 0) {
@@ -84,18 +84,18 @@ export function createBeachRoom(scene) {
     out.push(part('box', [0.8, 1.3, 0.04], '#3B2E2A', { x, y: 0.65, z: z + 0.81 }));
   };
   cabana(-13.5, -2.5, STRIPES[0]); cabana(-13.5, 0.5, STRIPES[1]); cabana(-13.5, 3.5, STRIPES[2]);
-  umbrella(-9.6, 1.0, STRIPES[0], 0.08); lounger(-9.6, 2.4, '#2FB3D6'); lounger(-10.6, 2.4, '#FF6F61');
-  umbrella(-10, -3.6, STRIPES[2], -0.06); lounger(-10, -2.3, '#FFC23D');
-  umbrella(7.2, 3.2, STRIPES[1], -0.1); lounger(7.0, 4.6, '#FF6F61', 0.3);
+  umbrella(-9.6, 1.0, STRIPES[0], 0.08); lounger(-9.6, 2.4, '#7CC6B8'); lounger(-10.6, 2.4, '#E99C8C');
+  umbrella(-10, -3.6, STRIPES[2], -0.06); lounger(-10, -2.3, '#E9C27A');
+  umbrella(7.2, 3.2, STRIPES[1], -0.1); lounger(7.0, 4.6, '#E99C8C', 0.3);
   out.push(part('box', [0.9, 0.02, 1.7], '#FF7FA8', { x: -8.8, y: 0.01, z: -1.2 }), part('box', [0.9, 0.02, 1.7], '#7BC47F', { x: 8.4, y: 0.01, z: 6.4, ry: 0.4 }));
   // lifeguard tower
   const LX = 9.5, LZ = -3.2;
   for (const [ox, oz] of [[-0.6, -0.6], [0.6, -0.6], [-0.6, 0.6], [0.6, 0.6]]) out.push(part('cyl', [0.07, 0.07, 2.2, 6], '#FFFFFF', { x: LX + ox, y: 1.1, z: LZ + oz }));
-  out.push(part('box', [1.7, 1.1, 1.7], '#FF4F4F', { x: LX, y: 2.75, z: LZ }), part('box', [1.5, 0.5, 0.05], '#FFFFFF', { x: LX, y: 2.9, z: LZ + 0.86 }));
+  out.push(part('box', [1.7, 1.1, 1.7], '#DE7F74', { x: LX, y: 2.75, z: LZ }), part('box', [1.5, 0.5, 0.05], '#FFFFFF', { x: LX, y: 2.9, z: LZ + 0.86 }));
   out.push(part('cone', [1.4, 0.8, 4], '#FFFFFF', { x: LX, y: 3.7, z: LZ, ry: Math.PI / 4 }));
   out.push(part('box', [0.5, 0.06, 1.8], '#FFFFFF', { x: LX + 0.2, y: 1.2, z: LZ + 1.4, rx: -0.9 }));
   // surfboards stuck in the sand, a volleyball net
-  const boards = ['#FF6F61', '#2FB3D6', '#FFC23D', '#7BC47F'];
+  const boards = ['#E99C8C', '#7CC6B8', '#E9C27A', '#9CC79A'];
   boards.forEach((b, i) => out.push(part('rbox', [0.5, 2.0, 0.08, 0.2], b, { x: 5.2 + i * 0.62, y: 0.95, z: -4.6, rz: (i - 1.5) * 0.08 })));
   out.push(part('cyl', [0.05, 0.05, 2.4, 6], '#FFFFFF', { x: 7.5, y: 1.2, z: 9.6 }), part('cyl', [0.05, 0.05, 2.4, 6], '#FFFFFF', { x: 12.5, y: 1.2, z: 9.6 }));
   out.push(part('box', [5.0, 0.8, 0.02], '#EDEDED', { x: 10, y: 1.9, z: 9.6 }), part('sph', [0.18, 10], '#FFC23D', { x: 9.2, y: 0.18, z: 10.4 }));
@@ -134,21 +134,21 @@ export function createBeachRoom(scene) {
   // the working floor behind the bar: pale terracotta tiles, a clear step apart from the deck
   P.push(part('box', [W, 0.03, 3.0], '#F3D9C4', { x: (x0 + x1) / 2, y: 0.035, z: z0 + 1.5, tex: 'tile', texScale: 0.5 }));
   // a turquoise woven rug under the tables
-  P.push(part('cyl', [3.3, 3.3, 0.015, 36], '#2F9FAF', { x: -1.0, y: 0.025, z: 2.6, sz: 0.6 }));
-  P.push(part('cyl', [3.0, 3.0, 0.017, 36], '#5FC4CF', { x: -1.0, y: 0.027, z: 2.6, sz: 0.58 }));
-  P.push(part('cyl', [2.2, 2.2, 0.019, 36], '#2F9FAF', { x: -1.0, y: 0.029, z: 2.6, sz: 0.56 }));
+  P.push(part('cyl', [3.3, 3.3, 0.015, 36], '#9BCFC9', { x: -1.0, y: 0.025, z: 2.6, sz: 0.6 }));
+  P.push(part('cyl', [3.0, 3.0, 0.017, 36], '#C3E3DE', { x: -1.0, y: 0.027, z: 2.6, sz: 0.58 }));
+  P.push(part('cyl', [2.2, 2.2, 0.019, 36], '#9BCFC9', { x: -1.0, y: 0.029, z: 2.6, sz: 0.56 }));
 
   // the back of the bar: a planked wall with carved tiki posts, bottle shelves, and a thatch roof line
   P.push(part('box', [W, 1.2, 0.2], '#7A5230', { x: (x0 + x1) / 2, y: 0.6, z: z0 - 0.05, tex: 'wood' }));
   for (let i = 0; i < 7; i++) {
     const x = x0 + i * (W / 6);
     P.push(part('cyl', [0.14, 0.16, 3.0, 8], C.post, { x, y: 1.5, z: z0 - 0.05 }));
-    P.push(part('box', [0.24, 0.2, 0.05], '#2FB3D6', { x, y: 2.3, z: z0 + 0.1 }), part('box', [0.24, 0.06, 0.06], '#FFFFFF', { x, y: 2.25, z: z0 + 0.13 }));
+    P.push(part('box', [0.24, 0.2, 0.05], '#7CC6B8', { x, y: 2.3, z: z0 + 0.1 }), part('box', [0.24, 0.06, 0.06], '#FFFFFF', { x, y: 2.25, z: z0 + 0.13 }));
   }
   P.push(part('box', [W + 0.8, 0.35, 0.9], C.thatch, { x: (x0 + x1) / 2, y: 3.1, z: z0 - 0.1 }));
   for (let i = 0; i < 30; i++) P.push(part('cone', [0.19, 0.55, 4], i % 2 ? C.thatch : C.thatchD, { x: x0 - 0.3 + i * ((W + 0.6) / 29), y: 2.72, z: z0 + 0.3, rx: Math.PI }));
   P.push(part('box', [W, 0.06, 0.3], C.post, { x: (x0 + x1) / 2, y: 1.95, z: z0 + 0.1 }));
-  const bottle = ['#2FB3D6', '#FF6F61', '#FFC23D', '#7BC47F', '#B79BFF'];
+  const bottle = ['#7CC6B8', '#E99C8C', '#E9C27A', '#9CC79A', '#B7A8E0'];
   for (let i = 0; i < 12; i++) P.push(part('cyl', [0.06, 0.07, 0.3, 8], bottle[i % 5], { x: x0 + 0.5 + i * 0.85, y: 2.13, z: z0 + 0.1 }));
   // side and front railings: rope between posts, low enough to see the beach over
   const rail = (ax, az, bx, bz) => {
@@ -166,15 +166,15 @@ export function createBeachRoom(scene) {
     P.push(part('cyl', [0.13, 0.09, 0.22, 8], '#3B2E2A', { x: px, y: 1.9, z: z1 }));
     P.push(part('cone', [0.1, 0.25, 6], '#FF8A3D', { x: px, y: 2.13, z: z1 }));
   }
-  P.push(part('rbox', [1.9, 0.55, 0.1, 0.22], '#FF6F61', { x: (doorX0 + doorX1) / 2, y: 2.35, z: z1 }));
+  P.push(part('rbox', [1.9, 0.55, 0.1, 0.22], '#E99C8C', { x: (doorX0 + doorX1) / 2, y: 2.35, z: z1 }));
   P.push(part('rbox', [1.6, 0.14, 0.11, 0.06], '#FFFFFF', { x: (doorX0 + doorX1) / 2, y: 2.35, z: z1 + 0.005 }));
   // the bar end left of the till
-  P.push(part('box', [-6.3 - x0, 1.0, 0.8], '#2FB3D6', { x: (x0 - 6.3) / 2, y: 0.5, z: -1.6 }));
+  P.push(part('box', [-6.3 - x0, 1.0, 0.8], '#7CC6B8', { x: (x0 - 6.3) / 2, y: 0.5, z: -1.6 }));
   P.push(part('box', [-6.3 - x0 + 0.05, 0.07, 0.9], '#5A3A22', { x: (x0 - 6.3) / 2, y: 1.03, z: -1.6 }));
   // a sink station in the back corner, and potted palms in the front corners
-  P.push(part('box', [1.1, 0.9, 0.8], '#2FB3D6', { x: 2.95, y: 0.45, z: z0 + 0.45 }), part('box', [1.14, 0.05, 0.84], '#5A3A22', { x: 2.95, y: 0.92, z: z0 + 0.45 }), part('box', [0.56, 0.06, 0.45], '#7E939C', { x: 2.95, y: 0.93, z: z0 + 0.45 }));
+  P.push(part('box', [1.1, 0.9, 0.8], '#7CC6B8', { x: 2.95, y: 0.45, z: z0 + 0.45 }), part('box', [1.14, 0.05, 0.84], '#5A3A22', { x: 2.95, y: 0.92, z: z0 + 0.45 }), part('box', [0.56, 0.06, 0.45], '#7E939C', { x: 2.95, y: 0.93, z: z0 + 0.45 }));
   for (const [px, pz] of [[-6.55, 4.55], [-6.55, 0.2]]) {
-    P.push(part('cyl', [0.26, 0.2, 0.4, 10], '#FF6F61', { x: px, y: 0.2, z: pz }));
+    P.push(part('cyl', [0.26, 0.2, 0.4, 10], '#E99C8C', { x: px, y: 0.2, z: pz }));
     for (let a = 0; a < 6; a++) P.push(part('box', [0.7, 0.03, 0.2], a % 2 ? C.leaf : C.leafD, { x: px + Math.cos(a * 1.05) * 0.3, y: 0.66, z: pz + Math.sin(a * 1.05) * 0.3, ry: -a * 1.05, rz: -0.45 }));
   }
   const deck = mesh(P); deck.castShadow = true; deck.receiveShadow = true; scene.add(deck);

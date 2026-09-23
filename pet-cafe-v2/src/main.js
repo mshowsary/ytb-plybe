@@ -3,7 +3,10 @@ import './style.css';
 import { createPlatform } from './platform.js';
 import { createAudio } from './audio/synth.js';
 import { createScene } from './render/scene.js';
-import { createRoom } from './render/room.js';
+import { createRoom, TOWN_ROOM_KIT } from './render/room.js';
+import { loadKit } from './render/kit.js';
+import { TOWN_STATION_KIT } from './render/props.js';
+import { STREET_KIT } from './render/townStreet.js';
 import { createItems } from './render/items.js';
 import { createFx } from './render/fx.js';
 import { createView } from './render/view.js';
@@ -54,6 +57,8 @@ async function boot() {
   S.render(); platform.firstFrameReady();
   const saved = await platform.load();
   W.restore(saved);
+  // the KayKit models (walls, kitchen, tables, the street) arrive before the café is built
+  await loadKit([...TOWN_ROOM_KIT, ...TOWN_STATION_KIT, ...STREET_KIT]);
   if (saved && typeof saved.play === "number") playTime = saved.play;
   const petbook = createPetBook(root, W, audio, p => { sheetPaused = p; });
   const upgrades = createUpgrades(root, W, audio, fx, p => { sheetPaused = p; });

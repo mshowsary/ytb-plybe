@@ -85,9 +85,10 @@ export function createScene(canvas) {
   S.setMid = m => { MID = m; };
   // each café has its own light: the town is a warm afternoon, the beach a bright noon by the sea
   S.setTheme = theme => {
+    post.uniforms.saturation.value = theme === 'beach' ? 1.02 : 1.16;
     if (theme === 'beach') {
       scene.background.set('#6EC3EE'); scene.fog.color.set('#A9DDF3'); scene.fog.near = 40; scene.fog.far = 80;
-      hemi.color.set('#FFF7E8'); hemi.groundColor.set('#D9B47A'); hemi.intensity = 1.0; sun.color.set('#FFF1D6'); sun.intensity = 1.9;
+      hemi.color.set('#FFF7E8'); hemi.groundColor.set('#D9B47A'); hemi.intensity = 0.95; sun.color.set('#FFF1D6'); sun.intensity = 1.7;
     } else {
       scene.background.set('#8FCBE6'); scene.fog.color.set('#AED9EE'); scene.fog.near = 34; scene.fog.far = 64;
       hemi.color.set('#FFF1DC'); hemi.groundColor.set('#8C7358'); hemi.intensity = 0.9; sun.color.set('#FFE2B8'); sun.intensity = 1.7;
@@ -154,6 +155,7 @@ export function createScene(canvas) {
   };
   S.render = () => {
     renderer.setRenderTarget(rt); renderer.render(scene, camera);
+    S.stats = { calls: renderer.info.render.calls, tris: renderer.info.render.triangles };
     renderer.setRenderTarget(null); renderer.render(postScene, postCam);
   };
   addEventListener('resize', S.resize); S.resize();

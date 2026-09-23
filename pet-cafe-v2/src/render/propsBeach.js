@@ -8,8 +8,8 @@ import { signBoard, jukeboxModel } from './props.js';
 
 const BAMBOO = '#8C5A30', BAMBOO_D = '#6E4A2A', ROPE = '#F1E2C0', TOP = '#4E3320', STEEL = '#C9D3D8', INK = '#2F3A40';
 // Bold paint per product, so a counter is never the colour of the deck or of the goods on it.
-const PAINT = { lemonade: '#1FA2B8', smoothie: '#FF6F61', icecream: '#3B6FD6', fish: '#3FAE5E' };
-const paint = product => PAINT[product] || '#1FA2B8';
+const PAINT = { lemonade: '#7CC6B8', smoothie: '#E99C8C', icecream: '#8AAAD6', fish: '#9CC79A' };
+const paint = product => PAINT[product] || '#7CC6B8';
 
 function bambooSkirt(w, h, d, z, col = BAMBOO) {
   const P = [];
@@ -128,7 +128,7 @@ export function beachTillModel() {
   const g = new THREE.Group();
   g.add(mesh([
     ...bambooSkirt(1.4, 0.86, 0.8, 0.4),
-    part('box', [1.36, 0.84, 0.78], '#FFC23D', { y: 0.42 }),
+    part('box', [1.36, 0.84, 0.78], '#E9C27A', { y: 0.42 }),
     part('box', [1.37, 0.1, 0.79], '#FFFFFF', { y: 0.7 }),
     part('box', [1.44, 0.06, 0.84], BAMBOO_D, { y: 0.89, tex: 'wood' }),
     part('rbox', [0.56, 0.12, 0.44, 0.03], '#2F6F6A', { y: 0.98 }),
@@ -175,14 +175,14 @@ export function beachTableModel() {
   };
   g.add(mesh([
     part('cyl', [0.52, 0.52, 0.06, 22], BAMBOO, { y: 0.76, tex: 'wood' }),
-    part('cyl', [0.5, 0.5, 0.02, 22], '#2FB3D6', { y: 0.795 }),
+    part('cyl', [0.5, 0.5, 0.02, 22], '#8ACBC5', { y: 0.795 }),
     part('cyl', [0.3, 0.3, 0.022, 22], '#FFFFFF', { y: 0.797 }),
     part('cyl', [0.53, 0.53, 0.03, 22], ROPE, { y: 0.74 }),
     part('cyl', [0.06, 0.08, 0.72, 8], BAMBOO_D, { y: 0.37 }),
     part('cyl', [0.26, 0.3, 0.05, 14], BAMBOO_D, { y: 0.025 }),
     part('cyl', [0.06, 0.05, 0.1, 8], '#FFFFFF', { y: 0.85, z: -0.28 }),
     part('sph', [0.06, 6], '#FF7FA8', { y: 0.94, z: -0.28 }),
-    ...chair(-0.78, '#FF6F61'), ...chair(0.78, '#FFC23D'),
+    ...chair(-0.78, '#E99C8C'), ...chair(0.78, '#E9C27A'),
   ]));
   const dirty = mesh([
     part('cyl', [0.15, 0.12, 0.02, 12], '#FFFFFF', { x: -0.2, y: 0.81 }),

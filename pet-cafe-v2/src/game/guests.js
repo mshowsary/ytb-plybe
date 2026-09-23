@@ -8,6 +8,7 @@ import { createPet } from '../render/pets.js';
 import { part, merge } from '../render/geo.js';
 import { toonMaterial } from '../render/palette.js';
 import { STREET, PRODUCTS } from './layout.js';
+import * as L from './layout.js';
 import { makeWalker, syncHuman, drawStack, faceTo } from './actors.js';
 
 const PATIENCE = 50, EAT = [6, 9], SPEED = 1.9;
@@ -185,9 +186,9 @@ export function createGuests(ctx) {
       if (g.state === 'eating') {
         g.pet.update(dt, false, 0);
         // a pet treat is for the pet: it sits on the pet's side of the table
-        const side = g.product === 'treat' ? 0.25 : -0.25;
-        if (g.carry.n) items.add(g.product, g.table.x + side, 0.82, g.table.z, 0);
-        items.add('plate', g.table.x + side, 0.8, g.table.z);
+        const side = g.product === 'treat' ? 0.25 : -0.25, top = L.LOC.theme === 'town' ? 0.74 : 0.8;
+        if (g.carry.n) items.add(g.product, g.table.x + side, top + 0.02, g.table.z, 0);
+        items.add('plate', g.table.x + side, top, g.table.z);
         if (g.product === 'treat' && g.carry.n && (g.t % 3) < 1.2) bubbles.show('pet' + g.id, g.table.spots.chairs[1].x, 1.35, g.table.z, '💕', 'mood');
       } else {
         g.pet.followTarget(g.w.x, g.w.z, g.H.group.rotation.y, dt, nav.walkable);
