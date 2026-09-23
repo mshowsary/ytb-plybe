@@ -16,7 +16,7 @@ const VAN_PARK = { x: 5.2, z: 0.4 }, VAN_ROAD = { x: 5.2, z: 13 };
 const WAIT = 110, FIRST = 70;
 
 export function createDeliveries(ctx) {
-  const { W, scene, items, bubbles, fx, audio, hud, layer, platform, S } = ctx;
+  const { W, scene, items, bubbles, fx, audio, hud, layer, platform, S, hotspots } = ctx;
   const beach = ctx.theme === 'beach';
 
   // the hatch: a little counter under a window in the right wall, with a crate on it
@@ -62,7 +62,7 @@ export function createDeliveries(ctx) {
     const qty = 5 + ((Math.random() * 5) | 0) + Math.min(3, W.lvl('carry'));
     order = { product, qty, got: 0 };
     state = 'arrive'; drive = 0; van.visible = true;
-    audio.play('chime');
+    audio.play('chime'); setTimeout(() => audio.play('ding'), 250);   // a two-tone horn as the van pulls in
   }
   function finish(done) {
     if (order && order.got > 0) {
@@ -104,7 +104,9 @@ export function createDeliveries(ctx) {
       // what the crate holds, and the order bubble
       if (order && state === 'wait') {
         for (let i = 0; i < Math.min(order.got, 8); i++) { const s = shelfSlot(i, 4, 0.1, 0.18); items.add(order.product, HATCH.x + s.z, 1.16, HATCH.z + s.x * 2, 0, 0.8); }
-        bubbles.show('deliv', HATCH.x, 2.6, HATCH.z, `🚚 ${PRODUCTS[order.product].emoji}<b>${order.got}/${order.qty}</b>`, 'need');
+        // a blue ring where you hand in, and the order as a picture with a fill bar over the hatch
+        hotspots?.show(HATCH.spot.x, HATCH.spot.z, '#5BA7E8', 0.95, 1.1);
+        bubbles.show('deliv', HATCH.x, 2.6, HATCH.z, `🚚 ${PRODUCTS[order.product].emoji}<i class="meter"><i style="width:${Math.round(100 * order.got / order.qty)}%"></i></i><b>${order.qty - order.got}</b>`, 'need order');
       }
       if (claimT > 0) {
         claimT -= dt;

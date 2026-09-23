@@ -34,6 +34,7 @@ import { createDeliveries } from './game/deliveries.js';
 import { createGoals } from './game/goals.js';
 import { createGoalsUI } from './ui/goalsUI.js';
 import { createTips } from './ui/tips.js';
+import { createHotspots } from './render/hotspots.js';
 
 const platform = createPlatform();
 const audio = createAudio();
@@ -67,21 +68,22 @@ async function boot() {
   if (saved && typeof saved.play === "number") playTime = saved.play;
   const petbook = createPetBook(root, W, audio, p => { sheetPaused = p; });
   const upgrades = createUpgrades(root, W, audio, fx, p => { sheetPaused = p; });
-  const map = createMap(root, W, audio, p => { sheetPaused = p; }, id => travel(id));
+  const map = createMap(root, W, audio, p => { sheetPaused = p; }, id => travel(id), S);
   const goals = createGoals(W); goals.restore(saved && saved.goals);
   const goalsUI = createGoalsUI(root, W, goals, audio, fx, platform, p => { sheetPaused = p; });
   let lastServed = null;
-  const tips = createTips(root, W, audio);
+  const tips = createTips(W);
 
   // ---- one café on stage: everything that belongs to the place you are standing in ----------
-  let stage, roomView, view, owner, guests, staff, pads, party, life, deliveries;
+  let stage, roomView, view, owner, guests, staff, pads, party, life, deliveries, hotspots;
   function buildCafe(id) {
     W.enter(id);
     nav.rebuild([...W.stations.values()]);
     stage = new THREE.Group(); S.scene.add(stage);
     roomView = L.LOC.theme === 'beach' ? createBeachRoom(stage) : createRoom(stage);
     S.setTheme(L.LOC.theme);
-    const ctx = { W, nav, scene: stage, S, items, bubbles, fx, audio, layer, platform, hud };
+    hotspots = createHotspots(stage);
+    const ctx = { W, nav, scene: stage, S, items, bubbles, fx, audio, layer, platform, hud, hotspots };
     view = createView(ctx);
     owner = createOwner(ctx);
     guests = createGuests(ctx);
@@ -96,7 +98,7 @@ async function boot() {
     completed = W.complete();
     rushT = 0; nextRush = 150;
     S.snap(owner.o.x, owner.o.z);
-    window.__v2 = { W, owner, guests, staff, pads, S, nav, travel, deliveries, tips, guide: () => guideTarget(owner, staff, guests, 0) };
+    window.__v2 = { W, owner, guests, staff, pads, S, nav, travel, deliveries, tips, hotspots, map, guide: () => guideTarget(owner, staff, guests, 0) };
   }
   function tearDown() {
     pads.teardown(); party.teardown(); guests.teardown(); deliveries.teardown();
@@ -160,7 +162,7 @@ async function boot() {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     if (paused || hostPaused || sheetPaused) return;
     playTime += dt;
-    items.begin(); bubbles.begin();
+    items.begin(); bubbles.begin(); hotspots.begin(dt);
 
     const move = window.__drive || input.read();       // __drive: a test can steer like a thumb would
     owner.update(dt, move);
@@ -206,17 +208,15 @@ async function boot() {
     petbook.update(dt);
     upgrades.update(dt);
     goalsUI.update(dt);
-    // ONE-TIME TIPS: the first time each feature shows up, a card says what it is and the arrow points
-    if (deliveries.order) tips.offer('deliver', '🚚', 'A delivery order! Bring the goods to the hatch by the van: it pays double.', deliveries.hatchSpot);
+    // FIRST-TIME POINTERS (no words): the arrow and a white floor ring on each new feature, once
+    if (deliveries.order) tips.offer('deliver', deliveries.hatchSpot);
     { const g = guests.list.find(q => q.state === 'eating' && !q.petted && q.table);
-      if (g) tips.offer('pet', '✋', 'Stand next to a seated pet to pet it. They love it, and their owner tips you!', () => g.table ? { x: g.pet.group.position.x, z: g.pet.group.position.z, y: 1.2 } : null); }
+      if (g) tips.offer('pet', () => (g.table && !g.petted) ? { x: g.pet.group.position.x, z: g.pet.group.position.z, y: 1.2, floor: 0.08 } : null); }
     { const g = guests.list.find(q => q.request && q.table);
-      if (g) tips.offer('request', '🙋', 'A guest wants something extra. Bring it to their table for a big tip!', () => g.table ? { x: g.table.x, z: g.table.z, y: 1.3 } : null); }
-    if (document.querySelector('.partybadge:not(.hidden)')) { const j = W.stations.get('jukebox1'); tips.offer('party', '🎵', 'Tap the jukebox to throw a Pet Party: every sale pays ×2 for a minute!', { x: j.x, z: j.z, y: 2.2 }); }
-    if (W.isBuilt('staff:runner') && W.canUpgrade()) tips.offer('upgrade', '⬆️', 'Upgrades! Tap the green button to make your whole café faster.');
-    if (!document.getElementById('goalbtn').classList.contains('hidden')) tips.offer('goals', '📋', 'Daily goals: tap the blue button. Finish them for bonus coins!');
-    if (W.built('machine').some(m => m.level <= 0) && !staff.hasRunner()) tips.offer('supply', '🌾', 'A machine is empty! Fetch a sack from the pantry shelf and load it.', { ...W.stations.get('pantry1').spots.work, y: 1 });
-    tips.update(dt, sheetPaused, playTime);
+      if (g) tips.offer('request', () => (g.table && g.request) ? { x: g.table.x, z: g.table.z, y: 1.3 } : null); }
+    if (document.querySelector('.partybadge:not(.hidden)')) { const j = W.stations.get('jukebox1'); tips.offer('party', { x: j.x + 0.5, z: j.z, y: 2.2 }); }
+    if (W.built('machine').some(m => m.level <= 0) && !staff.hasRunner()) tips.offer('supply', { ...W.stations.get('pantry1').spots.work, y: 1 });
+    tips.update(dt, sheetPaused, playTime, hotspots);
     document.getElementById('goalbtn').classList.toggle('hidden', !(W.isBuilt('table3') || W.open.size > 1));   // a new player's screen stays clean
     if (lastServed === null || lastServed > W.served) lastServed = W.served;
     if (W.served > lastServed) { goals.add('serve', W.served - lastServed); lastServed = W.served; }
@@ -227,7 +227,7 @@ async function boot() {
     hud.update(dt);
     hud.hand(!input.everMoved && playTime < 60);
     hud.guide(guideTarget(owner, staff, guests, playTime));
-    items.flush(); bubbles.end();
+    items.flush(); bubbles.end(); hotspots.end();
     audio.musicUpdate(dt);
     S.follow(owner.o.x, owner.o.z, dt);
     S.render();

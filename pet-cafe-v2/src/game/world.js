@@ -29,7 +29,8 @@ export function createWorld() {
     priceMult: 1,
     requests: {},
     tips: new Set(),             // one-time tips already shown
-    ratings: {},                 // loc id -> { stars, count, reviews } once a café is finished                // product -> open table requests (only the owner fills them)
+    ratings: {},
+    petCount: 0,                 // pets stroked, all cafés (the ghost hand stops after the first few)                 // loc id -> { stars, count, reviews } once a café is finished                // product -> open table requests (only the owner fills them)
   };
 
   // ---- entering a café: rebuild its stations from the live layout, then its saved state -------
@@ -188,7 +189,7 @@ export function createWorld() {
     W.stashHere();
     if (W.complete()) W.done.add(W.loc);
     return { v: 3, loc: W.loc, coins: Math.floor(W.coins), met: [...W.met], friends: W.friends, up: W.up,
-      open: [...W.open], done: [...W.done], cafes: W.saved, tips: [...W.tips], ratings: W.ratings };
+      open: [...W.open], done: [...W.done], cafes: W.saved, tips: [...W.tips], ratings: W.ratings, petCount: W.petCount };
   };
   W.restore = s => {
     if (!s) return false;
@@ -206,6 +207,7 @@ export function createWorld() {
     W.saved = s.cafes && typeof s.cafes === 'object' ? s.cafes : {};
     for (const k of s.tips || []) if (typeof k === 'string') W.tips.add(k);
     if (s.ratings && typeof s.ratings === 'object') W.ratings = s.ratings;
+    W.petCount = s.petCount | 0;
     W.loc = LOCATIONS[s.loc] && W.open.has(s.loc) ? s.loc : 'town';
     return true;
   };

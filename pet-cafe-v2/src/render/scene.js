@@ -153,7 +153,14 @@ export function createScene(canvas) {
     out.on = v3.z < 1 && Math.abs(v3.x) < 1.05 && Math.abs(v3.y) < 1.05;
     return out;
   };
+  // any other scene (the journey map) through the same finishing pass
+  S.renderWith = (scn, cam) => {
+    post.uniforms.near.value = cam.near; post.uniforms.far.value = cam.far;
+    renderer.setRenderTarget(rt); renderer.render(scn, cam);
+    renderer.setRenderTarget(null); renderer.render(postScene, postCam);
+  };
   S.render = () => {
+    post.uniforms.near.value = camera.near; post.uniforms.far.value = camera.far;
     renderer.setRenderTarget(rt); renderer.render(scene, camera);
     S.stats = { calls: renderer.info.render.calls, tris: renderer.info.render.triangles };
     renderer.setRenderTarget(null); renderer.render(postScene, postCam);

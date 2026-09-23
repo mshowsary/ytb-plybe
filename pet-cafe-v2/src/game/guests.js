@@ -41,7 +41,7 @@ function crown() {
 }
 
 export function createGuests(ctx) {
-  const { W, nav, scene, items, bubbles, audio } = ctx;
+  const { W, nav, scene, items, bubbles, audio, hotspots } = ctx;
   const list = [];
   let spawnT = 2, nextId = 1;
   const till = W.stations.get('till1');
@@ -176,7 +176,11 @@ export function createGuests(ctx) {
               W.requests[g.request]--; const p = g.request; g.request = null; g.served2 = true; g.eat = Math.max(g.t + 3, g.eat - 10);
               const tip = W.price(p) * 3 * (g.vip ? 3 : 1);
               W.earn(tip, g.table.x, g.table.z); W.events.push({ type: 'request', x: g.table.x, z: g.table.z }); g.pet.joy(0.8);
-            } else bubbles.show('rq' + g.id, g.table.x, 1.95, g.table.z, `🙋 ${PRODUCTS[g.request].emoji}`, 'need');
+            } else {
+              // a gold ring round the table and a big bouncing picture of what they want
+              hotspots?.show(g.table.x, g.table.z, '#FFC23D', 1.3, g.id);
+              bubbles.show('rq' + g.id, g.table.x, 2.05, g.table.z, `${PRODUCTS[g.request].emoji}`, 'ask');
+            }
           }
           // PETTING: the owner stands beside the seated pet for a moment — hearts, a happy wriggle,
           // a little tip, and the friendship in the Pet Book grows. Once per visit.
@@ -186,12 +190,20 @@ export function createGuests(ctx) {
               g.petT = (g.petT || 0) + dt;
               bubbles.show('pp' + g.id, pp.x, 1.45, pp.z, `<i class="ring pink" style="--p:${Math.min(1, g.petT / 0.7)}"></i>`, 'prog');
               if (g.petT >= 0.7) {
-                g.petted = true; g.pet.joy(0.8); g.eat += 1.5;
+                g.petted = true; g.pet.joy(0.8); g.eat += 1.5; W.petCount = (W.petCount | 0) + 1;
                 const k = g.species + ':' + g.variant, f = (W.friends[k] = (W.friends[k] | 0) + 1);
                 const tip = 2 + (f >= 10 ? 6 : f >= 4 ? 3 : 1);
                 W.earn(tip, pp.x, pp.z); W.events.push({ type: 'petted', x: pp.x, z: pp.z, f });
               }
-            } else { g.petT = 0; if (d < 3.2) bubbles.show('pp' + g.id, pp.x, 1.4, pp.z, '✋', 'mood small'); }
+            } else {
+              g.petT = 0;
+              // a pet waiting for a stroke: a soft pink ring under it when you are near, a floating heart,
+              // and — the first few times — a ghost hand showing the stroke
+              if (d < 4.5) {
+                hotspots?.show(pp.x, pp.z, '#FF8FB1', 0.62, g.id * 1.7, 0.52);
+                bubbles.show('pp' + g.id, pp.x, 1.45, pp.z, (W.petCount | 0) < 3 ? '<span class="ghosthand">✋</span>' : '💗', 'mood');
+              }
+            }
           }
           if (g.t > g.eat) {
             if (g.request) { W.requests[g.request]--; g.request = null; }      // they simply go without; nothing lost
