@@ -13,7 +13,7 @@ import { createHuman } from './human.js';
 import { createResidents } from './residents.js';
 import { MP } from './propsMall.js';
 
-const C = { floor: '#F1EBE2', grout: '#E0D7CA', walk: '#E8DFD2', terrazzo: '#2E6A5E', kitchenA: '#F47B6B', kitchenB: '#FFF4E8', leaf: '#5DAE5A', leafD: '#3F8F45', pot: '#FBF8F3', water: '#7FD3EA' };
+const C = { floor: '#F1EBE2', grout: '#E0D7CA', walk: '#E8DFD2', terrazzo: '#2E6A5E', kitchenA: '#3F4550', kitchenB: '#D9D1C5', leaf: '#5DAE5A', leafD: '#3F8F45', pot: '#FBF8F3', water: '#7FD3EA' };
 const glassMat = new THREE.MeshBasicMaterial({ color: '#DDF3FF', transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide });
 const neonMat = new THREE.MeshBasicMaterial({ color: '#FF6FAE', toneMapped: false });
 
@@ -78,7 +78,8 @@ export function createMallRoom(scene) {
     P.push(part('cyl', [0.03 + (i % 3) * 0.012, 0.03 + (i % 3) * 0.012, 0.012, 5], chipCols[i % chipCols.length], { x: cx, y: 0.002, z: cz, ry: i }));
   }
   P.push(part('cyl', [3.35, 3.35, 0.012, 48], MP.gold, { x: -1.0, y: 0.004, z: 2.6, sz: 0.6 }), part('cyl', [3.25, 3.25, 0.014, 48], C.terrazzo, { x: -1.0, y: 0.006, z: 2.6, sz: 0.6 }));
-  // the kitchen floor: coral and cream tiles behind the service line
+  // the kitchen floor: charcoal and stone tiles behind the service line (the owner's coral and white
+  // must never blend into the floor they work on)
   P.push(part('box', [W, 0.03, 3.0], C.kitchenB, { x: (x0 + x1) / 2, y: 0.015, z: z0 + 1.5 }));
   for (let i = 0; i < Math.round(W / 0.75); i++) for (let j = 0; j < 4; j++) {
     if ((i + j) % 2) continue;

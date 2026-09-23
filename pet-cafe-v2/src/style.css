@@ -178,8 +178,9 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE3F2;font-family:ui
 /* one-time tips */
 
 /* in-world asks: bigger, bouncing, no words */
-.bub.ask{font-size:30px;padding:6px 10px;border:3px solid #FFC23D;background:#FFFDF6;animation:askbob 0.9s ease-in-out infinite}
-@keyframes askbob{0%,100%{translate:-50% -100%;scale:1}50%{translate:-50% calc(-100% - 8px);scale:1.08}}
+.bub.ask{font-size:26px;padding:5px 9px;border:3px solid #FFC23D;background:#FFFDF6;animation:askin .45s cubic-bezier(.2,1.6,.4,1),askbob 2.6s ease-in-out .45s infinite}
+@keyframes askin{from{scale:.3;opacity:0}}
+@keyframes askbob{0%,100%{translate:-50% -100%}50%{translate:-50% calc(-100% - 4px)}}
 .bub.order{border:3px solid #5BA7E8}
 .bub .meter{display:inline-block;width:34px;height:8px;border-radius:4px;background:#DDE7F0;margin:0 4px;overflow:hidden;vertical-align:middle}
 .bub .meter i{display:block;height:100%;background:#5BA7E8;border-radius:4px}

@@ -16,6 +16,8 @@ export function createView(ctx) {
     v.group.traverse(o => { if (o.isMesh) { o.receiveShadow = true; } });
     scene.add(v.group);
     v.pop = st.built ? 1 : 0;
+    if (st.type === 'machine' || st.type === 'counter') v.group.traverse(o => { if (o.userData.sign && !v.sign) v.sign = o; });
+    v.signK = 1;
     views.set(st.id, v);
   }
 
@@ -30,6 +32,14 @@ export function createView(ctx) {
         const k = easeOutBack(v.pop); v.group.scale.set(k, k, k);
       }
       v.group.visible = true;
+      // a table is asking for this product and the owner is not holding it: its sign grows and bobs —
+      // on the counter when the counter has some, on the machine when the counter is empty
+      if (v.sign) {
+        let lit = (W.requests[st.product] | 0) > 0 && W.ownerHold.kind !== st.product;
+        if (lit) { const ct = st.type === 'counter' ? st : W.counterFor(st.product); lit = st.type === 'counter' ? st.stock > 0 : !(ct && ct.built && ct.stock > 0); }
+        v.signK += ((lit ? 1.5 + Math.sin(t * 7) * 0.12 : 1) - v.signK) * Math.min(1, dt * 9);
+        v.sign.scale.setScalar(v.signK);
+      }
       if (st.type === 'machine') {
         v.setLevel(st.level / MACHINE_CAP);
         v.setBusy(st.busy, t);

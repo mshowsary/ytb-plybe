@@ -101,7 +101,7 @@ async function boot() {
     completed = W.complete();
     rushT = 0; nextRush = 150;
     S.snap(owner.o.x, owner.o.z);
-    window.__v2 = { W, owner, guests, staff, pads, S, nav, travel, deliveries, tips, hotspots, map, helpers, guide: () => guideTarget(owner, staff, guests, 0) };
+    window.__v2 = { W, owner, guests, staff, pads, S, nav, travel, deliveries, tips, hotspots, map, helpers, view, guide: () => guideTarget(owner, staff, guests, 0) };
   }
   function tearDown() {
     pads.teardown(); party.teardown(); guests.teardown(); deliveries.teardown(); helpers.teardown();

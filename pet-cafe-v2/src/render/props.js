@@ -34,6 +34,7 @@ export function signBoard(emoji, ring = '#E3A25B', size = 0.5) {
   disc.rotation.set(-0.35, SIGN_YAW, 0, 'YXZ');
   disc.position.y = 0.02;
   g.add(disc);
+  g.userData.sign = true;         // view.js lights up the sign of whatever a table is asking for
   return g;
 }
 

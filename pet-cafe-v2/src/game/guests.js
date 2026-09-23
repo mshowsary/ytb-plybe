@@ -120,6 +120,15 @@ export function createGuests(ctx) {
     spawnT -= dt;
     if (spawnT <= 0 && list.length < Math.min(rush ? 13 : 11, 4 + tables * 1.3 + (rush ? 2 : 0))) { spawn(); spawnT = interval * (0.7 + Math.random() * 0.6); }
 
+    // petting is offered on ONE pet at a time: the seated, unstroked pet nearest the owner (a rush
+    // used to ring every pet in the room at once)
+    let petNear = null, petD = 2.4;
+    if (owner) for (const q of list) {
+      if (q.state !== 'eating' || !q.table || q.petted) continue;
+      const pp = q.pet.group.position, d = Math.hypot(pp.x - owner.x, pp.z - owner.z);
+      if (d < petD) { petD = d; petNear = q; }
+    }
+
     let leashN = 0;
     for (let i = list.length - 1; i >= 0; i--) {
       const g = list[i]; g.t += dt;
@@ -191,8 +200,7 @@ export function createGuests(ctx) {
               owner.give(g.request);
               fulfil(g);
             } else {
-              // a gold ring round the table and a big bouncing picture of what they want
-              hotspots?.show(g.table.x, g.table.z, '#FFC23D', 1.3, g.id);
+              // one cue only: the picture of what they want, in a gold-edged bubble over the table
               bubbles.show('rq' + g.id, g.table.x, 2.05, g.table.z, `${PRODUCTS[g.request].emoji}`, 'ask');
             }
           }
@@ -211,11 +219,12 @@ export function createGuests(ctx) {
               }
             } else {
               g.petT = 0;
-              // a pet waiting for a stroke: a soft pink ring under it when you are near, a floating heart,
-              // and — the first few times — a ghost hand showing the stroke
-              if (d < 4.5) {
-                hotspots?.show(pp.x, pp.z, '#FF8FB1', 0.62, g.id * 1.7, 0.52);
-                bubbles.show('pp' + g.id, pp.x, 1.45, pp.z, (W.petCount | 0) < 3 ? '<span class="ghosthand">✋</span>' : '💗', 'mood');
+              // the nearest pet waiting for a stroke: the first few times a ghost hand shows the stroke
+              // (with a soft pink ring); after that just a small heart over it
+              if (g === petNear) {
+                const learning = (W.petCount | 0) < 3;
+                if (learning) hotspots?.show(pp.x, pp.z, '#FF8FB1', 0.62, g.id * 1.7, 0.52);
+                bubbles.show('pp' + g.id, pp.x, 1.45, pp.z, learning ? '<span class="ghosthand">✋</span>' : '💗', learning ? 'mood' : 'mood small');
               }
             }
           }

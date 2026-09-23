@@ -62,8 +62,13 @@ export function createOwner(ctx) {
     if (z && z.kind === 'till') { o.atTill = true; return z; }
     if (z && z.kind === 'counter') {
       const ct = z.st;
-      if (c.kind === ct.product && c.n > 0 && o.tick <= 0 && W.placeOnCounter(ct)) {
+      // what the tables are asking for of this product: keep that many in hand, and take them from
+      // the counter itself (no need to find the machine behind it)
+      const asked = Math.max(0, W.requests[ct.product] | 0);
+      if (c.kind === ct.product && c.n > asked && o.tick <= 0 && W.placeOnCounter(ct)) {
         setCarry(c.kind, c.n - 1); o.tick = STEP; audio.play('drop'); H.tap();
+      } else if (asked > 0 && (!c.kind || c.kind === ct.product) && c.n < asked && o.tick <= 0 && W.takeFromCounter(ct)) {
+        setCarry(ct.product, c.n + 1); o.tick = STEP; audio.play('drop'); H.tap();
       }
       return z;
     }
@@ -119,6 +124,18 @@ export function createOwner(ctx) {
     const moving = Math.hypot(move.x, move.y) > 0.05;
     o.idle = moving ? 0 : o.idle + dt;
     o.zone = interact(dt);
+    // LEFTOVERS: goods in hand that nothing can take any more (the guest who asked has gone and the
+    // counter is full) sell themselves as takeaway after a moment — the normal price, no more — so
+    // the owner is never stuck carrying them
+    const lc = o.carry;
+    if (lc.kind && !isSack(lc.kind) && lc.n > 0 && !(W.requests[lc.kind] > 0) && !(ctx.deliveries && ctx.deliveries.need(lc.kind) > 0) && counterRoom(lc.kind) === 0) {
+      o.leftT = (o.leftT || 0) + dt;
+      if (o.leftT > 2.2) {
+        const pay = W.price(lc.kind) * lc.n;
+        setCarry(null, 0); o.leftT = 0;
+        W.earn(pay, o.x, o.z); audio.play('coin'); fx.burst(o.x, 1.4, o.z, '#FFD84D', 14, 0.7);
+      }
+    } else o.leftT = 0;
     H.group.position.set(o.x, 0, o.z);
     markT += dt;
     marker.position.set(o.x, 0.07, o.z);
