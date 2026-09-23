@@ -2,7 +2,7 @@
 // A chip under the wallet counts them; a new face slides in as a card (never blocking play);
 // tapping the chip opens the book, which pauses the café while it is open.
 import { PET_SPECIES, PET_PROFILES } from '../sim/petBook.js';
-import { PET_UNLOCKS } from '../game/layout.js';
+import { LOCATIONS, LOCATION_ORDER } from '../game/layout.js';
 
 const EMOJI = { cat: '🐱', dog: '🐶', bunny: '🐰', hamster: '🐹' };
 const RARITY = { common: '#9FB7C9', rare: '#6EC6FF', epic: '#B79BFF', legendary: '#FFC940' };
@@ -14,7 +14,7 @@ export function createPetBook(root, W, audio, onPause) {
     <div class="petcard" id="petcard"><div class="pc-face"></div><div class="pc-txt"><small>New friend!</small><b></b><em></em></div></div>
     <div class="sheet hidden" id="petsheet"><div class="sheet-card ui">
       <div class="sheet-head"><b>🐾 Pet Book</b><button class="close" aria-label="Close">✕</button></div>
-      <div class="grid" id="petgrid"></div>
+      <div id="petgrid"></div>
     </div></div>`);
   // the card and the book sit above the world-anchored bubbles, so they live on <body>, not the HUD layer
   document.body.appendChild(root.querySelector('#petcard')); document.body.appendChild(root.querySelector('#petsheet'));
@@ -23,19 +23,31 @@ export function createPetBook(root, W, audio, onPause) {
   let cardT = 0;
   const queue = [];
 
+  function cell(s, v, lockedBy) {
+    const p = PET_PROFILES[s][v], met = W.met.has(s + ':' + v);
+    const f = W.friends[s + ':' + v] | 0, hearts = f >= 10 ? '💖💖💖' : f >= 4 ? '❤️❤️' : f >= 1 ? '❤️' : '';
+    if (met) return `<div class="pet met" style="--r:${RARITY[p.rarity]};--coat:${p.body}66"><span>${EMOJI[s]}</span><b>${p.name}</b><em>${p.trait}</em><i class="hearts">${hearts}</i></div>`;
+    if (lockedBy) return `<div class="pet locked"><span>🔒</span><em>${UNLOCK_HINT[lockedBy] || ''}</em></div>`;
+    return `<div class="pet"><span>❔</span></div>`;
+  }
+  // One page per café (four species by four regulars), and the legendary row once a café is complete.
   function render() {
     let html = '';
-    for (const s of PET_SPECIES) {
-      const lockedBy = PET_UNLOCKS[s] && !W.isBuilt(PET_UNLOCKS[s]) ? PET_UNLOCKS[s] : null;
-      for (let v = 0; v < 5; v++) {
-        const p = PET_PROFILES[s][v], met = W.met.has(s + ':' + v);
-        const legendLocked = v === 4 && !W.complete();
-        if (met) html += `<div class="pet met" style="--r:${RARITY[p.rarity]};--coat:${p.body}66"><span>${EMOJI[s]}</span><b>${p.name}</b><em>${p.trait}</em></div>`;
-        else if (lockedBy) html += `<div class="pet locked"><span>🔒</span><em>${UNLOCK_HINT[lockedBy]}</em></div>`;
-        else if (legendLocked) html += `<div class="pet locked legend"><span>✨</span><em>🎉</em></div>`;
-        else html += `<div class="pet"><span>❔</span></div>`;
+    for (const id of LOCATION_ORDER) {
+      const loc = LOCATIONS[id];
+      if (!W.open.has(id)) { html += `<div class="bookhead dim">${loc.emoji} ${loc.name} · 🔒</div>`; continue; }
+      html += `<div class="bookhead">${loc.emoji} ${loc.name}</div><div class="grid">`;
+      for (const s of PET_SPECIES) {
+        const unlock = loc.unlock[s], here = id === W.loc;
+        const lockedBy = unlock && here && !W.isBuilt(unlock) ? unlock : null;
+        for (const v of loc.variants) html += cell(s, v, lockedBy);
       }
+      html += '</div>';
     }
+    const legends = W.done.size || W.complete();
+    html += `<div class="bookhead">✨ Legendary</div><div class="grid">`;
+    for (const s of PET_SPECIES) html += legends ? cell(s, 4, null) : `<div class="pet locked legend"><span>✨</span><em>🎉</em></div>`;
+    html += '</div>';
     grid.innerHTML = html;
   }
   chip.addEventListener('click', e => { e.stopPropagation(); render(); sheet.classList.remove('hidden'); dot.classList.add('hidden'); onPause(true); audio.play('tap'); });

@@ -1,24 +1,52 @@
-// src/render/scene.js — renderer, warm café lighting, and a camera that frames the room on any screen.
+// src/render/scene.js — renderer, warm café lighting, a camera that frames the room on any screen,
+// and the finishing pass that makes a small phone readable: a cartoon outline around everything that
+// stands in front of something else, plus a colour grade (saturation and contrast) so nothing is washed out.
 import * as THREE from 'three';
 import { damp, lerp } from '../core/tween.js';
 
 const YAW = 0.36, PITCH = 0.9, FOV = 35;    // camera comes from the front-right, looking down ~52°
 
+const POST_VERT = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+const POST_FRAG = `
+  uniform sampler2D tColor; uniform sampler2D tDepth; uniform vec2 texel; uniform float near; uniform float far;
+  uniform float outline; uniform float saturation; uniform float contrast;
+  varying vec2 vUv;
+  float lin(float d){ return (near * far) / (far - d * (far - near)); }
+  void main(){
+    vec3 c = texture2D(tColor, vUv).rgb;
+    float d0 = lin(texture2D(tDepth, vUv).r);
+    float e = 0.0;
+    for (int i = 0; i < 4; i++) {
+      vec2 o = i == 0 ? vec2(texel.x, 0.0) : i == 1 ? vec2(-texel.x, 0.0) : i == 2 ? vec2(0.0, texel.y) : vec2(0.0, -texel.y);
+      float dn = lin(texture2D(tDepth, vUv + o * outline).r);
+      e = max(e, (dn - d0) / d0);      // only the nearer side draws the line: a crisp single outline
+    }
+    float edge = smoothstep(0.018, 0.05, e);
+    vec3 ink = vec3(0.13, 0.08, 0.06) * c * 0.6;
+    c = mix(c, ink, edge * 0.78);
+    float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    c = mix(vec3(l), c, saturation);
+    c = (c - 0.18) * contrast + 0.18;
+    gl_FragColor = vec4(max(c, 0.0), 1.0);
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+  }`;
+
 export function createScene(canvas) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.9;
+  renderer.toneMappingExposure = 0.95;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#9ED3EA');
-  scene.fog = new THREE.Fog('#B8DFF0', 34, 64);
+  scene.background = new THREE.Color('#8FCBE6');
+  scene.fog = new THREE.Fog('#AED9EE', 34, 64);
 
   const camera = new THREE.PerspectiveCamera(FOV, 1, 1, 120);
-  const hemi = new THREE.HemisphereLight('#FFF1DC', '#9C8467', 0.95); scene.add(hemi);
-  const sun = new THREE.DirectionalLight('#FFE2B8', 1.55);
+  const hemi = new THREE.HemisphereLight('#FFF1DC', '#8C7358', 0.9); scene.add(hemi);
+  const sun = new THREE.DirectionalLight('#FFE2B8', 1.7);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   Object.assign(sun.shadow.camera, { left: -13, right: 13, top: 13, bottom: -13, near: 1, far: 50 });
@@ -26,29 +54,56 @@ export function createScene(canvas) {
   scene.add(sun, sun.target);
   const fill = new THREE.DirectionalLight('#DDEBFF', 0.45); fill.position.set(-10, 8, 6); scene.add(fill);
 
+  // ---- the finishing pass ------------------------------------------------------------------
+  const webgl2 = renderer.capabilities.isWebGL2;
+  const rt = new THREE.WebGLRenderTarget(4, 4, { samples: webgl2 ? 4 : 0, type: THREE.HalfFloatType });
+  rt.depthTexture = new THREE.DepthTexture(4, 4); rt.depthTexture.type = THREE.UnsignedIntType;
+  const post = new THREE.ShaderMaterial({
+    vertexShader: POST_VERT, fragmentShader: POST_FRAG, toneMapped: true, depthTest: false, depthWrite: false,
+    uniforms: { tColor: { value: rt.texture }, tDepth: { value: rt.depthTexture }, texel: { value: new THREE.Vector2() },
+      near: { value: camera.near }, far: { value: camera.far }, outline: { value: 1.2 }, saturation: { value: 1.22 }, contrast: { value: 1.08 } },
+  });
+  const postScene = new THREE.Scene(), postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), post));
+
   const target = new THREE.Vector3(), goal = new THREE.Vector3();
   let dist = 18, shake = 0, override = null, overrideT = 0;
-  const S = { renderer, scene, camera, sun };
+  const S = { renderer, scene, camera, sun, hemi, fill };
+  let MID = { x: -1.7, z: 0 };
+  S.setMid = m => { MID = m; };
+  // each café has its own light: the town is a warm afternoon, the beach a bright noon by the sea
+  S.setTheme = theme => {
+    if (theme === 'beach') {
+      scene.background.set('#6EC3EE'); scene.fog.color.set('#A9DDF3'); scene.fog.near = 40; scene.fog.far = 80;
+      hemi.color.set('#FFF7E8'); hemi.groundColor.set('#D9B47A'); hemi.intensity = 1.0; sun.color.set('#FFF1D6'); sun.intensity = 1.9;
+    } else {
+      scene.background.set('#8FCBE6'); scene.fog.color.set('#AED9EE'); scene.fog.near = 34; scene.fog.far = 64;
+      hemi.color.set('#FFF1DC'); hemi.groundColor.set('#8C7358'); hemi.intensity = 0.9; sun.color.set('#FFE2B8'); sun.intensity = 1.7;
+    }
+  };
 
   S.resize = () => {
     const w = innerWidth, h = innerHeight;
-    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+    // Small canvases are drawn at up to twice their pixel size (supersampling) so edges stay clean
+    // on low-density screens; big canvases use the screen's own density.
+    const dpr = devicePixelRatio || 1;
+    const pr = Math.min(2, Math.max(dpr, w * h < 900000 ? 2 : 1.25));
+    renderer.setPixelRatio(pr);
     renderer.setSize(w, h, false);
+    rt.setSize(Math.round(w * pr), Math.round(h * pr));
+    post.uniforms.texel.value.set(1 / (w * pr), 1 / (h * pr));
+    post.uniforms.outline.value = Math.max(1, pr * 0.75);
     camera.aspect = w / h; camera.updateProjectionMatrix();
-    // Frame about 13 m across on a phone held upright and about 15 m of floor top-to-bottom on a
-    // wide screen, whichever needs the camera further back. Characters stay big enough to read.
+    // Phones held upright frame ~10.8 m across so characters stay big; wide screens ~17 m.
     const t = Math.tan(FOV * Math.PI / 360);
-    const across = camera.aspect < 1 ? 12.2 : 17;
+    const across = camera.aspect < 1 ? 10.8 : 17;
     dist = Math.max(across / (2 * t * camera.aspect), 11.5 / (2 * t));
-    if (camera.aspect < 0.62) dist = Math.min(dist, 27);
+    if (camera.aspect < 0.62) dist = Math.min(dist, 24);
   };
 
   // Portrait looks a little ahead of the owner (toward the kitchen); wide screens centre them.
-  const lead = () => camera.aspect < 1 ? 1.2 : 0.4;
-
-  // The camera leans a third of the way toward the middle of the café, so the room stays framed.
-  const MID = { x: -1.7, z: 0 };
-  const pull = () => camera.aspect < 1 ? 0.5 : 0.3;   // phones lean further in, so both walls stay in frame
+  const lead = () => camera.aspect < 1 ? 1.0 : 0.4;
+  const pull = () => camera.aspect < 1 ? 0.4 : 0.3;   // lean toward the middle of the room
   S.follow = (x, z, dt) => {
     goal.set(lerp(x, MID.x, pull()), 0, lerp(z, MID.z, pull()) - lead());
     const k = dt > 0 ? 1 - Math.exp(-6 * dt) : 1;
@@ -77,13 +132,17 @@ export function createScene(canvas) {
     sun.position.set(vx + 7, 14, vz + 9); sun.target.position.set(vx, 0, vz);
   }
 
+  const v3 = new THREE.Vector3();
   S.worldToScreen = (x, y, z, out) => {
-    const v = new THREE.Vector3(x, y, z).project(camera);
-    out.x = (v.x * 0.5 + 0.5) * innerWidth; out.y = (-v.y * 0.5 + 0.5) * innerHeight;
-    out.on = v.z < 1 && Math.abs(v.x) < 1.05 && Math.abs(v.y) < 1.05;
+    v3.set(x, y, z).project(camera);
+    out.x = (v3.x * 0.5 + 0.5) * innerWidth; out.y = (-v3.y * 0.5 + 0.5) * innerHeight;
+    out.on = v3.z < 1 && Math.abs(v3.x) < 1.05 && Math.abs(v3.y) < 1.05;
     return out;
   };
-  S.render = () => renderer.render(scene, camera);
+  S.render = () => {
+    renderer.setRenderTarget(rt); renderer.render(scene, camera);
+    renderer.setRenderTarget(null); renderer.render(postScene, postCam);
+  };
   addEventListener('resize', S.resize); S.resize();
   return S;
 }

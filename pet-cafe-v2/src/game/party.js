@@ -47,6 +47,6 @@ export function createParty(ctx) {
         badge.style.transform = `translate(${scr.x | 0}px,${scr.y | 0}px)`;
       } else badge.classList.add('hidden');
     },
-    snapshot: () => ({}),
+    teardown() { if (t > 0) { W.priceMult = 1; audio.setParty(false); } badge.remove(); chip.remove(); },
   };
 }

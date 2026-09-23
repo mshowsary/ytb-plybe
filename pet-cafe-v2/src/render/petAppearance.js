@@ -55,7 +55,9 @@ const FALLBACK = Object.freeze({ size: 1, width: 1, height: 1, length: 1, head: 
 
 export function petAppearance(species, variant = 0) {
   const set = LOOKS[species] || LOOKS.cat;
-  return set[Math.max(0, Math.min(set.length - 1, variant | 0))] || FALLBACK;
+  // the Beach Shack's regulars (5-8) share the body shapes of the town's four (0-3), in new coats
+  const v = (variant | 0) >= 5 ? (variant | 0) - 5 : variant | 0;
+  return set[Math.max(0, Math.min(set.length - 1, v))] || FALLBACK;
 }
 
 export function petAppearanceCount() {

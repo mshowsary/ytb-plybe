@@ -19,7 +19,12 @@ import { createPads } from './game/pads.js';
 import { createParty } from './game/party.js';
 import { createPetBook } from './ui/petbook.js';
 import { createLife } from './render/life.js';
-import { PADS, STAFF, SUPPLIES } from './game/layout.js';
+import { createUpgrades } from './ui/upgrades.js';
+import { STAFF, SUPPLIES, LOCATIONS, LOCATION_ORDER } from './game/layout.js';
+import * as L from './game/layout.js';
+import * as THREE from 'three';
+import { createBeachRoom } from './render/roomBeach.js';
+import { createMap } from './ui/map.js';
 
 const platform = createPlatform();
 const audio = createAudio();
@@ -28,9 +33,8 @@ const root = document.getElementById('ui');
 const layer = document.getElementById('fx');
 
 const S = createScene(canvas);
-createRoom(S.scene);
 const items = createItems(S.scene);
-const hud = createHud(S, root, audio);
+const hud = createHud(S, root, audio, p => { sheetPaused = p; audio.setPaused(p || hostPaused); });
 const fx = createFx(S.scene, S, layer, hud.walletEl);
 const bubbles = createBubbles(S, layer);
 const input = createInput(root);
@@ -48,24 +52,52 @@ addEventListener('pointerdown', unlock); addEventListener('keydown', unlock);
 async function boot() {
   S.render(); platform.firstFrameReady();
   const saved = await platform.load();
-  const restored = W.restore(saved);
+  W.restore(saved);
   if (saved && typeof saved.play === "number") playTime = saved.play;
-  if (!restored) {
-    // a café that is already working at the first second: cookies on the tray and the shelf
-    W.stations.get('oven1').tray = 4; W.stations.get('counter1').stock = 3;
-  }
-  nav.rebuild([...W.stations.values()]);
-  const ctx = { W, nav, scene: S.scene, S, items, bubbles, fx, audio, layer, platform, hud };
-  const view = createView(ctx);
-  const owner = createOwner(ctx);
-  const guests = createGuests(ctx);
-  const staff = createStaff(ctx);
-  for (const r of W.staff) staff.hire(r, false);
-  const pads = createPads({ ...ctx, onBuilt: id => onBuilt(id) });
-  const party = createParty({ ...ctx, guests });
   const petbook = createPetBook(root, W, audio, p => { sheetPaused = p; });
-  const life = createLife(S.scene, W);
-  completed = PADS.every(p => W.isBuilt(p.builds));
+  const upgrades = createUpgrades(root, W, audio, fx, p => { sheetPaused = p; });
+  const map = createMap(root, W, audio, p => { sheetPaused = p; }, id => travel(id));
+
+  // ---- one café on stage: everything that belongs to the place you are standing in ----------
+  let stage, view, owner, guests, staff, pads, party, life;
+  function buildCafe(id) {
+    W.enter(id);
+    nav.rebuild([...W.stations.values()]);
+    stage = new THREE.Group(); S.scene.add(stage);
+    if (L.LOC.theme === 'beach') createBeachRoom(stage); else createRoom(stage);
+    S.setTheme(L.LOC.theme);
+    const ctx = { W, nav, scene: stage, S, items, bubbles, fx, audio, layer, platform, hud };
+    view = createView(ctx);
+    owner = createOwner(ctx);
+    guests = createGuests(ctx);
+    staff = createStaff(ctx);
+    for (const r of W.staff) staff.hire(r, false);
+    pads = createPads({ ...ctx, onBuilt: bid => onBuilt(bid) });
+    party = createParty({ ...ctx, guests });
+    life = createLife(stage, W);
+    completed = W.complete();
+    rushT = 0; nextRush = 150;
+    S.snap(owner.o.x, owner.o.z);
+    window.__v2 = { W, owner, guests, staff, pads, S, nav, travel, guide: () => guideTarget(owner, staff, guests, 0) };
+  }
+  function tearDown() {
+    pads.teardown(); party.teardown(); guests.teardown();
+    S.scene.remove(stage);
+    stage.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+  }
+  let travelling = false;
+  function travel(id) {
+    if (travelling || id === W.loc) return;
+    travelling = true;
+    const veil = document.getElementById('veil');
+    veil.classList.add('show');
+    setTimeout(() => {
+      W.stashHere(); save();
+      tearDown(); buildCafe(id); save();
+      veil.classList.remove('show'); travelling = false;
+      hud.banner(`${L.LOC.emoji} Welcome to the ${L.LOC.name}!`, 2600); audio.play('chime');
+    }, 450);
+  }
 
   function onBuilt(id) {
     nav.rebuild([...W.stations.values()]);
@@ -73,19 +105,20 @@ async function boot() {
     else view.built(id);
     S.shake(0.08);
     save();
-    if (!completed && PADS.every(p => W.isBuilt(p.builds))) { completed = true; setTimeout(grandOpening, 900); }
+    if (!completed && W.complete()) { completed = true; W.done.add(W.loc); setTimeout(grandOpening, 900); }
   }
   function grandOpening() {
-    hud.banner('🎉 Your café is complete!', 3600);
+    hud.banner(`🎉 Your ${L.LOC.name} is complete!`, 3600);
     audio.play('fanfare');
     S.look({ x: -1.5, z: 0 }, 26, 4.5);
     for (let i = 0; i < 10; i++) setTimeout(() => { fx.firework(-5 + Math.random() * 9, 4 + Math.random() * 1.5, -3 + Math.random() * 6); audio.play('pop'); if (i % 3 === 0) fx.confetti(-1, 1, 6, 60); }, 300 + i * 380);
-    setTimeout(() => hud.banner('✨ Legendary pets now visit!', 3200), 5200);
+    const next = LOCATION_ORDER[LOCATION_ORDER.indexOf(W.loc) + 1];
+    setTimeout(() => hud.banner(next && !W.open.has(next) ? `🗺️ A new café awaits: the ${LOCATIONS[next].name}!` : '✨ Legendary pets now visit!', 3400), 5200);
+    setTimeout(() => map.nudge(), 5400);
   }
   function save() { platform.save({ ...W.snapshot(), play: Math.floor(playTime) }); }
 
-  window.__v2 = { W, owner, guests, staff, pads, S, nav, guide: () => guideTarget(owner, staff, guests, 0) };   // for poking at the live game from the console
-  S.snap(owner.o.x, owner.o.z);
+  buildCafe(W.loc);
   audio.setMusicPhase('morning');
   document.getElementById('loading').remove();
   platform.gameReady();
@@ -108,7 +141,7 @@ async function boot() {
       if (rushT > 0) rushT -= dt;
       else if ((nextRush -= dt) <= 0) { rushT = 40; nextRush = 170 + Math.random() * 60; hud.banner('🔔 Rush hour!', 2000); audio.play('chime'); }
     }
-    guests.update(dt, owner.o.atTill || staff.cashierAtTill(), rushT > 0);
+    guests.update(dt, owner.o.atTill || staff.cashierAtTill(), rushT > 0, owner.o);
     pads.update(dt, owner.o);
     party.update(dt, false);
 
@@ -117,9 +150,13 @@ async function boot() {
         inFlight += e.n;
         fx.number(e.x, 2.1, e.z, '+' + e.n, 'gain');
         fx.coins(e.x, 1.3, e.z, Math.min(8, 2 + (e.n / 5) | 0), () => { inFlight -= e.n; hud.bump(); audio.play('coin'); });
+      } else if (e.type === 'petted') {
+        audio.play('petCat'); fx.burst(e.x, 1.2, e.z, '#FF8FB1', 14, 0.7);
+        if (e.f === 4 || e.f === 10) hud.banner(e.f === 10 ? '💖 A new Bestie!' : '❤️ A new pet friend!', 1800);
+      } else if (e.type === 'upgrade') { fx.confetti(owner.o.x, owner.o.z, 1.5, 24); audio.play('chime');
       } else if (e.type === 'newpet') {
         petbook.newPet(e); fx.confetti(2.75, 3.8, 1.2, 26);
-        if (!bookDone && W.met.size >= 20) { bookDone = true; setTimeout(() => { hud.banner('📖 Every pet met! You are the best pet café in town', 3600); audio.play('fanfare'); fx.confetti(-1.5, 1, 6, 90); }, 3200); }
+        if (!bookDone && W.met.size >= W.bookSize()) { bookDone = true; setTimeout(() => { hud.banner('📖 Every pet met! You are the best pet café in town', 3600); audio.play('fanfare'); fx.confetti(-1.5, 1, 6, 90); }, 3200); }
       }
     }
     W.events.length = 0;
@@ -127,6 +164,9 @@ async function boot() {
     view.update(dt, party.active);
     life.update(dt);
     petbook.update(dt);
+    upgrades.update(dt);
+    map.update();
+    document.getElementById('upbtn').classList.toggle('hidden', !(W.isBuilt('staff:runner') || W.open.size > 1 || Object.keys(W.up).length));
     fx.update(dt);
     hud.setCoins(W.coins - inFlight);
     hud.update(dt);

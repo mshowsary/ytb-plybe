@@ -58,7 +58,7 @@ export function createOwner(ctx) {
       } else if (!c.kind || c.kind === m.product) {
         const room = counterRoom(m.product);
         if (c.n > room && W.returnToMachine(m)) { setCarry(m.product, c.n - 1); o.tick = STEP; audio.play('drop'); }
-        else if (c.n < OWNER.carry && c.n < room && W.takeFromMachine(m)) { setCarry(m.product, c.n + 1); o.tick = STEP; audio.play('drop'); H.tap(); }
+        else if (c.n < OWNER.carry + W.carryBonus() && c.n < room && W.takeFromMachine(m)) { setCarry(m.product, c.n + 1); o.tick = STEP; audio.play('drop'); H.tap(); }
         else if (room === 0 && m.tray > 0 && !c.n) { const ct = W.counterFor(m.product); if (ct.built) bubbles.show('full' + m.id, ct.x, 1.9, ct.z, '✅', 'mood small'); }
       }
       return z;
@@ -92,7 +92,7 @@ export function createOwner(ctx) {
     // camera-relative movement: screen right and screen up, turned into the floor's axes
     const rx = Math.cos(YAW), rz = -Math.sin(YAW), fx0 = -Math.sin(YAW), fz0 = -Math.cos(YAW);
     const mx = rx * move.x + fx0 * -move.y, mz = rz * move.x + fz0 * -move.y;
-    o.vx = mx * OWNER.speed; o.vz = mz * OWNER.speed;
+    o.vx = mx * OWNER.speed * W.speedMult(); o.vz = mz * OWNER.speed * W.speedMult();
     const p = nav.collide(o.x + o.vx * dt, o.z + o.vz * dt);
     const realVx = (p.x - o.x) / Math.max(dt, 1e-4), realVz = (p.z - o.z) / Math.max(dt, 1e-4);
     o.x = p.x; o.z = p.z;

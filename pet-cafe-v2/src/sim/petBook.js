@@ -11,6 +11,11 @@ export const PET_PROFILES = {
     { name: 'Lavender', rarity: 'rare', trait: 'Quiet-window dreamer', body: '#A89AC2', belly: '#F5ECFF', accent: '#7E6AE8' },
     { name: 'Calico', rarity: 'epic', trait: 'Treat critic', body: '#E9D5BC', belly: '#FFF4E6', accent: '#EF8B67' },
     { name: 'Nebula', rarity: 'legendary', trait: 'Midnight stargazer', body: '#2B2A4A', belly: '#F3E9FF', accent: '#FFD84D' },
+    // --- the Beach Shack's regulars (index 5-8) ---
+    { name: 'Coconut', rarity: 'common', trait: 'Hammock enthusiast', body: '#F0DCC0', belly: '#FFF8EC', accent: '#3FB6A8' },
+    { name: 'Sandy', rarity: 'common', trait: 'Sandcastle inspector', body: '#E2B77A', belly: '#FFF2D8', accent: '#FF8A5B' },
+    { name: 'Coral', rarity: 'rare', trait: 'Sunset watcher', body: '#F29A86', belly: '#FFE8E0', accent: '#FFD84D' },
+    { name: 'Mango', rarity: 'epic', trait: 'Beach-ball champion', body: '#F6B53D', belly: '#FFF3D0', accent: '#E8546B' },
   ],
   dog: [
     { name: 'Biscuit', rarity: 'common', trait: 'Everyone is a friend', body: '#C9A276', belly: '#FFF0D7', accent: '#71B8E4' },
@@ -18,6 +23,10 @@ export const PET_PROFILES = {
     { name: 'Cloud', rarity: 'rare', trait: 'Professional greeter', body: '#E6DDD3', belly: '#FFF9F0', accent: '#E88CA6' },
     { name: 'Bluebell', rarity: 'epic', trait: 'Zoomie expert', body: '#8298AC', belly: '#EAF4FF', accent: '#8B7CF6' },
     { name: 'Comet', rarity: 'legendary', trait: 'Trail of stardust', body: '#3A4460', belly: '#EAF4FF', accent: '#FFD84D' },
+    { name: 'Surfer', rarity: 'common', trait: 'Catches every wave', body: '#D7B089', belly: '#FFF3E0', accent: '#3FA0E0' },
+    { name: 'Pebble', rarity: 'common', trait: 'Rock-pool explorer', body: '#9E9A95', belly: '#F2EFEA', accent: '#F29A38' },
+    { name: 'Reef', rarity: 'rare', trait: 'Snorkel buddy', body: '#5FB7C9', belly: '#E6F8FB', accent: '#FFD84D' },
+    { name: 'Sunny', rarity: 'epic', trait: 'Lifeguard in training', body: '#F7D35A', belly: '#FFF9E0', accent: '#E8546B' },
   ],
   bunny: [
     { name: 'Snowdrop', rarity: 'common', trait: 'Garden watcher', body: '#EFE8E3', belly: '#FFC5D2', accent: '#D99BE8' },
@@ -25,6 +34,10 @@ export const PET_PROFILES = {
     { name: 'Lilac', rarity: 'rare', trait: 'Soft-seat connoisseur', body: '#C8B8DD', belly: '#F2D8EA', accent: '#8B7CF6' },
     { name: 'Honey', rarity: 'epic', trait: 'Tiny café celebrity', body: '#E7C47E', belly: '#FFF0D0', accent: '#D99542' },
     { name: 'Aurora', rarity: 'legendary', trait: 'Borealis dreamer', body: '#EDEAFB', belly: '#FFFFFF', accent: '#8B7CF6' },
+    { name: 'Seashell', rarity: 'common', trait: 'Collects shiny things', body: '#F7E3DA', belly: '#FFFFFF', accent: '#FF9EBB' },
+    { name: 'Driftwood', rarity: 'common', trait: 'Dune napper', body: '#B99A7A', belly: '#F0E2D2', accent: '#6FA8DC' },
+    { name: 'Lagoon', rarity: 'rare', trait: 'Paddle-pool queen', body: '#8FD6CF', belly: '#EFFFFC', accent: '#8B7CF6' },
+    { name: 'Papaya', rarity: 'epic', trait: 'Fruit-salad critic', body: '#F59C5B', belly: '#FFEBD8', accent: '#3FB6A8' },
   ],
   hamster: [
     { name: 'Peanut', rarity: 'common', trait: 'Cheek-pouch hoarder', body: '#C9955B', belly: '#FFE9C6', accent: '#B9834A' },
@@ -32,6 +45,10 @@ export const PET_PROFILES = {
     { name: 'Marble', rarity: 'rare', trait: 'Tunnel architect', body: '#B5A8C7', belly: '#F1EAF7', accent: '#8B7CF6' },
     { name: 'Saffron', rarity: 'epic', trait: 'Sunflower-seed connoisseur', body: '#E8A83C', belly: '#FFF3D0', accent: '#C9781E' },
     { name: 'Cosmo', rarity: 'legendary', trait: 'Nebula napper', body: '#4B3F72', belly: '#FDEBC8', accent: '#FFD84D' },
+    { name: 'Pineapple', rarity: 'common', trait: 'Sunhat model', body: '#F2CF6B', belly: '#FFF7DC', accent: '#58A857' },
+    { name: 'Sprinkles', rarity: 'common', trait: 'Ice-cream taster', body: '#F4C6D6', belly: '#FFF3F7', accent: '#8FD8F0' },
+    { name: 'Tide', rarity: 'rare', trait: 'Wave-wheel racer', body: '#7FA7D9', belly: '#EEF4FF', accent: '#FFD84D' },
+    { name: 'Nugget', rarity: 'epic', trait: 'Treasure digger', body: '#D9A441', belly: '#FFF1CC', accent: '#E8546B' },
   ],
 };
 

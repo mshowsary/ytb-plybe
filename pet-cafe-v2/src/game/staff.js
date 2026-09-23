@@ -81,7 +81,7 @@ export function createStaff(ctx) {
       case 'pickup':
         if (s.t >= STEP) {
           s.t = 0;
-          if (s.carry.n < s.cfg.carry && W.freeFor(j.counter.product) > 0 && W.takeFromMachine(j.machine)) {
+          if (s.carry.n < s.cfg.carry + W.carryBonus() && W.freeFor(j.counter.product) > 0 && W.takeFromMachine(j.machine)) {
             s.carry.kind = j.counter.product; s.carry.n++; j.counter.reserved++; j.reserved++; audio.play('drop');
           } else if (s.carry.n > 0) { s.state = 'toCounter'; s.w.go(j.counter.spots.staff.x, j.counter.spots.staff.z); }
           else endJob(s);
@@ -157,6 +157,7 @@ export function createStaff(ctx) {
 
   function update(dt) {
     for (const s of crew.values()) {
+      s.w.speed = s.cfg.speed * W.speedMult();
       s.w.step(dt);
       let face = null;
       if (s.role.startsWith('runner')) face = runnerStep(s, dt);

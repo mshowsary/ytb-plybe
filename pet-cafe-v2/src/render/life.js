@@ -4,12 +4,15 @@ import * as THREE from 'three';
 import { createPet } from './pets.js';
 import { part, mesh } from './geo.js';
 import { ROOM, PRODUCTS } from '../game/layout.js';
+import * as L from '../game/layout.js';
 
 export function createLife(scene, W) {
   // --- the café cat, on the left window sill, facing into the room ---------------------------
-  const cat = createPet('cat', 1);
-  cat.group.position.set(ROOM.x0 + 0.24, 1.47, 1.2);
-  cat.group.rotation.y = Math.PI / 2;
+  const beach = L.LOC.theme === 'beach';
+  const cat = createPet('cat', beach ? 6 : 1);
+  // town: asleep on the deep window sill; beach: stretched out along the top of the left railing
+  if (beach) { cat.group.position.set(ROOM.x0, 1.03, 1.9); cat.group.rotation.y = 0; }
+  else { cat.group.position.set(ROOM.x0 + 0.24, 1.47, 1.2); cat.group.rotation.y = Math.PI / 2; }
   cat.sit();
   scene.add(cat.group);
 
@@ -41,7 +44,7 @@ export function createLife(scene, W) {
     items.forEach((p, i) => {
       const y = 92 + i * 44;
       g.font = '32px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif'; g.textAlign = 'left'; g.fillText(PRODUCTS[p].emoji, 48, y);
-      g.font = 'bold 30px ui-rounded, "Arial Rounded MT Bold", sans-serif'; g.fillStyle = '#FFE08A'; g.textAlign = 'right'; g.fillText(String(PRODUCTS[p].price), 206, y);
+      g.font = 'bold 30px ui-rounded, "Arial Rounded MT Bold", sans-serif'; g.fillStyle = '#FFE08A'; g.textAlign = 'right'; g.fillText(String(W.price(p)), 206, y);
       g.fillStyle = '#FFFFFF';
     });
     tex.needsUpdate = true;

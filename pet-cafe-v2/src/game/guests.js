@@ -5,10 +5,29 @@
 import * as THREE from 'three';
 import { createHuman, SHIRTS } from '../render/human.js';
 import { createPet } from '../render/pets.js';
+import { part, merge } from '../render/geo.js';
+import { toonMaterial } from '../render/palette.js';
 import { STREET, PRODUCTS } from './layout.js';
 import { makeWalker, syncHuman, drawStack, faceTo } from './actors.js';
 
 const PATIENCE = 50, EAT = [6, 9], SPEED = 1.9;
+
+// Sunglasses sized to each species' face (the eyes sit at x ±w/4, z 0.47w on the head).
+const HEAD_W = { cat: 0.5, dog: 0.56, bunny: 0.46, hamster: 0.3 };
+const shadesCache = {};
+function sunglasses(species) {
+  if (!shadesCache[species]) {
+    const w = HEAD_W[species] || 0.5, r = Math.max(0.05, Math.min(0.075, w * 0.14)), z = w * 0.47 + 0.03;
+    shadesCache[species] = merge([
+      part('cyl', [r, r, 0.02, 12], '#23262B', { x: -w * 0.25, y: 0.07, z, rx: Math.PI / 2 }),
+      part('cyl', [r, r, 0.02, 12], '#23262B', { x: w * 0.25, y: 0.07, z, rx: Math.PI / 2 }),
+      part('box', [w * 0.2, 0.02, 0.02], '#FF6F91', { y: 0.08, z }),
+      part('box', [0.02, 0.02, w * 0.4], '#FF6F91', { x: -w * 0.25 - r, y: 0.08, z: z - w * 0.2 }),
+      part('box', [0.02, 0.02, w * 0.4], '#FF6F91', { x: w * 0.25 + r, y: 0.08, z: z - w * 0.2 }),
+    ]);
+  }
+  return new THREE.Mesh(shadesCache[species], toonMaterial());
+}
 
 export function createGuests(ctx) {
   const { W, nav, scene, items, bubbles, audio } = ctx;
@@ -29,6 +48,7 @@ export function createGuests(ctx) {
     scene.add(H.group);
     const [species, variant] = W.pickPet();
     const pet = createPet(species, variant);
+    if (variant >= 5) pet.attach('head', sunglasses(species));     // the Beach Shack's regulars wear shades
     scene.add(pet.group);
     const w = makeWalker(nav, STREET.spawn.x, STREET.spawn.z, SPEED, 'guest');
     pet.group.position.set(w.x + 0.6, 0, w.z);
@@ -63,7 +83,7 @@ export function createGuests(ctx) {
     return tables.length ? tables[(Math.random() * tables.length) | 0] : null;
   }
 
-  function update(dt, serverAtTill, rush = false) {
+  function update(dt, serverAtTill, rush = false, owner = null) {
     // arrivals: more tables and more counters bring more guests
     const tables = W.built('table').length, counters = W.built('counter').length;
     const interval = Math.max(2.2, 7.5 - tables * 0.45 - (counters - 1) * 0.9) * (rush ? 0.45 : 1);
@@ -108,7 +128,7 @@ export function createGuests(ctx) {
           face = Math.PI;
           if (!serverAtTill) { g.t = 0; break; }
           if (g.t > 0.55) {
-            const amount = PRODUCTS[g.product].price * g.carry.n * (W.priceMult || 1);
+            const amount = W.price(g.product) * g.carry.n;
             W.earn(amount, till.x, till.z); W.served++;
             queue.shift();
             const t = freeTable();
@@ -121,11 +141,27 @@ export function createGuests(ctx) {
             g.state = 'eating'; g.t = 0; g.eat = EAT[0] + Math.random() * (EAT[1] - EAT[0]);
             g.H.sit(); g.H.group.rotation.y = g.table.spots.chairs[0].face; g.H._face = g.H.group.rotation.y;
             const other = g.table.spots.chairs[1];
-            g.pet.group.position.set(other.x, 0.5, other.z); g.pet.group.rotation.y = other.face; g.pet.sit();
+            // on the front of the seat, toward the table, so the pet is clear of the chair's backrest
+            g.pet.group.position.set(other.x + Math.sin(other.face) * 0.2, 0.49, other.z); g.pet.group.rotation.y = other.face; g.pet.sit();
           }
           break;
         case 'eating':
           if (g.t > g.eat * 0.5 && g.carry.n > 1) g.carry.n = 1;
+          // PETTING: the owner stands beside the seated pet for a moment — hearts, a happy wriggle,
+          // a little tip, and the friendship in the Pet Book grows. Once per visit.
+          if (owner && !g.petted) {
+            const pp = g.pet.group.position, d = Math.hypot(pp.x - owner.x, pp.z - owner.z);
+            if (d < 1.05 && owner.idle > 0.15) {
+              g.petT = (g.petT || 0) + dt;
+              bubbles.show('pp' + g.id, pp.x, 1.45, pp.z, `<i class="ring pink" style="--p:${Math.min(1, g.petT / 0.7)}"></i>`, 'prog');
+              if (g.petT >= 0.7) {
+                g.petted = true; g.pet.joy(0.8); g.eat += 1.5;
+                const k = g.species + ':' + g.variant, f = (W.friends[k] = (W.friends[k] | 0) + 1);
+                const tip = 2 + (f >= 10 ? 6 : f >= 4 ? 3 : 1);
+                W.earn(tip, pp.x, pp.z); W.events.push({ type: 'petted', x: pp.x, z: pp.z, f });
+              }
+            } else { g.petT = 0; if (d < 3.2) bubbles.show('pp' + g.id, pp.x, 1.4, pp.z, '✋', 'mood small'); }
+          }
           if (g.t > g.eat) {
             g.carry.n = 0; g.H.stand(); g.pet.stand(); g.pet.group.position.y = 0;
             W.dirtyTable(g.table); g.table = null; g.happy = true;
@@ -185,5 +221,6 @@ export function createGuests(ctx) {
     list.splice(i, 1);
   }
 
-  return { update, list, queue };
+  function teardown() { for (let i = list.length - 1; i >= 0; i--) remove(list[i], i); queue.length = 0; scene.remove(leashes); }
+  return { update, list, queue, teardown };
 }

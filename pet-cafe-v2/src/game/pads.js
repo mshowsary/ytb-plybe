@@ -113,5 +113,5 @@ export function createPads(ctx) {
     }
   }
 
-  return { update, live };
+  return { update, live, teardown() { for (const id of [...live.keys()]) close(id); } };
 }

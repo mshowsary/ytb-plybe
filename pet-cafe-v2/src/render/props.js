@@ -4,6 +4,8 @@
 import * as THREE from 'three';
 import { part, merge, mesh } from './geo.js';
 import { PRODUCTS, SUPPLIES } from '../game/layout.js';
+import * as L from '../game/layout.js';
+import { beachModelFor } from './propsBeach.js';
 
 const WOOD = '#B9834A', WOOD_D = '#8E6236', TOP = '#F3E4CC', STEEL = '#C9D3D8', INK = '#3B2E2A';
 const SIGN_YAW = 0.36;                     // boards turn to face the camera (scene.js YAW)
@@ -49,6 +51,7 @@ function machineBase(accent, band) {
 }
 export function machineModel(def) {
   const pr = PRODUCTS[def.product], band = SUPPLIES[pr.supply].band, accent = pr.accent;
+  def = { ...def, model: pr.model };
   const g = new THREE.Group();
   const P = machineBase(accent, band);
   let glowAt = null;
@@ -257,6 +260,7 @@ export function ghostOf(group) {
 }
 
 export function modelFor(st) {
+  if (L.LOC.theme === 'beach') return beachModelFor(st);
   switch (st.type) {
     case 'machine': return machineModel(st);
     case 'counter': return counterModel(st.product);
