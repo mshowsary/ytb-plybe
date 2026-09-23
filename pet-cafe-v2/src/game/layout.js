@@ -40,13 +40,13 @@ export const LOCATIONS = {
     variants: [0, 1, 2, 3], unlock: { hamster: 'coffee1', bunny: 'treats1' },
   },
   beach: {
-    id: 'beach', name: 'Beach Shack', emoji: '🏖️', theme: 'beach',
+    id: 'beach', name: 'Beach Café', emoji: '🏖️', theme: 'beach',
     menu: ['lemonade', 'smoothie', 'icecream', 'fish'], priceScale: 2.4,
     variants: [5, 6, 7, 8], unlock: { hamster: 'coffee1', bunny: 'treats1' }, cost: 3000,
   },
 };
 export const LOCATION_ORDER = ['town', 'beach'];
-export const COMING_SOON = [{ name: 'Snowy Lodge', emoji: '🏔️' }, { name: 'Night Market', emoji: '🏮' }];
+export const COMING_SOON = [{ name: 'Mall Café', emoji: '🛍️' }];
 
 // ---- the shared floor plan --------------------------------------------------------------------
 // Machine / counter slots A-D hold the café's four products, in menu order.

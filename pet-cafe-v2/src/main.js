@@ -155,6 +155,7 @@ async function boot() {
   platform.gameReady();
   // FIRST LAUNCH: the journey map opens once, the town pin pulsing — one tap and the café is yours
   if (!saved) map.intro();
+  else setTimeout(() => map.preload(), 4000);     // the city picture, ready before the 🗺️ is tapped
 
   let last = performance.now();
   function frame(now) {

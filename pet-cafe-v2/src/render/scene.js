@@ -159,6 +159,18 @@ export function createScene(canvas) {
     renderer.setRenderTarget(rt); renderer.render(scn, cam);
     renderer.setRenderTarget(null); renderer.render(postScene, postCam);
   };
+  // a finished picture with live things on top (the café city map): no outline and no AO — the
+  // picture has its own light — only the multisampled target and the output colour conversion
+  const copy = new THREE.ShaderMaterial({ vertexShader: POST_VERT, depthTest: false, depthWrite: false,
+    fragmentShader: `uniform sampler2D tColor; varying vec2 vUv; void main(){ gl_FragColor = texture2D(tColor, vUv); 
+#include <colorspace_fragment>
+ }`,
+    uniforms: { tColor: { value: rt.texture } } });
+  const copyScene = new THREE.Scene(); copyScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), copy));
+  S.renderPlain = (scn, cam) => {
+    renderer.setRenderTarget(rt); renderer.render(scn, cam);
+    renderer.setRenderTarget(null); renderer.render(copyScene, postCam);
+  };
   S.render = () => {
     post.uniforms.near.value = camera.near; post.uniforms.far.value = camera.far;
     renderer.setRenderTarget(rt); renderer.render(scene, camera);

@@ -13,7 +13,7 @@ const models = new Map();                // 'pack/name' -> THREE.Group (the load
 const packMat = new Map();               // pack -> its one shared material
 const BASE = './kk/';
 // our own Blender-built packs live under ./models/<pack>/ (see art/build_*.py)
-const OWN = new Set(['beach', 'town', 'map']);
+const OWN = new Set(['beach', 'town']);
 const urlOf = n => (OWN.has(n.split('/')[0]) ? './models/' : BASE) + n + '.gltf';
 
 export function loadKit(names) {
