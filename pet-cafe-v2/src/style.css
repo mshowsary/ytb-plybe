@@ -174,3 +174,50 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE3F2;font-family:ui
 .awaycoins{display:flex;align-items:center;justify-content:center;gap:8px;font-size:32px;font-weight:900}.awaycoins .coin{width:32px;height:32px}
 #awaydouble{background:#8B7CF6;box-shadow:0 5px 0 #6A5BD1;display:flex;align-items:center;justify-content:center;gap:8px}
 .plain{border:0;background:none;font:800 15px ui-rounded,system-ui,sans-serif;color:var(--ink);opacity:.6;cursor:pointer;padding:8px}
+
+/* one-time tips */
+.tipcard{position:fixed;left:calc(var(--edge) + var(--sal));right:calc(var(--edge) + var(--sar) + 76px);bottom:calc(var(--edge) + var(--sab) + 10px);margin:0 auto;max-width:420px;display:flex;align-items:center;gap:10px;padding:10px 14px 10px 10px;border-radius:18px;background:#FFF9F1;border:3px solid #FFC23D;box-shadow:0 8px 24px #0004;color:var(--ink);font:800 15px/1.25 ui-rounded,system-ui,sans-serif;z-index:9;transform:translateY(140%);opacity:0;transition:transform .35s cubic-bezier(.2,1.3,.4,1),opacity .25s;pointer-events:auto}
+.tipcard.show{transform:none;opacity:1}
+.tipicon{font-size:28px;width:44px;height:44px;flex:none;display:grid;place-items:center;border-radius:14px;background:#FFF1D0}
+@media(max-width:380px){.tipcard{font-size:13px}.tipicon{width:38px;height:38px;font-size:24px}}
+
+/* the journey map */
+.worldmap{position:fixed;inset:0;z-index:35;background:#8FD3E8;overflow:hidden}
+.wmstage{position:absolute;inset:0;display:grid;place-items:center;transition:transform .7s cubic-bezier(.5,0,.8,.4),opacity .7s}
+.worldmap.leaving .wmstage{transform:scale(3.2);opacity:0}
+.worldmap.leaving{background:transparent;transition:background .7s}
+.wmsvg{position:absolute;left:50%;top:50%;width:min(100vw,100vh);height:min(100vw,100vh);transform:translate(-50%,-50%)}
+.wmpins{position:absolute;left:50%;top:50%;width:min(100vw,100vh);height:min(100vw,100vh);transform:translate(-50%,-50%)}
+.wmpin{position:absolute;transform:translate(-50%,-85%);display:flex;flex-direction:column;align-items:center;gap:2px;border:0;background:none;padding:0;cursor:pointer}
+.wmart{position:relative;font-size:clamp(26px,6.5vmin,44px);line-height:1;width:clamp(48px,11vmin,72px);height:clamp(48px,11vmin,72px);display:grid;place-items:center;border-radius:50%;background:#FFF9F1;border:4px solid #fff;box-shadow:0 6px 16px #0004}
+.wmart::after{content:"";position:absolute;left:50%;bottom:-11px;transform:translateX(-50%);border-left:9px solid transparent;border-right:9px solid transparent;border-top:12px solid #fff}
+.wmlabel{display:flex;flex-direction:column;align-items:center;padding:3px 10px;border-radius:12px;background:#FFF9F1EE;box-shadow:0 3px 10px #0003;color:var(--ink);white-space:nowrap}
+.wmlabel b{font-size:13px}.wmlabel small{font-size:12px;font-weight:900;color:#E0A800}
+.wmpin.st-here .wmart{background:#FFE7A8;border-color:#FFC23D}.wmpin.st-buy .wmart{background:#DFF7E6;border-color:#3DBA78}
+.wmpin.st-locked,.wmpin.st-soon{filter:grayscale(.7);opacity:.75}
+.wmpin.pulse .wmart,.wmpin.st-buy .wmart{animation:pinpulse 1.2s ease-in-out infinite}
+@keyframes pinpulse{50%{box-shadow:0 0 0 10px #FFC23D66,0 6px 16px #0004;scale:1.08}}
+.wmhead{position:absolute;left:calc(var(--edge) + var(--sal));right:calc(var(--edge) + var(--sar));top:calc(var(--edge) + var(--sat));display:flex;align-items:center;gap:10px;color:var(--ink)}
+.wmhead > b{flex:1;padding:10px 14px;border-radius:16px;background:#FFF9F1EE;box-shadow:0 4px 14px #0003;font-size:17px}
+.wmcoins{display:flex;align-items:center;gap:6px;padding:10px 12px;border-radius:16px;background:#FFF9F1EE;font-weight:900;box-shadow:0 4px 14px #0003}.wmcoins .coin{width:20px;height:20px}
+.wmhead .close{width:44px;height:44px;border:0;border-radius:14px;background:#FFF9F1;font-size:18px;box-shadow:0 4px 14px #0003;cursor:pointer}
+.wmcard{position:absolute;left:50%;bottom:calc(var(--edge) + var(--sab) + 8px);transform:translateX(-50%);width:min(420px,calc(100vw - 24px));padding:14px;border-radius:22px;background:#FFF9F1;box-shadow:0 12px 36px #0005;display:flex;flex-direction:column;gap:10px;color:var(--ink);animation:cardin .3s cubic-bezier(.2,1.3,.4,1)}
+@keyframes cardin{from{transform:translate(-50%,30px);opacity:0}}
+.wmc-top{display:flex;align-items:center;gap:12px}.wmc-top b{font-size:19px;display:block}.wmc-top small{font-size:14px;opacity:.8}
+.wmc-art{font-size:34px;width:56px;height:56px;display:grid;place-items:center;border-radius:16px;background:#EAF6FA;flex:none}
+.wmc-stars{color:#F2A900;letter-spacing:1px}.wmc-note{text-align:center;opacity:.7;font-size:13px}
+.big.poor{background:#C9CFD2;box-shadow:0 5px 0 #9AA3A8}.big .coin{width:20px;height:20px;display:inline-block;vertical-align:-3px}
+.go-big{font-size:24px;padding:18px}
+@media(max-height:500px){.wmcard{left:auto;right:calc(var(--edge) + var(--sar));transform:none;width:min(340px,45vw);bottom:calc(var(--edge) + var(--sab))}@keyframes cardin{from{opacity:0}}}
+/* the café review */
+.reviewcard{width:min(400px,100%);display:flex;flex-direction:column;gap:12px;color:var(--ink);padding:18px}
+.rv-head{display:flex;align-items:center;gap:12px}.rv-head b{font-size:20px;display:block}.rv-head small{opacity:.7}
+.rv-art{font-size:34px;width:56px;height:56px;display:grid;place-items:center;border-radius:16px;background:#FFE7A8;flex:none}
+.rv-score{display:flex;align-items:baseline;gap:10px;padding:10px 12px;border-radius:16px;background:#fff}
+.rv-score b{font-size:40px}.rv-stars{color:#F2A900;font-size:24px;letter-spacing:2px}.rv-score small{opacity:.6;margin-left:auto}
+.rv-list{display:flex;flex-direction:column;gap:8px}
+.rv-item{display:flex;gap:10px;padding:10px;border-radius:14px;background:#fff;opacity:0;animation:rvin .4s ease forwards}
+@keyframes rvin{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.rv-av{font-size:28px;width:44px;height:44px;flex:none;display:grid;place-items:center;border-radius:50%;background:#FFF1DC}
+.rv-item b{font-size:14px}.rv-s{color:#F2A900;font-size:12px}.rv-item p{margin:3px 0 0;font-size:13px;opacity:.85}
+.starbar{background:linear-gradient(90deg,#F2A900 var(--p),#D9D2C4 var(--p));-webkit-background-clip:text;background-clip:text;color:transparent;letter-spacing:2px}

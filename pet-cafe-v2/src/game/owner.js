@@ -2,6 +2,7 @@
 // Stand at a spot and things move one at a time: pick up from a machine, restock a counter, load a
 // sack into a hopper, serve at the till, wipe a table. You never pick up more than the counter still
 // has room for (rule 3), and anything extra goes back on the machine tray or the pantry shelf.
+import * as THREE from 'three';
 import { createHuman } from '../render/human.js';
 import { OWNER, SUPPLIES } from './layout.js';
 import { drawStack } from './actors.js';
@@ -12,6 +13,23 @@ export function createOwner(ctx) {
   const { W, nav, scene, items, bubbles, audio, fx } = ctx;
   const H = createHuman({ shirt: '#FF8A80', hair: 0, skin: 0 }, 'owner');
   scene.add(H.group);
+  // WHERE AM I: a warm ring on the floor under the owner, and a small arrow above the head that shows
+  // through the crowd (drawn last, no depth test), so a glance at a busy café finds you at once.
+  const ringMat = new THREE.MeshBasicMaterial({ color: '#FF8A3D', transparent: true, opacity: 0.95, depthWrite: false, toneMapped: false });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.44, 0.56, 40), ringMat);
+  const rim = new THREE.Mesh(new THREE.RingGeometry(0.56, 0.62, 40), new THREE.MeshBasicMaterial({ color: '#FFFFFF', transparent: true, opacity: 0.95, depthWrite: false, toneMapped: false }));
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(0.44, 40), new THREE.MeshBasicMaterial({ color: '#FFD9A8', transparent: true, opacity: 0.3, depthWrite: false, toneMapped: false }));
+  for (const m of [ring, rim, disc]) { m.rotation.x = -Math.PI / 2; m.renderOrder = 3; }
+  // the arrow: a bold down-pointing marker drawn on a canvas, always facing the camera
+  const ac = document.createElement('canvas'); ac.width = ac.height = 128;
+  { const g = ac.getContext('2d'); g.beginPath(); g.moveTo(16, 22); g.lineTo(112, 22); g.lineTo(64, 110); g.closePath();
+    g.lineJoin = 'round'; g.lineWidth = 16; g.strokeStyle = '#FFFFFF'; g.stroke(); g.fillStyle = '#FF8A3D'; g.fill(); }
+  const arrowTex = new THREE.CanvasTexture(ac); arrowTex.colorSpace = THREE.SRGBColorSpace;
+  const arrow = new THREE.Sprite(new THREE.SpriteMaterial({ map: arrowTex, depthTest: false, depthWrite: false, toneMapped: false }));
+  arrow.scale.set(0.5, 0.5, 1); arrow.renderOrder = 11;
+  const arrowRim = { position: { y: 0 }, scale: { setScalar() {} } };   // (kept for the update code below)
+  const marker = new THREE.Group(); marker.add(disc, ring, rim, arrow); scene.add(marker);
+  let markT = 0;
   const o = { x: OWNER.start.x, z: OWNER.start.z, vx: 0, vz: 0, carry: { kind: null, n: 0 }, tick: 0, wipeT: 0, wiping: null, atTill: false, idle: 0, zone: null };
   let stepT = 0;
   H.onStep = () => { if ((stepT += 1) % 2 === 0) audio.play('step'); };
@@ -102,6 +120,16 @@ export function createOwner(ctx) {
     o.idle = moving ? 0 : o.idle + dt;
     o.zone = interact(dt);
     H.group.position.set(o.x, 0, o.z);
+    markT += dt;
+    marker.position.set(o.x, 0.07, o.z);
+    const pulse = 1 + Math.sin(markT * 4) * 0.05;
+    ring.scale.set(pulse, pulse, 1); disc.scale.set(pulse, pulse, 1); rim.scale.set(pulse, pulse, 1);
+    const ay = 3.3 + Math.sin(markT * 3.2) * 0.1;
+    arrow.position.y = ay; arrowRim.position.y = ay;
+    // in a crowd the arrow matters most: it grows a little when guests are close around you
+    const busy = ctx.crowd ? ctx.crowd(o.x, o.z) : 0;
+    const k = 0.85 + Math.min(0.45, busy * 0.12);
+    arrow.scale.set(0.66 * k, 0.66 * k, 1);
     // standing at a station, face it: machines and the pantry are behind you (the back wall),
     // counters and the till are in front of you
     let face = null;

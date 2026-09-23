@@ -4,7 +4,7 @@
 //
 // PALETTE (a Mediterranean beach café; the same hexes as art/build_beach.py and propsBeach BP):
 //   whitewash + navy for everything built, coral as the one warm accent, warm driftwood underfoot and
-//   pale sand around it. Furniture is white and navy/coral on a mid-tone deck and a navy-and-white
+//   pale sand around it. Furniture is white and navy/coral on a mid-tone deck and a mid-tone sea-glass
 //   rug, so a chair, a table and a guest always separate from what they stand on.
 import * as THREE from 'three';
 import { part, mesh } from './geo.js';
@@ -102,9 +102,11 @@ export function createBeachRoom(scene) {
   for (let i = 0; i < 20; i++) P.push(part('box', [W + 0.6, 0.201, 0.03], C.deckGap, { x: (x0 + x1) / 2, y: -0.079, z: z0 - 0.1 + i * 0.52 }));
   // the working floor behind the bar: pale whitewashed boards, a clear step apart from the deck
   P.push(part('box', [W, 0.03, 3.0], C.cream, { x: (x0 + x1) / 2, y: 0.035, z: z0 + 1.5, tex: 'wood', texScale: 0.6 }));
-  // a navy-and-white striped rug under the tables: white chairs and tables read crisply against it
-  const rugR = [3.3, 2.95, 2.6, 2.25, 1.9];
-  rugR.forEach((r, i) => P.push(part('cyl', [r, r, 0.015 + i * 0.002, 40], i % 2 ? C.white : C.navy, { x: -1.0, y: 0.025 + i * 0.002, z: 2.6, sz: 0.6 })));
+  // a calm sea-glass rug under the tables: mid-tone and solid, so white tables and chairs stand out
+  // without the glare of stripes, with one soft border line
+  P.push(part('cyl', [3.3, 3.3, 0.015, 40], '#5E9E98', { x: -1.0, y: 0.025, z: 2.6, sz: 0.6 }));
+  P.push(part('cyl', [3.15, 3.15, 0.017, 40], '#E9E1CF', { x: -1.0, y: 0.027, z: 2.6, sz: 0.6 }));
+  P.push(part('cyl', [3.05, 3.05, 0.019, 40], '#86BDB6', { x: -1.0, y: 0.029, z: 2.6, sz: 0.6 }));
 
   // the back of the bar: whitewashed boards, navy trim, driftwood posts, bottle shelf, thatch
   P.push(part('box', [W, 1.2, 0.2], C.cream, { x: (x0 + x1) / 2, y: 0.6, z: z0 - 0.05, tex: 'wood' }));

@@ -33,6 +33,7 @@ import { createMap } from './ui/map.js';
 import { createDeliveries } from './game/deliveries.js';
 import { createGoals } from './game/goals.js';
 import { createGoalsUI } from './ui/goalsUI.js';
+import { createTips } from './ui/tips.js';
 
 const platform = createPlatform();
 const audio = createAudio();
@@ -70,6 +71,7 @@ async function boot() {
   const goals = createGoals(W); goals.restore(saved && saved.goals);
   const goalsUI = createGoalsUI(root, W, goals, audio, fx, platform, p => { sheetPaused = p; });
   let lastServed = null;
+  const tips = createTips(root, W, audio);
 
   // ---- one café on stage: everything that belongs to the place you are standing in ----------
   let stage, roomView, view, owner, guests, staff, pads, party, life, deliveries;
@@ -83,6 +85,7 @@ async function boot() {
     view = createView(ctx);
     owner = createOwner(ctx);
     guests = createGuests(ctx);
+    ctx.crowd = (x, z) => guests.list.reduce((n, g) => n + (Math.hypot(g.w.x - x, g.w.z - z) < 2.2 ? 1 : 0), 0);
     staff = createStaff(ctx);
     for (const r of W.staff) staff.hire(r, false);
     pads = createPads({ ...ctx, onBuilt: bid => onBuilt(bid) });
@@ -93,7 +96,7 @@ async function boot() {
     completed = W.complete();
     rushT = 0; nextRush = 150;
     S.snap(owner.o.x, owner.o.z);
-    window.__v2 = { W, owner, guests, staff, pads, S, nav, travel, deliveries, guide: () => guideTarget(owner, staff, guests, 0) };
+    window.__v2 = { W, owner, guests, staff, pads, S, nav, travel, deliveries, tips, guide: () => guideTarget(owner, staff, guests, 0) };
   }
   function tearDown() {
     pads.teardown(); party.teardown(); guests.teardown(); deliveries.teardown();
@@ -129,8 +132,8 @@ async function boot() {
     S.look({ x: -1.5, z: 0 }, 26, 4.5);
     for (let i = 0; i < 10; i++) setTimeout(() => { fx.firework(-5 + Math.random() * 9, 4 + Math.random() * 1.5, -3 + Math.random() * 6); audio.play('pop'); if (i % 3 === 0) fx.confetti(-1, 1, 6, 60); }, 300 + i * 380);
     const next = LOCATION_ORDER[LOCATION_ORDER.indexOf(W.loc) + 1];
-    setTimeout(() => hud.banner(next && !W.open.has(next) ? `🗺️ A new café awaits: the ${LOCATIONS[next].name}!` : '✨ Legendary pets now visit!', 3400), 5200);
-    setTimeout(() => map.nudge(), 5400);
+    // the guests and pets leave their review, then the map opens on the next café
+    setTimeout(() => map.review(W.loc), 6000);
   }
   function save() { platform.save({ ...W.snapshot(), play: Math.floor(playTime), goals: goals.snapshot(), ts: Date.now() }); }
 
@@ -145,8 +148,11 @@ async function boot() {
     if (amount >= 20) setTimeout(() => goalsUI.welcome(amount), 700);
   }
   audio.setMusicPhase('morning');
+  S.render();
   document.getElementById('loading').remove();
   platform.gameReady();
+  // FIRST LAUNCH: the journey map opens once, the town pin pulsing — one tap and the café is yours
+  if (!saved) map.intro();
 
   let last = performance.now();
   function frame(now) {
@@ -200,6 +206,17 @@ async function boot() {
     petbook.update(dt);
     upgrades.update(dt);
     goalsUI.update(dt);
+    // ONE-TIME TIPS: the first time each feature shows up, a card says what it is and the arrow points
+    if (deliveries.order) tips.offer('deliver', '🚚', 'A delivery order! Bring the goods to the hatch by the van: it pays double.', deliveries.hatchSpot);
+    { const g = guests.list.find(q => q.state === 'eating' && !q.petted && q.table);
+      if (g) tips.offer('pet', '✋', 'Stand next to a seated pet to pet it. They love it, and their owner tips you!', () => g.table ? { x: g.pet.group.position.x, z: g.pet.group.position.z, y: 1.2 } : null); }
+    { const g = guests.list.find(q => q.request && q.table);
+      if (g) tips.offer('request', '🙋', 'A guest wants something extra. Bring it to their table for a big tip!', () => g.table ? { x: g.table.x, z: g.table.z, y: 1.3 } : null); }
+    if (document.querySelector('.partybadge:not(.hidden)')) { const j = W.stations.get('jukebox1'); tips.offer('party', '🎵', 'Tap the jukebox to throw a Pet Party: every sale pays ×2 for a minute!', { x: j.x, z: j.z, y: 2.2 }); }
+    if (W.isBuilt('staff:runner') && W.canUpgrade()) tips.offer('upgrade', '⬆️', 'Upgrades! Tap the green button to make your whole café faster.');
+    if (!document.getElementById('goalbtn').classList.contains('hidden')) tips.offer('goals', '📋', 'Daily goals: tap the blue button. Finish them for bonus coins!');
+    if (W.built('machine').some(m => m.level <= 0) && !staff.hasRunner()) tips.offer('supply', '🌾', 'A machine is empty! Fetch a sack from the pantry shelf and load it.', { ...W.stations.get('pantry1').spots.work, y: 1 });
+    tips.update(dt, sheetPaused, playTime);
     document.getElementById('goalbtn').classList.toggle('hidden', !(W.isBuilt('table3') || W.open.size > 1));   // a new player's screen stays clean
     if (lastServed === null || lastServed > W.served) lastServed = W.served;
     if (W.served > lastServed) { goals.add('serve', W.served - lastServed); lastServed = W.served; }
@@ -225,6 +242,8 @@ async function boot() {
 // it; after that it only appears when the owner has stood still for a while, as if unsure.
 function guideTarget(owner, staff, guests, playTime) {
   const o = owner.o;
+  const tipAt = window.__v2 && window.__v2.tips && window.__v2.tips.target;
+  if (tipAt) return tipAt;                      // a one-time tip is showing: point at its subject
   if (playTime > 180 && o.idle < 6) return null;
   const c = o.carry, runner = staff.hasRunner();
   const at = (p, y = 1) => ({ x: p.x, z: p.z, y });
