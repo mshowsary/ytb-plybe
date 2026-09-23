@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import { part, mesh } from './geo.js';
 import { ROOM } from '../game/layout.js';
 import { createBatch, kitHas } from './kit.js';
+import { createResidents } from './residents.js';
 
 export const BEACH_ROOM_KIT = [
   'beach/b_palm_a', 'beach/b_palm_b', 'beach/b_parasol_navy', 'beach/b_parasol_coral', 'beach/b_parasol_teal',
@@ -137,11 +138,16 @@ export function createBeachRoom(scene) {
   P.push(part('box', [1.14, 0.05, 0.84], C.post, { x: 2.95, y: 0.92, z: z0 + 0.45 }), part('box', [0.56, 0.06, 0.45], '#7E939C', { x: 2.95, y: 0.93, z: z0 + 0.45 }));
   const deck = mesh(P); deck.castShadow = true; deck.receiveShadow = true; scene.add(deck);
 
+  // the beach's own pets: lounging on the towels, in the parasols' shade, by the surfboards
+  const residents = createResidents(scene, { x0: -11.6, x1: -8.2, z0: -4.2, z1: 3.8 }, [
+    { x: -8.8, z: -1.2, face: 0.4 }, { x: -9.8, z: 1.1, face: 0.2 }, { x: -10.2, z: -3.1, face: -0.3 }, { x: -9.0, z: 3.4, face: 0.8 },
+  ], [['dog', 6], ['cat', 5], ['bunny', 7]]);
   let t = 0;
   return {
     mesh: deck,
     update(dt) {
       t += dt;
+      residents.update(dt);
       foams.forEach((f, i) => { f.position.z = z0 - 5.8 - i * 1.4 + Math.sin(t * 0.8 + i * 1.3) * 0.45; f.material.opacity = (0.85 - i * 0.2) * (0.75 + 0.25 * Math.sin(t * 0.8 + i)); });
       boat.position.y = Math.sin(t * 1.3) * 0.08; boat.rotation.z = Math.sin(t * 1.1) * 0.05; boat.position.x = -6 + Math.sin(t * 0.05) * 4;
       buoy.position.y = Math.sin(t * 1.7 + 1) * 0.07; buoy.rotation.x = Math.sin(t * 1.4) * 0.12;

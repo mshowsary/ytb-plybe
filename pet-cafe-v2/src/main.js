@@ -180,6 +180,8 @@ async function boot() {
         inFlight += e.n;
         fx.number(e.x, 2.1, e.z, '+' + e.n, 'gain');
         fx.coins(e.x, 1.3, e.z, Math.min(8, 2 + (e.n / 5) | 0), () => { inFlight -= e.n; hud.bump(); audio.play('coin'); });
+      } else if (e.type === 'request') { audio.play('chime'); fx.burst(e.x, 1.3, e.z, '#FFD84D', 16, 0.8); fx.hearts?.(e.x, 1.4, e.z);
+      } else if (e.type === 'vip') { hud.banner('👑 A VIP paid triple!', 1800); audio.play('fanfare'); fx.burst(e.x, 1.6, e.z, '#FFC940', 26);
       } else if (e.type === 'petted') {
         goals.add('pet');
         audio.play('petCat'); fx.burst(e.x, 1.2, e.z, '#FF8FB1', 14, 0.7);
@@ -232,6 +234,7 @@ function guideTarget(owner, staff, guests, playTime) {
   }
   const order = window.__v2 && window.__v2.deliveries && window.__v2.deliveries.order;
   if (order && c.kind === order.product) return at(window.__v2.deliveries.hatchSpot);
+  if (c.kind && (W.requests[c.kind] | 0) > 0) { const g = guests.list.find(q => q.request === c.kind && q.table); if (g) return at(g.table, 1.3); }
   if (c.kind) return at(W.counterFor(c.kind).spots.staff);
   if (order && staff.hasRunner() && W.machineFor(order.product).tray > 0) return at(W.machineFor(order.product).spots.work);
   // guests waiting to pay: the till, and the arrow stays there while you serve (it used to jump to the

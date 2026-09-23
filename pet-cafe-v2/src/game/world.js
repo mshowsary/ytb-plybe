@@ -27,12 +27,13 @@ export function createWorld() {
     events: [],
     ownerHold: { kind: null, n: 0 },
     priceMult: 1,
+    requests: {},                // product -> open table requests (only the owner fills them)
   };
 
   // ---- entering a café: rebuild its stations from the live layout, then its saved state -------
   W.enter = id => {
     setLocation(id); W.loc = L.LOC.id;
-    W.stations.clear(); W.staff.clear(); W.paid = {}; W.served = 0; W.priceMult = 1;
+    W.stations.clear(); W.staff.clear(); W.paid = {}; W.served = 0; W.priceMult = 1; W.requests = {};
     W.ownerHold.kind = null; W.ownerHold.n = 0;
     for (const def of L.STATIONS) {
       const st = { ...def, built: !!def.built, spots: spotsFor(def) };

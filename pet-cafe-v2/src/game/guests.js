@@ -30,6 +30,16 @@ function sunglasses(species) {
   return new THREE.Mesh(shadesCache[species], toonMaterial());
 }
 
+let crownGeo = null;
+function crown() {
+  if (!crownGeo) {
+    const P = [part('cyl', [0.17, 0.19, 0.12, 12], '#FFC940', { y: 0 })];
+    for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI * 2; P.push(part('cone', [0.05, 0.12, 4], '#FFC940', { x: Math.cos(a) * 0.16, y: 0.11, z: Math.sin(a) * 0.16 })); P.push(part('sph', [0.03, 6], k % 2 ? '#E8546B' : '#6FB7FF', { x: Math.cos(a) * 0.185, y: 0.0, z: Math.sin(a) * 0.185 })); }
+    crownGeo = merge(P);
+  }
+  const m = new THREE.Mesh(crownGeo, toonMaterial()); m.position.y = 2.12; return m;
+}
+
 export function createGuests(ctx) {
   const { W, nav, scene, items, bubbles, audio } = ctx;
   const list = [];
@@ -53,7 +63,10 @@ export function createGuests(ctx) {
     scene.add(pet.group);
     const w = makeWalker(nav, STREET.spawn.x, STREET.spawn.z, SPEED, 'guest');
     pet.group.position.set(w.x + 0.6, 0, w.z);
-    const g = { id: nextId++, H, pet, species, variant, w, product, want: 1 + (Math.random() < 0.4 ? 1 : 0), carry: { kind: null, n: 0 },
+    // a VIP now and then (once the café has a few tables): a golden crown, and they pay three times over
+    const vip = W.built('table').length >= 4 && Math.random() < 0.08;
+    if (vip) { H.group.add(crown()); H.setBaseScale(1.05); }
+    const g = { id: nextId++, H, pet, species, variant, w, product, vip, want: 1 + (Math.random() < 0.4 ? 1 : 0), carry: { kind: null, n: 0 },
       state: 'enter', t: 0, wait: 0, spot: null, counter: null, table: null, sad: false };
     g.w.go(STREET.inside.x, STREET.inside.z);
     list.push(g);
@@ -129,7 +142,8 @@ export function createGuests(ctx) {
           face = Math.PI;
           if (!serverAtTill) { g.t = 0; break; }
           if (g.t > 0.55) {
-            const amount = W.price(g.product) * g.carry.n;
+            const amount = W.price(g.product) * g.carry.n * (g.vip ? 3 : 1);
+            if (g.vip) W.events.push({ type: 'vip', x: till.x, z: till.z });
             W.earn(amount, till.x, till.z); W.served++;
             queue.shift();
             const t = freeTable();
@@ -148,6 +162,22 @@ export function createGuests(ctx) {
           break;
         case 'eating':
           if (g.t > g.eat * 0.5 && g.carry.n > 1) g.carry.n = 1;
+          // TABLE REQUESTS: once the café has a Runner, a seated guest may ask for one extra thing —
+          // a treat for the pet, a coffee… Only the owner brings it (from the machine, by hand).
+          if (g.request === undefined) {
+            const menu = W.built('machine').map(m => m.product).filter(p => W.counterFor(p)?.built);
+            g.request = (W.isBuilt('staff:runner') && menu.length && Math.random() < 0.35) ? menu[(Math.random() * menu.length) | 0] : null;
+            if (g.request) { W.requests[g.request] = (W.requests[g.request] || 0) + 1; g.eat += 14; }
+          }
+          if (g.request && owner) {
+            const d = Math.hypot(g.table.x - owner.x, g.table.z - owner.z);
+            if (d < 1.35 && owner.carry && owner.carry.kind === g.request && owner.carry.n > 0) {
+              owner.give(g.request);
+              W.requests[g.request]--; const p = g.request; g.request = null; g.served2 = true; g.eat = Math.max(g.t + 3, g.eat - 10);
+              const tip = W.price(p) * 3 * (g.vip ? 3 : 1);
+              W.earn(tip, g.table.x, g.table.z); W.events.push({ type: 'request', x: g.table.x, z: g.table.z }); g.pet.joy(0.8);
+            } else bubbles.show('rq' + g.id, g.table.x, 1.95, g.table.z, `🙋 ${PRODUCTS[g.request].emoji}`, 'need');
+          }
           // PETTING: the owner stands beside the seated pet for a moment — hearts, a happy wriggle,
           // a little tip, and the friendship in the Pet Book grows. Once per visit.
           if (owner && !g.petted) {
@@ -164,6 +194,7 @@ export function createGuests(ctx) {
             } else { g.petT = 0; if (d < 3.2) bubbles.show('pp' + g.id, pp.x, 1.4, pp.z, '✋', 'mood small'); }
           }
           if (g.t > g.eat) {
+            if (g.request) { W.requests[g.request]--; g.request = null; }      // they simply go without; nothing lost
             g.carry.n = 0; g.H.stand(); g.pet.stand(); g.pet.group.position.y = 0;
             W.dirtyTable(g.table); g.table = null; g.happy = true;
             leave(g);
