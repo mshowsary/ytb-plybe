@@ -85,10 +85,13 @@ export function createScene(canvas) {
   S.setMid = m => { MID = m; };
   // each café has its own light: the town is a warm afternoon, the beach a bright noon by the sea
   S.setTheme = theme => {
-    post.uniforms.saturation.value = theme === 'beach' ? 1.02 : 1.16;
+    // the beach used to be graded flatter and lit brighter than the town, and on its pale sand and
+    // boards that washed everything out; it now gets the town's grade and a softer bounce off the sand
+    post.uniforms.saturation.value = theme === 'beach' ? 1.18 : 1.16;
+    post.uniforms.contrast.value = theme === 'beach' ? 1.12 : 1.08;
     if (theme === 'beach') {
-      scene.background.set('#6EC3EE'); scene.fog.color.set('#A9DDF3'); scene.fog.near = 40; scene.fog.far = 80;
-      hemi.color.set('#FFF7E8'); hemi.groundColor.set('#D9B47A'); hemi.intensity = 0.95; sun.color.set('#FFF1D6'); sun.intensity = 1.7;
+      scene.background.set('#5DBCEB'); scene.fog.color.set('#9ED8F2'); scene.fog.near = 40; scene.fog.far = 80;
+      hemi.color.set('#FFF3E0'); hemi.groundColor.set('#9C7E58'); hemi.intensity = 0.8; sun.color.set('#FFE9C8'); sun.intensity = 1.75;
     } else {
       scene.background.set('#8FCBE6'); scene.fog.color.set('#AED9EE'); scene.fog.near = 34; scene.fog.far = 64;
       hemi.color.set('#FFF1DC'); hemi.groundColor.set('#8C7358'); hemi.intensity = 0.9; sun.color.set('#FFE2B8'); sun.intensity = 1.7;

@@ -19,8 +19,8 @@ export const BEACH_ROOM_KIT = [
 ];
 
 const C = {
-  sand: '#F1E4C6', sandWet: '#DCCBA4', sandDark: '#E6D5B0', sea: '#4FB3CF', seaDeep: '#2F8FBA',
-  deck: '#C8A57E', deckGap: '#A8865F', deckLight: '#D6B893', post: '#9C7A55',
+  sand: '#EBD29E', sandWet: '#D6B57C', sandDark: '#E2C68E', sea: '#35B6D6', seaDeep: '#1F8FC2',
+  deck: '#B08257', deckGap: '#83593A', deckLight: '#C09466', post: '#8A6440',
   white: '#FAF7F0', cream: '#F4EFE6', navy: '#2E4A78', navyD: '#22385E', coral: '#EE7F5F', rope: '#E6D2A6',
   thatch: '#C9A76A', thatchD: '#AE8C52', leaf: '#4F9E5A', leafD: '#3A7D46',
 };
@@ -100,13 +100,18 @@ export function createBeachRoom(scene) {
   const P = [];
   P.push(part('box', [W + 0.6, 0.2, D + 0.4], C.deck, { x: (x0 + x1) / 2, y: -0.08, z: (z0 + z1) / 2, tex: 'wood', texScale: 0.8 }));
   for (let i = 0; i < 20; i++) P.push(part('box', [W + 0.6, 0.201, 0.03], C.deckGap, { x: (x0 + x1) / 2, y: -0.079, z: z0 - 0.1 + i * 0.52 }));
-  // the working floor behind the bar: pale whitewashed boards, a clear step apart from the deck
-  P.push(part('box', [W, 0.03, 3.0], C.cream, { x: (x0 + x1) / 2, y: 0.035, z: z0 + 1.5, tex: 'wood', texScale: 0.6 }));
+  // the working floor behind the bar: blue-and-white Mediterranean tiles, so the staff and the owner
+  // always stand out against it (the town's black-and-white checker does the same job)
+  P.push(part('box', [W, 0.03, 3.0], C.cream, { x: (x0 + x1) / 2, y: 0.035, z: z0 + 1.5 }));
+  for (let i = 0; i < Math.round(W / 0.75); i++) for (let j = 0; j < 4; j++) {
+    if ((i + j) % 2) continue;
+    P.push(part('box', [0.75, 0.032, 0.75], '#2D7FB8', { x: x0 + 0.375 + i * 0.75, y: 0.036, z: z0 + 0.375 + j * 0.75 }));
+  }
   // a calm sea-glass rug under the tables: mid-tone and solid, so white tables and chairs stand out
   // without the glare of stripes, with one soft border line
-  P.push(part('cyl', [3.3, 3.3, 0.015, 40], '#5E9E98', { x: -1.0, y: 0.025, z: 2.6, sz: 0.6 }));
-  P.push(part('cyl', [3.15, 3.15, 0.017, 40], '#E9E1CF', { x: -1.0, y: 0.027, z: 2.6, sz: 0.6 }));
-  P.push(part('cyl', [3.05, 3.05, 0.019, 40], '#86BDB6', { x: -1.0, y: 0.029, z: 2.6, sz: 0.6 }));
+  P.push(part('cyl', [3.3, 3.3, 0.015, 40], '#2F7F7A', { x: -1.0, y: 0.025, z: 2.6, sz: 0.6 }));
+  P.push(part('cyl', [3.15, 3.15, 0.017, 40], '#E9DCC0', { x: -1.0, y: 0.027, z: 2.6, sz: 0.6 }));
+  P.push(part('cyl', [3.05, 3.05, 0.019, 40], '#4E9E97', { x: -1.0, y: 0.029, z: 2.6, sz: 0.6 }));
 
   // the back of the bar: whitewashed boards, navy trim, driftwood posts, bottle shelf, thatch
   P.push(part('box', [W, 1.2, 0.2], C.cream, { x: (x0 + x1) / 2, y: 0.6, z: z0 - 0.05, tex: 'wood' }));

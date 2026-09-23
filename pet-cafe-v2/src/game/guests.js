@@ -173,9 +173,7 @@ export function createGuests(ctx) {
             const d = Math.hypot(g.table.x - owner.x, g.table.z - owner.z);
             if (d < 1.35 && owner.carry && owner.carry.kind === g.request && owner.carry.n > 0) {
               owner.give(g.request);
-              W.requests[g.request]--; const p = g.request; g.request = null; g.served2 = true; g.eat = Math.max(g.t + 3, g.eat - 10);
-              const tip = W.price(p) * 3 * (g.vip ? 3 : 1);
-              W.earn(tip, g.table.x, g.table.z); W.events.push({ type: 'request', x: g.table.x, z: g.table.z }); g.pet.joy(0.8);
+              fulfil(g);
             } else {
               // a gold ring round the table and a big bouncing picture of what they want
               hotspots?.show(g.table.x, g.table.z, '#FFC23D', 1.3, g.id);
@@ -266,5 +264,15 @@ export function createGuests(ctx) {
   }
 
   function teardown() { for (let i = list.length - 1; i >= 0; i--) remove(list[i], i); queue.length = 0; scene.remove(leashes); }
-  return { update, list, queue, teardown };
+  // a table request brought to the table (by the owner, or by the helping paws): the same pay either way
+  function fulfil(g) {
+    if (!g.request || !g.table) return 0;
+    const p = g.request;
+    W.requests[p]--; g.request = null; g.served2 = true; g.eat = Math.max(g.t + 3, g.eat - 10);
+    const tip = W.price(p) * 3 * (g.vip ? 3 : 1);
+    W.earn(tip, g.table.x, g.table.z); W.events.push({ type: 'request', x: g.table.x, z: g.table.z }); g.pet.joy(0.8);
+    return tip;
+  }
+
+  return { update, list, queue, teardown, fulfil };
 }

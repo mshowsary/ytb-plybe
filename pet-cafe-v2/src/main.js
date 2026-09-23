@@ -20,6 +20,7 @@ import { createGuests } from './game/guests.js';
 import { createStaff } from './game/staff.js';
 import { createPads } from './game/pads.js';
 import { createParty } from './game/party.js';
+import { createHelpers } from './game/helpers.js';
 import { createPetBook } from './ui/petbook.js';
 import { createLife } from './render/life.js';
 import { createUpgrades } from './ui/upgrades.js';
@@ -75,7 +76,7 @@ async function boot() {
   const tips = createTips(W);
 
   // ---- one café on stage: everything that belongs to the place you are standing in ----------
-  let stage, roomView, view, owner, guests, staff, pads, party, life, deliveries, hotspots;
+  let stage, roomView, view, owner, guests, staff, pads, party, life, deliveries, hotspots, helpers;
   function buildCafe(id) {
     W.enter(id);
     nav.rebuild([...W.stations.values()]);
@@ -92,16 +93,17 @@ async function boot() {
     for (const r of W.staff) staff.hire(r, false);
     pads = createPads({ ...ctx, onBuilt: bid => onBuilt(bid) });
     party = createParty({ ...ctx, guests });
+    helpers = createHelpers({ ...ctx, guests });
     life = createLife(stage, W);
     deliveries = createDeliveries({ ...ctx, theme: L.LOC.theme });
     ctx.deliveries = deliveries;
     completed = W.complete();
     rushT = 0; nextRush = 150;
     S.snap(owner.o.x, owner.o.z);
-    window.__v2 = { W, owner, guests, staff, pads, S, nav, travel, deliveries, tips, hotspots, map, guide: () => guideTarget(owner, staff, guests, 0) };
+    window.__v2 = { W, owner, guests, staff, pads, S, nav, travel, deliveries, tips, hotspots, map, helpers, guide: () => guideTarget(owner, staff, guests, 0) };
   }
   function tearDown() {
-    pads.teardown(); party.teardown(); guests.teardown(); deliveries.teardown();
+    pads.teardown(); party.teardown(); guests.teardown(); deliveries.teardown(); helpers.teardown();
     S.scene.remove(stage);
     stage.traverse(o => { if (o.geometry) o.geometry.dispose(); });
   }
@@ -179,6 +181,7 @@ async function boot() {
     pads.update(dt, owner.o);
     deliveries.update(dt, owner.o, owner.o.carry, owner.setCarry);
     party.update(dt, false);
+    helpers.update(dt, rushT > 0);
 
     for (const e of W.events) {
       if (e.type === 'delivered') goals.add('deliver');

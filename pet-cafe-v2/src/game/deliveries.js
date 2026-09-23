@@ -52,7 +52,10 @@ export function createDeliveries(ctx) {
     if (ok && bonus > 0) { W.earn(bonus, HATCH.x, HATCH.z); audio.play('fanfare'); fx.confetti(HATCH.x, HATCH.z, 1.2, 30); }
   });
 
-  let state = 'off', t = FIRST, order = null, drive = 0, tick = 0;
+  let state = 'off', t = FIRST, order = null, drive = 0, tick = 0, hop = 0, honks = 0;
+  // reminder honks while an order waits untouched: after 12 s, 30 s and 55 s, and a last call before it goes
+  const REMIND = [WAIT - 12, WAIT - 30, WAIT - 55, 14];
+  function honk(soft) { audio.play(soft ? 'hornSoft' : 'horn'); hop = 1; }
   const scr = { x: 0, y: 0, on: true };
   const menu = () => W.built('machine').map(m => m.product).filter(p => W.counterFor(p)?.built);
 
@@ -62,7 +65,7 @@ export function createDeliveries(ctx) {
     const qty = 5 + ((Math.random() * 5) | 0) + Math.min(3, W.lvl('carry'));
     order = { product, qty, got: 0 };
     state = 'arrive'; drive = 0; van.visible = true;
-    audio.play('chime'); setTimeout(() => audio.play('ding'), 250);   // a two-tone horn as the van pulls in
+    honks = 0;
   }
   function finish(done) {
     if (order && order.got > 0) {
@@ -87,11 +90,17 @@ export function createDeliveries(ctx) {
         van.position.set(VAN_PARK.x, Math.abs(Math.sin(drive * 30)) * 0.02 * (1 - Math.abs(e - 0.5) * 2), VAN_ROAD.z + (VAN_PARK.z - VAN_ROAD.z) * e);
         van.rotation.y = 0;
         if (drive >= 1) {
-          if (state === 'arrive') { state = 'wait'; t = WAIT; S.shake(0.04); }
+          if (state === 'arrive') { state = 'wait'; t = WAIT; S.shake(0.04); honk(false); }
           else { state = 'off'; van.visible = false; t = 60 + Math.random() * 40; }
         }
       } else if (state === 'wait') {
         t -= dt;
+        // nobody has come yet: honk again, gently, so a busy owner remembers the van mid-rush
+        if (honks < REMIND.length && t <= REMIND[honks]) {
+          const near = Math.hypot(owner.x - HATCH.spot.x, owner.z - HATCH.spot.z) < 2.5;
+          if (order.got === 0 && !near) honk(true);
+          honks++;
+        }
         // hand-ins: stand at the hatch holding the ordered product
         const at = Math.hypot(owner.x - HATCH.spot.x, owner.z - HATCH.spot.z) < 0.7;
         tick -= dt;
@@ -101,12 +110,18 @@ export function createDeliveries(ctx) {
         }
         if (state === 'wait' && t <= 0) finish(false);
       }
+      // the van bounces on its springs with every honk
+      if (hop > 0 && van.visible) {
+        hop = Math.max(0, hop - dt * 2.2);
+        const b = Math.sin((1 - hop) * Math.PI * 3) * hop;
+        van.position.y = Math.max(0, b * 0.12); van.scale.set(1 + b * 0.03, 1 - b * 0.05, 1 + b * 0.03);
+      } else if (van.visible) van.scale.set(1, 1, 1);
       // what the crate holds, and the order bubble
       if (order && state === 'wait') {
         for (let i = 0; i < Math.min(order.got, 8); i++) { const s = shelfSlot(i, 4, 0.1, 0.18); items.add(order.product, HATCH.x + s.z, 1.16, HATCH.z + s.x * 2, 0, 0.8); }
         // a blue ring where you hand in, and the order as a picture with a fill bar over the hatch
         hotspots?.show(HATCH.spot.x, HATCH.spot.z, '#5BA7E8', 0.95, 1.1);
-        bubbles.show('deliv', HATCH.x, 2.6, HATCH.z, `🚚 ${PRODUCTS[order.product].emoji}<i class="meter"><i style="width:${Math.round(100 * order.got / order.qty)}%"></i></i><b>${order.qty - order.got}</b>`, 'need order');
+        bubbles.show('deliv', HATCH.x, 2.6, HATCH.z, `🚚 ${PRODUCTS[order.product].emoji}<i class="meter"><i style="width:${Math.round(100 * order.got / order.qty)}%"></i></i><b>${order.qty - order.got}</b>`, hop > 0.2 ? 'need order honk' : 'need order');
       }
       if (claimT > 0) {
         claimT -= dt;

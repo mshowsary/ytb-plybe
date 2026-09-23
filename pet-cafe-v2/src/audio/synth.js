@@ -72,6 +72,7 @@ export function createAudio() {
     if (o.f1) os.frequency.exponentialRampToValueAtTime(Math.max(20, o.f1), t + o.dur);
     const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(Math.max(0.0002, o.vol), t + (o.att || 0.006));
+    if (o.hold) g.gain.setValueAtTime(o.vol, t + o.dur * o.hold);        // sustain (a horn), then a short release
     g.gain.exponentialRampToValueAtTime(0.0001, t + o.dur);
     let node = os;
     if (o.lp) {
@@ -103,6 +104,21 @@ export function createAudio() {
     pop: () => tone({ type: 'triangle', f0: 220, f1: 70, dur: 0.12, vol: 0.3 }),
     drop: () => tone({ type: 'sine', f0: 520, dur: 0.06, vol: 0.2 }),
     ding: () => tone({ type: 'triangle', f0: 1320, dur: 0.4, vol: 0.22 }),
+    // the delivery van: a friendly two-note car horn, beep-beeep (a soft single beep-beep to remind)
+    horn: () => {
+      if (!ctx) return; const t = ctx.currentTime;
+      for (const [at, len] of [[0, 0.15], [0.22, 0.32]]) {
+        tone({ type: 'sawtooth', f0: 392, dur: len, vol: 0.13, at: t + at, lp: 1500, att: 0.01, hold: 0.8 });
+        tone({ type: 'sawtooth', f0: 494, dur: len, vol: 0.1, at: t + at, lp: 1500, att: 0.01, hold: 0.8 });
+      }
+    },
+    hornSoft: () => {
+      if (!ctx) return; const t = ctx.currentTime;
+      for (const at of [0, 0.19]) {
+        tone({ type: 'sawtooth', f0: 392, dur: 0.12, vol: 0.08, at: t + at, lp: 1300, att: 0.01, hold: 0.75 });
+        tone({ type: 'sawtooth', f0: 494, dur: 0.12, vol: 0.06, at: t + at, lp: 1300, att: 0.01, hold: 0.75 });
+      }
+    },
     chime: () => {
       if (!ctx) return;
       const t = ctx.currentTime;
