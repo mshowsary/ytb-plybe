@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { part, mesh } from './geo.js';
 import { ROOM } from '../game/layout.js';
+import { createTownStreet } from './townStreet.js';
 
 const COL = {
   grass: '#8FCF6E', grassDark: '#78BD5C', walk: '#EFE6D8', curb: '#D9CDBB', road: '#9A9AA4', dash: '#F4F1EA',
@@ -15,24 +16,8 @@ export function createRoom(scene) {
   const P = [];
   const W = x1 - x0, D = z1 - z0;
 
-  // ---- outside: lawn, pavement, road ------------------------------------------------------
-  const out = [];
-  out.push(part('box', [80, 0.1, 60], COL.grass, { y: -0.08, z: 6 }));
-  out.push(part('box', [40, 0.04, 2.2], COL.walk, { x: 3, y: -0.02, z: z1 + 1.35, tex: 'tile' }));
-  out.push(part('box', [40, 0.1, 0.18], COL.curb, { x: 3, y: 0, z: z1 + 2.5 }));
-  out.push(part('box', [40, 0.02, 4.2], COL.road, { x: 3, y: -0.03, z: z1 + 4.7 }));
-  for (let i = -8; i < 12; i++) out.push(part('box', [1.1, 0.021, 0.14], COL.dash, { x: i * 2.2, y: -0.01, z: z1 + 4.7 }));
-  // trees and bushes along the pavement and behind the café
-  const tree = (x, z, s = 1) => {
-    out.push(part('cyl', [0.12 * s, 0.16 * s, 1.3 * s, 7], COL.trunk, { x, y: 0.65 * s, z }));
-    out.push(part('sph', [0.85 * s, 10], COL.leaf, { x, y: 1.75 * s, z }));
-    out.push(part('sph', [0.6 * s, 9], COL.leafDark, { x: x + 0.45 * s, y: 1.45 * s, z: z + 0.25 * s }));
-  };
-  tree(-9.5, 6.2, 1.1); tree(9.2, 6.0, 1.0); tree(-10.5, -2, 1.3); tree(10.5, -3.5, 1.2); tree(-3, -8, 1.4); tree(4, -8.5, 1.5);
-  for (const [x, z] of [[-8.6, 3.5], [8.4, 2.5], [-8.4, -5.2], [8.6, -1]]) {
-    out.push(part('sph', [0.55, 9], COL.leafDark, { x, y: 0.35, z })); out.push(part('sph', [0.42, 9], COL.leaf, { x: x + 0.35, y: 0.3, z: z + 0.2 }));
-  }
-  const outside = mesh(out); outside.castShadow = false; scene.add(outside);
+  // ---- outside: the street, the neighbours and the garden (render/townStreet.js) ----------
+  const street = createTownStreet(scene);
 
   // ---- floors: tiles in the kitchen, planks on the dining floor -----------------------------
   const kitchenD = -2.0 - z0;
@@ -126,5 +111,5 @@ export function createRoom(scene) {
 
   const room = mesh(P); room.castShadow = true; room.receiveShadow = true; scene.add(room);
 
-  return { mesh: room };
+  return { mesh: room, update: dt => street.update(dt) };
 }

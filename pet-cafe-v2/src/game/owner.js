@@ -56,7 +56,8 @@ export function createOwner(ctx) {
         // only its own sack goes in a hopper (the band colours match)
         if (c.kind === m.supply && W.loadSack(m)) { setCarry(c.kind, c.n - 1); o.tick = 0.3; audio.play('pop'); fx.dust(m.x - 0.48, m.z, 8, '#FFFFFF'); H.tap(); }
       } else if (!c.kind || c.kind === m.product) {
-        const room = counterRoom(m.product);
+        // room on the counter, plus whatever a waiting delivery still needs of this product
+        const room = counterRoom(m.product) + (ctx.deliveries ? ctx.deliveries.need(m.product) : 0);
         if (c.n > room && W.returnToMachine(m)) { setCarry(m.product, c.n - 1); o.tick = STEP; audio.play('drop'); }
         else if (c.n < OWNER.carry + W.carryBonus() && c.n < room && W.takeFromMachine(m)) { setCarry(m.product, c.n + 1); o.tick = STEP; audio.play('drop'); H.tap(); }
         else if (room === 0 && m.tray > 0 && !c.n) { const ct = W.counterFor(m.product); if (ct.built) bubbles.show('full' + m.id, ct.x, 1.9, ct.z, '✅', 'mood small'); }

@@ -9,7 +9,7 @@ const YAW = 0.36, PITCH = 0.9, FOV = 35;    // camera comes from the front-right
 const POST_VERT = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 const POST_FRAG = `
   uniform sampler2D tColor; uniform sampler2D tDepth; uniform vec2 texel; uniform float near; uniform float far;
-  uniform float outline; uniform float saturation; uniform float contrast;
+  uniform float outline; uniform float saturation; uniform float contrast; uniform float aoRadius;
   varying vec2 vUv;
   float lin(float d){ return (near * far) / (far - d * (far - near)); }
   void main(){
@@ -22,6 +22,18 @@ const POST_FRAG = `
       e = max(e, (dn - d0) / d0);      // only the nearer side draws the line: a crisp single outline
     }
     float edge = smoothstep(0.018, 0.05, e);
+    // ambient occlusion from depth alone: where the neighbours are nearer than this pixel (the floor
+    // at the foot of a counter, a corner, under a table), darken softly. Big jumps (a character against
+    // the far floor) are ignored so silhouettes do not get haloes.
+    float occ = 0.0;
+    for (int k = 0; k < 8; k++) {
+      float a = float(k) * 0.785398 + 0.39;
+      vec2 o = vec2(cos(a), sin(a)) * texel * aoRadius * (k % 2 == 0 ? 1.0 : 0.55);
+      float dn = lin(texture2D(tDepth, vUv + o).r);
+      float diff = d0 - dn;
+      occ += clamp(diff / (0.035 * d0), 0.0, 1.0) * (1.0 - smoothstep(0.08 * d0, 0.25 * d0, diff));
+    }
+    c *= 1.0 - 0.42 * (occ / 8.0);
     vec3 ink = vec3(0.13, 0.08, 0.06) * c * 0.6;
     c = mix(c, ink, edge * 0.78);
     float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
@@ -61,7 +73,7 @@ export function createScene(canvas) {
   const post = new THREE.ShaderMaterial({
     vertexShader: POST_VERT, fragmentShader: POST_FRAG, toneMapped: true, depthTest: false, depthWrite: false,
     uniforms: { tColor: { value: rt.texture }, tDepth: { value: rt.depthTexture }, texel: { value: new THREE.Vector2() },
-      near: { value: camera.near }, far: { value: camera.far }, outline: { value: 1.2 }, saturation: { value: 1.22 }, contrast: { value: 1.08 } },
+      near: { value: camera.near }, far: { value: camera.far }, outline: { value: 1.2 }, saturation: { value: 1.22 }, contrast: { value: 1.08 }, aoRadius: { value: 14 } },
   });
   const postScene = new THREE.Scene(), postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), post));
@@ -93,6 +105,7 @@ export function createScene(canvas) {
     rt.setSize(Math.round(w * pr), Math.round(h * pr));
     post.uniforms.texel.value.set(1 / (w * pr), 1 / (h * pr));
     post.uniforms.outline.value = Math.max(1, pr * 0.75);
+    post.uniforms.aoRadius.value = 9 * pr;
     camera.aspect = w / h; camera.updateProjectionMatrix();
     // Phones held upright frame ~10.8 m across so characters stay big; wide screens ~17 m.
     const t = Math.tan(FOV * Math.PI / 360);

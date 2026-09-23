@@ -25,6 +25,7 @@ import * as L from './game/layout.js';
 import * as THREE from 'three';
 import { createBeachRoom } from './render/roomBeach.js';
 import { createMap } from './ui/map.js';
+import { createDeliveries } from './game/deliveries.js';
 
 const platform = createPlatform();
 const audio = createAudio();
@@ -59,12 +60,12 @@ async function boot() {
   const map = createMap(root, W, audio, p => { sheetPaused = p; }, id => travel(id));
 
   // ---- one café on stage: everything that belongs to the place you are standing in ----------
-  let stage, view, owner, guests, staff, pads, party, life;
+  let stage, roomView, view, owner, guests, staff, pads, party, life, deliveries;
   function buildCafe(id) {
     W.enter(id);
     nav.rebuild([...W.stations.values()]);
     stage = new THREE.Group(); S.scene.add(stage);
-    if (L.LOC.theme === 'beach') createBeachRoom(stage); else createRoom(stage);
+    roomView = L.LOC.theme === 'beach' ? createBeachRoom(stage) : createRoom(stage);
     S.setTheme(L.LOC.theme);
     const ctx = { W, nav, scene: stage, S, items, bubbles, fx, audio, layer, platform, hud };
     view = createView(ctx);
@@ -75,13 +76,15 @@ async function boot() {
     pads = createPads({ ...ctx, onBuilt: bid => onBuilt(bid) });
     party = createParty({ ...ctx, guests });
     life = createLife(stage, W);
+    deliveries = createDeliveries({ ...ctx, theme: L.LOC.theme });
+    ctx.deliveries = deliveries;
     completed = W.complete();
     rushT = 0; nextRush = 150;
     S.snap(owner.o.x, owner.o.z);
-    window.__v2 = { W, owner, guests, staff, pads, S, nav, travel, guide: () => guideTarget(owner, staff, guests, 0) };
+    window.__v2 = { W, owner, guests, staff, pads, S, nav, travel, deliveries, guide: () => guideTarget(owner, staff, guests, 0) };
   }
   function tearDown() {
-    pads.teardown(); party.teardown(); guests.teardown();
+    pads.teardown(); party.teardown(); guests.teardown(); deliveries.teardown();
     S.scene.remove(stage);
     stage.traverse(o => { if (o.geometry) o.geometry.dispose(); });
   }
@@ -143,6 +146,7 @@ async function boot() {
     }
     guests.update(dt, owner.o.atTill || staff.cashierAtTill(), rushT > 0, owner.o);
     pads.update(dt, owner.o);
+    deliveries.update(dt, owner.o, owner.o.carry, owner.setCarry);
     party.update(dt, false);
 
     for (const e of W.events) {
@@ -163,6 +167,7 @@ async function boot() {
 
     view.update(dt, party.active);
     life.update(dt);
+    roomView.update?.(dt);
     petbook.update(dt);
     upgrades.update(dt);
     map.update();
@@ -194,7 +199,10 @@ function guideTarget(owner, staff, guests, playTime) {
     const m = W.built('machine').find(v => v.supply === c.kind && v.level <= 6);
     return at(m ? m.spots.work : W.stations.get('pantry1').spots.work);
   }
+  const order = window.__v2 && window.__v2.deliveries && window.__v2.deliveries.order;
+  if (order && c.kind === order.product) return at(window.__v2.deliveries.hatchSpot);
   if (c.kind) return at(W.counterFor(c.kind).spots.staff);
+  if (order && staff.hasRunner() && W.machineFor(order.product).tray > 0) return at(W.machineFor(order.product).spots.work);
   // guests waiting to pay: the till, and the arrow stays there while you serve (it used to jump to the
   // next job the moment you arrived, which walked a new player straight away from the queue)
   if (guests.queue.length && !staff.cashierAtTill()) return at(W.stations.get('till1').spots.staff);

@@ -6,7 +6,10 @@ import { part, merge, mesh } from './geo.js';
 import { PRODUCTS, SUPPLIES } from '../game/layout.js';
 import { signBoard, jukeboxModel } from './props.js';
 
-const BAMBOO = '#D9B46A', BAMBOO_D = '#B38B45', ROPE = '#E8D3A6', TOP = '#F6E7C8', STEEL = '#C9D3D8', INK = '#2F3A40';
+const BAMBOO = '#8C5A30', BAMBOO_D = '#6E4A2A', ROPE = '#F1E2C0', TOP = '#4E3320', STEEL = '#C9D3D8', INK = '#2F3A40';
+// Bold paint per product, so a counter is never the colour of the deck or of the goods on it.
+const PAINT = { lemonade: '#1FA2B8', smoothie: '#FF6F61', icecream: '#3B6FD6', fish: '#3FAE5E' };
+const paint = product => PAINT[product] || '#1FA2B8';
 
 function bambooSkirt(w, h, d, z, col = BAMBOO) {
   const P = [];
@@ -41,16 +44,16 @@ export function beachMachineModel(def) {
   const pr = PRODUCTS[def.product], band = SUPPLIES[pr.supply].band, accent = pr.accent;
   const g = new THREE.Group();
   const P = [
-    ...bambooSkirt(1.5, 0.88, 1.0, 0.5),
-    part('box', [1.46, 0.86, 1.0], '#C99A5B', { y: 0.43 }),
+    ...bambooSkirt(1.5, 0.14, 1.0, 0.5),
+    part('box', [1.46, 0.86, 1.0], paint(def.product), { y: 0.43 }),
     part('box', [1.56, 0.06, 1.16], BAMBOO_D, { y: 0.92, tex: 'wood' }),
-    part('box', [1.3, 0.12, 0.03], accent, { y: 0.78, z: 0.56 }),
+    part('box', [1.3, 0.12, 0.03], '#FFFFFF', { y: 0.78, z: 0.56 }),
     // hopper, banded like its crate on the pantry shelf
     part('cyl', [0.21, 0.19, 0.5, 14], '#FFFFFF', { x: -0.48, y: 1.2, z: -0.28 }),
     part('cyl', [0.23, 0.23, 0.05, 14], band, { x: -0.48, y: 1.46, z: -0.28 }),
     part('cyl', [0.23, 0.23, 0.05, 14], band, { x: -0.48, y: 0.96, z: -0.28 }),
     part('box', [0.1, 0.4, 0.02], '#BFE4F5', { x: -0.48, y: 1.21, z: -0.075 }),
-    part('box', [0.96, 0.02, 0.46], '#E8DCC3', { x: 0.1, y: 0.955, z: 0.25 }),
+    part('box', [0.96, 0.02, 0.46], '#3A2616', { x: 0.1, y: 0.955, z: 0.25 }),
   ];
   let glowAt = { w: 0.14, h: 0.07, y: 1.3, z: 0.1, x: 0.3 };
   if (pr.model === 'juicer') {
@@ -104,8 +107,9 @@ export function beachCounterModel(product) {
   const accent = PRODUCTS[product].accent;
   const g = new THREE.Group();
   g.add(mesh([
-    ...bambooSkirt(1.8, 0.86, 0.8, 0.4),
-    part('box', [1.76, 0.84, 0.78], accent, { y: 0.42 }),
+    ...bambooSkirt(1.8, 0.14, 0.8, 0.4),
+    part('box', [1.76, 0.84, 0.78], paint(product), { y: 0.42 }),
+    part('box', [1.77, 0.1, 0.79], '#FFFFFF', { y: 0.7 }),
     part('box', [1.84, 0.06, 0.84], BAMBOO_D, { y: 0.89, tex: 'wood' }),
     part('box', [1.7, 0.02, 0.62], TOP, { y: 0.93 }),
     part('cyl', [0.03, 0.03, 1.84, 6], ROPE, { y: 0.84, z: 0.41, rz: Math.PI / 2 }),
@@ -124,7 +128,8 @@ export function beachTillModel() {
   const g = new THREE.Group();
   g.add(mesh([
     ...bambooSkirt(1.4, 0.86, 0.8, 0.4),
-    part('box', [1.36, 0.84, 0.78], '#3FB6A8', { y: 0.42 }),
+    part('box', [1.36, 0.84, 0.78], '#FFC23D', { y: 0.42 }),
+    part('box', [1.37, 0.1, 0.79], '#FFFFFF', { y: 0.7 }),
     part('box', [1.44, 0.06, 0.84], BAMBOO_D, { y: 0.89, tex: 'wood' }),
     part('rbox', [0.56, 0.12, 0.44, 0.03], '#2F6F6A', { y: 0.98 }),
     part('rbox', [0.5, 0.2, 0.34, 0.04], '#F29A38', { y: 1.13, z: -0.03 }),
@@ -142,9 +147,9 @@ export function beachPantryModel() {
   const g = new THREE.Group();
   g.add(mesh([
     part('box', [0.08, 2.0, 0.85], BAMBOO_D, { x: -0.72, y: 1.0 }), part('box', [0.08, 2.0, 0.85], BAMBOO_D, { x: 0.72, y: 1.0 }),
-    part('box', [1.5, 2.0, 0.04], '#E6C891', { y: 1.0, z: -0.42, tex: 'wood' }),
+    part('box', [1.5, 2.0, 0.04], '#FFF4E0', { y: 1.0, z: -0.42 }),
     ...[0.08, 0.62, 1.16, 1.7].map(y => part('box', [1.44, 0.05, 0.82], BAMBOO, { y, tex: 'wood' })),
-    part('cone', [0.95, 0.5, 10], '#D8B25E', { y: 2.3 }),
+    part('cone', [0.95, 0.5, 10], '#C9A04E', { y: 2.3 }),
   ]));
   const rows = {};
   for (const [kind, y] of [['lemons', 0.1], ['fruit', 0.64], ['cream', 1.18], ['fishbox', 1.18]]) {
@@ -170,13 +175,14 @@ export function beachTableModel() {
   };
   g.add(mesh([
     part('cyl', [0.52, 0.52, 0.06, 22], BAMBOO, { y: 0.76, tex: 'wood' }),
-    part('cyl', [0.5, 0.5, 0.02, 22], '#FFF3DE', { y: 0.795 }),
+    part('cyl', [0.5, 0.5, 0.02, 22], '#2FB3D6', { y: 0.795 }),
+    part('cyl', [0.3, 0.3, 0.022, 22], '#FFFFFF', { y: 0.797 }),
     part('cyl', [0.53, 0.53, 0.03, 22], ROPE, { y: 0.74 }),
     part('cyl', [0.06, 0.08, 0.72, 8], BAMBOO_D, { y: 0.37 }),
     part('cyl', [0.26, 0.3, 0.05, 14], BAMBOO_D, { y: 0.025 }),
     part('cyl', [0.06, 0.05, 0.1, 8], '#FFFFFF', { y: 0.85, z: -0.28 }),
     part('sph', [0.06, 6], '#FF7FA8', { y: 0.94, z: -0.28 }),
-    ...chair(-0.78, '#3FB6A8'), ...chair(0.78, '#F7C948'),
+    ...chair(-0.78, '#FF6F61'), ...chair(0.78, '#FFC23D'),
   ]));
   const dirty = mesh([
     part('cyl', [0.15, 0.12, 0.02, 12], '#FFFFFF', { x: -0.2, y: 0.81 }),
