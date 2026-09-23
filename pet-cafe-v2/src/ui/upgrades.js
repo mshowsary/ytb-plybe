@@ -25,15 +25,21 @@ export function createUpgrades(root, W, audio, fx, onPause) {
     const b = e.target.closest('.upbuy'); if (!b) return;
     if (W.buyUpgrade(b.dataset.id)) { audio.play('build'); render(); }
   });
-  btn.addEventListener('click', e => { e.stopPropagation(); render(); sheet.classList.remove('hidden'); onPause(true); audio.play('tap'); });
+  // the HUD stays quiet: the dot means an upgrade you have not looked at yet became affordable, and the
+  // button only glows for a few seconds when that happens (never while a build pad is waiting to be bought)
+  let seen = new Set(), glowT = 0;
+  btn.addEventListener('click', e => { e.stopPropagation(); seen = new Set(W.affordableUpgrades()); render(); sheet.classList.remove('hidden'); onPause(true); audio.play('tap'); });
   sheet.addEventListener('click', e => { if (e.target === sheet || e.target.closest('.close')) { sheet.classList.add('hidden'); onPause(false); } });
 
   let t = 0;
   return {
     update(dt) {
       t -= dt; if (t > 0) return; t = 0.3;
-      const can = W.canUpgrade();
-      dot.classList.toggle('hidden', !can); btn.classList.toggle('glow', can);
+      const now = W.affordableUpgrades(), fresh = now.some(k => !seen.has(k));
+      if (fresh && dot.classList.contains('hidden')) glowT = 6;
+      glowT = Math.max(0, glowT - 0.3);
+      const padWaiting = W.padsOpen().some(p => W.coins >= p.price);
+      dot.classList.toggle('hidden', !fresh); btn.classList.toggle('glow', fresh && glowT > 0 && !padWaiting);
     },
   };
 }

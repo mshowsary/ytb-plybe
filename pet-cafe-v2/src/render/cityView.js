@@ -71,6 +71,7 @@ export function createCityView(S) {
   scene.add(cam);
   let L = null, ready = false, loading = null, t = 0;
   const view = { x: 0, y: 0, h: 30 }, goal = { x: 0, y: 0, h: 30 };
+  let diving = false;          // the dive into a café may zoom past the picture's comfortable resolution
   const movers = [], glints = [];
   const tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3();
   const blobMat = new THREE.MeshBasicMaterial({ map: blobTexture(), transparent: true, depthWrite: false, toneMapped: false });
@@ -236,7 +237,7 @@ export function createCityView(S) {
   }
   function clampView(v) {
     const C = L.camera, a = aspect(), { maxH, minH } = limits();
-    v.h = Math.max(minH, Math.min(maxH, v.h));
+    v.h = Math.max(diving ? 4 : minH, Math.min(maxH, v.h));
     const hw = v.h * a;
     v.x = Math.max(-C.halfW + hw, Math.min(C.halfW - hw, v.x));
     v.y = Math.max(-C.halfH + v.h, Math.min(C.halfH - v.h, v.y));
@@ -251,7 +252,7 @@ export function createCityView(S) {
 
   return {
     scene, camera: cam,
-    load() { return loading || (loading = load()); },
+    load() { diving = false; return loading || (loading = load()); },
     get ready() { return ready; },
     get layout() { return L; },
     // glide to a café, leaving room below it for the cards
@@ -261,6 +262,12 @@ export function createCityView(S) {
       goal.h = aspect() < 1 ? limits().maxH : defaultH();
       goal.x = f.x; goal.y = f.y - goal.h * (aspect() < 1 ? 0.12 : 0.05);
       clampView(goal); if (instant) Object.assign(view, goal);
+    },
+    // the way in: glide and zoom right down onto a café's pin, then the game fades in
+    dive(id) {
+      if (!L || !L.sites[id]) return;
+      const f = frameOf(L.sites[id]);
+      diving = true; goal.h = Math.max(5, view.h * 0.28); goal.x = f.x; goal.y = f.y - goal.h * 0.2;
     },
     wide(instant = false) {
       if (!L) return;

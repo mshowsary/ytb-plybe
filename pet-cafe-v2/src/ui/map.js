@@ -190,12 +190,15 @@ export function createMap(root, W, audio, onPause, onTravel, S) {
     const act = cta.dataset.act, id = sel;
     if (!act) return;
     audio.play('chime');
-    if (act === 'close') close();
-    else if (act === 'go') { close(); if (id !== W.loc) setTimeout(() => onTravel(id), 420); }
+    // dive into the café's pin, then fade into it
+    const dive = then => { cta.classList.add('hidden'); revEl.classList.add('hidden'); view.dive(id); setTimeout(then, 520); };
+    if (act === 'close') dive(close);
+    else if (act === 'go') dive(() => { close(); if (id !== W.loc) setTimeout(() => onTravel(id), 420); });
     else if (act === 'buy') {
       const cost = LOCATIONS[id].cost; if (W.coins < cost) return;
-      W.coins -= cost; W.open.add(id); audio.play('fanfare');
-      close(); setTimeout(() => onTravel(id), 420);
+      W.coins -= cost; W.open.add(id); audio.play('fanfare'); renderPins();
+      document.getElementById('cmcoins').textContent = fmt(W.coins);
+      dive(() => { close(); setTimeout(() => onTravel(id), 420); });
     }
   });
   closeBtn.addEventListener('click', () => close());

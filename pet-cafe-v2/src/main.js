@@ -117,8 +117,11 @@ async function boot() {
     setTimeout(async () => {
       if (id === 'beach') await loadKit(BEACH_KIT);      // the Blender beach set arrives behind the veil
       W.stashHere(); save();
+      const firstVisit = !W.saved[id];
       tearDown(); buildCafe(id); save();
       veil.classList.remove('show'); travelling = false;
+      // the first time you walk in: a slow establishing look over the whole café, then back to you
+      if (firstVisit) S.look({ x: -1.5, z: 0.3 }, 24, 2.6);
       hud.banner(`${L.LOC.emoji} Welcome to the ${L.LOC.name}!`, 2600); audio.play('chime');
     }, 450);
   }

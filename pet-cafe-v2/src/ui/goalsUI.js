@@ -54,6 +54,7 @@ export function createGoalsUI(root, W, goals, audio, fx, platform, onPause) {
   });
 
   let t = 0;
+  let glowT = 0;
   return {
     welcome(amount) {
       awayAmt = amount;
@@ -64,8 +65,11 @@ export function createGoalsUI(root, W, goals, audio, fx, platform, onPause) {
     update(dt) {
       t -= dt; if (t > 0) return; t = 0.5;
       goals.ensure();
-      dot.classList.toggle('hidden', !goals.ready());
-      btn.classList.toggle('glow', goals.ready() > 0);
+      const ready = goals.ready() > 0;
+      if (ready && dot.classList.contains('hidden')) glowT = 8;          // a claim is ready: glow a moment, then just the dot
+      glowT = Math.max(0, glowT - 0.5);
+      dot.classList.toggle('hidden', !ready);
+      btn.classList.toggle('glow', ready && glowT > 0);
     },
   };
 }

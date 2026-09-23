@@ -86,6 +86,8 @@ export function createWorld() {
     return true;
   };
   W.canUpgrade = () => UPGRADES.some(u => W.lvl(u.id) < u.max && W.coins >= upgradeCost(u, W.lvl(u.id)));
+  // which upgrade levels you can afford right now (as 'id:level' keys), so the HUD can tell what is new
+  W.affordableUpgrades = () => UPGRADES.filter(u => W.lvl(u.id) < u.max && W.coins >= upgradeCost(u, W.lvl(u.id))).map(u => u.id + ':' + W.lvl(u.id));
 
   W.built = type => [...W.stations.values()].filter(s => s.built && (!type || s.type === type));
   W.isBuilt = id => id.startsWith('staff:') ? W.staff.has(id.slice(6)) : !!W.stations.get(id)?.built;
