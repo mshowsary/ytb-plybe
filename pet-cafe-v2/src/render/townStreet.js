@@ -6,12 +6,16 @@ import * as THREE from 'three';
 import { part, mesh } from './geo.js';
 import { ROOM } from '../game/layout.js';
 import { createBatch, kitClone, kitHas } from './kit.js';
+import { createResidents } from './residents.js';
 
 export const STREET_KIT = [
   'city/road_straight', 'city/road_straight_crossing', 'city/streetlight', 'city/bench', 'city/bush', 'city/firehydrant',
   'city/trash_A', 'city/dumpster', 'city/box_A', 'city/building_A', 'city/building_B', 'city/building_C', 'city/building_D',
   'city/building_E', 'city/building_F', 'city/building_G', 'city/building_H',
   'city/car_sedan', 'city/car_taxi', 'city/car_hatchback', 'city/car_stationwagon',
+  // the pet playground and greenery, modelled in Blender (art/build_town.py)
+  'town/t_cattree', 'town/t_bed_coral', 'town/t_bed_navy', 'town/t_bed_teal', 'town/t_doghouse', 'town/t_bowls', 'town/t_toys',
+  'town/t_fence_2', 'town/t_fence_4', 'town/t_tree_a', 'town/t_tree_b', 'town/t_tree_c', 'town/t_flowerbox', 'town/t_pawsign',
 ];
 const CITY = 3.6;                    // city-kit scale: a 2-unit tile becomes a 7.2 m block
 
@@ -33,11 +37,11 @@ export function createTownStreet(scene) {
   P.push(part('box', [80, 0.06, pz1 - pz0], C.paveA, { x: 0, y: -0.03, z: (pz0 + pz1) / 2, tex: 'tile', texScale: 0.35 }));
   for (let i = -40; i <= 40; i += 2) P.push(part('box', [0.05, 0.061, pz1 - pz0], C.paveB, { x: i, y: -0.029, z: (pz0 + pz1) / 2 }));
   P.push(part('box', [80, 0.06, 3.0], C.paveA, { x: 0, y: -0.03, z: pz1 + 7.2 + 1.5, tex: 'tile', texScale: 0.35 }));
-  // the side alley between the café and the right-hand block (the delivery van parks here), and a
-  // small patio on the left with a row of trees
+  // the side alley between the café and the right-hand block (the delivery van parks here); on the
+  // left, the café's fenced pet playground on the lawn (props below), with a stepping-stone path
   P.push(part('box', [3.0, 0.05, 10.4], '#CFC4B4', { x: 5.2, y: -0.035, z: -0.3, tex: 'tile', texScale: 0.3 }));
-  P.push(part('box', [4.4, 0.05, 10.4], '#D9CBB6', { x: -9.6, y: -0.035, z: -0.3, tex: 'tile', texScale: 0.35 }));
-  for (let i = 0; i < 4; i++) P.push(...treeParts(-9.6, -4 + i * 2.6, 0.75, i));
+  P.push(part('box', [4.6, 0.05, 10.2], '#8FCB6C', { x: -9.6, y: -0.035, z: -0.4 }));
+  for (let i = 0; i < 7; i++) P.push(part('cyl', [0.26, 0.28, 0.04, 10], '#DCD2C2', { x: -9.4 + Math.sin(i * 1.3) * 0.4, y: -0.01, z: 3.9 - i * 1.3 }));
   const ground = mesh(P); ground.castShadow = true; ground.receiveShadow = true; scene.add(ground);
 
   if (!kitHas('city/road_straight')) return { update() {} };
@@ -67,7 +71,30 @@ export function createTownStreet(scene) {
   B.put('city/trash_A', -3.9, 0, SL + 0.1, 0, CITY);
   B.put('city/dumpster', 6.0, 0, -4.2, Math.PI, CITY * 0.8);
   B.put('city/box_A', 4.4, 0, -4.6, 0.3, CITY * 0.7);
+  // the city blocks and road are far from the café: they receive shadows but do not cast them
+  // (they were the biggest single cost in the shadow pass)
+  B.bake(scene, { cast: false });
+  // ---- the pet playground (x -11.8..-7.4, z -5.4..4.8) --------------------------------------------
+  if (kitHas('town/t_cattree')) {
+    B.put('town/t_fence_4', -9.6, 0, 4.85, 0, 1.1);
+    B.put('town/t_fence_4', -11.9, 0, 2.6, Math.PI / 2, 1.1); B.put('town/t_fence_4', -11.9, 0, -1.8, Math.PI / 2, 1.1);
+    B.put('town/t_fence_2', -11.9, 0, -4.6, Math.PI / 2, 1);
+    B.put('town/t_cattree', -11.0, 0, -3.9, 0.3, 1.1);
+    B.put('town/t_doghouse', -8.4, 0, -4.4, 0, 1);
+    B.put('town/t_bed_coral', -10.9, 0, 0.3, 0, 1); B.put('town/t_bed_navy', -8.3, 0, 1.6, 0, 1); B.put('town/t_bed_teal', -10.6, 0, 3.4, 0, 1);
+    B.put('town/t_bowls', -8.2, 0, -2.2, -0.2, 1); B.put('town/t_toys', -9.7, 0, -1.0, 0.6, 1.1);
+    B.put('town/t_flowerbox', -10.4, 0, 4.35, 0, 1); B.put('town/t_flowerbox', -8.5, 0, 4.35, 0, 1);
+    B.put('town/t_tree_b', -11.1, 0, -1.6, 0.4, 0.9);
+    // the café's hanging paw sign by the door, and full trees around the back and the sides
+    B.put('town/t_pawsign', 4.05, 0, z1 + 0.35, 0, 1);
+    for (const [n, x, z, s] of [['t_tree_a', -5.5, z0 - 3.2, 1.1], ['t_tree_c', -1.5, z0 - 4.0, 1.2], ['t_tree_b', 2.2, z0 - 3.0, 1.0],
+      ['t_tree_a', 7.4, z0 - 1.5, 1.0], ['t_tree_c', -13.8, 6.6, 1.0], ['t_tree_b', 16.5, 5.6, 1.0], ['t_tree_a', -6.4, z0 - 6.2, 1.2]]) B.put('town/' + n, x, 0, z, x * 0.7, s);
+  }
   B.bake(scene);
+  const residents = kitHas('town/t_cattree') ? createResidents(scene, { x0: -11.3, x1: -7.9, z0: -3.6, z1: 4.2 }, [
+    { x: -10.9, z: 0.3, y: 0.12, bed: true, face: 0.6 }, { x: -8.3, z: 1.6, y: 0.12, bed: true, face: -0.4 }, { x: -10.6, z: 3.4, y: 0.12, bed: true, face: 0.2 },
+    { x: -8.3, z: -1.7, face: Math.PI }, { x: -9.4, z: -0.7 }, { x: -8.4, z: -3.5, face: 0 }, { x: -10.8, z: -3.2, face: 0.3 },
+  ], [['dog', 0], ['cat', 3], ['dog', 2], ['bunny', 1]]) : null;
 
   // ---- traffic: kit cars in both lanes ---------------------------------------------------------
   const carNames = ['city/car_sedan', 'city/car_taxi', 'city/car_hatchback', 'city/car_stationwagon'];
@@ -85,6 +112,7 @@ export function createTownStreet(scene) {
         scene.add(car);
         cars.push({ car, dir, v: 5 + Math.random() * 2.5 });
       }
+      residents?.update(dt);
       for (let i = cars.length - 1; i >= 0; i--) {
         const c = cars[i];
         c.car.position.x += c.dir * c.v * dt;

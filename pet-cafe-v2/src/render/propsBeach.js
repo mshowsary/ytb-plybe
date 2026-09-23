@@ -5,11 +5,16 @@ import * as THREE from 'three';
 import { part, merge, mesh } from './geo.js';
 import { PRODUCTS, SUPPLIES } from '../game/layout.js';
 import { signBoard, jukeboxModel } from './props.js';
+import { kitHas, createBatch } from './kit.js';
 
-const BAMBOO = '#8C5A30', BAMBOO_D = '#6E4A2A', ROPE = '#F1E2C0', TOP = '#4E3320', STEEL = '#C9D3D8', INK = '#2F3A40';
+// The Beach Shack palette (the same hexes as art/build_beach.py): whitewash, navy, coral, driftwood.
+export const BP = { white: '#FAF7F0', cream: '#F4EFE6', navy: '#2E4A78', navyD: '#22385E', coral: '#EE7F5F', teal: '#6FB7B0', yellow: '#F2C76B', blue: '#5B8FB9', wood: '#C8A57E', woodD: '#9C7A55', trunkD: '#6E5238', sand: '#EAD7B0' };
+const BAMBOO = BP.wood, BAMBOO_D = BP.woodD, ROPE = '#E6D2A6', TOP = BP.trunkD, STEEL = '#C9D3D8', INK = '#2F3A40';
 // Bold paint per product, so a counter is never the colour of the deck or of the goods on it.
-const PAINT = { lemonade: '#7CC6B8', smoothie: '#E99C8C', icecream: '#8AAAD6', fish: '#9CC79A' };
-const paint = product => PAINT[product] || '#7CC6B8';
+const PAINT = { lemonade: BP.yellow, smoothie: BP.coral, icecream: BP.blue, fish: BP.teal };
+const KIT_COUNTER = { lemonade: 'beach/b_counter_yellow', smoothie: 'beach/b_counter_coral', icecream: 'beach/b_counter_blue', fish: 'beach/b_counter_teal' };
+export const BEACH_STATION_KIT = [...Object.values(KIT_COUNTER), 'beach/b_till', 'beach/b_table', 'beach/b_chair_coral', 'beach/b_chair_navy'];
+const paint = product => PAINT[product] || BP.teal;
 
 function bambooSkirt(w, h, d, z, col = BAMBOO) {
   const P = [];
@@ -44,10 +49,10 @@ export function beachMachineModel(def) {
   const pr = PRODUCTS[def.product], band = SUPPLIES[pr.supply].band, accent = pr.accent;
   const g = new THREE.Group();
   const P = [
-    ...bambooSkirt(1.5, 0.14, 1.0, 0.5),
-    part('box', [1.46, 0.86, 1.0], paint(def.product), { y: 0.43 }),
-    part('box', [1.56, 0.06, 1.16], BAMBOO_D, { y: 0.92, tex: 'wood' }),
-    part('box', [1.3, 0.12, 0.03], '#FFFFFF', { y: 0.78, z: 0.56 }),
+    part('box', [1.46, 0.86, 1.0], BP.cream, { y: 0.43 }),
+    part('box', [1.48, 0.12, 1.02], BP.navy, { y: 0.06 }),
+    part('box', [1.47, 0.1, 1.01], paint(def.product), { y: 0.72 }),
+    part('box', [1.56, 0.06, 1.16], BP.woodD, { y: 0.92, tex: 'wood' }),
     // hopper, banded like its crate on the pantry shelf
     part('cyl', [0.21, 0.19, 0.5, 14], '#FFFFFF', { x: -0.48, y: 1.2, z: -0.28 }),
     part('cyl', [0.23, 0.23, 0.05, 14], band, { x: -0.48, y: 1.46, z: -0.28 }),
@@ -106,6 +111,14 @@ const glassMat = new THREE.MeshBasicMaterial({ color: '#DDF3FF', transparent: tr
 export function beachCounterModel(product) {
   const accent = PRODUCTS[product].accent;
   const g = new THREE.Group();
+  if (kitHas(KIT_COUNTER[product])) {
+    const B = createBatch(); B.put(KIT_COUNTER[product], 0, 0, 0, 0, 1); B.bake(g);
+    const glass = new THREE.Mesh(new THREE.PlaneGeometry(1.68, 0.24), glassMat); glass.position.set(0, 1.08, 0.38); glass.renderOrder = 2;
+    g.add(glass, mesh([part('box', [1.74, 0.03, 0.04], BP.woodD, { y: 1.21, z: 0.38 }), part('cyl', [0.02, 0.02, 0.28, 6], BP.woodD, { x: -0.86, y: 1.07, z: 0.38 }), part('cyl', [0.02, 0.02, 0.28, 6], BP.woodD, { x: 0.86, y: 1.07, z: 0.38 })]));
+    const sign = signBoard(PRODUCTS[product].emoji, accent, 0.44); sign.position.set(-0.75, 1.62, -0.25);
+    g.add(sign, mesh([part('cyl', [0.03, 0.03, 0.36, 6], BP.woodD, { x: -0.75, y: 1.44, z: -0.27 })]));
+    return { group: g, shelf: { x: 0, y: 0.945, z: 0.02 } };
+  }
   g.add(mesh([
     ...bambooSkirt(1.8, 0.14, 0.8, 0.4),
     part('box', [1.76, 0.84, 0.78], paint(product), { y: 0.42 }),
@@ -126,6 +139,12 @@ export function beachCounterModel(product) {
 
 export function beachTillModel() {
   const g = new THREE.Group();
+  if (kitHas('beach/b_till')) {
+    const B = createBatch(); B.put('beach/b_till', 0, 0, 0, 0, 1); B.bake(g);
+    const sign = signBoard('💰', BP.navy, 0.44); sign.position.set(-0.45, 1.62, -0.25);
+    g.add(sign, mesh([part('cyl', [0.03, 0.03, 0.36, 6], BP.woodD, { x: -0.45, y: 1.44, z: -0.27 })]));
+    return { group: g };
+  }
   g.add(mesh([
     ...bambooSkirt(1.4, 0.86, 0.8, 0.4),
     part('box', [1.36, 0.84, 0.78], '#E9C27A', { y: 0.42 }),
@@ -147,9 +166,9 @@ export function beachPantryModel() {
   const g = new THREE.Group();
   g.add(mesh([
     part('box', [0.08, 2.0, 0.85], BAMBOO_D, { x: -0.72, y: 1.0 }), part('box', [0.08, 2.0, 0.85], BAMBOO_D, { x: 0.72, y: 1.0 }),
-    part('box', [1.5, 2.0, 0.04], '#FFF4E0', { y: 1.0, z: -0.42 }),
+    part('box', [1.5, 2.0, 0.04], BP.cream, { y: 1.0, z: -0.42 }),
     ...[0.08, 0.62, 1.16, 1.7].map(y => part('box', [1.44, 0.05, 0.82], BAMBOO, { y, tex: 'wood' })),
-    part('cone', [0.95, 0.5, 10], '#C9A04E', { y: 2.3 }),
+    part('cone', [0.95, 0.5, 10], BP.navy, { y: 2.3 }),
   ]));
   const rows = {};
   for (const [kind, y] of [['lemons', 0.1], ['fruit', 0.64], ['cream', 1.18], ['fishbox', 1.18]]) {
@@ -163,8 +182,25 @@ export function beachPantryModel() {
   return { group: g, rows };
 }
 
+let tableN = 0;
 export function beachTableModel() {
   const g = new THREE.Group();
+  if (kitHas('beach/b_table')) {
+    // white tables with navy rims; the chairs alternate coral and navy cushions table to table
+    const B = createBatch(), chair = (tableN++ % 2) ? 'beach/b_chair_navy' : 'beach/b_chair_coral';
+    B.put('beach/b_table', 0, 0, 0, 0, 1);
+    B.put(chair, -0.8, 0, 0, Math.PI / 2, 1);
+    B.put(chair, 0.8, 0, 0, -Math.PI / 2, 1);
+    B.bake(g);
+    const dirty = mesh([
+      part('cyl', [0.15, 0.12, 0.02, 12], '#FFFFFF', { x: -0.2, y: 0.79 }),
+      part('cyl', [0.15, 0.12, 0.02, 12], '#FFFFFF', { x: 0.2, y: 0.79, z: 0.05 }),
+      part('cyl', [0.05, 0.04, 0.12, 8], '#EAF7FF', { x: 0.05, y: 0.84, z: 0.22 }),
+      ...[[-0.3, 0.2], [0.1, -0.15], [0.32, -0.1]].map(([x, z]) => part('sph', [0.018, 4], '#E8B04A', { x, y: 0.785, z })),
+    ], { cast: false });
+    dirty.visible = false; g.add(dirty);
+    return { group: g, dirty, tipAt: { x: 0, y: 0.79, z: 0.25 } };
+  }
   const chair = (x, col) => {
     const s = Math.sign(x);
     return [

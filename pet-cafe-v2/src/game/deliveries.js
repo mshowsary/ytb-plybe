@@ -21,22 +21,22 @@ export function createDeliveries(ctx) {
 
   // the hatch: a little counter under a window in the right wall, with a crate on it
   const hatch = mesh([
-    part('box', [0.45, 0.9, 1.1], beach ? '#FF6F61' : '#7FC8B6', { y: 0.45 }),
-    part('box', [0.5, 0.06, 1.18], beach ? '#4E3320' : '#B9834A', { y: 0.92, tex: 'wood' }),
+    part('box', [0.45, 0.9, 1.1], beach ? '#2E4A78' : '#7FC8B6', { y: 0.45 }),
+    part('box', [0.5, 0.06, 1.18], beach ? '#9C7A55' : '#B9834A', { y: 0.92, tex: 'wood' }),
     part('box', [0.38, 0.2, 0.8], '#C99A5B', { y: 1.05, tex: 'wood' }),
     part('box', [0.04, 0.9, 1.3], '#FFFFFF', { x: 0.3, y: 1.8 }),
-    part('box', [0.06, 0.1, 1.4], beach ? '#FF6F61' : '#FF8A80', { x: 0.3, y: 2.3 }),
+    part('box', [0.06, 0.1, 1.4], beach ? '#EE7F5F' : '#FF8A80', { x: 0.3, y: 2.3 }),
   ]);
   hatch.position.set(HATCH.x, 0, HATCH.z); scene.add(hatch);
 
   // the van
   const van = mesh([
     part('rbox', [1.6, 1.3, 2.9, 0.2], '#FFFFFF', { y: 0.95 }),
-    part('rbox', [1.62, 0.3, 2.92, 0.1], beach ? '#2FB3D6' : '#FF6F61', { y: 0.55 }),
+    part('rbox', [1.62, 0.3, 2.92, 0.1], beach ? '#2E4A78' : '#FF6F61', { y: 0.55 }),
     part('rbox', [1.5, 0.8, 0.9, 0.18], '#FFFFFF', { y: 0.9, z: -1.7 }),
     part('box', [1.3, 0.45, 0.05], '#BFE4F5', { y: 1.15, z: -2.16 }),
     ...[[-0.8, -1.4], [0.8, -1.4], [-0.8, 0.9], [0.8, 0.9]].map(([x, z]) => part('cyl', [0.3, 0.3, 0.2, 12], '#2B2B2B', { x, y: 0.3, z, rz: Math.PI / 2 })),
-    part('cyl', [0.34, 0.34, 0.03, 16], beach ? '#2FB3D6' : '#FF6F61', { x: -0.81, y: 1.2, z: 0.2, rz: Math.PI / 2 }),
+    part('cyl', [0.34, 0.34, 0.03, 16], beach ? '#EE7F5F' : '#FF6F61', { x: -0.81, y: 1.2, z: 0.2, rz: Math.PI / 2 }),
     part('sph', [0.1, 8], '#FFFFFF', { x: -0.83, y: 1.18, z: 0.2, sx: 0.3 }),
     part('box', [0.05, 0.1, 0.25], '#FFF3B0', { x: 0.55, y: 0.7, z: -2.16 }), part('box', [0.05, 0.1, 0.25], '#FFF3B0', { x: -0.55, y: 0.7, z: -2.16 }),
   ]);
@@ -68,7 +68,7 @@ export function createDeliveries(ctx) {
     if (order && order.got > 0) {
       const pay = W.price(order.product) * order.got * 2;
       W.earn(pay, HATCH.x, HATCH.z);
-      if (done) { hud.banner(`🚚 Delivery done! +${pay}`, 2200); audio.play('fanfare'); fx.confetti(HATCH.x, HATCH.z, 1.4, 40); bonus = pay; claimT = 8; }
+      if (done) { W.events.push({ type: 'delivered' }); hud.banner(`🚚 Delivery done! +${pay}`, 2200); audio.play('fanfare'); fx.confetti(HATCH.x, HATCH.z, 1.4, 40); bonus = pay; claimT = 8; }
     }
     order = null; state = 'leave'; drive = 0;
   }

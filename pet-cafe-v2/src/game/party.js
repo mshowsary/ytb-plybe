@@ -22,7 +22,7 @@ export function createParty(ctx) {
     const ok = await platform.rewarded('pet-cafe-pet-party');
     busy = false; badge.disabled = false;
     if (!ok) return;
-    thrown++; t = PARTY_S; audio.play('fanfare'); audio.setParty(true);
+    thrown++; t = PARTY_S; audio.play('fanfare'); audio.setParty(true); W.events.push({ type: 'party' });
     hud.banner('🎵 Pet party! Sales ×2');
     fx.confetti(juke.x + 3, juke.z - 1, 4, 70);
   });

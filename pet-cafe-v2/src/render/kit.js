@@ -12,11 +12,14 @@ const loader = new GLTFLoader();
 const models = new Map();                // 'pack/name' -> THREE.Group (the loaded scene)
 const packMat = new Map();               // pack -> its one shared material
 const BASE = './kk/';
+// our own Blender-built packs live under ./models/<pack>/ (see art/build_*.py)
+const OWN = new Set(['beach', 'town']);
+const urlOf = n => (OWN.has(n.split('/')[0]) ? './models/' : BASE) + n + '.gltf';
 
 export function loadKit(names) {
   const todo = [...new Set(names)].filter(n => !models.has(n));
   return Promise.all(todo.map(n => new Promise(res => {
-    loader.load(BASE + n + '.gltf', g => {
+    loader.load(urlOf(n), g => {
       const pack = n.split('/')[0];
       g.scene.traverse(o => {
         if (o.isMesh && o.material) {
@@ -24,6 +27,9 @@ export function loadKit(names) {
           // pack bakes into a single mesh; a soft, matte response to sit with the characters
           if (!packMat.has(pack)) {
             const m = o.material; m.roughness = 1; m.metalness = 0; if (m.map) m.map.colorSpace = THREE.SRGBColorSpace;
+            // palette packs: every face samples the middle of one swatch, so never blend swatches
+            if (OWN.has(pack) && m.map) { m.map.minFilter = THREE.NearestFilter; m.map.magFilter = THREE.NearestFilter; m.map.generateMipmaps = false; m.map.needsUpdate = true; }
+            m.side = THREE.DoubleSide;
             packMat.set(pack, m);
           }
           o.material = packMat.get(pack);

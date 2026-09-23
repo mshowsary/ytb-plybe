@@ -26,9 +26,13 @@ import { createUpgrades } from './ui/upgrades.js';
 import { STAFF, SUPPLIES, LOCATIONS, LOCATION_ORDER } from './game/layout.js';
 import * as L from './game/layout.js';
 import * as THREE from 'three';
-import { createBeachRoom } from './render/roomBeach.js';
+import { createBeachRoom, BEACH_ROOM_KIT } from './render/roomBeach.js';
+import { BEACH_STATION_KIT } from './render/propsBeach.js';
+const BEACH_KIT = [...BEACH_ROOM_KIT, ...BEACH_STATION_KIT];
 import { createMap } from './ui/map.js';
 import { createDeliveries } from './game/deliveries.js';
+import { createGoals } from './game/goals.js';
+import { createGoalsUI } from './ui/goalsUI.js';
 
 const platform = createPlatform();
 const audio = createAudio();
@@ -58,11 +62,14 @@ async function boot() {
   const saved = await platform.load();
   W.restore(saved);
   // the KayKit models (walls, kitchen, tables, the street) arrive before the café is built
-  await loadKit([...TOWN_ROOM_KIT, ...TOWN_STATION_KIT, ...STREET_KIT]);
+  await loadKit([...TOWN_ROOM_KIT, ...TOWN_STATION_KIT, ...STREET_KIT, ...(W.loc === 'beach' ? BEACH_KIT : [])]);
   if (saved && typeof saved.play === "number") playTime = saved.play;
   const petbook = createPetBook(root, W, audio, p => { sheetPaused = p; });
   const upgrades = createUpgrades(root, W, audio, fx, p => { sheetPaused = p; });
   const map = createMap(root, W, audio, p => { sheetPaused = p; }, id => travel(id));
+  const goals = createGoals(W); goals.restore(saved && saved.goals);
+  const goalsUI = createGoalsUI(root, W, goals, audio, fx, platform, p => { sheetPaused = p; });
+  let lastServed = null;
 
   // ---- one café on stage: everything that belongs to the place you are standing in ----------
   let stage, roomView, view, owner, guests, staff, pads, party, life, deliveries;
@@ -99,7 +106,8 @@ async function boot() {
     travelling = true;
     const veil = document.getElementById('veil');
     veil.classList.add('show');
-    setTimeout(() => {
+    setTimeout(async () => {
+      if (id === 'beach') await loadKit(BEACH_KIT);      // the Blender beach set arrives behind the veil
       W.stashHere(); save();
       tearDown(); buildCafe(id); save();
       veil.classList.remove('show'); travelling = false;
@@ -124,9 +132,18 @@ async function boot() {
     setTimeout(() => hud.banner(next && !W.open.has(next) ? `🗺️ A new café awaits: the ${LOCATIONS[next].name}!` : '✨ Legendary pets now visit!', 3400), 5200);
     setTimeout(() => map.nudge(), 5400);
   }
-  function save() { platform.save({ ...W.snapshot(), play: Math.floor(playTime) }); }
+  function save() { platform.save({ ...W.snapshot(), play: Math.floor(playTime), goals: goals.snapshot(), ts: Date.now() }); }
 
   buildCafe(W.loc);
+  // WHILE YOU WERE AWAY: an automated café (a Runner at least) keeps selling while the game is closed,
+  // up to three hours' worth. Offered on return with a ▶ x2.
+  const awaySec = saved && saved.ts ? Math.min(3 * 3600, (Date.now() - saved.ts) / 1000) : 0;
+  if (awaySec > 120 && W.isBuilt('staff:runner')) {
+    const base = W.built('counter').reduce((a, c) => a + W.price(c.product), 0);
+    const perSec = base * 0.03 * (W.isBuilt('staff:cashier') ? 1 : 0.5) * (1 + 0.5 * W.done.size);
+    const amount = Math.round(perSec * awaySec);
+    if (amount >= 20) setTimeout(() => goalsUI.welcome(amount), 700);
+  }
   audio.setMusicPhase('morning');
   document.getElementById('loading').remove();
   platform.gameReady();
@@ -155,16 +172,21 @@ async function boot() {
     party.update(dt, false);
 
     for (const e of W.events) {
+      if (e.type === 'delivered') goals.add('deliver');
+      else if (e.type === 'party') goals.add('party');
+      else if (e.type === 'wiped') goals.add('wipe');
       if (e.type === 'earn') {
+        if (!e.bonus) goals.add('earn', e.n);
         inFlight += e.n;
         fx.number(e.x, 2.1, e.z, '+' + e.n, 'gain');
         fx.coins(e.x, 1.3, e.z, Math.min(8, 2 + (e.n / 5) | 0), () => { inFlight -= e.n; hud.bump(); audio.play('coin'); });
       } else if (e.type === 'petted') {
+        goals.add('pet');
         audio.play('petCat'); fx.burst(e.x, 1.2, e.z, '#FF8FB1', 14, 0.7);
         if (e.f === 4 || e.f === 10) hud.banner(e.f === 10 ? '💖 A new Bestie!' : '❤️ A new pet friend!', 1800);
       } else if (e.type === 'upgrade') { fx.confetti(owner.o.x, owner.o.z, 1.5, 24); audio.play('chime');
       } else if (e.type === 'newpet') {
-        petbook.newPet(e); fx.confetti(2.75, 3.8, 1.2, 26);
+        petbook.newPet(e); fx.confetti(2.75, 3.8, 1.2, 26); goals.add('meet');
         if (!bookDone && W.met.size >= W.bookSize()) { bookDone = true; setTimeout(() => { hud.banner('📖 Every pet met! You are the best pet café in town', 3600); audio.play('fanfare'); fx.confetti(-1.5, 1, 6, 90); }, 3200); }
       }
     }
@@ -175,6 +197,10 @@ async function boot() {
     roomView.update?.(dt);
     petbook.update(dt);
     upgrades.update(dt);
+    goalsUI.update(dt);
+    document.getElementById('goalbtn').classList.toggle('hidden', !(W.isBuilt('table3') || W.open.size > 1));   // a new player's screen stays clean
+    if (lastServed === null || lastServed > W.served) lastServed = W.served;
+    if (W.served > lastServed) { goals.add('serve', W.served - lastServed); lastServed = W.served; }
     map.update();
     document.getElementById('upbtn').classList.toggle('hidden', !(W.isBuilt('staff:runner') || W.open.size > 1 || Object.keys(W.up).length));
     fx.update(dt);

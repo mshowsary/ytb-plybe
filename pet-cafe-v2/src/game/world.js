@@ -134,7 +134,7 @@ export function createWorld() {
     W.events.push({ type: 'cleaned', id: t.id, tip });
     return tip;
   };
-  W.earn = (n, x, z) => { W.coins += n; W.events.push({ type: 'earn', n, x, z }); };
+  W.earn = (n, x, z, bonus = false) => { W.coins += n; W.events.push({ type: 'earn', n, x, z, bonus }); };
 
   // ---- pets --------------------------------------------------------------------------------
   W.complete = () => L.PADS.every(p => W.isBuilt(p.builds));

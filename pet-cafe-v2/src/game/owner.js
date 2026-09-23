@@ -82,7 +82,7 @@ export function createOwner(ctx) {
       if (o.wiping !== dirty) { o.wiping = dirty; o.wipeT = 0; }
       o.wipeT += dt; H.wipe(0.25);
       bubbles.show('wipe', dirty.x, 1.7, dirty.z, `<i class="ring" style="--p:${Math.min(1, o.wipeT / WIPE)}"></i>`, 'prog');
-      if (o.wipeT >= WIPE) { const tip = W.cleanTable(dirty); if (tip) W.earn(tip, dirty.x, dirty.z); audio.play('clean'); fx.burst(dirty.x, 0.9, dirty.z, '#BFEFFF', 10, 0.6); o.wiping = null; }
+      if (o.wipeT >= WIPE) { W.events.push({ type: 'wiped' }); const tip = W.cleanTable(dirty); if (tip) W.earn(tip, dirty.x, dirty.z); audio.play('clean'); fx.burst(dirty.x, 0.9, dirty.z, '#BFEFFF', 10, 0.6); o.wiping = null; }
       return { kind: 'table', st: dirty };
     }
     o.wiping = null;
