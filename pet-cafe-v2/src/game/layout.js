@@ -18,6 +18,11 @@ export const SUPPLIES = {
   fruit:  { emoji: '🍓', band: '#E8546B' },
   cream:  { emoji: '🥛', band: '#9ED8F2' },
   fishbox: { emoji: '🐟', band: '#5B8FD6' },
+  // the Mall Café's stockroom: cardboard boxes, banded like their machines
+  dough:  { emoji: '🥯', band: '#F28FB8' },
+  tea:    { emoji: '🍵', band: '#6CC08A' },
+  batter: { emoji: '🥚', band: '#F2C14E' },
+  meat:   { emoji: '🥩', band: '#D95B4F' },
 };
 export const MACHINE_CAP = 12;          // units a full hopper holds
 export const SACK = 6;                  // units one sack adds
@@ -31,6 +36,10 @@ export const PRODUCTS = {
   smoothie: { price: 24, make: 3.0, emoji: '🥤', supply: 'fruit',  accent: '#FF7FA8', model: 'blender' },
   icecream: { price: 20, make: 2.4, emoji: '🍦', supply: 'cream',  accent: '#8FD8F0', model: 'icecream' },
   fish:     { price: 18, make: 2.8, emoji: '🐟', supply: 'fishbox', accent: '#6FA0E0', model: 'grill' },
+  donut:    { price: 34, make: 2.4, emoji: '🍩', supply: 'dough',  accent: '#FF8FB8', model: 'fryer' },
+  bubbletea:{ price: 48, make: 3.0, emoji: '🧋', supply: 'tea',    accent: '#C8A07A', model: 'teabar' },
+  waffle:   { price: 42, make: 2.8, emoji: '🧇', supply: 'batter', accent: '#F2B94E', model: 'waffle' },
+  jerky:    { price: 38, make: 2.6, emoji: '🍖', supply: 'meat',   accent: '#E07A5F', model: 'smoker' },
 };
 
 export const LOCATIONS = {
@@ -44,9 +53,14 @@ export const LOCATIONS = {
     menu: ['lemonade', 'smoothie', 'icecream', 'fish'], priceScale: 2.4,
     variants: [5, 6, 7, 8], unlock: { hamster: 'coffee1', bunny: 'treats1' }, cost: 3000,
   },
+  mall: {
+    id: 'mall', name: 'Mall Café', emoji: '🛍️', theme: 'mall',
+    menu: ['donut', 'bubbletea', 'waffle', 'jerky'], priceScale: 5.5,
+    variants: [9, 10, 11, 12], unlock: { hamster: 'coffee1', bunny: 'treats1' }, cost: 9000,
+  },
 };
-export const LOCATION_ORDER = ['town', 'beach'];
-export const COMING_SOON = [{ name: 'Mall Café', emoji: '🛍️' }];
+export const LOCATION_ORDER = ['town', 'beach', 'mall'];
+export const COMING_SOON = [];
 
 // ---- the shared floor plan --------------------------------------------------------------------
 // Machine / counter slots A-D hold the café's four products, in menu order.

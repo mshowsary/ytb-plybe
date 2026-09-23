@@ -8,6 +8,7 @@ import { createPet } from '../render/pets.js';
 import { part, merge } from '../render/geo.js';
 import { toonMaterial } from '../render/palette.js';
 import { STREET, PRODUCTS } from './layout.js';
+import { PET_PROFILES } from '../sim/petBook.js';
 import * as L from './layout.js';
 import { makeWalker, syncHuman, drawStack, faceTo } from './actors.js';
 
@@ -28,6 +29,20 @@ function sunglasses(species) {
     ]);
   }
   return new THREE.Mesh(shadesCache[species], toonMaterial());
+}
+// the Mall Café's regulars dress up: a little bow tie under the chin, in their own accent colour
+const bowCache = {};
+function bowTie(species, hex) {
+  const key = species + hex;
+  if (!bowCache[key]) {
+    const w = HEAD_W[species] || 0.5, s = Math.max(0.6, Math.min(1.1, w * 1.6));
+    bowCache[key] = merge([
+      part('cone', [0.06 * s, 0.11 * s, 4], hex, { x: -0.06 * s, rz: Math.PI / 2 }),
+      part('cone', [0.06 * s, 0.11 * s, 4], hex, { x: 0.06 * s, rz: -Math.PI / 2 }),
+      part('sph', [0.035 * s, 6], hex, {}),
+    ]);
+  }
+  return new THREE.Mesh(bowCache[key], toonMaterial());
 }
 
 let crownGeo = null;
@@ -59,7 +74,8 @@ export function createGuests(ctx) {
     scene.add(H.group);
     const [species, variant] = W.pickPet();
     const pet = createPet(species, variant);
-    if (variant >= 5) pet.attach('head', sunglasses(species));     // the Beach Shack's regulars wear shades
+    if (variant >= 5 && variant <= 8) pet.attach('head', sunglasses(species));     // the Beach Café's regulars wear shades
+    else if (variant >= 9) pet.attach('neck', bowTie(species, PET_PROFILES[species][variant].accent));   // the Mall Café's, bow ties
     scene.add(pet.group);
     const w = makeWalker(nav, STREET.spawn.x, STREET.spawn.z, SPEED, 'guest');
     pet.group.position.set(w.x + 0.6, 0, w.z);

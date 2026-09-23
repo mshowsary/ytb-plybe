@@ -12,7 +12,7 @@ import { PET_PROFILES } from '../sim/petBook.js';
 import { createCityView } from '../render/cityView.js';
 import { petPortrait } from '../render/portrait.js';
 
-const PLACES = [...LOCATION_ORDER, 'mall'];
+const PLACES = [...new Set([...LOCATION_ORDER, 'mall'])];
 const SOON = { mall: 'Mall Café' };
 const EMOJI = { cat: '🐱', dog: '🐶', bunny: '🐰', hamster: '🐹' };
 const ICON = {
@@ -79,7 +79,7 @@ export function createMap(root, W, audio, onPause, onTravel, S) {
     const id = sel, st = stateOf(id), loc = LOCATIONS[id], name = nameOf(id);
     let html, act = '', off = false, pulse = false;
     if (mode === 'intro') { html = `<span class="cta-name">Open ${name}</span>`; act = 'close'; pulse = true; }
-    else if (st === 'here') { html = `<span class="cta-name">Back to ${name}</span>`; act = 'close'; }
+    else if (st === 'here' || (id === W.loc && st === 'done')) { html = `<span class="cta-name">Back to ${name}</span>`; act = 'close'; }
     else if (st === 'done' || st === 'open') { html = `<span class="cta-name">Go to ${name}</span>`; act = 'go'; }
     else if (st === 'buy' && W.coins >= loc.cost) { html = `<span class="cta-name">Open ${name}</span><span class="cta-cost"><i class="coin"></i>${fmt(loc.cost)}</span>`; act = 'buy'; pulse = true; }
     else if (st === 'buy') {
@@ -228,6 +228,7 @@ export function createMap(root, W, audio, onPause, onTravel, S) {
   const LINES = {
     town: ['Best {p} in town! My human let me lick the crumbs.', 'Someone scratched my ears while we ate. Five stars!', 'The {p} smell alone is worth the walk.', 'Cosy, friendly, and a bowl of water was waiting for me.', 'My favourite nap spot. The {p} is a bonus.'],
     beach: ['Sand in my paws, {p} in my heart.', 'Sunset, sea breeze and a {p}. Perfect day.', 'I came for the waves, I stayed for the {p}.', 'They saved me a shady spot. Pawsome!', 'Best {p} on the whole coast!'],
+    mall: ['Shopped till I dropped, then a {p}. Bliss.', 'My bow tie and the {p} matched. Iconic.', 'Best {p} in the whole mall, no contest.', 'They kept my shopping bags safe while I napped.', 'The {p} here is worth the escalator ride!'],
   };
   function makeReview(id) {
     const loc = LOCATIONS[id];

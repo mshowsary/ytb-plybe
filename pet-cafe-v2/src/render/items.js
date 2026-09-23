@@ -6,6 +6,7 @@ import { part, merge } from './geo.js';
 import { toonMaterial } from './palette.js';
 import { sackParts } from './props.js';
 import { crateParts } from './propsBeach.js';
+import { boxParts } from './propsMall.js';
 import { SUPPLIES } from '../game/layout.js';
 
 function cookieGeo() {
@@ -71,6 +72,39 @@ function fishGeo() {
     part('box', [0.1, 0.004, 0.01], '#5A6E8A', { y: 0.068, z: 0.01 }),
   ]);
 }
+// ---- the Mall Café's menu ----
+function donutGeo() {
+  const P = [part('torus', [0.075, 0.042, 8, 18], '#D69A5A', { y: 0.042 }),
+    part('torus', [0.075, 0.036, 8, 18], '#FF8FB8', { y: 0.058, sy: 0.7 })];
+  const sprinkle = ['#FFFFFF', '#FFD84D', '#6FD3F0', '#8CC47A'];
+  for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2, r = 0.066 + (i % 2) * 0.018; P.push(part('box', [0.022, 0.008, 0.007], sprinkle[i % 4], { x: Math.cos(a) * r, y: 0.083, z: Math.sin(a) * r, ry: a * 1.7 })); }
+  return merge(P);
+}
+function bubbleteaGeo() {
+  const P = [
+    part('cyl', [0.07, 0.055, 0.2, 14], '#EAF7FF', { y: 0.1 }),
+    part('cyl', [0.064, 0.05, 0.16, 14], '#C8A07A', { y: 0.09 }),
+    part('sph', [0.072, 12], '#EAF7FF', { y: 0.2, sy: 0.45 }),
+    part('cyl', [0.013, 0.013, 0.2, 6], '#FF8FB8', { x: 0.02, y: 0.28, rz: -0.18 }),
+  ];
+  for (const [x, z] of [[-0.025, 0.02], [0.02, 0.03], [0.03, -0.02], [-0.02, -0.03], [0, 0]]) P.push(part('sph', [0.017, 5], '#2E2320', { x, y: 0.028, z }));
+  return merge(P);
+}
+function waffleGeo() {
+  const P = [part('box', [0.2, 0.03, 0.2], '#E8A94A', { y: 0.016 })];
+  for (let i = -1; i <= 1; i++) { P.push(part('box', [0.2, 0.012, 0.018], '#C98530', { y: 0.034, z: i * 0.06 })); P.push(part('box', [0.018, 0.012, 0.2], '#C98530', { y: 0.034, x: i * 0.06 })); }
+  P.push(part('box', [0.05, 0.02, 0.04], '#FFF3B0', { y: 0.046 }), part('sph', [0.03, 6], '#B8621E', { x: 0.05, y: 0.036, z: 0.04, sy: 0.3 }));
+  return merge(P);
+}
+function jerkyGeo() {
+  return merge([
+    part('cyl', [0.018, 0.018, 0.2, 6], '#FFF3E0', { y: 0.03, rz: Math.PI / 2 }),
+    part('sph', [0.03, 6], '#FFF3E0', { x: -0.1, y: 0.03, z: 0.015 }), part('sph', [0.03, 6], '#FFF3E0', { x: -0.1, y: 0.03, z: -0.015 }),
+    part('sph', [0.07, 8], '#B5503A', { x: 0.03, y: 0.045, sx: 1.2, sy: 0.7 }),
+    part('sph', [0.04, 6], '#D06A4E', { x: 0.05, y: 0.07, sx: 1.1, sy: 0.5 }),
+  ]);
+}
+const boxGeo = kind => () => merge(boxParts(kind, 0, 0, 0));
 function trayGeo() {
   return merge([
     part('box', [0.5, 0.025, 0.38], '#B9834A', { y: 0.012, tex: 'wood' }),
@@ -90,6 +124,8 @@ function plateGeo() {
 
 const KINDS = { cookie: cookieGeo, cupcake: cupcakeGeo, coffee: coffeeGeo, treat: treatGeo, lemonade: lemonadeGeo, smoothie: smoothieGeo, icecream: icecreamGeo, fish: fishGeo,
   flour: sackGeo('flour'), beans: sackGeo('beans'), kibble: sackGeo('kibble'), lemons: crateGeo('lemons'), fruit: crateGeo('fruit'), cream: crateGeo('cream'), fishbox: crateGeo('fishbox'),
+  donut: donutGeo, bubbletea: bubbleteaGeo, waffle: waffleGeo, jerky: jerkyGeo,
+  dough: boxGeo('dough'), tea: boxGeo('tea'), batter: boxGeo('batter'), meat: boxGeo('meat'),
   tray: trayGeo, tip: tipGeo, plate: plateGeo };
 const MAX = 160;
 
@@ -120,7 +156,7 @@ export function createItems(scene) {
 export function stackSlot(kind, i) {
   if (SUPPLIES[kind]) return { x: 0, y: i * 0.38, z: 0 };
   const layer = (i / 2) | 0, col = i % 2;
-  const h = { cupcake: 0.24, coffee: 0.13, lemonade: 0.18, smoothie: 0.27, icecream: 0.34, fish: 0.06 }[kind] || 0.05;
+  const h = { cupcake: 0.24, coffee: 0.13, lemonade: 0.18, smoothie: 0.27, icecream: 0.34, fish: 0.06, donut: 0.09, bubbletea: 0.3, waffle: 0.05, jerky: 0.09 }[kind] || 0.05;
   return { x: col ? 0.11 : -0.11, y: 0.03 + layer * h, z: 0 };
 }
 

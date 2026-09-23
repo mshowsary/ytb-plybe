@@ -77,8 +77,10 @@ export function part(kind, d, hex, xf = {}) {
     case 'cyl': g = new THREE.CylinderGeometry(d[0], d[1], d[2], d[3] ?? 16); break;
     case 'sph': g = new THREE.SphereGeometry(d[0], d[1] ?? 14, (d[1] ?? 14) >> 1); break;
     case 'cone': g = new THREE.ConeGeometry(d[0], d[1], d[2] ?? 12); break;
+    case 'torus': g = new THREE.TorusGeometry(d[0], d[1], d[2] ?? 8, d[3] ?? 16); break;     // lies flat (rotated to the xz plane)
     default: throw new Error('part kind ' + kind);
   }
+  if (kind === 'torus') g.rotateX(Math.PI / 2);
   g.deleteAttribute('uv');     // every primitive's own UV layout is thrown away; we project our own
   if (xf.sx || xf.sy || xf.sz) g.scale(xf.sx ?? 1, xf.sy ?? 1, xf.sz ?? 1);
   if (xf.rx) g.rotateX(xf.rx); if (xf.ry) g.rotateY(xf.ry); if (xf.rz) g.rotateZ(xf.rz);

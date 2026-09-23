@@ -92,6 +92,10 @@ export function createScene(canvas) {
     if (theme === 'beach') {
       scene.background.set('#5DBCEB'); scene.fog.color.set('#9ED8F2'); scene.fog.near = 40; scene.fog.far = 80;
       hemi.color.set('#FFF3E0'); hemi.groundColor.set('#9C7E58'); hemi.intensity = 0.8; sun.color.set('#FFE9C8'); sun.intensity = 1.75;
+    } else if (theme === 'mall') {
+      // indoors: a bright, even skylight, warm cream in the distance instead of sky
+      scene.background.set('#F1E6D8'); scene.fog.color.set('#F1E6D8'); scene.fog.near = 36; scene.fog.far = 70;
+      hemi.color.set('#FFFFFF'); hemi.groundColor.set('#8C7F8E'); hemi.intensity = 0.95; sun.color.set('#FFF3E2'); sun.intensity = 1.55;
     } else {
       scene.background.set('#8FCBE6'); scene.fog.color.set('#AED9EE'); scene.fog.near = 34; scene.fog.far = 64;
       hemi.color.set('#FFF1DC'); hemi.groundColor.set('#8C7358'); hemi.intensity = 0.9; sun.color.set('#FFE2B8'); sun.intensity = 1.7;

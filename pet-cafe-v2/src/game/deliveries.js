@@ -17,26 +17,26 @@ const WAIT = 110, FIRST = 70;
 
 export function createDeliveries(ctx) {
   const { W, scene, items, bubbles, fx, audio, hud, layer, platform, S, hotspots } = ctx;
-  const beach = ctx.theme === 'beach';
+  const beach = ctx.theme === 'beach', mall = ctx.theme === 'mall';
 
   // the hatch: a little counter under a window in the right wall, with a crate on it
   const hatch = mesh([
-    part('box', [0.45, 0.9, 1.1], beach ? '#2E4A78' : '#7FC8B6', { y: 0.45 }),
+    part('box', [0.45, 0.9, 1.1], beach ? '#2E4A78' : mall ? '#FBF8F3' : '#7FC8B6', { y: 0.45 }),
     part('box', [0.5, 0.06, 1.18], beach ? '#9C7A55' : '#B9834A', { y: 0.92, tex: 'wood' }),
     part('box', [0.38, 0.2, 0.8], '#C99A5B', { y: 1.05, tex: 'wood' }),
     part('box', [0.04, 0.9, 1.3], '#FFFFFF', { x: 0.3, y: 1.8 }),
-    part('box', [0.06, 0.1, 1.4], beach ? '#EE7F5F' : '#FF8A80', { x: 0.3, y: 2.3 }),
+    part('box', [0.06, 0.1, 1.4], beach ? '#EE7F5F' : mall ? '#D9A93F' : '#FF8A80', { x: 0.3, y: 2.3 }),
   ]);
   hatch.position.set(HATCH.x, 0, HATCH.z); scene.add(hatch);
 
   // the van
   const van = mesh([
     part('rbox', [1.6, 1.3, 2.9, 0.2], '#FFFFFF', { y: 0.95 }),
-    part('rbox', [1.62, 0.3, 2.92, 0.1], beach ? '#2E4A78' : '#FF6F61', { y: 0.55 }),
+    part('rbox', [1.62, 0.3, 2.92, 0.1], beach ? '#2E4A78' : mall ? '#7FD1B9' : '#FF6F61', { y: 0.55 }),
     part('rbox', [1.5, 0.8, 0.9, 0.18], '#FFFFFF', { y: 0.9, z: -1.7 }),
     part('box', [1.3, 0.45, 0.05], '#BFE4F5', { y: 1.15, z: -2.16 }),
     ...[[-0.8, -1.4], [0.8, -1.4], [-0.8, 0.9], [0.8, 0.9]].map(([x, z]) => part('cyl', [0.3, 0.3, 0.2, 12], '#2B2B2B', { x, y: 0.3, z, rz: Math.PI / 2 })),
-    part('cyl', [0.34, 0.34, 0.03, 16], beach ? '#EE7F5F' : '#FF6F61', { x: -0.81, y: 1.2, z: 0.2, rz: Math.PI / 2 }),
+    part('cyl', [0.34, 0.34, 0.03, 16], beach ? '#EE7F5F' : mall ? '#F47B6B' : '#FF6F61', { x: -0.81, y: 1.2, z: 0.2, rz: Math.PI / 2 }),
     part('sph', [0.1, 8], '#FFFFFF', { x: -0.83, y: 1.18, z: 0.2, sx: 0.3 }),
     part('box', [0.05, 0.1, 0.25], '#FFF3B0', { x: 0.55, y: 0.7, z: -2.16 }), part('box', [0.05, 0.1, 0.25], '#FFF3B0', { x: -0.55, y: 0.7, z: -2.16 }),
   ]);

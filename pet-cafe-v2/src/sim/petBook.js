@@ -16,6 +16,11 @@ export const PET_PROFILES = {
     { name: 'Sandy', rarity: 'common', trait: 'Sandcastle inspector', body: '#E2B77A', belly: '#FFF2D8', accent: '#FF8A5B' },
     { name: 'Coral', rarity: 'rare', trait: 'Sunset watcher', body: '#F29A86', belly: '#FFE8E0', accent: '#FFD84D' },
     { name: 'Mango', rarity: 'epic', trait: 'Beach-ball champion', body: '#F6B53D', belly: '#FFF3D0', accent: '#E8546B' },
+    // --- the Mall Café's regulars (index 9-12) ---
+    { name: 'Pixel', rarity: 'common', trait: 'Arcade high-scorer', body: '#8C8FA3', belly: '#F2F3F8', accent: '#FF5FA2' },
+    { name: 'Velvet', rarity: 'common', trait: 'Window shopper', body: '#5A4A5E', belly: '#F4E6F0', accent: '#FFC940' },
+    { name: 'Glitter', rarity: 'rare', trait: 'Sequin collector', body: '#E7CFEF', belly: '#FFF6FF', accent: '#3FC1C9' },
+    { name: 'Espresso', rarity: 'epic', trait: "Barista's shadow", body: '#6B4633', belly: '#EAD2B8', accent: '#F28FB8' },
   ],
   dog: [
     { name: 'Biscuit', rarity: 'common', trait: 'Everyone is a friend', body: '#C9A276', belly: '#FFF0D7', accent: '#71B8E4' },
@@ -27,6 +32,10 @@ export const PET_PROFILES = {
     { name: 'Pebble', rarity: 'common', trait: 'Rock-pool explorer', body: '#9E9A95', belly: '#F2EFEA', accent: '#F29A38' },
     { name: 'Reef', rarity: 'rare', trait: 'Snorkel buddy', body: '#5FB7C9', belly: '#E6F8FB', accent: '#FFD84D' },
     { name: 'Sunny', rarity: 'epic', trait: 'Lifeguard in training', body: '#F7D35A', belly: '#FFF9E0', accent: '#E8546B' },
+    { name: 'Bagel', rarity: 'common', trait: 'Food-court regular', body: '#D9A86C', belly: '#FFF1DA', accent: '#6CC08A' },
+    { name: 'Latte', rarity: 'common', trait: 'Escalator rider', body: '#C8AE95', belly: '#FFF8EE', accent: '#8B7CF6' },
+    { name: 'Neon', rarity: 'rare', trait: 'Arcade champion', body: '#4E5B8C', belly: '#E8F0FF', accent: '#FF5FA2' },
+    { name: 'Duchess', rarity: 'epic', trait: 'Carries the shopping bags', body: '#F2E2D2', belly: '#FFFFFF', accent: '#E0B03C' },
   ],
   bunny: [
     { name: 'Snowdrop', rarity: 'common', trait: 'Garden watcher', body: '#EFE8E3', belly: '#FFC5D2', accent: '#D99BE8' },
@@ -38,6 +47,10 @@ export const PET_PROFILES = {
     { name: 'Driftwood', rarity: 'common', trait: 'Dune napper', body: '#B99A7A', belly: '#F0E2D2', accent: '#6FA8DC' },
     { name: 'Lagoon', rarity: 'rare', trait: 'Paddle-pool queen', body: '#8FD6CF', belly: '#EFFFFC', accent: '#8B7CF6' },
     { name: 'Papaya', rarity: 'epic', trait: 'Fruit-salad critic', body: '#F59C5B', belly: '#FFEBD8', accent: '#3FB6A8' },
+    { name: 'Macaron', rarity: 'common', trait: 'Sweet-shop sampler', body: '#F4C8D8', belly: '#FFF5F9', accent: '#6CC08A' },
+    { name: 'Button', rarity: 'common', trait: 'Fitting-room napper', body: '#9A7B6A', belly: '#EEDDD0', accent: '#5B8FD6' },
+    { name: 'Pearl', rarity: 'rare', trait: 'Jewellery-counter gazer', body: '#F3F0EA', belly: '#FFFFFF', accent: '#B98CEB' },
+    { name: 'Ribbon', rarity: 'epic', trait: 'Gift-wrap supervisor', body: '#E86A7A', belly: '#FFE6EA', accent: '#FFD84D' },
   ],
   hamster: [
     { name: 'Peanut', rarity: 'common', trait: 'Cheek-pouch hoarder', body: '#C9955B', belly: '#FFE9C6', accent: '#B9834A' },
@@ -49,6 +62,10 @@ export const PET_PROFILES = {
     { name: 'Sprinkles', rarity: 'common', trait: 'Ice-cream taster', body: '#F4C6D6', belly: '#FFF3F7', accent: '#8FD8F0' },
     { name: 'Tide', rarity: 'rare', trait: 'Wave-wheel racer', body: '#7FA7D9', belly: '#EEF4FF', accent: '#FFD84D' },
     { name: 'Nugget', rarity: 'epic', trait: 'Treasure digger', body: '#D9A441', belly: '#FFF1CC', accent: '#E8546B' },
+    { name: 'Boba', rarity: 'common', trait: 'Tapioca-pearl hoarder', body: '#8A5F45', belly: '#F5DCC4', accent: '#C8A07A' },
+    { name: 'Pretzel', rarity: 'common', trait: 'Twists and turns', body: '#C98B4E', belly: '#FFEACD', accent: '#F28FB8' },
+    { name: 'Tinsel', rarity: 'rare', trait: 'Shop-window sparkler', body: '#C9C9D6', belly: '#F7F7FF', accent: '#3FC1C9' },
+    { name: 'Gizmo', rarity: 'epic', trait: 'Gadget-store tester', body: '#5C6F86', belly: '#E4ECF5', accent: '#FFC940' },
   ],
 };
 

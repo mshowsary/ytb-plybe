@@ -8,10 +8,11 @@ import * as L from '../game/layout.js';
 
 export function createLife(scene, W) {
   // --- the café cat, on the left window sill, facing into the room ---------------------------
-  const beach = L.LOC.theme === 'beach';
-  const cat = createPet('cat', beach ? 6 : 1);
-  // town: asleep on the deep window sill; beach: stretched out along the top of the left railing
+  const beach = L.LOC.theme === 'beach', mall = L.LOC.theme === 'mall';
+  const cat = createPet('cat', beach ? 6 : mall ? 11 : 1);
+  // town: asleep on the deep window sill; beach: along the top of the left railing; mall: on the velvet pouf
   if (beach) { cat.group.position.set(ROOM.x0, 1.03, 1.9); cat.group.rotation.y = 0; }
+  else if (mall) { cat.group.position.set(ROOM.x0 + 0.5, 0.44, 1.25); cat.group.rotation.y = Math.PI / 2; }
   else { cat.group.position.set(ROOM.x0 + 0.24, 1.47, 1.2); cat.group.rotation.y = Math.PI / 2; }
   cat.sit();
   scene.add(cat.group);

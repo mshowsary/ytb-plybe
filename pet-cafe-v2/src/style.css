@@ -134,7 +134,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE3F2;font-family:ui
 .mapbtn .dot{position:absolute;right:-2px;top:-2px;width:16px;height:16px;border-radius:50%;background:#FF6B5E;box-shadow:0 0 0 3px #fff}
 .maplist{display:flex;flex-direction:column;gap:10px}
 .loc{display:flex;align-items:center;gap:12px;padding:10px;border-radius:18px;background:#fff;box-shadow:0 2px 8px #0000000f;color:var(--ink)}
-.loc.loc-town .locart{background:#FFE3C4}.loc.loc-beach .locart{background:#BFEAF7}
+.loc.loc-town .locart{background:#FFE3C4}.loc.loc-beach .locart{background:#BFEAF7}.loc.loc-mall .locart{background:#F6DCEB}
 .locart{font-size:32px;width:58px;height:58px;display:grid;place-items:center;border-radius:16px;flex:none;background:#EEE}
 .loctxt{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}.loctxt b{font-size:17px}.loctxt small{font-size:15px}
 .bar{height:8px;border-radius:4px;background:#EFE4D6;overflow:hidden}.bar i{display:block;height:100%;background:#3DBA78;border-radius:4px}

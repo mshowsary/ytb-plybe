@@ -28,6 +28,7 @@ import { STAFF, SUPPLIES, LOCATIONS, LOCATION_ORDER } from './game/layout.js';
 import * as L from './game/layout.js';
 import * as THREE from 'three';
 import { createBeachRoom, BEACH_ROOM_KIT } from './render/roomBeach.js';
+import { createMallRoom } from './render/roomMall.js';
 import { BEACH_STATION_KIT } from './render/propsBeach.js';
 const BEACH_KIT = [...BEACH_ROOM_KIT, ...BEACH_STATION_KIT];
 import { createMap } from './ui/map.js';
@@ -81,7 +82,7 @@ async function boot() {
     W.enter(id);
     nav.rebuild([...W.stations.values()]);
     stage = new THREE.Group(); S.scene.add(stage);
-    roomView = L.LOC.theme === 'beach' ? createBeachRoom(stage) : createRoom(stage);
+    roomView = L.LOC.theme === 'beach' ? createBeachRoom(stage) : L.LOC.theme === 'mall' ? createMallRoom(stage) : createRoom(stage);
     S.setTheme(L.LOC.theme);
     hotspots = createHotspots(stage);
     const ctx = { W, nav, scene: stage, S, items, bubbles, fx, audio, layer, platform, hud, hotspots };

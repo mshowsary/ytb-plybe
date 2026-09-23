@@ -6,6 +6,7 @@ import { part, merge, mesh } from './geo.js';
 import { PRODUCTS, SUPPLIES } from '../game/layout.js';
 import * as L from '../game/layout.js';
 import { beachModelFor } from './propsBeach.js';
+import { mallModelFor } from './propsMall.js';
 import { kitHas, kitClone, createBatch } from './kit.js';
 export const TOWN_STATION_KIT = ['restaurant/oven', 'restaurant/table_round_A_small', 'restaurant/chair_A', 'restaurant/plate'];
 
@@ -311,6 +312,7 @@ export function ghostOf(group) {
 
 export function modelFor(st) {
   if (L.LOC.theme === 'beach') return beachModelFor(st);
+  if (L.LOC.theme === 'mall') return mallModelFor(st);
   switch (st.type) {
     case 'machine': return machineModel(st);
     case 'counter': return counterModel(st.product);
