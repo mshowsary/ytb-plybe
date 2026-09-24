@@ -9,7 +9,7 @@ const YAW = 0.36, PITCH = 0.9, FOV = 35;    // camera comes from the front-right
 const POST_VERT = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 const POST_FRAG = `
   uniform sampler2D tColor; uniform sampler2D tDepth; uniform vec2 texel; uniform float near; uniform float far;
-  uniform float outline; uniform float saturation; uniform float contrast; uniform float aoRadius;
+  uniform float outline; uniform float saturation; uniform float contrast; uniform float aoRadius; uniform float aoOn;
   varying vec2 vUv;
   float lin(float d){ return (near * far) / (far - d * (far - near)); }
   void main(){
@@ -26,7 +26,7 @@ const POST_FRAG = `
     // at the foot of a counter, a corner, under a table), darken softly. Big jumps (a character against
     // the far floor) are ignored so silhouettes do not get haloes.
     float occ = 0.0;
-    for (int k = 0; k < 8; k++) {
+    if (aoOn > 0.5) for (int k = 0; k < 8; k++) {
       float a = float(k) * 0.785398 + 0.39;
       vec2 o = vec2(cos(a), sin(a)) * texel * aoRadius * (k % 2 == 0 ? 1.0 : 0.55);
       float dn = lin(texture2D(tDepth, vUv + o).r);
@@ -73,7 +73,7 @@ export function createScene(canvas) {
   const post = new THREE.ShaderMaterial({
     vertexShader: POST_VERT, fragmentShader: POST_FRAG, toneMapped: true, depthTest: false, depthWrite: false,
     uniforms: { tColor: { value: rt.texture }, tDepth: { value: rt.depthTexture }, texel: { value: new THREE.Vector2() },
-      near: { value: camera.near }, far: { value: camera.far }, outline: { value: 1.2 }, saturation: { value: 1.22 }, contrast: { value: 1.08 }, aoRadius: { value: 14 } },
+      near: { value: camera.near }, far: { value: camera.far }, outline: { value: 1.2 }, saturation: { value: 1.22 }, contrast: { value: 1.08 }, aoRadius: { value: 14 }, aoOn: { value: 1 } },
   });
   const postScene = new THREE.Scene(), postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), post));
@@ -102,12 +102,24 @@ export function createScene(canvas) {
     }
   };
 
+  // QUALITY: 2 = full (supersampled small screens, ambient occlusion, sharp shadows), 1 = medium (the
+  // screen's own resolution up to 1.5x, no AO, softer shadows), 0 = low (1x, no AO, no sun shadows).
+  // main.js starts from a guess about the device and steps down if frames run slow.
+  S.quality = 2;
+  S.setQuality = q => {
+    S.quality = Math.max(0, Math.min(2, q | 0));
+    post.uniforms.aoOn.value = S.quality >= 2 ? 1 : 0;
+    sun.castShadow = S.quality >= 1;
+    const size = S.quality >= 2 ? 2048 : 1024;
+    if (sun.shadow.mapSize.x !== size) { sun.shadow.mapSize.set(size, size); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } }
+    S.resize();
+  };
   S.resize = () => {
     const w = innerWidth, h = innerHeight;
     // Small canvases are drawn at up to twice their pixel size (supersampling) so edges stay clean
     // on low-density screens; big canvases use the screen's own density.
     const dpr = devicePixelRatio || 1;
-    const pr = Math.min(2, Math.max(dpr, w * h < 900000 ? 2 : 1.25));
+    const pr = S.quality >= 2 ? Math.min(2, Math.max(dpr, w * h < 900000 ? 2 : 1.25)) : S.quality === 1 ? Math.min(1.5, Math.max(1, dpr)) : 1;
     renderer.setPixelRatio(pr);
     renderer.setSize(w, h, false);
     rt.setSize(Math.round(w * pr), Math.round(h * pr));

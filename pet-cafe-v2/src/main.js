@@ -182,11 +182,30 @@ async function boot() {
   if (!saved) map.intro();
   else setTimeout(() => map.preload(), 4000);     // the city picture, ready before the 🗺️ is tapped
 
+  // ADAPTIVE QUALITY: start from what the device looks like, then watch the frame rate; a few seconds
+  // below ~45 fps steps the picture down once (never back up mid-session, so it cannot flicker).
+  // The device remembers where it settled.
+  let qStart = 2;
+  try { const q = localStorage.getItem('pc-quality'); if (q !== null) qStart = +q; else if ((navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) <= 3) qStart = 1; } catch (_) {}
+  if (qStart !== 2) S.setQuality(qStart);
+  let qWall = performance.now(), qFrames = 0, qSlow = 0;
+  function watchQuality(now) {
+    qFrames++;
+    const span = now - qWall;
+    if (span < 2500) return;
+    if (span < 4000) {                                    // a clean window (not a pause or a hidden tab)
+      const fps = qFrames * 1000 / span;
+      qSlow = fps < 45 ? qSlow + 1 : 0;
+      if (qSlow >= 2 && S.quality > 0) { S.setQuality(S.quality - 1); qSlow = 0; try { localStorage.setItem('pc-quality', String(S.quality)); } catch (_) {} }
+    }
+    qWall = now; qFrames = 0;
+  }
   let last = performance.now();
   function frame(now) {
     requestAnimationFrame(frame);
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
-    if (paused || hostPaused || sheetPaused) return;
+    if (paused || hostPaused || sheetPaused) { qWall = now; qFrames = 0; return; }
+    watchQuality(now);
     playTime += dt;
     items.begin(); bubbles.begin(); hotspots.begin(dt);
 

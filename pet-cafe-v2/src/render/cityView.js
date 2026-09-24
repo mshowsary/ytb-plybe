@@ -105,11 +105,12 @@ export function createCityView(S) {
   async function load() {
     const [layout, tex, occ] = await Promise.all([
       fetch(BASE + 'city.json').then(r => r.json()),
-      new THREE.TextureLoader().loadAsync(BASE + 'city.webp'),
+      new THREE.TextureLoader().loadAsync(BASE + (S.quality === 0 ? 'city_s.webp' : 'city.webp')),
       new GLTFLoader().loadAsync(BASE + 'occluders.glb'),
       loadKit(CARS),
     ]);
     L = layout;
+    L.image = [tex.image.width, tex.image.height];      // the lighter picture on low quality: zoom limits follow it
     const C = L.camera;
     cam.near = C.near; cam.far = C.far;
     cam.position.set(...C.pos); cam.up.set(...C.up);
