@@ -1,0 +1,199 @@
+// Durable mid-shift station persistence. This intentionally excludes timers, occupancy, serving,
+// customers, navigation and owner carry state: those are transient (or belong to Task 11).
+import { PRODUCTS, displayStarCap, familyOf } from './economy.js';
+import { SAVE_LIMITS } from './saveSchema.js';
+
+export const STATION_STATE_VERSION = 1;
+export const DEFAULT_REGISTER_PILE_LIMIT = 100_000_000;
+
+const isRecord = value => !!value && typeof value === 'object' && !Array.isArray(value);
+const finiteNumber = value => typeof value === 'number' && Number.isFinite(value);
+
+function boundedQuantity(value, max) {
+  if (!finiteNumber(value)) return 0;
+  const n = Math.trunc(value);
+  // Oversized/corrupt resource counts collapse to zero rather than to a full container. Clamping
+  // 999999 -> capacity would manufacture useful stock from invalid data.
+  return n >= 0 && n <= max ? n : 0;
+}
+
+function activeDefinition(def, builtSet) {
+  return !def.builtBy || (builtSet && builtSet.has(def.builtBy));
+}
+
+function baseProduct(def) {
+  if (def.type === 'coffee') return 'coffee';
+  if (def.type === 'icecream') return 'icecream';
+  if (def.type === 'blender') return 'smoothie';
+  return typeof def.product === 'string' ? def.product : null;
+}
+
+function compatibleProduct(def, value) {
+  const base = baseProduct(def);
+  if (!base) return null;
+  if (typeof value !== 'string' || !PRODUCTS[value]) return base;
+  return familyOf(value) === familyOf(base) ? value : base;
+}
+
+function outputCapacity(def, stars = {}) {
+  if (def.type === 'display') {
+    // Display star tiers are open-ended past the authored tier 3 (economy.js displayStarCap adds 4
+    // slots per tier). Clamping the tier to 3 here pinned this bound at 16, so boundedQuantity()
+    // rejected the legitimate stock of a full tier-4+ display and restored it EMPTY - losing both the
+    // goods and the coins spent on the star. The remaining ceiling is the highest tier a valid save
+    // may carry, so a tampered tier still cannot turn a display into an unbounded container.
+    const raw = stars[def.id];
+    const tier = Number.isFinite(raw)
+      ? Math.max(1, Math.min(SAVE_LIMITS.maxStarTier, Math.trunc(raw)))
+      : 1;
+    return displayStarCap(tier) || def.capacity || 8;
+  }
+  if (def.type === 'oven') return def.buffer || 12;
+  if (def.type === 'coffee' || def.type === 'blender' || def.type === 'icecream') return def.buffer || 8;
+  if (def.type === 'bowl') return def.capacity || 10;
+  return 0;
+}
+
+function normalizeRow(def, row, stars, maxPile) {
+  if (!isRecord(row)) return null;
+  switch (def.type) {
+    case 'checkout':
+      return { pile: boundedQuantity(row.pile, maxPile) };
+    case 'oven':
+    case 'display': {
+      const out = {
+        stock: boundedQuantity(row.stock, outputCapacity(def, stars)),
+        product: compatibleProduct(def, row.product),
+      };
+      // The garden stand's cash jar is money, persisted exactly like a register's pile.
+      if (def.type === 'display' && def.selfServe) out.pile = boundedQuantity(row.pile, maxPile);
+      return out;
+    }
+    case 'coffee':
+      return {
+        beans: boundedQuantity(row.beans, 20),
+        stock: boundedQuantity(row.stock, outputCapacity(def, stars)),
+        product: compatibleProduct(def, row.product),
+      };
+    case 'icecream':
+      // The coffee row without a supply: the ice cream machine drinks nothing since 2026-09-19, so
+      // an old save's `cream` field is simply not read.
+      return {
+        stock: boundedQuantity(row.stock, outputCapacity(def, stars)),
+        product: compatibleProduct(def, row.product),
+      };
+    case 'blender':
+      return {
+        fruit: boundedQuantity(row.fruit, 9),
+        stock: boundedQuantity(row.stock, outputCapacity(def, stars)),
+      };
+    case 'bowl':
+      return { stock: boundedQuantity(row.stock, outputCapacity(def, stars)) };
+    case 'seat':
+      // A table's tip saucer is money, persisted exactly like a register's tray. The live pose
+      // itself is deliberately NOT persisted: it points at a customer id, and customers
+      // intentionally restart after a reload (same reasoning as occupied-vs-dirty).
+      return { dirty: row.dirty === true, pile: boundedQuantity(row.pile, maxPile) };
+    default:
+      return null;
+  }
+}
+
+export function normalizeStationState(raw, area, builtSet = new Set(), stars = {}, maxPile = DEFAULT_REGISTER_PILE_LIMIT) {
+  // Missing station payload is a legitimate pre-Task-10 save. An empty canonical payload means
+  // restore the historical station creation defaults (notably a newly built coffee machine's 20 beans).
+  if (raw == null) return { ok: true, data: { v: STATION_STATE_VERSION, byId: {} }, legacy: true };
+  if (!isRecord(raw)) return { ok: false, reason: 'shape' };
+  if (raw.v !== STATION_STATE_VERSION) return { ok: false, reason: 'version' };
+  if (!isRecord(raw.byId)) return { ok: false, reason: 'byId' };
+  if (!area || !Array.isArray(area.stations)) return { ok: true, data: { v: STATION_STATE_VERSION, byId: {} }, legacy: false };
+
+  const byId = {};
+  for (const def of area.stations) {
+    if (!activeDefinition(def, builtSet)) continue;
+    const normalized = normalizeRow(def, raw.byId[def.id], stars, maxPile);
+    if (normalized) byId[def.id] = normalized;
+  }
+  return { ok: true, data: { v: STATION_STATE_VERSION, byId }, legacy: false };
+}
+
+export function snapshotStationState(world, stars = {}) {
+  const byId = {};
+  if (!world || !world.stations || !world.area || !Array.isArray(world.area.stations)) {
+    return { v: STATION_STATE_VERSION, byId };
+  }
+  const defById = new Map(world.area.stations.map(def => [def.id, def]));
+  for (const st of world.stations.values()) {
+    if (!st.active) continue;
+    const def = defById.get(st.id);
+    if (!def) continue;
+    const row = normalizeRow(def, st, stars, DEFAULT_REGISTER_PILE_LIMIT);
+    if (row) byId[st.id] = row;
+  }
+  return { v: STATION_STATE_VERSION, byId };
+}
+
+function resetRuntimeStation(st, def, stars) {
+  switch (st.type) {
+    case 'checkout':
+      st.pile = 0; st.serving = ''; st.procT = 0; st._watchdogT = 0;
+      break;
+
+    case 'oven':
+      st.product = baseProduct(def); st.stock = 0; st.timer = 0;
+      break;
+    case 'display':
+      st.product = baseProduct(def); st.stock = 0; st.capacity = outputCapacity(def, stars);
+      if (st.selfServe) st.pile = 0;
+      break;
+    case 'coffee':
+      st.product = 'coffee'; st.beans = 20; st.stock = 0; st.timer = 0;
+      break;
+    case 'icecream':
+      st.product = 'icecream'; st.stock = 0; st.timer = 0;
+      break;
+    case 'blender':
+      st.fruit = 0; st.stock = 0; st.timer = 0;
+      break;
+    case 'bowl':
+      st.stock = 0; st.capacity = outputCapacity(def, stars);
+      break;
+    case 'seat':
+      // Customers intentionally restart after reload, so occupied is transient while dirt is durable.
+      st.occupied = false; st.dirty = false; st.pile = 0;
+      break;
+    default:
+      break;
+  }
+}
+
+export function restoreStationState(world, payload, stars = {}, maxPile = DEFAULT_REGISTER_PILE_LIMIT) {
+  if (!world || !world.stations || !world.area || !Array.isArray(world.area.stations)) return false;
+  const defById = new Map(world.area.stations.map(def => [def.id, def]));
+
+  // G.restore can run on an already-live world (retry/dev tooling), not only on a fresh page. Reset
+  // every durable field first so omitted legacy rows cannot inherit whatever happened in that live world.
+  for (const st of world.stations.values()) {
+    const def = defById.get(st.id);
+    if (def) resetRuntimeStation(st, def, stars);
+  }
+
+  const normalized = normalizeStationState(payload, world.area, world.built, stars, maxPile);
+  if (!normalized.ok) return false;
+  for (const [id, row] of Object.entries(normalized.data.byId)) {
+    const st = world.stations.get(id);
+    if (!st || !st.active) continue;
+    switch (st.type) {
+      case 'checkout': st.pile = row.pile; break;
+      case 'oven':
+      case 'display': st.stock = row.stock; st.product = row.product; if (st.selfServe) st.pile = row.pile | 0; break;
+      case 'coffee': st.beans = row.beans; st.stock = row.stock; st.product = row.product; break;
+      case 'icecream': st.stock = row.stock; st.product = row.product; break;
+      case 'blender': st.fruit = row.fruit; st.stock = row.stock; break;
+      case 'bowl': st.stock = row.stock; break;
+      case 'seat': st.dirty = row.dirty; st.pile = row.pile | 0; break;
+      default: break;
+    }
+  }
+  return true;
+}

@@ -2,24 +2,62 @@
 import * as THREE from 'three';
 import { heartGeo } from './pets.js';
 import { emissiveMaterial } from './palette.js';
+import { presentationScheduler } from '../core/presentationScheduler.js';
 const _v = new THREE.Vector3(), _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3(), _c = new THREE.Color();
+// The live fx system, for render code game.js builds BEFORE createFx runs and hands no fx to — the
+// environment's terrace reveal throws its dust through this. Same module-singleton shape as
+// contactShadows.js's currentContactShadows(). Null until the game creates its fx (and in tests).
+let CURRENT = null;
+export function currentFx() { return CURRENT; }
 export function createFx(scene, camera, layer, walletEl) {
   const MAXP = 300; const parts = [];
   const pm = new THREE.InstancedMesh(new THREE.SphereGeometry(0.07, 6, 4), new THREE.MeshBasicMaterial({ toneMapped: false }), MAXP);
-  pm.count = 0; pm.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAXP * 3), 3); scene.add(pm);
+  pm.count = 0; pm.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAXP * 3), 3); pm.name = 'fx:particles'; scene.add(pm);
   const hearts = []; const hg = heartGeo(); const hm = emissiveMaterial('#FF8A80');
   const F = { camera };
-  F.project = (x, y, z, out) => { _v.set(x, y, z).project(camera); out.sx = (_v.x * 0.5 + 0.5) * innerWidth; out.sy = (-_v.y * 0.5 + 0.5) * innerHeight; out.visible = _v.z < 1; return out; };
+  // `visible` used to mean only "in front of the camera", which is why a plot two screens away
+  // still reported visible=true and labelLayout.js dutifully clamped its pill onto the screen
+  // edge -- the "icon soup" the owner hit on a phone. It now means "in front of the camera AND
+  // inside the viewport, with a 12% margin so a pill does not pop in exactly at the frame edge".
+  // nx/ny (the raw NDC) are exposed for callers that want to reason about WHERE off-screen a point
+  // is, not just whether it's on-screen.
+  F.project = (x, y, z, out) => { _v.set(x, y, z).project(camera); out.sx = (_v.x * 0.5 + 0.5) * innerWidth; out.sy = (-_v.y * 0.5 + 0.5) * innerHeight; out.nx = _v.x; out.ny = _v.y; out.visible = _v.z < 1 && Math.abs(_v.x) <= 1.12 && Math.abs(_v.y) <= 1.12; return out; };
   F.burst = (x, y, z, hex, n = 12) => { const c = new THREE.Color(hex);
     for (let i = 0; i < n && parts.length < MAXP; i++) { const a = Math.random() * Math.PI * 2, sp = 1.5 + Math.random() * 2.5;
       parts.push({ x, y, z, vx: Math.cos(a) * sp, vy: 2.5 + Math.random() * 2.5, vz: Math.sin(a) * sp, life: 0.6, r: c.r, g: c.g, b: c.b, sz: 0.6 + Math.random() * 0.8 }); } };
-  F.hearts = (x, y, z, n = 3) => { for (let i = 0; i < n && hearts.length < 24; i++) { const m = new THREE.Mesh(hg, hm); m.scale.setScalar(0.18); m.position.set(x + (Math.random() - 0.5) * 0.5, y, z + (Math.random() - 0.5) * 0.3); scene.add(m); hearts.push({ m, life: 1.2, vx: (Math.random() - 0.5) * 0.4 }); } };
+  // Steam, not a burst (ship plan §1.9's "make it look alive"). A burst is thrown upward and pulled
+  // back by gravity, which is right for a sparkle and wrong for a plume: coffee steam rose 40 cm and
+  // rained back into the machine. These particles have NO gravity (`grav: 0`), a slow drift and a long
+  // life, and they ride the same instanced pool as every other particle, so a kitchen full of steam
+  // is still the one draw call fx:particles has always been.
+  F.steam = (x, y, z, hex = '#FFFFFF', n = 2) => { const c = new THREE.Color(hex);
+    for (let i = 0; i < n && parts.length < MAXP; i++) { const a = Math.random() * Math.PI * 2;
+      parts.push({ x: x + (Math.random() - 0.5) * 0.12, y, z: z + (Math.random() - 0.5) * 0.12,
+        vx: Math.cos(a) * 0.09, vy: 0.42 + Math.random() * 0.22, vz: Math.sin(a) * 0.09,
+        life: 1.1 + Math.random() * 0.5, grav: 0, r: c.r, g: c.g, b: c.b, sz: 0.5 + Math.random() * 0.4 }); } };
+  // Celebration pieces. Confetti is paper: a slow fall (grav 0.18) with a sideways drift and a long
+  // life, rained over an area. A firework is a sphere of sparks thrown out from one point in the air,
+  // barely pulled down. Both ride the same instanced pool, so a party is still one draw call.
+  const PARTY = ['#FF8A80', '#FFD84D', '#7BC47F', '#6EC6FF', '#8B7CF6', '#FFFFFF'];
+  F.confetti = (x, z, spread = 4, n = 40) => {
+    for (let i = 0; i < n && parts.length < MAXP; i++) { _c.set(PARTY[i % PARTY.length]);
+      parts.push({ x: x + (Math.random() - 0.5) * spread * 2, y: 3.2 + Math.random() * 1.6, z: z + (Math.random() - 0.5) * spread * 2,
+        vx: (Math.random() - 0.5) * 0.8, vy: -0.2 - Math.random() * 0.4, vz: (Math.random() - 0.5) * 0.8,
+        life: 2.2 + Math.random() * 1.2, grav: 0.02, r: _c.r, g: _c.g, b: _c.b, sz: 0.55 + Math.random() * 0.4 }); } };
+  F.firework = (x, y, z, hex, n = 40) => { const c = new THREE.Color(hex || PARTY[(Math.random() * 5) | 0]);
+    for (let i = 0; i < n && parts.length < MAXP; i++) {
+      const u = Math.random() * 2 - 1, a = Math.random() * Math.PI * 2, r = Math.sqrt(1 - u * u), sp = 2.6 + Math.random() * 0.8;
+      parts.push({ x, y, z, vx: r * Math.cos(a) * sp, vy: u * sp + 0.6, vz: r * Math.sin(a) * sp,
+        life: 1.0 + Math.random() * 0.5, grav: 0.35, r: c.r, g: c.g, b: c.b, sz: 1.4 + Math.random() * 0.9 }); }
+    // the flash at the centre, so the burst reads as one bang and not as scattered dots
+    for (let i = 0; i < 4 && parts.length < MAXP; i++) parts.push({ x, y, z, vx: 0, vy: 0, vz: 0, life: 0.22, grav: 0, r: 1, g: 1, b: 0.9, sz: 4.5 }); };
+  F.hearts = (x, y, z, n = 3) => { for (let i = 0; i < n && hearts.length < 24; i++) { const m = new THREE.Mesh(hg, hm); m.name = 'fx:heart'; m.scale.setScalar(0.18); m.position.set(x + (Math.random() - 0.5) * 0.5, y, z + (Math.random() - 0.5) * 0.3); scene.add(m); hearts.push({ m, life: 1.2, vx: (Math.random() - 0.5) * 0.4 }); } };
   const tmp = { sx: 0, sy: 0, visible: true };
   F.coinArc = (x, y, z, n = 6, onArrive) => { F.project(x, y, z, tmp); const r = walletEl.getBoundingClientRect(); const tx = r.left + 24, ty = r.top + r.height / 2; let first = true;
     for (let i = 0; i < Math.min(n, 12); i++) { const d = document.createElement('div'); d.className = 'fcoin';
       const sx = tmp.sx + (Math.random() - 0.5) * 40, sy = tmp.sy + (Math.random() - 0.5) * 40; d.style.left = sx + 'px'; d.style.top = sy + 'px'; layer.appendChild(d);
-      setTimeout(() => { d.style.transition = 'left .55s cubic-bezier(.3,-.3,.6,1), top .55s cubic-bezier(.4,.2,.2,1), transform .55s'; d.style.left = tx + 'px'; d.style.top = ty + 'px'; d.style.transform = 'translate(-50%,-50%) scale(.6)'; }, 20 + i * 40);
-      setTimeout(() => { d.remove(); if (first && onArrive) { first = false; onArrive(); } }, 600 + i * 40); } };
+      presentationScheduler.schedule(() => { d.style.transition = 'left .55s cubic-bezier(.3,-.3,.6,1), top .55s cubic-bezier(.4,.2,.2,1), transform .55s'; d.style.left = tx + 'px'; d.style.top = ty + 'px'; d.style.transform = 'translate(-50%,-50%) scale(.6)'; }, 20 + i * 40);
+      presentationScheduler.schedule(() => { d.remove(); if (first && onArrive) { first = false; onArrive(); } }, 600 + i * 40); } };
   // M3 T5: a green cash bill flying FROM the wallet TO a build outline while it's being paid off
   // (opposite direction of coinArc, which flies coins TO the wallet on a sale) — zones.js calls
   // this at most once per BILL_INTERVAL while genuinely spending on an active zone.
@@ -29,22 +67,39 @@ export function createFx(scene, camera, layer, walletEl) {
     const r = walletEl.getBoundingClientRect(); const sx = r.left + 24, sy = r.top + r.height / 2;
     const d = document.createElement('div'); d.className = 'fbill';
     d.style.left = sx + 'px'; d.style.top = sy + 'px'; d.style.opacity = '1'; layer.appendChild(d);
-    requestAnimationFrame(() => {
+    presentationScheduler.afterFrames(() => {
       d.style.transition = 'left .5s cubic-bezier(.3,-.2,.5,1), top .5s cubic-bezier(.4,.1,.3,1), transform .5s, opacity .5s';
       d.style.left = tmp.sx + 'px'; d.style.top = tmp.sy + 'px';
       d.style.transform = 'translate(-50%,-50%) scale(.7) rotate(18deg)'; d.style.opacity = '0.3';
-    });
-    setTimeout(() => d.remove(), 550);
+    }, 1);
+    presentationScheduler.schedule(() => d.remove(), 550);
   };
-  F.number = (x, y, z, text, cls) => { F.project(x, y, z, tmp); if (!tmp.visible) return; const d = document.createElement('div'); d.className = cls ? 'fnum ' + cls : 'fnum'; d.textContent = text; d.style.left = tmp.sx + 'px'; d.style.top = tmp.sy + 'px'; layer.appendChild(d); setTimeout(() => d.remove(), 950); };
+  // A small, short-lived, low puff at the feet. Deliberately faint: this fires on every stride of
+  // every character on the floor, so it has to read as contact rather than as an effect.
+  F.dust = (x, z, strength = 1) => {
+    const n = strength > 1 ? 3 : 2;
+    for (let i = 0; i < n && parts.length < MAXP; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 0.25 + Math.random() * 0.45;
+      parts.push({
+        x: x + (Math.random() - 0.5) * 0.16, y: 0.06, z: z + (Math.random() - 0.5) * 0.16,
+        vx: Math.cos(a) * sp, vy: 0.5 + Math.random() * 0.5, vz: Math.sin(a) * sp,
+        life: 0.26 + Math.random() * 0.12,
+        r: 0.86, g: 0.80, b: 0.70, sz: 0.45 + Math.random() * 0.35,
+      });
+    }
+  };
+  F.number = (x, y, z, text, cls) => { F.project(x, y, z, tmp); if (!tmp.visible) return; const d = document.createElement('div'); d.className = cls ? 'fnum ' + cls : 'fnum'; d.textContent = text; d.style.left = tmp.sx + 'px'; d.style.top = tmp.sy + 'px'; layer.appendChild(d); presentationScheduler.schedule(() => d.remove(), 950); };
   F.update = dt => {
     let k = 0;
     for (let i = parts.length - 1; i >= 0; i--) { const p = parts[i]; p.life -= dt; if (p.life <= 0) { parts.splice(i, 1); continue; }
-      p.vy -= 9 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; if (p.y < 0.05) { p.y = 0.05; p.vy *= -0.3; p.vx *= 0.7; p.vz *= 0.7; }
+      const grav = p.grav === undefined ? 1 : p.grav;
+      p.vy -= 9 * grav * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+      if (grav && p.y < 0.05) { p.y = 0.05; p.vy *= -0.3; p.vx *= 0.7; p.vz *= 0.7; }
       _p.set(p.x, p.y, p.z); _s.setScalar(p.sz * Math.min(1, p.life * 3)); _m.compose(_p, _q, _s); pm.setMatrixAt(k, _m); pm.setColorAt(k, _c.setRGB(p.r, p.g, p.b)); k++; }
     pm.count = k; if (k) { pm.instanceMatrix.needsUpdate = true; pm.instanceColor.needsUpdate = true; }
     for (let i = hearts.length - 1; i >= 0; i--) { const h = hearts[i]; h.life -= dt; if (h.life <= 0) { scene.remove(h.m); hearts.splice(i, 1); continue; }
       h.m.position.y += dt * 0.9; h.m.position.x += h.vx * dt; h.m.scale.setScalar(0.18 * Math.min(1, h.life * 2)); h.m.lookAt(camera.position); }
   };
+  CURRENT = F;
   return F;
 }

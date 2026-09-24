@@ -1,0 +1,86 @@
+// Barista role contract. The worker owns only the coffee lane: bean top-ups + moving finished
+// coffee/latte to the Coffee Bar. It never services ovens, cupcakes, cookies, smoothies, registers
+// or tables, preserving the Runner's broader cross-product value.
+import { familyOf, STAFF, hireCost } from './economy.js';
+
+export const BARISTA = Object.freeze({
+  unlockDay: 5,
+  cost: STAFF.barista.costs[0],
+  cap: STAFF.barista.costs.length,
+  speed: STAFF.barista.speed,
+  carry: STAFF.barista.carry,
+  refillAt: 7,
+  refillTo: 18,
+});
+
+function builtHas(built, id) {
+  return !!(built && (typeof built.has === 'function' ? built.has(id) : Array.isArray(built) ? built.includes(id) : built[id]));
+}
+
+export function baristaHireState(day, built, coins = 0, count = 0) {
+  const coffeeBuilt = builtHas(built, 'z_coffee');
+  // Price the NEXT barista rather than always the first. A second barista is now hireable, and
+  // quoting costs[0] for it would have charged 2300 for a 6000-coin hire.
+  const cost = hireCost('barista', { barista: count | 0 });
+  if (cost == null) return { unlocked: true, available: false, reason: 'full', cost: null };
+  if (!coffeeBuilt) return { unlocked: false, available: false, reason: 'coffee', cost };
+  if ((day | 0) < BARISTA.unlockDay) return { unlocked: false, available: false, reason: 'day', cost };
+  const affordable = Number(coins) >= cost;
+  return { unlocked: true, available: affordable, reason: affordable ? 'ready' : 'coins', cost };
+}
+
+// The original coffee-lane search, unchanged in every detail (renamed so the dispatcher below can
+// call it without recursing on itself).
+function coffeeLane(world) {
+  if (!world || !world.stations) return null;
+  let machine = null, bar = null, pantry = null;
+  for (const st of world.stations.values()) {
+    if (!st || !st.active) continue;
+    if (st.type === 'coffee' && !machine) machine = st;
+    else if (st.type === 'pantry' && !pantry) pantry = st;
+    else if (st.type === 'display' && familyOf(st.product) === 'coffee' && !bar) bar = st;
+  }
+  return machine && bar ? { machine, bar, pantry } : null;
+}
+// The Barista's lane: the coffee machine, its bar and the pantry its beans come from. (A second,
+// ice cream lane for a second Barista existed here, fed by the cold pantry's cream; nothing ever
+// hired into it, and the ice cream machine needs no supply since 2026-09-19 — Runners and the
+// owner stock the garden stand.)
+export function baristaLane(world) {
+  return coffeeLane(world);
+}
+
+export function baristaDecision(world) {
+  const lane = baristaLane(world);
+  if (!lane) return { kind: 'idle', reason: 'coffee-lane-unavailable' };
+  const { machine, bar, pantry } = lane;
+  const supply = machine.beans;
+
+  // Pantry is the same supply source the owner uses; a Barista never fabricates beans without it.
+  if (pantry && supply <= BARISTA.refillAt) {
+    const room = Math.max(0, Math.min(20 - supply, BARISTA.refillTo - supply));
+    if (room > 0) return { kind: 'refillBeans', pantryId: pantry.id, machineId: machine.id, amount: room };
+  }
+
+  const room = Math.max(0, (bar.capacity | 0) - (bar.stock | 0));
+  const ready = Math.max(0, machine.stock | 0);
+  if (room > 0 && ready > 0 && familyOf(machine.product) === familyOf(bar.product)) {
+    return {
+      kind: 'restockCoffee',
+      sourceId: machine.id,
+      targetId: bar.id,
+      product: machine.product,
+      count: Math.min(BARISTA.carry, room, ready),
+    };
+  }
+
+  return { kind: 'idle', reason: supply <= BARISTA.refillAt && !pantry ? 'pantry-unavailable' : 'coffee-lane-stable' };
+}
+
+export function baristaRoleSummary() {
+  return {
+    owns: ['coffee beans', 'coffee machine', 'coffee bar'],
+    excludes: ['cookies', 'cupcakes', 'smoothies', 'registers', 'tables'],
+    runnerStillOwns: 'cross-product production-to-display restocking',
+  };
+}

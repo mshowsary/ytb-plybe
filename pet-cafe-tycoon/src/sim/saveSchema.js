@@ -1,0 +1,840 @@
+import { normalizeServicePolicy } from './servicePolicy.js';
+import { normalizeSocials } from './petSocials.js';
+import { normalizeCalendar } from './rewards.js';
+// Canonical save validation/migration for cloud persistence.
+// The host boundary uses this BEFORE a load becomes writable; applySave uses it again defensively.
+import { DAY_LENGTH, createDay, phaseOf } from './day.js';
+import {
+  UPGRADES, STAFF, WORKER_UPGRADES, MACHINE_UPGRADES, STAR_IDS,
+} from './economy.js';
+import { MASTERY, RENOVATIONS, CUP_REWARDS } from './career.js';
+import { PET_PROFILES, PET_SPECIES, petKey } from './petBook.js';
+import { DECOR_IDS, DECOR_ID_SET, DECOR_BY_ID, decorUnlocked } from '../../data/decor.js';
+import { ACCESSORY_IDS, ACCESSORY_ID_SET } from '../../data/accessories.js';
+import { restoreSettlement } from './settlement.js';
+import { DAILY_GOAL_KINDS } from './dailyGoal.js';
+import {
+  PAW_MAX_STAR, PAW_SEAT_WINDOW_DAYS, PAW_SEAT_WINDOW_KEEP, pawEntitlementCeiling,
+} from './pawRating.js';
+import { deriveSeasonMeta } from './seasons.js';
+import { franchiseMultiplier } from './franchise.js';
+
+export const CURRENT_SAVE_VERSION = 5;
+export const SAVE_LIMITS = Object.freeze({
+  maxDay: 10_000,
+  maxCoins: 100_000_000,
+  maxCounter: 1_000_000_000,
+  maxShiftOutcomes: 500,
+  maxShiftEarned: 2_000_000,
+
+  // Progression ceilings for restore. These used to be the authored array lengths, which was fine
+  // while the ladders ended there -- but the ladders now continue, so clamping to the array length
+  // would silently demote a player's real progress on every load: a ★5 oven would come back as ★3
+  // and the coins spent on it would be gone. That is a trust-destroying data-loss bug, not a test
+  // detail.
+  //
+  // They remain BOUNDED because restore is an untrusted input: a tampered save must not be able to
+  // invent unlimited power. The numbers are far above anything reachable in play -- the cost curves
+  // are geometric, so a tier-20 speed upgrade already prices at roughly 2e8 coins, or ~100,000 days
+  // of income -- which makes these a safety rail rather than a design limit.
+  maxUpgradeTier: 50,
+  maxStaffPerRole: 12,
+  maxWorkerTier: 50,
+  maxMachineTier: 50,
+  maxStarTier: 30,
+
+  // v5 meta ceilings. Followers/franchise/season/residents are progression the player can only
+  // earn one shift at a time; a tampered save must not be able to hand itself a finished account.
+  maxFollowers: 1_000_000,
+  maxResidents: 12,
+  maxAlbumShots: 999,
+  maxSeasonIndex: 3,
+  maxFranchiseLevel: 50,
+
+  // Paw Rating (plan 3.4). The star ceiling is the authored tier count -- but the real bound on a
+  // restored rating is pawEntitlementCeiling(), not this number; see normalizePawRating below.
+  maxPawStar: PAW_MAX_STAR,
+});
+
+const BAD_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+const PARTY_KEYS = new Set(['cookie', 'cupcake', 'coffee', 'smoothie', 'treat']);
+const CUP_TIERS = new Set(Object.keys(CUP_REWARDS));
+const PET_KEYS = new Set(
+  PET_SPECIES.flatMap(species => PET_PROFILES[species].map((_, variant) => petKey(species, variant))),
+);
+const STAT_KEYS = ['served', 'lifetimeEarned', 'serviceFees', 'wasteFees', 'rewardedReliefCoins', 'partyOrderCoins'];
+// dayStats keys persisted across a reload. applySave replaces state.dayStats with EXACTLY this
+// set, so a live counter that is missing here is silently zeroed on every save/load -- which is why
+// 'missedSeats' (task 0.6, dirty tables) and 'returnActions' (systems/serviceFriction.js, read back
+// by ui/serviceSummary.js) have to be listed: a player who reloads mid-shift keeps the shift they
+// actually played.
+//
+// 'seatedServed' and 'iceCreams' joined them in Batch E1: they are what two of the five daily-goal
+// kinds count (sim/dailyGoal.js PROGRESS), so leaving them out would reset a "seat 8 table meals"
+// goal to 0/8 on every reload -- exactly the silent-zero this list exists to prevent.
+// 'specialServed' stays for saves written before the special-day theme was deleted; nothing writes
+// it any more, and dropping it would make an old save's shift fail its round trip.
+const SHIFT_STAT_KEYS = ['photos', 'followersStart', 'petsStart', 'served', 'lost', 'earned', 'serviceFees', 'serviceMisses', 'wasteFees', 'bestStreak', 'missedSeats', 'seatedServed', 'iceCreams', 'specialServed', 'returnActions'];
+// A settlement record is authored by sim/settlement.js snapshotStats(); restore must reproduce
+// EXACTLY those fields or a reloaded end-of-shift summary stops deep-equalling the live one it is
+// supposed to be. So the settlement key list is pinned separately from the live dayStats list.
+const SETTLEMENT_STAT_KEYS = ['served', 'lost', 'earned', 'serviceFees', 'serviceMisses', 'wasteFees', 'bestStreak'];
+
+const ok = (data, migratedFrom) => ({ ok: true, data, migratedFrom });
+const bad = reason => ({ ok: false, reason });
+const isRecord = value => !!value && typeof value === 'object' && !Array.isArray(value);
+const has = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+const finiteNumber = value => typeof value === 'number' && Number.isFinite(value);
+const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+const clampInt = (value, min, max, fallback = min) => finiteNumber(value)
+  ? clamp(Math.trunc(value), min, max)
+  : fallback;
+const safeString = (value, fallback = '', max = 160) => typeof value === 'string'
+  ? value.slice(0, max)
+  : fallback;
+
+function optionalRecord(parent, key) {
+  if (!has(parent, key) || parent[key] == null) return { ok: true, value: {} };
+  return isRecord(parent[key]) ? { ok: true, value: parent[key] } : { ok: false, reason: key };
+}
+
+function readVersion(raw) {
+  if (!has(raw, 'v') || raw.v == null) return { ok: true, version: 0 }; // pre-version / early saves
+  if (!Number.isInteger(raw.v) || raw.v < 1 || raw.v > CURRENT_SAVE_VERSION) return { ok: false };
+  return { ok: true, version: raw.v };
+}
+
+function normalizeBuildState(raw, area) {
+  const areaId = area && typeof area.id === 'string' ? area.id : 'a1';
+  let source = [];
+
+  if (has(raw, 'builds') && raw.builds != null) {
+    if (!isRecord(raw.builds)) return { ok: false, reason: 'builds' };
+    if (has(raw.builds, areaId) && raw.builds[areaId] != null) {
+      if (!Array.isArray(raw.builds[areaId])) return { ok: false, reason: `builds.${areaId}` };
+      source = raw.builds[areaId];
+    }
+  } else if (has(raw, 'built') && raw.built != null) {
+    // Earliest snapshots/world fixtures used a flat `built` array.
+    if (!Array.isArray(raw.built)) return { ok: false, reason: 'built' };
+    source = raw.built;
+  }
+
+  const requested = new Set();
+  for (const id of source.slice(0, 128)) if (typeof id === 'string' && id.length <= 80) requested.add(id);
+
+  if (!area || !Array.isArray(area.zones)) {
+    return { ok: true, areaId, built: [...requested].slice(0, 64), builtSet: requested };
+  }
+
+  // Build dependencies are authoritative. An orphaned advanced-zone id cannot invent an unlock.
+  const built = [];
+  const builtSet = new Set();
+  for (const zone of area.zones) {
+    if (!requested.has(zone.id)) continue;
+    if (zone.requires && !builtSet.has(zone.requires)) continue;
+    built.push(zone.id);
+    builtSet.add(zone.id);
+  }
+  return { ok: true, areaId, built, builtSet };
+}
+
+function normalizePartial(raw, area, builtSet) {
+  if (has(raw, 'partial') && raw.partial != null && !isRecord(raw.partial)) return { ok: false, reason: 'partial' };
+  const source = isRecord(raw.partial) ? raw.partial : {};
+  const out = {};
+
+  if (!area || !Array.isArray(area.zones)) {
+    for (const [id, value] of Object.entries(source).slice(0, 64)) {
+      if (BAD_KEYS.has(id) || typeof id !== 'string' || id.length > 80 || !finiteNumber(value)) continue;
+      const amount = Math.trunc(value);
+      if (amount > 0 && amount <= SAVE_LIMITS.maxCoins) out[id] = amount;
+    }
+    return { ok: true, partial: out };
+  }
+
+  const zoneById = new Map(area.zones.map(zone => [zone.id, zone]));
+  for (const [id, value] of Object.entries(source).slice(0, 64)) {
+    const zone = zoneById.get(id);
+    if (!zone || builtSet.has(id) || !finiteNumber(value)) continue;
+    if (zone.requires && !builtSet.has(zone.requires)) continue;
+    const amount = Math.trunc(value);
+    // A complete/over-complete partial is corruption, not "almost free" progress. Drop it rather
+    // than clamping it to price-1, which would manufacture value from an oversized save number.
+    if (amount <= 0 || amount >= zone.price) continue;
+    out[id] = amount;
+  }
+  return { ok: true, partial: out };
+}
+
+function normalizeDay(raw) {
+  if (has(raw, 'dayState') && raw.dayState != null && !isRecord(raw.dayState)) return { ok: false, reason: 'dayState' };
+  const src = isRecord(raw.dayState) ? raw.dayState : createDay();
+  const day = clampInt(src.day, 1, SAVE_LIMITS.maxDay, 1);
+  const t = finiteNumber(src.t) ? clamp(src.t, 0, DAY_LENGTH) : 0;
+  // t is the source of truth. A forged phase cannot unlock rush-only behavior, and a terminal
+  // timestamp is always terminal so reloading cannot replay settlement from a half-ended shape.
+  const ended = t >= DAY_LENGTH;
+  const phase = phaseOf(t);
+  return { ok: true, dayState: ended ? { day, t: DAY_LENGTH, phase, _ended: true } : { day, t, phase } };
+}
+
+function normalizeUpgrades(raw) {
+  const source = isRecord(raw.upgrades) ? raw.upgrades : (isRecord(raw.up) ? raw.up : {});
+  const out = {};
+  for (const key of Object.keys(UPGRADES)) out[key] = clampInt(source[key], 0, SAVE_LIMITS.maxUpgradeTier, 0);
+  return out;
+}
+
+function normalizeStaff(raw) {
+  const source = isRecord(raw.staff) ? raw.staff : {};
+  const out = {};
+  for (const key of Object.keys(STAFF)) out[key] = clampInt(source[key], 0, SAVE_LIMITS.maxStaffPerRole, 0);
+  return out;
+}
+
+function normalizeLevels(raw) {
+  const sl = isRecord(raw.staffLevels) ? raw.staffLevels : {};
+  const runner = isRecord(sl.runner) ? sl.runner : {};
+  const cashier = isRecord(sl.cashier) ? sl.cashier : {};
+  const cleaner = isRecord(sl.cleaner) ? sl.cleaner : {};
+  const ml = isRecord(raw.machineLevels) ? raw.machineLevels : {};
+  return {
+    staffLevels: {
+      runner: {
+        speed: clampInt(runner.speed, 0, SAVE_LIMITS.maxWorkerTier, 0),
+        carry: clampInt(runner.carry, 0, SAVE_LIMITS.maxWorkerTier, 0),
+      },
+      cashier: { speed: clampInt(cashier.speed, 0, SAVE_LIMITS.maxWorkerTier, 0) },
+      cleaner: { speed: clampInt(cleaner.speed, 0, SAVE_LIMITS.maxWorkerTier, 0) },
+    },
+    machineLevels: {
+      oven: clampInt(ml.oven, 0, SAVE_LIMITS.maxMachineTier, 0),
+      coffee: clampInt(ml.coffee, 0, SAVE_LIMITS.maxMachineTier, 0),
+      display: clampInt(ml.display, 0, SAVE_LIMITS.maxMachineTier, 0),
+    },
+  };
+}
+
+function normalizeStats(raw) {
+  const src = isRecord(raw.stats) ? raw.stats : {};
+  const out = {};
+  for (const key of STAT_KEYS) out[key] = clampInt(src[key], 0, SAVE_LIMITS.maxCounter, 0);
+  // Migrate the old top-level lifetimeEarned field when stats did not yet carry it.
+  if (!has(src, 'lifetimeEarned') && finiteNumber(raw.lifetimeEarned)) {
+    out.lifetimeEarned = clampInt(raw.lifetimeEarned, 0, SAVE_LIMITS.maxCounter, 0);
+  }
+  return out;
+}
+
+// Lifetime guests served, never below what the save's own shift history proves. Until 2026-09-19
+// the live counter never moved (systems/customers.js listened for a 'pay' that stepRegisters emits
+// after that listener has run), so every existing save holds 0 and the Paw Rating's ★1 row was
+// unreachable. The best lifetime source a save carries is meta.career.history: one row per
+// settled shift, written from that shift's own served count (career.recordCareerShift). The
+// in-progress shift is not in it yet, so today's dayStats.served is added unless today is already
+// settled. recipeSales counts items rather than guests, and the ledger only holds the current
+// day, so neither is used. Math.max keeps it idempotent and never lowers a live count.
+function backfillLifetimeServed(served, history, dayStats, day) {
+  let proven = 0;
+  for (const row of Object.values(history || {})) proven += row.served | 0;
+  if (!has(history || {}, String(day))) proven += dayStats.served | 0;
+  return Math.max(served, Math.min(proven, SAVE_LIMITS.maxCounter));
+}
+
+function normalizeSettings(raw) {
+  const src = isRecord(raw.settings) ? raw.settings : {};
+  return {
+    sfx: typeof src.sfx === 'boolean' ? src.sfx : true,
+    music: typeof src.music === 'boolean' ? src.music : true,
+    reducedMotion: typeof src.reducedMotion === 'boolean' ? src.reducedMotion : false,
+  };
+}
+
+function normalizeIntro(raw) {
+  const src = isRecord(raw.intro) ? raw.intro : {};
+  const step = clampInt(src.step, 0, 5, 0);
+  return { step, active: step < 5 };
+}
+
+function normalizeStars(raw, area, builtSet) {
+  const src = isRecord(raw.stars) ? raw.stars : {};
+  const stationById = area && Array.isArray(area.stations)
+    ? new Map(area.stations.map(st => [st.id, st]))
+    : null;
+  const out = {};
+  for (const id of STAR_IDS) {
+    if (!has(src, id)) continue;
+    if (stationById) {
+      const st = stationById.get(id);
+      if (!st || (st.builtBy && !builtSet.has(st.builtBy))) continue;
+    }
+    out[id] = clampInt(src[id], 1, SAVE_LIMITS.maxStarTier, 1);
+  }
+  return out;
+}
+
+function normalizeShiftStats(raw) {
+  const src = isRecord(raw.dayStats) ? raw.dayStats : {};
+  const out = {};
+  for (const key of SHIFT_STAT_KEYS) {
+    const max = key === 'earned' ? SAVE_LIMITS.maxShiftEarned : SAVE_LIMITS.maxShiftOutcomes;
+    out[key] = clampInt(src[key], 0, max, 0);
+  }
+  out.bestStreak = Math.min(out.bestStreak, out.served);
+  return out;
+}
+
+function normalizeRewardedDays(raw, maxDay) {
+  if (!isRecord(raw)) return {};
+  const out = {};
+  let count = 0;
+  for (const [key, value] of Object.entries(raw)) {
+    if (count >= Math.min(20_000, maxDay * 3 + 32)) break;
+    if (BAD_KEYS.has(key) || !value || key.length > 40) continue;
+    // Every reason prefix adPacing.js can mint. A key shape missing from this list is not a
+    // cosmetic omission: the claim silently evaporates on reload and the ad can be re-offered, so
+    // this list and adPacing.js's *RewardKey exporters must be changed together.
+    const match = /^(?:(?:relief|gift|speed-build|rare-visitor|golden-shot):)?(\d+)$/.exec(key);
+    if (!match) continue;
+    const day = Number(match[1]);
+    if (!Number.isInteger(day) || day < 1 || day > maxDay) continue;
+    out[key] = 1; count++;
+  }
+  return out;
+}
+
+function normalizeRewards(raw) {
+  if (!isRecord(raw)) return { calendar: { lastKey: null, streak: 0 } };
+  return {
+    calendar: normalizeCalendar(raw.calendar),
+  };
+}
+
+function normalizeShiftRatings(raw, maxDay) {
+  if (!isRecord(raw)) return {};
+  const out = {};
+  for (const [key, value] of Object.entries(raw).slice(0, SAVE_LIMITS.maxDay)) {
+    if (!/^\d+$/.test(key)) continue;
+    const day = Number(key);
+    if (!Number.isInteger(day) || day < 1 || day > maxDay || !finiteNumber(value)) continue;
+    out[String(day)] = clampInt(value, 1, 3, 1);
+  }
+  return out;
+}
+
+function normalizePetBook(raw) {
+  if (!isRecord(raw)) return {};
+  const out = {};
+  for (const key of PET_KEYS) if (raw[key]) out[key] = 1;
+  return out;
+}
+
+function normalizePetFriendship(raw) {
+  if (!isRecord(raw)) return {};
+  const out = {};
+  for (const key of PET_KEYS) {
+    const visits = clampInt(raw[key], 0, 9999, 0);
+    if (visits > 0) out[key] = visits;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------
+// v5 meta fields (plan 7.3). Restore is UNTRUSTED INPUT: everything below is validated against an
+// authored catalogue or clamped to a bound, and anything that does not match is DROPPED rather
+// than coerced, so a hand-edited save can never hand itself progress it did not play for.
+
+// Owned decor. Unknown ids vanish; duplicates collapse; the result is emitted in catalogue order
+// so re-validating an already canonical save produces a byte-identical array.
+function normalizeDecor(raw, builtSet = null, bestStar = PAW_MAX_STAR) {
+  if (!Array.isArray(raw)) return [];
+  const wanted = new Set();
+  for (const id of raw.slice(0, 128)) if (typeof id === 'string' && DECOR_ID_SET.has(id)) wanted.add(id);
+  // Zone gate, matching normalizePartial (skips a zone whose `requires` is not built) and
+  // normalizeStars (skips a station whose builtBy is not built). economy.buyDecor refuses to sell a
+  // locked row, so a save that holds one is hand-edited -- and it must not keep the item OR the +1
+  // reputation of headroom the item would otherwise buy below.
+  //
+  // The STAR gate is not this pass's to apply. Pass 1 runs before the rating is known, and calling
+  // decorUnlocked with the default 0 threw away every ★-gated piece a player owned on EVERY load —
+  // the pre-existing bug test/franchise.test.js has carried as a TODO. Pass 1 therefore passes the
+  // top star (zone gate only); pass 2 below re-filters with the real pawBest, which is the star
+  // check that decides.
+  return DECOR_IDS.filter(id => wanted.has(id) && decorUnlocked(DECOR_BY_ID.get(id), builtSet, bestStar));
+}
+
+// Accessories bought in the retired spa's boutique: unknown ids vanish, duplicates collapse,
+// catalogue order for byte-identical re-validation -- same shape as normalizeDecor above. There is
+// no zone gate. The boutique that used to be one is gone, so a gate would confiscate every real
+// purchase on the next load, and it never stopped a forger anyway: followers restore up to
+// SAVE_LIMITS.maxFollowers, far past the top follower milestone, which unlocks every item already.
+function normalizeAccessoriesBought(raw) {
+  if (!Array.isArray(raw)) return [];
+  const wanted = new Set();
+  for (const id of raw.slice(0, 128)) if (typeof id === 'string' && ACCESSORY_ID_SET.has(id)) wanted.add(id);
+  return ACCESSORY_IDS.filter(id => wanted.has(id));
+}
+
+// Album entries (plan 3.2): per pet, how many shots, the best score reached (0 Ok / 1 Good /
+// 2 Perfect) and the pose+accessory shown in that best shot. `poseId` references a
+// petTraitMotion clip (loaf / sit-tilt / ear-up / cheeks, one per species) and `accessoryId` a
+// data/accessories.js catalogue entry -- neither module exports its id list yet (both are being
+// authored alongside this one), so a shape-level slug pattern stands in for a real catalogue
+// membership check. That is still a real bound: a tampered id can at worst name a well-formed slug
+// that resolves to nothing at render time, never an id that grants owned content the player did
+// not earn. Tighten both patterns to `include(idSet)` checks once those modules land.
+const SLUG_RE = /^[a-z][a-z0-9-]{0,23}$/;
+const safeSlug = value => typeof value === 'string' && SLUG_RE.test(value) ? value : null;
+
+// A pre-Photo-Studio v5 save (Batch 0/1) could only ever have written a bare shot count. Migrating
+// it into `{ shots, best: 0, poseId: null, accessoryId: null }` keeps those shots on load instead
+// of discarding them the first time this schema meets richer data.
+function normalizeAlbumEntry(raw) {
+  const isLegacyCount = finiteNumber(raw);
+  if (!isLegacyCount && !isRecord(raw)) return null;
+  const shots = clampInt(isLegacyCount ? raw : raw.shots, 0, SAVE_LIMITS.maxAlbumShots, 0);
+  if (shots <= 0) return null;
+  return {
+    shots,
+    best: isLegacyCount ? 0 : clampInt(raw.best, 0, 2, 0),
+    poseId: isLegacyCount ? null : safeSlug(raw.poseId),
+    accessoryId: isLegacyCount ? null : safeSlug(raw.accessoryId),
+  };
+}
+
+function normalizeAlbum(raw) {
+  if (!isRecord(raw)) return {};
+  const out = {};
+  for (const key of PET_KEYS) {
+    if (!has(raw, key)) continue;
+    const entry = normalizeAlbumEntry(raw[key]);
+    if (entry) out[key] = entry;
+  }
+  return out;
+}
+
+// Equipped cosmetics: pet key -> catalogue id. Both catalogues are equippable: decor ids were the
+// placeholder before data/accessories.js landed, and the 12 accessories are what a pet actually
+// wears. Anything unrecognised is dropped, which is why a forged "equipped" cannot render content.
+const EQUIPPABLE_IDS = new Set([...DECOR_IDS, ...ACCESSORY_IDS]);
+function normalizeEquipped(raw) {
+  if (!isRecord(raw)) return {};
+  const out = {};
+  for (const key of PET_KEYS) {
+    const value = raw[key];
+    if (typeof value === 'string' && EQUIPPABLE_IDS.has(value)) out[key] = value;
+  }
+  return out;
+}
+
+// Resident pets: valid keys only, deduped, capped at the resident slot count.
+function normalizeResidents(raw) {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set();
+  for (const key of raw.slice(0, 64)) {
+    if (typeof key !== 'string' || !PET_KEYS.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    if (seen.size >= SAVE_LIMITS.maxResidents) break;
+  }
+  return [...PET_KEYS].filter(key => seen.has(key));
+}
+
+// Paw Rating ★3 needs per-day missed-seat history, which nothing else persists: career history
+// records `lost` (guests who gave up), not `missedSeats` (a paid guest finding no clean table), and
+// dayStats.missedSeats is reset every shift end. meta.pawSeatWindow is that history -- a ring of the
+// last PAW_SEAT_WINDOW_KEEP days plus the best complete window ever seen.
+function normalizePawSeatWindow(raw, completedDays) {
+  // Nothing settled yet means nothing can have been recorded. Also guards the day clamp below,
+  // whose min/max would invert at completedDays 0.
+  if (completedDays < 1) return { days: [], best: null };
+  const src = isRecord(raw) ? raw : {};
+  const byDay = new Map();
+  if (Array.isArray(src.days)) {
+    for (const entry of src.days.slice(0, PAW_SEAT_WINDOW_KEEP * 4)) {
+      if (!isRecord(entry) || !finiteNumber(entry.day)) continue;
+      const day = Math.trunc(entry.day);
+      // DROPPED, not clamped: clamping day 900 down to the last settled day would invent a record
+      // for a day the player did play, out of one they did not.
+      if (day < 1 || day > completedDays || byDay.has(day)) continue;
+      byDay.set(day, { day, missed: clampInt(entry.missed, 0, SAVE_LIMITS.maxShiftOutcomes, 0) });
+    }
+  }
+  const days = [...byDay.values()].sort((a, b) => a.day - b.day).slice(-PAW_SEAT_WINDOW_KEEP);
+  // `best` is the one value here the ring cannot re-derive once the window it describes has rolled
+  // off, so it has to be restorable -- but it is a MINIMUM, meaning the forgeable direction is
+  // downward (0 = a perfect week). The bound that matters is therefore not its magnitude but the
+  // right to hold one at all: a save that has not settled a full 7 days has never closed a window,
+  // so its claim is dropped outright. Past that, a clean week is genuinely achievable play, and ★3
+  // still needs the terrace and 10 photos, each clamped by its own normaliser.
+  const best = days.length >= PAW_SEAT_WINDOW_DAYS && completedDays >= PAW_SEAT_WINDOW_DAYS && finiteNumber(src.best)
+    ? clamp(Math.trunc(src.best), 0, PAW_SEAT_WINDOW_DAYS * SAVE_LIMITS.maxShiftOutcomes)
+    : null;
+  return { days, best };
+}
+
+// A season cannot have started on a day the player has not reached.
+// The season is a pure function of the day (src/sim/seasons.js is built on exactly that), so the
+// saved fields are a CACHE of what the day already implies, not a declaration. Deriving instead of
+// clamping closes a real exploit: data/accessories.js's seasonAccessoryUnlocked reads index and
+// dayStart verbatim, so a forged `season: { index: 3, dayStart: 1 }` handed a day-1 save three
+// seasonal accessories outright. `raw` is deliberately ignored — there is nothing in it worth
+// keeping that the day does not already say.
+function normalizeSeason(raw, day) {
+  return deriveSeasonMeta(Math.max(1, day | 0));
+}
+
+// A save cannot declare its franchise BONUS, only its level -- the same rule, and the same reason,
+// as normalizeSeason directly above: `multiplier` is a pure function of `level`
+// (sim/franchise.js franchiseMultiplier), so a stored one is a cache of what the level already
+// says, and a cache a hand-edited save could raise is just a free income upgrade. The level itself
+// stays clamped to SAVE_LIMITS.maxFranchiseLevel rather than to franchise.js's design ceiling:
+// this bound is about what a tampered save may claim, and demoting a real player's level would be
+// the same confiscation the ladder ceilings above exist to avoid. The multiplier is capped inside
+// franchiseMultiplier regardless, so a level past the design ceiling buys nothing either way.
+function normalizeFranchise(raw) {
+  const src = isRecord(raw) ? raw : {};
+  const level = clampInt(src.level, 0, SAVE_LIMITS.maxFranchiseLevel, 0);
+  return { level, multiplier: franchiseMultiplier(level) };
+}
+
+function normalizeCareer(raw, completedDays) {
+  const src = isRecord(raw) ? raw : {};
+  const historySrc = isRecord(src.history) ? src.history : {};
+  const history = {};
+  const maxHistoryDay = Math.max(0, completedDays);
+  for (const [key, value] of Object.entries(historySrc).slice(0, SAVE_LIMITS.maxDay)) {
+    if (!/^\d+$/.test(key) || !isRecord(value)) continue;
+    const day = Number(key);
+    if (day < 1 || day > maxHistoryDay) continue;
+    const served = clampInt(value.served, 0, SAVE_LIMITS.maxShiftOutcomes, 0);
+    const lost = clampInt(value.lost, 0, SAVE_LIMITS.maxShiftOutcomes, 0);
+    const earned = clampInt(value.earned, 0, SAVE_LIMITS.maxShiftEarned, 0);
+    const bestStreak = Math.min(served, clampInt(value.bestStreak, 0, SAVE_LIMITS.maxShiftOutcomes, 0));
+    const rating = clampInt(value.rating, 1, 3, 1);
+    const contractMet = !!value.contractMet;
+    history[String(day)] = { served, lost, earned, bestStreak, rating, contractMet, points: rating + (contractMet ? 1 : 0) };
+  }
+
+  const cupsSrc = isRecord(src.weeklyCups) ? src.weeklyCups : {};
+  const weeklyCups = {};
+  const trophies = { bronze: 0, silver: 0, gold: 0 };
+  const maxWeek = Math.ceil(completedDays / 7);
+  for (const [key, value] of Object.entries(cupsSrc).slice(0, maxWeek || 0)) {
+    if (!/^\d+$/.test(key) || !isRecord(value)) continue;
+    const week = Number(key);
+    const tier = typeof value.tier === 'string' ? value.tier : '';
+    if (week < 1 || week > maxWeek || !CUP_TIERS.has(tier)) continue;
+    const points = clampInt(value.points, 0, 28, 0);
+    weeklyCups[String(week)] = { tier, reward: CUP_REWARDS[tier], points };
+    trophies[tier]++;
+  }
+
+  const recipeSrc = isRecord(src.recipeSales) ? src.recipeSales : {};
+  const recipeSales = {};
+  for (const key of Object.keys(MASTERY)) recipeSales[key] = clampInt(recipeSrc[key], 0, SAVE_LIMITS.maxCounter, 0);
+
+  // A café theme is a PURCHASE (career.buyRenovation spends coins), and since Batch E1 it is gated
+  // on a Café Star rather than on reputation. The star clamp cannot happen here, because the star
+  // ceiling itself reads the theme count (★5's last row is "every theme owned") — so this function
+  // only bounds the level to the authored ladder, and normalizeMeta below does the star clamp once
+  // it has computed a ceiling with the theme row deliberately held at zero. See its comment.
+  const renovationLevel = clampInt(src.renovationLevel, 0, RENOVATIONS.length, 0);
+
+  const contractStreak = clampInt(src.contractStreak, 0, completedDays, 0);
+  const cached = src.currentContract;
+  const g = cached?.goal;
+  // DAILY_GOAL_KINDS, not a literal list: the goal kinds rotate with what the café can do (serve,
+  // earn, seated, photos, icecream) and a save written by a newer kind must not silently validate.
+  // A save carrying a retired kind ('streak') simply fails this check and the goal is re-rolled.
+  const validContract = isRecord(cached) && isRecord(g)
+    && Number.isInteger(cached.day) && cached.day >= 1 && cached.day <= SAVE_LIMITS.maxDay
+    && DAILY_GOAL_KINDS.includes(g.kind)
+    && Number.isInteger(g.target) && g.target > 0 && g.target <= SAVE_LIMITS.maxShiftEarned
+    && Number.isInteger(g.reward) && g.reward >= 0 && g.reward <= SAVE_LIMITS.maxShiftEarned;
+  const contractFields = new Set(['kind', 'target', 'reward', 'tier']);
+  return {
+    history,
+    ...(validContract ? { currentContract: {
+      day: cached.day, tier: clampInt(cached.tier, 0, 3, 0),
+      goal: Object.fromEntries(Object.entries(g).filter(([key, value]) => contractFields.has(key)
+        && (key === 'tier' ? Number.isInteger(value) && value >= 0 && value <= 8 : true))),
+    } } : {}),
+    weeklyCups,
+    trophies,
+    recipeSales,
+    contractStreak,
+    bestContractStreak: clampInt(src.bestContractStreak, contractStreak, completedDays, contractStreak),
+    bestWeekPoints: clampInt(src.bestWeekPoints, 0, 28, 0),
+    renovationLevel,
+  };
+}
+
+function normalizePartyOrders(raw, day) {
+  const src = isRecord(raw) ? raw : {};
+  let active = null;
+  if (isRecord(src.active) && !src.active.claimed) {
+    const a = src.active;
+    const requirements = [];
+    const seen = new Set();
+    if (Array.isArray(a.requirements)) {
+      for (const row of a.requirements.slice(0, 3)) {
+        if (!isRecord(row) || typeof row.key !== 'string' || !PARTY_KEYS.has(row.key) || seen.has(row.key)) continue;
+        seen.add(row.key);
+        const target = clampInt(row.target, 1, 10, 1);
+        requirements.push({ key: row.key, target, count: clampInt(row.count, 0, target, 0) });
+      }
+    }
+    const createdDay = clampInt(a.createdDay, 1, day, day);
+    if (requirements.length) {
+      active = {
+        id: clampInt(a.id, 1, SAVE_LIMITS.maxCounter, 1),
+        title: safeString(a.title, 'Pet Party Order', 80),
+        subtitle: safeString(a.subtitle, '', 180),
+        createdDay,
+        expiresDay: clampInt(a.expiresDay, createdDay, Math.min(SAVE_LIMITS.maxDay, createdDay + 2), createdDay + 1),
+        reward: clampInt(a.reward, 0, 320, 0),
+        claimed: false,
+        requirements,
+      };
+    }
+  }
+  return {
+    nextId: clampInt(src.nextId, 1, SAVE_LIMITS.maxCounter, 1),
+    completed: clampInt(src.completed, 0, day, 0),
+    lastOfferDay: clampInt(src.lastOfferDay, 0, day, 0),
+    active,
+  };
+}
+
+function normalizeSettlement(raw, dayState) {
+  if (!isRecord(raw) || !dayState._ended) return null;
+  const restored = restoreSettlement(raw);
+  if (!restored || restored.day !== dayState.day) return null;
+  const stats = {};
+  for (const key of SETTLEMENT_STAT_KEYS) {
+    const max = key === 'earned' ? SAVE_LIMITS.maxShiftEarned : SAVE_LIMITS.maxShiftOutcomes;
+    stats[key] = clampInt(restored.stats && restored.stats[key], 0, max, 0);
+  }
+  stats.bestStreak = Math.min(stats.bestStreak, stats.served);
+  const rating = clampInt(restored.rating, 1, 3, 1);
+  const goal = {
+    kind: ['serve', 'earn', 'streak'].includes(restored.goal && restored.goal.kind) ? restored.goal.kind : 'serve',
+    target: clampInt(restored.goal && restored.goal.target, 0, SAVE_LIMITS.maxShiftEarned, 0),
+    reward: clampInt(restored.goal && restored.goal.reward, 0, 100_000, 0),
+    previous: restored.goal && restored.goal.previous == null ? null : clampInt(restored.goal.previous, 0, SAVE_LIMITS.maxShiftEarned, 0),
+    rival: !!(restored.goal && restored.goal.rival),
+    cupDay: !!(restored.goal && restored.goal.cupDay),
+    progress: clampInt(restored.goal && restored.goal.progress, 0, SAVE_LIMITS.maxShiftEarned, 0),
+    met: !!(restored.goal && restored.goal.met),
+  };
+  const cupTier = restored.cup && CUP_TIERS.has(restored.cup.tier) ? restored.cup.tier : null;
+  const cup = cupTier ? {
+    awarded: !!restored.cup.awarded,
+    tier: cupTier,
+    reward: CUP_REWARDS[cupTier],
+    points: clampInt(restored.cup.points, 0, 28, 0),
+    week: clampInt(restored.cup.week, 1, Math.ceil(dayState.day / 7), 1),
+  } : null;
+  const contractReward = goal.met ? goal.reward : 0;
+  const cupReward = cup ? cup.reward : 0;
+  return {
+    v: 1,
+    committed: true,
+    day: dayState.day,
+    legacy: !!restored.legacy,
+    rating,
+    goal,
+    stats,
+    rewards: { contract: contractReward, cup: cupReward, total: contractReward + cupReward },
+    reputation: {
+      awarded: clampInt(restored.reputation && restored.reputation.awarded, 0, 3, 0),
+      rating: clampInt(restored.reputation && restored.reputation.rating, 1, 3, rating),
+      levelUp: !!(restored.reputation && restored.reputation.levelUp),
+      level: clampInt(restored.reputation && restored.reputation.level, 0, 10, 0),
+    },
+    cup,
+    coinsBefore: clampInt(restored.coinsBefore, 0, SAVE_LIMITS.maxCoins, 0),
+    coinsAfter: clampInt(restored.coinsAfter, 0, SAVE_LIMITS.maxCoins, 0),
+  };
+}
+
+// The only two boost records this schema ever knew -- rushCrew and petPlayBreak -- were rewarded-ad
+// entitlements, and Batch E2 cut both offers (ship plan 1.7). No live system writes or reads a boost
+// now, so a save's `boosts` container is accepted (an old one still has the keys) and canonicalized
+// to empty rather than carrying state nothing will ever step.
+function normalizeBoosts(raw) {
+  return isRecord(raw) ? {} : {};
+}
+
+export function validateAndMigrateSave(raw, area = null) {
+  if (!isRecord(raw)) return bad('root');
+  const version = readVersion(raw);
+  if (!version.ok) return bad('version');
+
+  // Wrong container types are treated as invalid cloud data rather than silently becoming a fresh
+  // game. Missing containers are legitimate legacy omissions and migrate to safe defaults.
+  for (const key of ['upgrades', 'staff', 'stats', 'settings', 'staffLevels', 'machineLevels', 'intro', 'meta', 'stars', 'dayStats', 'boosts']) {
+    const checked = optionalRecord(raw, key);
+    if (!checked.ok) return bad(`shape:${checked.reason}`);
+  }
+  if (has(raw, 'up') && raw.up != null && !isRecord(raw.up)) return bad('shape:up');
+  if (has(raw, 'coins')) {
+    if (!finiteNumber(raw.coins) || raw.coins < 0 || raw.coins > SAVE_LIMITS.maxCoins) return bad('coins');
+  }
+  if (has(raw, 'lifetimeEarned') && raw.lifetimeEarned != null && !finiteNumber(raw.lifetimeEarned)) return bad('lifetimeEarned');
+
+  const buildState = normalizeBuildState(raw, area);
+  if (!buildState.ok) return bad(`shape:${buildState.reason}`);
+  const partialState = normalizePartial(raw, area, buildState.builtSet);
+  if (!partialState.ok) return bad(`shape:${partialState.reason}`);
+  const day = normalizeDay(raw);
+  if (!day.ok) return bad(`shape:${day.reason}`);
+
+  const metaRaw = isRecord(raw.meta) ? raw.meta : {};
+  for (const key of ['rewardedDays', 'shiftRatings', 'petBook', 'petFriendship', 'career', 'partyOrders', 'settlement', 'rewards']) {
+    if (has(metaRaw, key) && metaRaw[key] != null && !isRecord(metaRaw[key])) return bad(`shape:meta.${key}`);
+  }
+  const maxCompleted = day.dayState._ended ? day.dayState.day : Math.max(0, day.dayState.day - 1);
+  const completedDays = clampInt(metaRaw.completedDays, 0, maxCompleted, 0);
+  const hasCompletedDays = finiteNumber(metaRaw.completedDays);
+  // Pass 1: zone gate only. The star gate needs pawBest, which is not knowable yet — see the
+  // cycle described at pass 2 below.
+  const decorZoneGated = normalizeDecor(metaRaw.decor, buildState.builtSet);
+  const accessoriesBought = normalizeAccessoriesBought(metaRaw.accessoriesBought);
+  const rawRep = clampInt(metaRaw.reputation, 0, SAVE_LIMITS.maxDay * 3, 0);
+  // When completedDays exists (all modern saves), reputation cannot exceed 3 points per settled
+  // shift PLUS one point per owned decor item (economy.js buyDecor grants +1 each). The decor term
+  // is what stops a legitimately bought decoration's reputation from being clamped away on reload;
+  // it is still bounded, because the decor list itself was just validated against the catalogue.
+  // Unversioned legacy saves without completedDays keep their historical reputation instead.
+  // The decor term is finished in pass 2 (`reputation`, below): it must count the pieces this save
+  // actually KEEPS, and the star gate that decides that needs pawBest. Counting the zone-gated list
+  // here would hand a forged save one point of headroom per ★-gated piece it never earned.
+  const repCeiling = decorOwned => (hasCompletedDays ? Math.min(rawRep, completedDays * 3 + decorOwned) : rawRep);
+  // (The lifetime reputation ENTITLEMENT that used to be derived here went with the reputation gate
+  // on café themes -- Batch E1 re-gated them on a Café Star, which normalizeMeta clamps below.)
+  const shiftRatings = normalizeShiftRatings(metaRaw.shiftRatings, Math.max(completedDays, day.dayState._ended ? day.dayState.day : 0));
+  const petBook = normalizePetBook(metaRaw.petBook);
+  const petFriendship = normalizePetFriendship(metaRaw.petFriendship);
+  const career = normalizeCareer(metaRaw.career, completedDays);
+  const partyOrders = normalizePartyOrders(metaRaw.partyOrders, day.dayState.day);
+
+  const levels = normalizeLevels(raw);
+  const stats = normalizeStats(raw);
+  const dayStats = normalizeShiftStats(raw);
+  stats.served = backfillLifetimeServed(stats.served, career.history, dayStats, day.dayState.day);
+
+  // --- Paw Rating (plan 3.4) -------------------------------------------------------------------
+  // album/followers are hoisted out of the meta literal below because the rating ceiling reads
+  // them; the literal reuses these exact values so there is only one normalisation of each.
+  const album = normalizeAlbum(metaRaw.album);
+  const followers = clampInt(metaRaw.followers, 0, SAVE_LIMITS.maxFollowers, 0);
+  const pawSeatWindow = normalizePawSeatWindow(metaRaw.pawSeatWindow, completedDays);
+  // A save cannot DECLARE a rating. pawBest is clamped to the highest star the rest of this
+  // already-validated save could actually have earned, so a hand-edited `pawBest: 5` on an empty
+  // save restores as 0. The ceiling is monotonic in the evidence it reads (see
+  // pawRating.pawEntitlementCeiling), so it can never demote a rating a real player holds.
+  // Math.min with the authored tier count is defence in depth, not decoration: the ceiling is
+  // computed by another module, and a restored rating must stay inside ★1-★5 even if that module
+  // ever returns something unexpected.
+  // area: null — zone-shaped requirements are SKIPPED at the boundary, on purpose. When Batch 4b
+  // added z_spa to the catalogue, ★4's spa row went from skipped to real and this ceiling demoted
+  // every returning ★4 player to ★3 on load: the retroactive requirement the live ratchet absorbs,
+  // which the boundary never absorbed. The zone rows never protected anything either — a forged
+  // save declares its build list as easily as its star — so their one real effect was that bug.
+  //
+  // TWO PASSES, because ★5's last row is "every café theme owned" and a theme is itself gated on a
+  // star: clamping either against the other in one step is circular. Pass one derives the ceiling
+  // with the theme count held at ZERO, which can therefore never award ★5 and is never higher than
+  // the true ceiling. A theme whose own star gate that ceiling does not reach was not legitimately
+  // bought, so it is dropped. Pass two then derives the real ceiling from the honest theme count.
+  const themelessCeiling = Math.min(SAVE_LIMITS.maxPawStar, pawEntitlementCeiling({
+    meta: { album, followers, petBook, petFriendship, career: { ...career, renovationLevel: 0 }, pawSeatWindow },
+    stats, built: buildState.builtSet, area: null,
+  }));
+  while (career.renovationLevel > 0 && themelessCeiling < RENOVATIONS[career.renovationLevel - 1].star) career.renovationLevel--;
+  const pawCeiling = Math.min(SAVE_LIMITS.maxPawStar, pawEntitlementCeiling({
+    meta: { album, followers, petBook, petFriendship, career, pawSeatWindow },
+    stats, built: buildState.builtSet, area: null,
+  }));
+  const pawBest = clampInt(metaRaw.pawBest, 0, Math.max(0, pawCeiling), 0);
+  // --- the franchise carry-over (plan §3.11: a branch KEEPS "accessories (equipped + bought)" and
+  // "decor unlocks") -----------------------------------------------------------------------------
+  // A second branch has reset its builds by design, so the terrace those décor pieces were bought
+  // for is gone with them -- and the zone gate in pass 1 would confiscate every one of those
+  // purchases on the very next load. That gate exists so a hand-edited save cannot INVENT a
+  // purchase; it was never meant to take back a purchase a legitimate reset moved out from under.
+  // So a franchised save re-admits exactly the décor it already owned. (Bought accessories carry no
+  // zone gate at all -- see normalizeAccessoriesBought -- so they need no carry-over.)
+  //
+  // Only HERE, in pass 2, and deliberately not in pass 1: the reputation ceiling and the renovation
+  // entitlement above are computed from `decorZoneGated`, so they still count only what the CURRENT
+  // café has built. A forged `franchise.level` therefore buys pictures and umbrellas and not one
+  // point of progression. The door itself is pawBest AT THE CAP -- the one field on this record a
+  // save cannot declare, since it was just clamped to the entitlement its own evidence proves.
+  const franchise = normalizeFranchise(metaRaw.franchise);
+  const branchCarryOver = franchise.level > 0 && pawBest >= PAW_MAX_STAR;
+  // A set-like that answers "built" to every zone gate. Used ONLY to re-admit already-owned
+  // cosmetics; it never reaches a normaliser that grants progression.
+  const carryOverZones = { has: () => true };
+  // Pass 2: now the rating is known, drop every star row this save has not earned. Without it the
+  // boundary confiscates nothing and a hand-edited meta.decor holds the whole ★5 set on an empty
+  // café — the same gate the terrace rows have had since Batch 1.
+  const decorOwned = branchCarryOver ? normalizeDecor(metaRaw.decor, carryOverZones) : decorZoneGated;
+  const decor = decorOwned.filter(id => decorUnlocked(DECOR_BY_ID.get(id), branchCarryOver ? carryOverZones : buildState.builtSet, pawBest));
+  const reputation = repCeiling(decor.length);
+  const normalized = {
+    v: CURRENT_SAVE_VERSION,
+    coins: clampInt(raw.coins, 0, SAVE_LIMITS.maxCoins, 0),
+    lifetimeEarned: stats.lifetimeEarned,
+    builds: { [buildState.areaId]: buildState.built },
+    partial: partialState.partial,
+    upgrades: normalizeUpgrades(raw),
+    staff: normalizeStaff(raw),
+    stats,
+    settings: normalizeSettings(raw),
+    staffLevels: levels.staffLevels,
+    machineLevels: levels.machineLevels,
+    intro: normalizeIntro(raw),
+    meta: {
+      completedDays,
+      rewardedDays: normalizeRewardedDays(metaRaw.rewardedDays, day.dayState.day),
+      reputation,
+      perfectShifts: clampInt(metaRaw.perfectShifts, 0, completedDays, 0),
+      bestServiceStreak: clampInt(metaRaw.bestServiceStreak, 0, SAVE_LIMITS.maxShiftOutcomes, 0),
+      shiftRatings,
+      petBook,
+      petFriendship,
+      petDiscoveries: Object.keys(petBook).length,
+      settlement: normalizeSettlement(metaRaw.settlement, day.dayState),
+      career,
+      partyOrders,
+      socials: normalizeSocials(metaRaw.socials),
+      servicePolicy: normalizeServicePolicy(metaRaw.servicePolicy),
+      // --- v5 ---
+      followers,
+      album,
+      equipped: normalizeEquipped(metaRaw.equipped),
+      residents: normalizeResidents(metaRaw.residents),
+      decor,
+      accessoriesBought,
+      goldenPaw: metaRaw.goldenPaw === true,
+      pawBest,
+      pawSeatWindow,
+      season: normalizeSeason(metaRaw.season, day.dayState.day),
+      franchise,
+      ...(metaRaw.rewards && isRecord(metaRaw.rewards) ? { rewards: normalizeRewards(metaRaw.rewards) } : {}),
+    },
+    dayState: day.dayState,
+    stars: normalizeStars(raw, area, buildState.builtSet),
+    boosts: normalizeBoosts(raw.boosts),
+    dayStats,
+  };
+  return ok(normalized, version.version);
+}
+
+export function normalizeSave(raw, area = null) {
+  const result = validateAndMigrateSave(raw, area);
+  return result.ok ? result.data : null;
+}

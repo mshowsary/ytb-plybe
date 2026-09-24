@@ -123,10 +123,14 @@ test('bowl: decrements per treat customer (takeTreat), refillBowl uses at most c
 });
 
 test('a seat becomes dirty after eating (simulated via cleanSeat/freeSeat, not stepCustomers here); freeSeat skips it, cleanSeat frees it', () => {
-  // BUILT includes only z_seats1 (seat1, seat2) — dirty both so freeSeat has nothing else to fall back to.
+  // Dirty EVERY active seat so freeSeat has nothing to fall back to. (It used to name seat1/seat2
+  // by hand; since Batch E1 the café owns those two outright and z_seats1 adds a third, so a
+  // hardcoded pair left a clean seat behind and the assertion stopped testing anything.)
   const w = createWorld(AREA1, { built: BUILT });
-  const seat1 = w.stations.get('seat1'), seat2 = w.stations.get('seat2');
-  seat1.dirty = true; seat2.dirty = true; // mirrors sim/customers.js's 'eating' handler
+  const seats = [...w.stations.values()].filter(st => st.type === 'seat' && st.active);
+  assert.ok(seats.length >= 2);
+  for (const st of seats) st.dirty = true; // mirrors sim/customers.js's 'eating' handler
+  const seat1 = seats[0];
   assert.equal(freeSeat(w), null, 'freeSeat must never return a dirty seat');
   cleanSeat(w, seat1.id);
   assert.equal(seat1.dirty, false);

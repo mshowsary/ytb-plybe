@@ -15,17 +15,35 @@ test('takeSack succeeds only while empty, always takes a full 20', () => {
   assert.equal(c.sack, 'beans'); assert.equal(c.sackLeft, 20);
   assert.equal(isEmpty(c), false);
   assert.equal(canTakeItems(c), false, 'a carry holding a sack cannot also take product items');
-  assert.equal(takeSack(c, 'kibble'), false, 'already holding a sack');
+  assert.equal(takeSack(c, 'beans'), false, 'already holding a sack');
 });
 
-test('useSack draws down and clears the sack once emptied', () => {
+// docs/SHIP-PLAN-2026-09-19.md 1.4: "one refill uses the sack up completely -- no leftovers to
+// carry". A part-used sack was what blocked the next pickup (canTakeItems) and sent the owner
+// looking for a RETURN crate; the crates are gone, so the leftovers have to be too.
+test('one pour uses the whole sack, however little the machine needed', () => {
   const c = createCarry();
   takeSack(c, 'beans');
-  assert.equal(useSack(c, 5), 5);
-  assert.equal(c.sackLeft, 15);
-  assert.equal(c.sack, 'beans', 'not yet empty');
-  assert.equal(useSack(c, 20), 15, 'capped at what remained');
-  assert.equal(c.sack, null); assert.equal(c.sackLeft, 0);
+  assert.equal(useSack(c, 5), 5, 'the machine only had room for five');
+  assert.equal(c.sack, null, 'and the sack is spent, not part-full in the hands');
+  assert.equal(c.sackLeft, 0);
+  assert.equal(isEmpty(c), true);
+  assert.equal(canTakeItems(c), true, 'so the next pickup is never blocked by a leftover');
+});
+
+test('a full pour still reports only what the machine took', () => {
+  const c = createCarry();
+  takeSack(c, 'beans');
+  assert.equal(useSack(c, 40), 20, 'capped at the sack');
+  assert.equal(c.sack, null);
+});
+
+// Kibble left the carry with the treat bowl's own bin (docs/SHIP-PLAN-2026-09-19.md 1.4), and the
+// pantry has no sheet to offer it from: an unknown supply is simply not takeable.
+test('a supply no pantry hands out cannot be picked up at all', () => {
+  const c = createCarry();
+  assert.equal(takeSack(c, 'kibble'), false);
+  assert.equal(takeSack(c, 'cream'), false);
   assert.equal(isEmpty(c), true);
 });
 
@@ -48,7 +66,7 @@ test('addFruit adds up to the given cap, only while no sack is held; dropFruit e
 
 test('addFruit refuses while a sack is held', () => {
   const c = createCarry();
-  takeSack(c, 'kibble');
+  takeSack(c, 'beans');
   assert.equal(addFruit(c, 3, 9), 0);
   assert.equal(c.fruit, 0);
 });

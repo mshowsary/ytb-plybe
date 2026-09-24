@@ -1,3 +1,4 @@
+import { emitWorld } from './events.js';
 // src/sim/world.js
 import { PRODUCTS, REGISTER_RATE, FAMILY, familyOf } from './economy.js';
 import { stationBoxes } from './collide.js';
@@ -22,7 +23,7 @@ function rotateOffset(rot, right, forward) {
 // cookies + brownies; Coffee: coffee + latte"). Every other oven/coffee station (oven2/blender1
 // have no alt recipe in the design) keeps altProduct undefined, so the toggle logic below never
 // fires for them regardless of their own star tier.
-const ALT_PRODUCT = { oven1: 'brownie', coffee1: 'latte' };
+const ALT_PRODUCT = { oven1: 'brownie', coffee1: 'latte', icecream1: 'sundae' };
 export function createWorld(area, save, seed) {
   const built = new Set(save && save.built || []);
   const partial = Object.assign({}, save && save.partial || {});
@@ -34,20 +35,36 @@ export function createWorld(area, save, seed) {
     // Loop v2 Task 1: a display holds exactly ONE product (fixed by data, never mixed) — replaces
     // the old shared 'counter' (items: [], any product). putOnDisplay/takeFromDisplay below.
     if (s.type === 'display') Object.assign(st, { product: s.product, stock: 0, capacity: s.capacity || 8 });
+    // A self-serve stand (the garden's barIce): guests pay into its cash jar themselves the moment
+    // they take their cone (sim/customers.js payAtStand), and the owner collects the jar walking
+    // past, the same as a register's pile (addCash/collectCash below are generic over `pile`).
+    if (s.type === 'display' && s.selfServe) Object.assign(st, { selfServe: true, pile: 0 });
     // M3 T3: the register keeps the code type 'checkout' (w.checkouts, checkoutMesh, everything
     // that already reads it) even though the plan/UI call it "Register". serving/procT drive the
     // manned-register cadence — see stepRegisters below.
     if (s.type === 'checkout') Object.assign(st, { pile: 0, serving: '', procT: 0 });
     // Task 4: `dirty` starts false; set true by customers.js when a pair finishes eating, cleared
     // by cleanSeat below (owner) or the cleaner staff kind (src/sim/staff.js).
-    if (s.type === 'seat') Object.assign(st, { occupied: false, dirty: false });
+    // `pile` is the table's tip saucer: a photographed pet tips onto its own table
+    // (src/sim/petPose.js), and the owner sweeps it walking past exactly like a register's tray —
+    // addCash/collectCash are generic over any station with a `.pile`.
+    if (s.type === 'seat') Object.assign(st, { occupied: false, dirty: false, pile: 0 });
     if (s.type === 'bowl') Object.assign(st, { stock: 0, capacity: 10 });
     // growT: seconds accumulator toward the next stage (stepMachines below), one stage per 25/3 s.
     if (s.type === 'bush') Object.assign(st, { stage: 0, growT: 0 });
     if (s.type === 'coffee') Object.assign(st, { product: 'coffee', baseProduct: 'coffee', altProduct: ALT_PRODUCT[s.id] || null, beans: 20, stock: 0, buffer: 8, timer: 0 });
     if (s.type === 'pantry') Object.assign(st, {}); // was 'storage' — same no-state marker, renamed
-    if (s.type === 'return') Object.assign(st, {}); // the return crate carries no state of its own
     if (s.type === 'blender') Object.assign(st, { fruit: 0, stock: 0, buffer: 8, timer: 0 });
+    // Batch 1 — terrace station types (plan 7.2). 'gate' is a non-blocking marker: it carries no
+    // state and (src/sim/nav.js footprintBoxes, and w.boxes below) never contributes a collision
+    // box. 'decor' blocks (the fountain) but carries no state of its own. 'icecream' has the
+    // coffee machine's product/stock/buffer shape, so every generic machine system (stepMachines,
+    // runners' pickSource, the bot) generalises for free — but it needs no supply: the cream sack
+    // and its cold pantry were cut (docs/SHIP-PLAN-2026-09-19.md §1.2).
+    if (s.type === 'icecream') Object.assign(st, { product: 'icecream', baseProduct: 'icecream', altProduct: ALT_PRODUCT[s.id] || null, stock: 0, buffer: 8, timer: 0 });
+    // 'wall' is mounted scenery with state of its own held elsewhere (the photo wall reads
+    // meta.album), like 'gate' and 'decor' it carries none here.
+    if (s.type === 'gate' || s.type === 'decor' || s.type === 'wall') Object.assign(st, {});
 
     const frontDist = s.front != null ? s.front : 1.3;
     const f = rotateOffset(st.rot, 0, frontDist);
@@ -55,7 +72,24 @@ export function createWorld(area, save, seed) {
 
     // I8/I11: precompute the checkout's cash spot once so systems/stations.js, systems/visuals.js
     // and sim/staff.js's cashier all read the same st.cash instead of recomputing cashSpot(st) per frame.
-    if (s.type === 'checkout') st.cash = cashSpot(st);
+    if (s.type === 'checkout') {
+      st.cash = cashSpot(st);
+      // Where the OWNER stands to serve: behind the till, facing the guest across it. The owner
+      // used to serve from the customer side, on the very spot the head of the queue stands, so
+      // the two bodies overlapped on every sale (owner playtest recordings, 2026-09-17). The hired
+      // cashier keeps st.cash, beside the till — 0.9 m from the queue, never overlapping, and moving
+      // it re-timed the deterministic sim enough to trip test/nav-fullhouse for unrelated movers.
+      // A register that backs onto a fence declares `serveRight`/`serveForward` in data/area1.js.
+      const sv = rotateOffset(st.rot, s.serveRight != null ? s.serveRight : 0,
+        s.serveForward != null ? s.serveForward : -((st.fd != null ? st.fd : 1) / 2 + 0.7));
+      st.serve = { x: st.x + sv.x, z: st.z + sv.z };
+    }
+    // The stand's jar is collected from where the owner already stands to stock it (its front,
+    // behind the counter), so working the stand and emptying the jar are the same trip.
+    if (st.selfServe) st.cash = { x: st.front.x, z: st.front.z };
+    // A table's tip saucer sits ON the table, so the coins fly up from the table itself; the owner
+    // is judged by the seat's front, the same spot the walk-past wipe already uses.
+    if (s.type === 'seat') st.cash = { x: st.x, z: st.z };
 
     // M3 T3: registers reuse the counter's queue geometry helper (5 slots, 1.4m then 0.85m
     // steps — fix round 2: cut from 6 to 5 so the deepest slot, z = 2.8, stays clear of the
@@ -87,6 +121,7 @@ export function createWorld(area, save, seed) {
   }
   // M3 T3: seeded RNG for the sim layer (wishFor et al.) — no Math.random in src/sim.
   const w = { area, built, partial, payAcc, stations, events: [], displays: [], checkouts: [], _queues: new Map(), rng: makeRng(seed || 1) };
+  w.emit = (...events) => emitWorld(w, ...events);
   refreshActive(w);
   return w;
 }
@@ -98,7 +133,14 @@ export function refreshActive(w) {
     else if (st.type === 'checkout') checkouts.push(st.id);
   }
   w.displays = displays; w.checkouts = checkouts;
-  w.boxes = stationBoxes(w);
+  // 'gate' is a non-blocking marker (plan 7.2) — the terrace's fence gap is walkable through it,
+  // for the owner exactly like it is for the nav grid (nav.js's own footprintBoxes excludes it
+  // too). 'wall' is mounted on a wall and has no floor footprint at all (the photo wall), so it is
+  // the same kind of exception. collide.js's stationBoxes takes only `w.stations`, so route it a
+  // filtered map instead of touching that shared, not-mine module.
+  const boxStations = new Map();
+  for (const [id, st] of w.stations) if (st.type !== 'gate' && st.type !== 'wall') boxStations.set(id, st);
+  w.boxes = stationBoxes({ stations: boxStations });
   w.activeZoneList = activeZones(w); // I8: cached list, rebuilt only when the built set changes
   // Stations changed (new footprints block/unblock cells): rebuild the walkability grid. The
   // fresh grid always starts at version 0 (see buildGrid); carry the previous grid's version + 1
@@ -111,6 +153,20 @@ export function refreshActive(w) {
 export function activeZones(w) {
   return w.area.zones.filter(z => !w.built.has(z.id) && (!z.requires || w.built.has(z.requires)));
 }
+// The tail both payment paths share: bank the coins on the pad, or finish the build — activate its
+// stations, refresh the active sets and emit the one 'built' event every consumer listens for.
+function bankZonePayment(w, z, spent) {
+  const total = (w.partial[z.id] || 0) + spent;
+  if (total >= z.price) {
+    delete w.partial[z.id]; delete w.payAcc[z.id]; w.built.add(z.id);
+    for (const id of z.adds) { const st = w.stations.get(id); if (st) st.active = true; }
+    refreshActive(w);
+    emitWorld(w, { type: 'built', zoneId: z.id });
+    return { spent, done: true };
+  }
+  if (spent > 0) w.partial[z.id] = total;
+  return { spent, done: false };
+}
 export function payZone(w, zoneId, coins, dt) {
   const z = w.area.zones.find(z => z.id === zoneId);
   if (!z || w.built.has(zoneId)) return { spent: 0, done: false };
@@ -120,22 +176,33 @@ export function payZone(w, zoneId, coins, dt) {
   let spent = Math.floor(w.payAcc[zoneId]);
   spent = Math.max(0, Math.min(coins, z.price - paid, spent));
   w.payAcc[zoneId] -= spent;
-  const total = paid + spent;
-  if (total >= z.price) {
-    delete w.partial[zoneId]; delete w.payAcc[zoneId]; w.built.add(zoneId);
-    for (const id of z.adds) { const st = w.stations.get(id); if (st) st.active = true; }
-    refreshActive(w);
-    w.events.push({ type: 'built', zoneId });
-    return { spent, done: true };
-  }
-  if (spent > 0) w.partial[zoneId] = total;
-  return { spent, done: false };
+  return bankZonePayment(w, z, spent);
+}
+/**
+ * A payment into a pad that does NOT come from the wallet: the Build Boost rewarded offer pays up
+ * to half a pad's price (ship plan §1.7a, sim/offers.js). It shares payZone's completion exactly,
+ * so a boosted build raises the same 'built' event, activates the same stations and reaches
+ * systems/zones.js's reveal, the objective, the region sync and the checkpoint the same way a
+ * hand-paid one does. Returns { spent, done }.
+ */
+export function creditZone(w, zoneId, amount) {
+  const z = w.area.zones.find(zone => zone.id === zoneId);
+  if (!z || w.built.has(zoneId)) return { spent: 0, done: false };
+  const paid = w.partial[zoneId] || 0;
+  const spent = Math.max(0, Math.min(Math.round(Number(amount) || 0), z.price - paid));
+  if (spent <= 0) return { spent: 0, done: false };
+  return bankZonePayment(w, z, spent);
 }
 // Loop v2 Task 3: once a station's star tier is >= 2, its bake/make speed is 1.5x (design section
 // 6). w.stars is an informal reference to G.stars (set once by game.js/tools/bot.js/tools/
 // strip.js — the same pattern w.rng/w.grid already use), so any caller that never sets it (every
 // pre-Task-3 test) reads every station as tier 1 and gets exactly the old, unmultiplied speed.
-function starMult(w, id) { return ((w.stars && w.stars[id]) || 1) >= 2 ? 1.5 : 1; }
+function starMult(w, id) {
+  const t = ((w.stars && w.stars[id]) || 1);
+  if (t < 2) return 1;
+  if (t <= 3) return 1.5;                              // authored tiers, unchanged
+  return 1.5 + 0.9 * (1 - Math.pow(0.8, t - 3));       // approaches 2.4
+}
 // Once a station's star tier is >= 3 AND it has a second recipe (altProduct set at creation — only
 // oven1/coffee1 do), flip its current product between the base and alt member the instant its
 // finished-goods buffer is genuinely empty and nothing is mid-bake (stock === 0 && timer === 0) —
@@ -192,6 +259,29 @@ export function takeTreat(w, id) {
 }
 export function addCash(w, id, amt) { w.stations.get(id).pile += amt; }
 export function collectCash(w, id) { const st = w.stations.get(id); const p = st.pile; st.pile = 0; return p; }
+
+// THE TIP JARS ARE SWEPT AT CLOSING (Batch E1, ship plan §1.6: the day ends on a beat instead of on
+// 30 s of empty café). Every active station that holds cash — the registers, the ice-cream stand's
+// jar and the tables' tip saucers — is emptied into one number the caller adds to the wallet. It is
+// a gift, never a charge: the money was already earned and already the player's, and this only
+// removes the "walk the whole room before the day ends or lose the round trip" chore.
+//
+// Returns { total, spots } — `spots` is one {x, z, amount} per jar that actually held something, so
+// the presentation layer can fly the coins out of the places the player can see them. Idempotent:
+// a second call on the same world sweeps 0, which is what makes it safe on a re-opened terminal
+// save (src/game.js openDaySummary runs on restore too).
+export function sweepTipJars(w) {
+  let total = 0;
+  const spots = [];
+  for (const st of w.stations.values()) {
+    if (!st.active || !(st.pile > 0)) continue;
+    const amount = st.pile;
+    st.pile = 0;
+    total += amount;
+    spots.push({ id: st.id, x: st.x, z: st.z, amount });
+  }
+  return { total, spots };
+}
 // Task 4: a dirty seat is not free — it's not usable again until cleanSeat clears it.
 export function freeSeat(w) { for (const st of w.stations.values()) if (st.type === 'seat' && st.active && !st.occupied && !st.dirty) return st; return null; }
 export function seatById(w, id) { return w.stations.get(id); }
@@ -208,6 +298,14 @@ export function stepMachines(w, dt, coffeeMult = 1) {
       st.timer += dt;
       const t = PRODUCTS[st.product].make / (coffeeMult * starMult(w, st.id));
       while (st.timer >= t && st.stock < st.buffer && st.beans > 0) { st.timer -= t; st.stock++; st.beans--; }
+    } else if (st.type === 'icecream') {
+      // The coffee branch above without its consumable: the stand's machine only ever stops for a
+      // full buffer, so the garden earns while the owner is inside.
+      if (st.stock >= st.buffer) { st.timer = 0; continue; }
+      maybeToggleRecipe(w, st);
+      st.timer += dt;
+      const t = PRODUCTS[st.product].make / (coffeeMult * starMult(w, st.id));
+      while (st.timer >= t && st.stock < st.buffer) { st.timer -= t; st.stock++; }
     } else if (st.type === 'blender') {
       if (st.stock >= st.buffer || st.fruit <= 0) { st.timer = 0; continue; }
       st.timer += dt;
@@ -223,6 +321,17 @@ export function stepMachines(w, dt, coffeeMult = 1) {
 }
 // Coffee/blender stock pickup — same shape as takeFromOven.
 export function takeFromMachine(w, id, n) { const st = w.stations.get(id); const k = Math.min(n, st.stock); st.stock -= k; return k; }
+// The inverse of takeFromOven/takeFromMachine: a load the owner could not place anywhere flies back
+// onto the machine that made it (systems/stations.js flyBackHeld, docs/SHIP-PLAN-2026-09-19.md
+// §1.4 "no RETURN crates"). Capped at the machine's own buffer, so a fly-back can never overfill a
+// tray, and returns how many actually landed.
+export function returnToMachine(w, id, n) {
+  const st = w.stations.get(id);
+  if (!st || st.buffer == null) return 0;
+  const back = Math.max(0, Math.min(n | 0, st.buffer - st.stock));
+  st.stock += back;
+  return back;
+}
 // Final review fix: capped at 20 (a coffee machine never holds more beans than one full sack
 // worth) and consumes only what was actually used — same shape as refillBowl below (room-capped,
 // returns the amount drawn from the sack) instead of blindly adding a flat 20 regardless of how
@@ -259,11 +368,37 @@ export function refillBowl(w, id, kibble) {
   st.stock += used;
   return used;
 }
-// Clears a dirty seat (owner standing in its front circle for 1.0 s, or a cleaner after 1.6 s —
-// see systems/stations.js and sim/staff.js). No-op (and no event) if the seat wasn't dirty.
+// Clears a dirty seat (the owner stepping into its front circle, or a cleaner after 1.6 s — see
+// systems/stations.js and sim/staff.js). No-op (and no event) if the seat wasn't dirty.
 export function cleanSeat(w, id) {
   const st = w.stations.get(id);
-  if (st && st.dirty) { st.dirty = false; w.events.push({ type: 'cleaned', seatId: id }); }
+  if (st && st.dirty) { st.dirty = false; emitWorld(w, { type: 'cleaned', seatId: id }); }
+}
+// Program §6.3. 'cleaned' told the presentation layer a wipe FINISHED and nothing told it one had
+// STARTED, so the cleaner's 1.6 s of work was invisible — the crumbs simply popped off at the end
+// — while a table the owner walked past at least got a burst. That asymmetry is exactly the
+// owner's report: "cleaning animation seems some tables have it, some are not". This is the
+// missing half. `by` lets a listener tell the two actors apart (they get the SAME presentation,
+// but the cleaner's is worth an arm animation too) and `seconds` is how long the progress ring
+// has to fill. Emitted only when there is genuinely something to wipe, so a stray call cannot
+// leave systems/visuals.js holding a ring over an already clean table.
+export function beginCleanSeat(w, id, by, seconds) {
+  const st = w.stations.get(id);
+  if (!st || !st.dirty) return false;
+  emitWorld(w, { type: 'cleaning', seatId: id, by, seconds });
+  return true;
+}
+// The owner's wipe is instantaneous in simulation terms: systems/stations.js clears the seat on
+// the frame the owner enters its front circle, and this task deliberately does NOT turn that into
+// a hold — days 1-12 balance stays bit-identical. So start and end land in the same frame and
+// OWNER_WIPE_SECONDS is a PRESENTATION length only (how long systems/visuals.js sweeps the ring),
+// never a duration the player has to stand through. Both halves are emitted from this one place
+// so they can never drift apart again the way they did when only 'cleaned' existed.
+export const OWNER_WIPE_SECONDS = 0.35;
+export function ownerCleanSeat(w, id, seconds = OWNER_WIPE_SECONDS) {
+  if (!beginCleanSeat(w, id, 'owner', seconds)) return false;
+  cleanSeat(w, id);
+  return true;
 }
 
 // M3 T3: manned-register processing. `st.serving` ('' | 'owner' | 'cashier') is set every frame
@@ -345,10 +480,11 @@ export function stepRegisters(w, dt) {
         const amount = head.amount || 0;
         st.pile += amount;
         head.paid = true;
-        w.events.push({ type: 'processed', id: head.id, amount, checkoutId: st.id, by: st.serving });
-        w.events.push({ type: 'pay', id: head.id, amount, x: st.x, z: st.z, checkoutId: st.id });
+        emitWorld(w, { type: 'processed', id: head.id, amount, checkoutId: st.id, by: st.serving });
+        emitWorld(w, { type: 'pay', id: head.id, amount, x: st.x, z: st.z, checkoutId: st.id });
       }
     }
   }
   for (const id of w.checkouts) w.stations.get(id).serving = '';
 }
+

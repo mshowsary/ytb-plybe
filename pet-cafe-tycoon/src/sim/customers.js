@@ -1,15 +1,26 @@
+import { seatsMightFree } from './serviceQuality.js';
+import { PRODUCTS } from './economy.js';
+import { emitWorld } from './events.js';
 // src/sim/customers.js — pure customer state machine. The sim entity is the HUMAN
 // (their pet is a render-side follower). States:
-// enter → queue (counter) → [toBowl → atBowl] → toRegister → atRegister → (toSeat → eating) → leave → done
+// enter → queue (counter) → [toBowl → atBowl] → toRegister → atRegister →
+//   (toSeat → eating) → leave → done
+// A garden guest (c.terraceBound, docs/SHIP-PLAN-2026-09-19.md §1.2) has its own shorter visit in
+// its own room: it enters by the garden's arch, queues at the ice cream stand, pays into the stand's
+// jar on the spot (payAtStand), then (toSeat → eating) → leave by the arch.
+// Every guest stays in the room it came in by: seats, waiting spots and menus are all chosen by
+// room (sameRoom), so nobody but the owner and the staff uses the café-to-deck gate. No guest ever
+// detours for a photo: a pet poses at the table it is already sitting at (src/sim/petPose.js).
 // M3 T3: wish bubbles + patience replace the flat WAIT_LIMIT, and payment moves to the manned
 // register (world.js's stepRegisters processes the queue head while st.serving is set) instead
 // of paying on arrival at the old checkout. Every walk still goes through the grid
 // (src/sim/nav.js + src/sim/mover.js); the owner (tools/bot.js) stays player-like and steers
 // with moveToward directly.
-import { takeFromDisplay, takeTreat, freeSeat } from './world.js';
-import { wishFor, familyOf } from './economy.js';
+import { takeFromDisplay, takeTreat } from './world.js';
+import { wishFor, gardenWish, familyOf } from './economy.js';
 import { createMover, setTarget, stepMover } from './mover.js';
-export const SPECIES = ['cat', 'dog', 'bunny'];
+import { idx, isFree, regionAt, gateApron, nearestFree, cachedPath } from './nav.js';
+export const SPECIES = ['cat', 'dog', 'bunny', 'hamster'];
 // M3 T6 pass 2 (controller ruling: "patience 12 -> 18s everywhere"): raised as far as the
 // UNTOUCHABLE test/nav-fullhouse.test.js tolerates, not the full 18 the ruling names — see the
 // evidence below. Pass 1 left this at 12 after 13/14 both tipped that test (a fresh overlap or a
@@ -47,6 +58,33 @@ export const SPECIES = ['cat', 'dog', 'bunny'];
 // still within the ruling's original 12-18s intent), so that's what's shipped. mover.js/nav.js's
 // avoidance and the seat/exit-lane geometry in data/area1.js remain untouched and out of scope.
 export const CUSTOMER_SPEED = 2.2, EAT_TIME = 4, PATIENCE = 17;
+// The Special Guest offer's VIP tip (ship plan 1.7a). Declared here rather than imported from
+// sim/offers.js, which imports THIS file for PATIENCE; test/offers.test.js asserts the two agree.
+export const VIP_TIP_MULTIPLIER = 3;
+// Batch 7 (owner playtest, 2026-09-11): "the used tables majority of times do not show that they
+// were used or need cleaning, only sometimes randomly." Root cause was exactly this constant --
+// Batch 6 set it to 5 (dirty one sitting in five) specifically to dodge a nav-fullhouse mover-
+// overlap tripwire (history kept below), and a mechanic that fires one time in five reads as
+// random rather than as a mechanic at all. The owner's ruling, recorded so it is never repeated: a
+// visible state is never rationed to dodge a test -- the CHORE around it is what gets removed
+// instead. Batch 7 returned this to 1 for coherence; the nav-fullhouse tripwire is re-measured
+// with the patient-guest flow below (proceedToSeatOrLeave's waitSeat path, now the only path a
+// blocked guest can take, plus the cheap cleaner in economyConfig.js and the 2.2m
+// AUTO_CLEAN_RADIUS walk-past wipe in systems/stations.js) rather than by hiding the state again.
+//
+// HISTORY (Batch 6, kept for context, not current behaviour): a seat needed wiping only every Nth
+// use. The owner had played the shipped build on a phone and counted 20 recovery moments on day 2
+// and 25 on day 6 -- "if the player is constantly reassuring, cleaning, and recovering, the game is
+// nagging them rather than challenging them." 5, not the 3 the batch was briefed with:
+// test/nav-fullhouse.test.js is a 20-minute deterministic chaos sim with a 1.0 s pair-overlap
+// tripwire and ~10% headroom, and the constant swept as 1 PASS, 2 PASS, 3 FAIL (1.10 s), 4 FAIL
+// (1.63 s), 5 PASS (0.90 s) -- a same-heading convoy behind the cleaner, not a jam.
+//
+// `uses` lives on the runtime seat station only. src/sim/stationState.js serialises exactly
+// `{dirty}` for a seat, so the counter is never saved and never restored -- a reloaded café simply
+// starts every seat's cycle again, which is generous in the player's favour and needs no schema
+// change.
+export const DIRTY_EVERY = 1;
 // Loop v2 Task 1: MOVE_COOLDOWN/_moveCd were rebalance()'s anti-thrash cooldown — rebalance is
 // gone (one display per product, nothing left to rebalance between), so both are gone too.
 // M3 T6 pass 2 (controller ruling, "settle-for rule"): a customer stuck waiting (at a counter for
@@ -58,18 +96,41 @@ export const CUSTOMER_SPEED = 2.2, EAT_TIME = 4, PATIENCE = 17;
 // reset mid-wait — see setPatience's call sites), so it's an exact, dependency-free "seconds spent
 // waiting this episode" clock without a second timer field.
 export const SETTLE_WAIT = 6;
+// Program §6.2: how long a paid guest used to stand under the "no clean table" bubble before
+// giving up. This is what read as "10 found no clean table" on the owner's day-2 phone playtest --
+// short on purpose as a beat the owner could read and act on, but too short to ever be rescued by
+// a wipe. Batch 7 retired the 'noSeat' path that used this (nothing sets that state any more; see
+// proceedToSeatOrLeave and the 'noSeat' case below, kept only for an old save resuming mid-hold).
+// The constant itself stays exported for that dead path's own use.
+export const NO_SEAT_HOLD = 1.2;
+// Batch 7: the owner's decision -- a paying guest who finds only dirty tables WAITS for a wipe
+// rather than turning away. This is that grace, in seconds, and it now applies to every day-driven
+// guest (see proceedToSeatOrLeave above), not just the mature service policy that used to gate it.
+// 12, not the old mature-only value of 8: a longer wait gives the cheap cleaner (economyConfig.js)
+// and the 2.2m AUTO_CLEAN_RADIUS walk-past (systems/stations.js) genuine room to rescue the guest
+// before it gives up, without the wait itself becoming the new chore.
+// 18, not 12: measured in the 60-day bot with two seats and no cleaner (days 3-8), a 12 s grace
+// still lost 8-14 guests a day to a dirty table -- the owner's day-2 complaint, reproduced. At 18 s
+// a guest outlasts one eating turn plus the walk a wipe takes; the broom bubble shows the wait.
+export const WAIT_SEAT_GRACE = 18;
 
-export function createCustomer(id, species, variant, area) {
-  const mover = createMover(area.spawnStart.x, area.spawnStart.z, 0.30, CUSTOMER_SPEED);
+// `opts.garden` makes a garden guest: it starts on the street by the garden's arch
+// (area.terraceSpawn) instead of by the café door, and belongs to the garden for its whole visit.
+export function createCustomer(id, species, variant, area, opts = {}) {
+  const garden = !!(opts && opts.garden && area.terraceSpawn);
+  const spawn = garden ? area.terraceSpawn : area.spawnStart;
+  const mover = createMover(spawn.x, spawn.z, 0.30, CUSTOMER_SPEED);
   mover.kind = 'customer'; mover.mask = 1; // entry lane while still outside/crossing the door
   return {
     id, species, variant,
-    x: area.spawnStart.x, z: area.spawnStart.z, rot: 0,
+    x: spawn.x, z: spawn.z, rot: 0,
     state: 'enter', counterId: null, registerId: null, slot: -1, order: null, amount: 0, paid: false,
     wish: null, patience: PATIENCE, _patQ: PATIENCE * 4, mood: 'none',
     seat: null, seatId: null, timer: 0, done: false, hop: 0, area,
     _doorReached: false, arrived: 0, regArrived: 0, _bowlSlot: null,
-    _settled: false, _treatGivenUp: false, // M3 T6 pass 2: settle-for rule, once per visit each
+    _settled: false, _treatGivenUp: false, _regSettled: false, // M3 T6 pass 2: settle-for rule, once per visit each
+    noSeatT: 0, // Program §6.2: seconds spent under the "no clean table" bubble
+    terraceBound: garden, // a garden guest, fixed at creation: its room, door, menu and tables
     mover,
   };
 }
@@ -96,6 +157,10 @@ function walkTo(c, tx, tz, w, dt) {
   const justArrived = stepMover(m, w.grid, w._movers, dt);
   c.x = m.x; c.z = m.z; c.rot = m.rot;
   if (justArrived) return true;
+  // With all workers visible to avoidance, contact can hold a guest 8cm off the target.
+  // Accept a physical arrival inside 10cm (also inside checkout's 15cm head radius),
+  // without snapping position or allowing a distant idle mover to claim arrival.
+  if (Math.hypot(tx-c.x,tz-c.z) < .1) { m.hasTarget=false; return true; }
   if (!m.hasTarget) {
     if (Math.hypot(tx - c.x, tz - c.z) < 0.35) return true;
     setTarget(m, tx, tz, w.grid);
@@ -120,8 +185,15 @@ function walkTo(c, tx, tz, w, dt) {
 // across a tick), so a single reusable object is safe even with many customers calling this per
 // step.
 const _spot = { x: 0, z: 0 };
+// Slots fan out across a fixed 0.80m span rather than a fixed 0.07m step, so however many slots
+// the pool has grown to, they stay inside the door gap AND stay distinct. At the authored pool of
+// 12 the step works out to 0.0727 against the old 0.07, i.e. the same geometry to within 3cm.
 function laneSpot(base, slot, sign) {
-  const offset = 0.35 + (slot % 12) * 0.07;
+  // The 0.35m base and 0.07m step are deliberate (see the comment above): they give an entering
+  // and a leaving guest a 0.7m gap at slot 0. Only the old '% 12' wrap is gone — it mapped slot 12
+  // back onto slot 0, i.e. two guests onto one point, which avoidance cannot separate. Clamped at
+  // 12 so the furthest slot still lands inside the 1.2m door gap.
+  const offset = 0.35 + Math.min(slot, 12) * 0.07;
   _spot.x = base.x; _spot.z = base.z + sign * offset;
   return _spot;
 }
@@ -205,7 +277,12 @@ function takeSlot(w, key, size) {
   let taken = w[key];
   if (!taken) taken = w[key] = new Array(size).fill(false);
   for (let i = 0; i < taken.length; i++) if (!taken[i]) { taken[i] = true; return i; }
-  return taken.length - 1; // hard ceiling; never actually hit at MAXC concurrent customers
+  // Grow rather than hand back a duplicate. Two customers on the same slot get the same target
+  // point, and local avoidance cannot resolve that — they simply push into each other (measured as
+  // a sustained 0.18-0.36m door overlap once the café held more than 12 guests). The old ceiling
+  // assumed a 6-seat café; the terrace doubled the seating, so it is reachable now.
+  taken.push(true);
+  return taken.length - 1;
 }
 function releaseSlot(w, key, slot) {
   const taken = w[key];
@@ -230,10 +307,14 @@ function queuePos(st, slot) {
 // currently labelled 'cookie' is still the right target for a 'brownie' wish (and vice versa),
 // since world.js's putOnDisplay/stepOvens flip a family display's live st.product to whichever
 // member is actually on the shelf right now.
-function pickDisplay(w, wish) {
+// ...and in the guest's own room, for the same reason the settle-for target below is: today no wish
+// generator crosses rooms (a café guest is never offered ice cream), so this only makes the rule
+// explicit where a future menu change would otherwise walk a guest through the gate.
+function pickDisplay(w, wish, c) {
   const fam = familyOf(wish.product);
   for (const id of w.displays) {
     const st = w.stations.get(id);
+    if (c && !sameRoom(w, st, c)) continue;
     if (familyOf(st.product) === fam) return st;
   }
   return null;
@@ -242,22 +323,57 @@ function pickDisplay(w, wish) {
 // that's currently stocked — a customer stuck at an empty display has nothing else to switch to
 // AT that same display any more (it only ever holds its own product), so settling now means
 // walking to a different, stocked display instead.
-function anyStockedDisplay(w, excludeProduct) {
+// It settles for a counter IN ITS OWN ROOM. Without that filter this was the one selector in the
+// file that could hand a café guest the garden's stand — which is exactly what happened whenever
+// the kitchen ran dry while the stand was stocked: the guest crossed gate1, queued outside, and
+// banked a café sale into the garden's jar.
+function anyStockedDisplay(w, excludeProduct, c) {
   const excludeFam = familyOf(excludeProduct);
   for (const id of w.displays) {
     const st = w.stations.get(id);
+    if (!sameRoom(w, st, c)) continue;
     if (familyOf(st.product) !== excludeFam && st.stock > 0) return st;
   }
   return null;
+}
+// Which room a station is in, for a guest: a garden guest belongs to the garden (any region), a
+// café guest to the interior. Geometric only (nav.js regionAt is a rectangle test on the authored
+// data), so before the garden is built no garden station is active and this is inert.
+function sameRoom(w, st, c) {
+  const inRegion = !!regionAt(w.area, st.x, st.z);
+  return c && c.terraceBound ? inRegion : !inRegion;
+}
+// Open deck tables — the garden's size, which paces its arrivals (economy.js terraceSpawnInterval).
+export function gardenTableCount(w) {
+  let n = 0;
+  for (const st of w.stations.values()) if (st.type === 'seat' && st.active && regionAt(w.area, st.x, st.z)) n++;
+  return n;
+}
+// The nearest free, clean table in the guest's own room (docs/SHIP-PLAN-2026-09-19.md §1.2). It
+// used to be the first such table in station order, so seat7/seat8 took every terrace diner and a
+// whole purchase of deck tables (and two lounge tables) were never sat at in a measured shift.
+// Nearest, by the walk to its chair, so every table shows life and nobody crosses the room for one.
+function pickSeat(w, c) {
+  let best = null, bestD = Infinity;
+  for (const st of w.stations.values()) {
+    if (st.type !== 'seat' || !st.active || st.occupied || st.dirty || !st.pair) continue;
+    if (!sameRoom(w, st, c)) continue;
+    const d = c ? (st.pair.human.x - c.x) ** 2 + (st.pair.human.z - c.z) ** 2 : 0;
+    if (d < bestD) { best = st; bestD = d; }
+  }
+  return best;
 }
 // Least-loaded active register (by how many customers are already assigned to it this frame,
 // tallied fresh in w._regTally before any new assignment — same trick pickCheckout used for the
 // old checkouts, so two customers reaching the front in the same frame don't both pick the one
 // that reads emptiest from last frame's stale count); ties fall back to straight-line distance.
+// Registers are the café's alone: a garden guest pays at the stand (payAtStand) and never gets
+// here, and a register standing in a region would never be offered to a café guest.
 function pickRegister(w, c) {
   let best = null, bestN = Infinity, bestD = Infinity;
   for (const id of w.checkouts) {
     const st = w.stations.get(id);
+    if (!sameRoom(w, st, c)) continue;
     const n = w._regTally.get(id) || 0;
     const d = (st.front.x - c.x) ** 2 + (st.front.z - c.z) ** 2;
     if (n < bestN || (n === bestN && d < bestD)) { best = st; bestN = n; bestD = d; }
@@ -274,7 +390,24 @@ function activeBowl(w) {
 function setPatience(w, c, value) {
   c.patience = Math.max(0, Math.min(PATIENCE, value));
   const q = Math.floor(c.patience * 4);
-  if (q !== c._patQ) { c._patQ = q; w.events.push({ type: 'patience', id: c.id, value: c.patience }); }
+  if (q !== c._patQ) { c._patQ = q; emitWorld(w, { type: 'patience', id: c.id, value: c.patience }); }
+}
+/**
+ * THE HELPER PUP'S OTHER HALF (ship plan 1.7a: "and waiting guests' patience restored"). Every
+ * guest currently waiting -- at a counter, at the treat bowl or at a register -- gets its full
+ * patience back. Goes through setPatience so the render bars hear about it on the same throttle as
+ * an ordinary drain, and returns how many guests were actually helped so the caller can celebrate
+ * the real number. Pure: no clock, no RNG, no coins.
+ */
+export function refreshWaitingPatience(w, list) {
+  let helped = 0;
+  for (const c of list || []) {
+    if (!c || c.done || c.mood !== 'wait') continue;
+    if (c.patience >= PATIENCE) continue;
+    setPatience(w, c, PATIENCE);
+    helped++;
+  }
+  return helped;
 }
 function assignSlots(list, w) {
   for (const arr of w._queues.values()) arr.length = 0;
@@ -307,6 +440,139 @@ function assignRegisterSlots(list, w) {
     arr.forEach((c, i) => c.slot = i);
   }
 }
+// Program §6.2's post-payment seat routing, factored out so every payment path (a register, the
+// garden's self-serve stand) lands on exactly the same behaviour (pickSeat/waitSeat/leave).
+//
+// Batch 7 (the owner's ruling, verbatim: "a paying guest who finds only dirty tables WAITS for a
+// wipe, it does not turn away after 1.2 s"): waitSeat is now the ONLY path a guest blocked by dirty
+// tables can take, for every day-driven guest -- not just once the mature service policy (day >= 8)
+// is live. The `w.servicePolicyActive &&` gate that used to reserve waitSeat for that mature policy
+// is gone; `w.dayState` alone (every real run, game.js/tools/bot.js/tools/runtime-bot-parity.js
+// included) is what still keeps the untouchable test/nav-fullhouse.test.js's own bare-harness path
+// (no dayState) on its old, byte-identical "leave" behaviour. servicePolicyActive still gates the
+// refund/reputation FEE math over in sim/servicePolicy.js -- nothing here. The old 1.2 s 'noSeat'
+// hold (below, in the switch) is what produced the owner's "10 found no clean table" on day 2;
+// nothing sets that state any more, but the case stays in the switch so an old save resuming
+// mid-hold still finishes cleanly instead of getting stuck in a state nothing steps.
+// Where a guest waits for a table: BESIDE A TABLE, not wherever they happened to be standing when
+// they paid.
+//
+// waitSeatPoint used to be `c.x + 0.8, c.z + 0.8` — half a step diagonally from the till, because
+// that is where a guest is the moment their payment clears. So every guest waiting for a table
+// loitered around the register, mixed in with the guests still queueing to pay, and the owner's
+// report is the obvious consequence: "it confuses the player — which one needs payment?" Two
+// crowds doing two different things cannot share one spot.
+//
+// They hover by a table that will free up instead. The golden angle spreads several waiters into a
+// ring around it rather than stacking them on one tile, and mover.js's setTarget already snaps a
+// blocked point to the nearest free cell, so this never needs to be walkable itself.
+/// How far behind the chair a waiting guest hovers, along the same line they would walk in on, and
+// the rings of standing spots around that one, tried in order: right behind the chair, the chair
+// itself when nobody is sitting in it, a step to either side, then a second step back. A small crowd spreads over distinct spots instead of
+// stacking on one point — two guests sent to the same point never settle (the second keeps walking
+// into the first, which the bots read as a stall) — while the first guests still wait right by the
+// tables. [side, back] per spot, one array per ring; 'chair' is the free chair's own spot.
+const WAIT_BACKOFF = 0.9;
+const WAIT_RINGS = [[[0, WAIT_BACKOFF]], 'chair', [[0.7, WAIT_BACKOFF], [-0.7, WAIT_BACKOFF]], [[0, WAIT_BACKOFF + 0.7]]];
+// Two waiting guests closer than this are standing on each other.
+const WAIT_CLAIM_R = 0.65;
+function anyDirtySeat(w, c) {
+  for (const st of w.stations.values()) if (st.type === 'seat' && st.active && st.dirty && sameRoom(w, st, c)) return true;
+  return false;
+}
+// Is this point somewhere a guest may actually stand? The nav grid is the authority: it knows the
+// station footprints, the wall and its door gap, the fence lines and their gates, and which regions
+// have been built. Anything it calls free is floor.
+function standable(w, c, x, z) {
+  const g = w.grid;
+  if (!g) return true;
+  const i = idx(g, x, z);
+  return i >= 0 && isFree(g, i, c.mover.mask);
+}
+function inGateApron(area, x, z) {
+  for (const a of gateApron(area)) if (x >= a.x0 && x <= a.x1 && z >= a.z0 && z <= a.z1) return true;
+  return false;
+}
+// A real walk, not just a free cell: the grid's own path search from where the guest stands.
+const _waitPath = new Int32Array(256);
+function reachable(w, c, x, z) {
+  const g = w.grid;
+  if (!g) return true;
+  const from = nearestFree(g, idx(g, c.x, c.z), c.mover.mask);
+  const to = idx(g, x, z);
+  return from >= 0 && cachedPath(g, from, to, c.mover.mask, _waitPath) > 0;
+}
+// Where a guest waits for a table.
+//
+// The first version of this put them on a ring 1.35 m from the table at an angle derived from their
+// id. mover.js's setTarget snaps an unreachable target to the nearest free cell, so nobody got
+// stuck — but "nearest free cell" from a point inside the garden fence is a cell in the garden, and
+// the owner photographed guests standing in the flowerbeds along the fence, with some then leaving
+// through the fence instead of by the door. An arbitrary offset from a table is not a place.
+//
+// A table's own approach spot IS a place: pair.human is where every seated guest walks to, proven
+// walkable by every meal ever served. So a waiter hovers one step BEHIND that spot (or beside it),
+// on the same line they would have walked in on. Then the rules of the room (§1.2): only tables in
+// the guest's OWN room — an interior guest once walked out through the gate to wait beside a deck
+// table it could never take — never in the gate apron, never on a spot another waiter already
+// holds, and — ring by ring, closest ring first — the NEAREST such spot the guest can actually walk
+// to. Failing all of that, they simply stay where they are, which is by definition somewhere they
+// could reach.
+function waitSpotFor(w, c) {
+  const claimed = w._waitClaims || (w._waitClaims = []);
+  const seats = [];
+  for (const st of w.stations.values()) {
+    if (st.type !== 'seat' || !st.active || !st.pair) continue;
+    if (!st.dirty && !st.occupied) continue;
+    if (sameRoom(w, st, c)) seats.push(st);
+  }
+  const garden = !!c.terraceBound;
+  for (let ring = 0; ring < WAIT_RINGS.length; ring++) {
+    const cands = [];
+    for (const st of seats) {
+      const hx = st.pair.human.x, hz = st.pair.human.z;
+      const dx = hx - st.x, dz = hz - st.z, len = Math.hypot(dx, dz) || 1;
+      const ux = dx / len, uz = dz / len;
+      if (WAIT_RINGS[ring] === 'chair') { if (!st.occupied) cands.push({ x: hx, z: hz }); continue; }
+      for (const [side, back] of WAIT_RINGS[ring]) cands.push({ x: hx + ux * back - uz * side, z: hz + uz * back + ux * side });
+    }
+    cands.sort((a, b) => ((a.x - c.x) ** 2 + (a.z - c.z) ** 2) - ((b.x - c.x) ** 2 + (b.z - c.z) ** 2));
+    for (const p of cands) {
+      if (!!regionAt(w.area, p.x, p.z) !== garden || inGateApron(w.area, p.x, p.z)) continue;
+      if (!standable(w, c, p.x, p.z)) continue;
+      if (claimed.some(q => (q.x - p.x) ** 2 + (q.z - p.z) ** 2 < WAIT_CLAIM_R * WAIT_CLAIM_R)) continue;
+      if (!reachable(w, c, p.x, p.z)) continue;
+      claimed.push(p);
+      return p;
+    }
+  }
+  return { x: c.x, z: c.z };
+}
+function proceedToSeatOrLeave(w, c) {
+  const seat = pickSeat(w, c);
+  c.mover.hasTarget = false;
+  if (seat) { seat.occupied = true; c.seat = seat; c.seatId = seat.id; c.state = 'toSeat'; return; }
+  // A garden guest with no free table takes the cone away and eats it on the way out (§1.2): the
+  // garden has no waiting for tables, so no garden guest ever stands in anybody's way.
+  if (!c.terraceBound && w.dayState && seatsMightFree(w, st => sameRoom(w, st, c))) { c.state = 'waitSeat'; c.dirtyWait = 0; c.waitSeatPoint = waitSpotFor(w, c); return; }
+  c.state = 'leave';
+}
+// A garden guest pays at the stand the moment it takes its cone, into the stand's cash jar (the
+// owner collects it walking past — systems/stations.js), at the seated rate when a table in its
+// room is free for it. No register, no queue to pay, nobody to man it: the stand earns while the
+// owner is inside. The same 'pay' event a register emits, so settlement, the ledger, the Pet Book
+// and the served count all see a garden sale exactly like a café one.
+function payAtStand(w, c, st, price) {
+  const seated = !!pickSeat(w, c);
+  c.amount = (c.order || []).reduce((sum, key) => sum + price(key, seated), 0);
+  // The Special Guest offer's VIP, when the Pet Book is already complete (ship plan 1.7a: "a VIP
+  // who tips 3x"). One flag on the customer, read at both of the two places an order is priced.
+  if (c.vip) c.amount *= VIP_TIP_MULTIPLIER;
+  st.pile = (st.pile || 0) + c.amount;
+  c.paid = true;
+  emitWorld(w, { type: 'processed', id: c.id, amount: c.amount, checkoutId: st.id, by: 'self' });
+  emitWorld(w, { type: 'pay', id: c.id, amount: c.amount, x: st.x, z: st.z, checkoutId: st.id });
+}
 // Loop v2 Task 1: rebalance() (moving a customer between two counters holding the same product)
 // is gone — with one dedicated display per product there is no longer a second counter with the
 // same wish to move to; the only cross-display move left is the settle-for switch above, handled
@@ -325,6 +591,7 @@ function assignRegister(c, w) {
 export function stepCustomers(list, w, price, dt) {
   stepBowlCooldown(w, dt); // Loop v2 Task 3: decay the just-vacated-slot cooldown — see takeBowlSlot above
   w.grid.frame++; // once per sim step, before stepStaff (nav.js's cachedPath cache key)
+  if (!w._actorRosterActive) {
   // Rebuild the shared avoidance list from scratch every step (customers only; stepStaff appends
   // its own movers to this same array at the start of its step — see src/sim/staff.js).
   let movers = w._movers;
@@ -335,6 +602,18 @@ export function stepCustomers(list, w, price, dt) {
   // append onto it rather than clear it again.
   w._custRanFlag = true;
   for (const c of list) if (!c.done) movers.push(c.mover);
+  // ...and the workers. Guests step BEFORE stepStaff appends its movers, so on this path the list
+  // used to hold customers only: every guest was blind to every worker, while every worker avoided
+  // every guest. Measured on test/nav-fullhouse.test.js: a guest walking single file 0.23 m behind
+  // the Cleaner through the terrace gate at full speed for over a second, the Cleaner's overlap
+  // clock climbing while the guest's never left zero. The live game never had this — game.js freezes
+  // a roster of everyone per step (sim/actorRoster.js) — but tools/bot.js, the full-house test and
+  // every other bare caller did, so the economy bot's guests could walk through staff that the real
+  // game's guests step round. stepStaff records its movers below; they are the same objects every
+  // tick, so last tick's list is this tick's workers, at their live positions.
+  if (w._staffMovers) for (const m of w._staffMovers) if (!movers.includes(m)) movers.push(m);
+
+  }
 
   const area = w.area;
   const door = area.door;
@@ -343,25 +622,41 @@ export function stepCustomers(list, w, price, dt) {
   if (!w._regTally) w._regTally = new Map();
   for (const id of w.checkouts) w._regTally.set(id, 0);
   for (const c of list) if (c.registerId && (c.state === 'toRegister' || c.state === 'atRegister')) w._regTally.set(c.registerId, (w._regTally.get(c.registerId) || 0) + 1);
+  // Spots already held by guests waiting for a table, fresh every frame (waitSpotFor adds to it as
+  // it hands new ones out), so no two waiters are ever sent to stand on each other.
+  const claims = w._waitClaims || (w._waitClaims = []);
+  claims.length = 0;
+  for (const c of list) if (!c.done && c.state === 'waitSeat' && c.waitSeatPoint) claims.push(c.waitSeatPoint);
 
   for (const c of list) {
     if (c.done) continue;
     c.hop = Math.max(0, c.hop - dt);
     if (c.wish == null) {
-      c.wish = wishFor(w);
-      w.events.push({ type: 'wish', id: c.id, product: c.wish.product, treat: c.wish.treat });
+      // A garden guest wishes from the garden's menu (its stand), everyone else from the café's.
+      c.wish = c.terraceBound ? gardenWish(w) : wishFor(w);
+      if(c.socialProduct && !c.terraceBound) {
+        const menu=[...w.stations.values()].find(st=>st.active&&st.type==='display'&&familyOf(st.product)===familyOf(c.socialProduct));
+        if(menu) c.wish={...c.wish,product:menu.product};
+      }
+      c.recoveryQuote = (PRODUCTS[c.wish.product]?.price||8)*(2-c.id%2)+(c.wish.treat?8:0);
+      emitWorld(w, { type: 'wish', id: c.id, product: c.wish.product, treat: c.wish.treat });
     }
     // mask 1 (entry lane) while approaching/crossing the door; once truly on the floor, drop to
     // mask 0 so the mover no longer treats the west-margin lane cells as walkable (leave() sets
-    // mask 2 explicitly below, overriding this).
+    // mask 2 explicitly below, overriding this). The garden's arch sits on the same x as the café
+    // door, so one rule serves both.
     if (c.state !== 'leave' && c.x > door.x + 0.5) c.mover.mask = 0;
     switch (c.state) {
       case 'enter': {
-        if (c._doorSlot == null) c._doorSlot = takeSlot(w, '_doorTaken_enter', 12);
-        const doorSpot = laneSpot(door, c._doorSlot, -1);
+        // A garden guest comes in by the garden's arch, with a slot pool of its own.
+        const garden = !!(c.terraceBound && area.terraceDoor);
+        const doorPt = garden ? area.terraceDoor : door;
+        const pool = garden ? '_gardenDoorTaken_enter' : '_doorTaken_enter';
+        if (c._doorSlot == null) c._doorSlot = takeSlot(w, pool, 12);
+        const doorSpot = laneSpot(doorPt, c._doorSlot, -1);
         if (walkTo(c, doorSpot.x, doorSpot.z, w, dt)) {
-          releaseSlot(w, '_doorTaken_enter', c._doorSlot); c._doorSlot = null;
-          const ct = pickDisplay(w, c.wish);
+          releaseSlot(w, pool, c._doorSlot); c._doorSlot = null;
+          const ct = pickDisplay(w, c.wish, c);
           if (!ct) { c.state = 'leave'; break; }
           c.counterId = ct.id; c.arrived = w.seq = (w.seq || 0) + 1; c.state = 'queue';
           setPatience(w, c, PATIENCE); c.mood = 'none';
@@ -381,8 +676,14 @@ export function stepCustomers(list, w, price, dt) {
           for (let i = 0; i < orderSize; i++) { if (takeFromDisplay(w, c.counterId)) taken++; else break; }
           if (taken > 0) {
             c.order = new Array(taken).fill(c.wish.product);
-            w.events.push({ type: 'took', id: c.id, product: c.wish.product, count: taken });
+            emitWorld(w, { type: 'took', id: c.id, product: c.wish.product, count: taken });
             c.mood = 'none';
+            if (st.selfServe) {
+              // The garden stand: pay into its jar right here, then a table or the way out.
+              payAtStand(w, c, st, price);
+              proceedToSeatOrLeave(w, c);
+              break;
+            }
             const wantsBowl = c.wish.treat ? activeBowl(w) : null;
             const bowlSlot = wantsBowl ? takeBowlSlot(w) : null;
             if (wantsBowl && bowlSlot != null) {
@@ -403,8 +704,9 @@ export function stepCustomers(list, w, price, dt) {
             // SETTLE_WAIT seconds stuck waiting at an empty display, switch to whatever OTHER
             // active display is currently stocked (this display only ever holds its own, empty,
             // product — there is no "same counter, different item" any more) and walk there.
-            if (!c._settled) {
-              const alt = (PATIENCE - c.patience) >= SETTLE_WAIT ? anyStockedDisplay(w, c.wish.product) : null;
+            // A garden guest has one counter on its menu, so it waits out its patience there.
+            if (!c._settled && !c.terraceBound) {
+              const alt = (PATIENCE - c.patience) >= SETTLE_WAIT ? anyStockedDisplay(w, c.wish.product, c) : null;
               if (alt) {
                 c._settled = true;
                 const from = c.wish.product, to = alt.product;
@@ -415,14 +717,14 @@ export function stepCustomers(list, w, price, dt) {
                 // other reassignment in this file (register payment, patience-loss leave) so the
                 // walk starts from a clean baseline instead of an old, now-irrelevant target.
                 c.mover.hasTarget = false;
-                w.events.push({ type: 'settled', id: c.id, from, to });
-                w.events.push({ type: 'wish', id: c.id, product: to, treat: c.wish.treat });
+                emitWorld(w, { type: 'settled', id: c.id, from, to });
+                emitWorld(w, { type: 'wish', id: c.id, product: to, treat: c.wish.treat });
                 break;
               }
             }
             if (c.patience <= 0) {
-              w.events.push({ type: 'lost', id: c.id, reason: 'counter' });
-              w.events.push({ type: 'angry', id: c.id });
+              emitWorld(w, { type: 'lost', id: c.id, reason: 'counter' });
+              emitWorld(w, { type: 'angry', id: c.id });
               c.mood = 'none'; c.state = 'leave'; c.mover.hasTarget = false;
             }
           }
@@ -462,8 +764,8 @@ export function stepCustomers(list, w, price, dt) {
             assignRegister(c, w);
           } else if (c.patience <= 0) {
             releaseBowlSlot(w, c._bowlSlot); c._bowlSlot = null;
-            w.events.push({ type: 'lost', id: c.id, reason: 'bowl' });
-            w.events.push({ type: 'angry', id: c.id });
+            emitWorld(w, { type: 'lost', id: c.id, reason: 'bowl' });
+            emitWorld(w, { type: 'angry', id: c.id });
             c.mood = 'none'; c.state = 'leave'; c.mover.hasTarget = false;
           }
         }
@@ -481,30 +783,56 @@ export function stepCustomers(list, w, price, dt) {
           // world.js's stepRegisters just reads c.amount back, no pricing knowledge needed
           // there). Seated-ness is a snapshot of seat availability at arrival, not a reservation
           // — the actual seat is claimed for real once paid, below.
-          const seat = freeSeat(w); const seated = !!seat;
+          const seated = !!pickSeat(w, c);
           c.amount = (c.order || []).reduce((sum, key) => sum + price(key, seated), 0);
           // Loop v2 Task 3: a holidayCupcake customer (wishFor's `holiday` flag — economy.js) pays
-          // double for its whole order, same as the design's "2x price" wording for that wish.
+          // double for its whole order.
           if (c.wish && c.wish.holiday) c.amount *= 2;
+          // ...and the Special Guest VIP (see payAtStand above).
+          if (c.vip) c.amount *= VIP_TIP_MULTIPLIER;
         }
         if (c.state === 'atRegister') {
           if (c.paid) {
             c.registerId = null;
-            const seat = freeSeat(w);
-            // Defensive hasTarget clear on both exits (matches the patience-loss branch below and
-            // the 'toSeat' handler's own clear on arrival): world.js's stepRegisters only pays a
-            // customer once its mover reads !hasTarget AND is spatially at slot 0, so this should
-            // already be at rest — but re-affirming it here costs nothing and removes any doubt.
+            // Defensive hasTarget clear (matches the patience-loss branch below and the 'toSeat'
+            // handler's own clear on arrival): world.js's stepRegisters only pays a customer once
+            // its mover reads !hasTarget AND is spatially at slot 0, so this should already be at
+            // rest — but re-affirming it here costs nothing and removes any doubt.
             c.mover.hasTarget = false;
-            if (seat) { seat.occupied = true; c.seat = seat; c.seatId = seat.id; c.state = 'toSeat'; }
-            else { c.state = 'leave'; }
+            // Program §6.2 root cause: until now a paid guest with nowhere clean to sit dropped
+            // straight into 'leave' -- no bubble, no event, no stat -- so a filthy cafe cost the
+            // player nothing he could see, and the owner reported exactly that ("uncleaned tables
+            // does not result in anything, the flow continues"). Only the dirty-table case is
+            // caught here: an honestly FULL cafe (every seat clean and taken) is not a service
+            // failure and still leaves silently, as it always did. (proceedToSeatOrLeave, above.)
+            proceedToSeatOrLeave(w, c);
           } else if (st.serving === '') {
+            // C1/C2 settle-for-register (same idea as the counter's settle-for rule above, adapted
+            // to a register): a guest stuck unserved for SETTLE_WAIT seconds gives up on ITS
+            // register and reassigns to whichever active one is genuinely best right now — the
+            // plain nearest/shortest-queue search. Once per visit, like every other settle-for
+            // rule in this file.
+            if (!c._regSettled && (PATIENCE - c.patience) >= SETTLE_WAIT) {
+              const alt = pickRegister(w, c);
+              if (alt && alt.id !== c.registerId) {
+                c._regSettled = true;
+                c.registerId = alt.id;
+                c.regArrived = w.seq = (w.seq || 0) + 1;
+                w._regTally.set(alt.id, (w._regTally.get(alt.id) || 0) + 1);
+                c.mover.hasTarget = false;
+                setPatience(w, c, PATIENCE);
+                c.mood = 'none';
+                c.state = 'toRegister';
+                emitWorld(w, { type: 'registerSettled', id: c.id, to: alt.id });
+                break;
+              }
+            }
             setPatience(w, c, c.patience - dt);
             c.mood = 'wait';
             if (c.patience <= 0) {
               c.registerId = null;
-              w.events.push({ type: 'lost', id: c.id, reason: 'register' });
-              w.events.push({ type: 'angry', id: c.id });
+              emitWorld(w, { type: 'lost', id: c.id, reason: 'register' });
+              emitWorld(w, { type: 'angry', id: c.id });
               // M3 T3 fix (found by the nav-fullhouse acceptance test): unlike the counter's
               // slot-0-only wait (a stable target — nobody's slot number changes once they're at
               // the front), EVERY 'atRegister' customer drains patience regardless of slot, and
@@ -518,6 +846,67 @@ export function stepCustomers(list, w, price, dt) {
           } else {
             c.mood = 'none';
           }
+        }
+        break;
+      }
+      case 'waitSeat': {
+        const seat=pickSeat(w, c);
+        if(seat){seat.occupied=true;c.seat=seat;c.seatId=seat.id;c.state='toSeat';c.mover.hasTarget=false;break;}
+        // Once a guest has decided to wait, they wait out their own patience — the reason they
+        // started is never re-checked. Re-checking is what made wiping a table LOOK like an
+        // eviction: the player cleaned two tables, two guests sat, and every other waiter was told
+        // there was nothing left to hope for and walked out (the owner's day-18 report, and
+        // tools/seating-smoke.js's own subject). Deciding to wait is the part that needs a reason,
+        // and that lives in proceedToSeatOrLeave: a table the player can free.
+        c.dirtyWait=(c.dirtyWait||0)+dt;
+        if(c.waitSeatPoint)walkTo(c,c.waitSeatPoint.x,c.waitSeatPoint.z,w,dt);
+        // Out of patience for a table? They take it away. They keep what they bought and the café
+        // keeps the money.
+        //
+        // This used to emit 'tableRefund' as well, which hands the payment BACK (systems/
+        // customers.js applyServicePenalty) — the café was being fined for the tables being busy,
+        // after the sale had already closed. Taking money off the player for a queue they are
+        // already working through is the punishment the owner has asked twice to be rid of, and it
+        // is not what a café does: you get your coffee to go. 'seatMissed' stays, because it is the
+        // honest measurement — the stat the day card reports and the Paw Rating's "keep tables
+        // free" goal reads — and it costs one reputation point, which is the soft, recoverable
+        // version of the same signal.
+        if(c.dirtyWait>=WAIT_SEAT_GRACE){
+          // ...and it is only a SERVICE FAILURE if a dirty table was the reason. A cafe whose every
+          // table is clean and simply busy is a cafe doing well; charging the player a reputation
+          // point because business is good was never right, and now that guests wait out an honestly
+          // full room instead of turning on their heel, that case actually happens.
+          if(anyDirtySeat(w,c)) emitWorld(w,{type:'seatMissed',id:c.id});
+          c.state='leave';c.mover.hasTarget=false;
+        }
+        break;
+      }
+      // Program §6.2, retired by Batch 7. The guest has paid, no seat is clean and at least one is
+      // dirty. It used to hold for NO_SEAT_HOLD (1.2 s) under a table-with-X bubble (drawn by
+      // src/systems/visuals.js) and then leave reporting 'seatMissed' -- exactly the 1.2 s hold the
+      // owner's day-2 playtest counted as "10 found no clean table". proceedToSeatOrLeave no longer
+      // ever sets this state (waitSeat, above, is the only path now); this case stays in the switch
+      // only so an old save that resumes mid-hold still finishes on its own instead of getting
+      // stuck in a state nothing else steps.
+      //
+      // It steps aside while it holds, the same 0.8m diagonal 'waitSeat' uses. Standing still was
+      // the obvious implementation and it is wrong: the guest is parked exactly on register slot 0,
+      // the queue shuffles the next customer onto that spot, and the pair sit on top of each other
+      // for the whole hold — test/nav-fullhouse.test.js's overlap detector caught precisely that
+      // (0.49m for >1s). Clearing the queue line is also simply the right behaviour: a guest who
+      // has already paid has no business blocking the register.
+      case 'noSeat': {
+        const seat = pickSeat(w, c);
+        if (seat) {
+          seat.occupied = true; c.seat = seat; c.seatId = seat.id;
+          c.state = 'toSeat'; c.mood = 'none'; c.mover.hasTarget = false;
+          break;
+        }
+        if (c.noSeatPoint) walkTo(c, c.noSeatPoint.x, c.noSeatPoint.z, w, dt);
+        c.noSeatT = (c.noSeatT || 0) + dt;
+        if (c.noSeatT >= NO_SEAT_HOLD) {
+          emitWorld(w, { type: 'seatMissed', id: c.id });
+          c.mood = 'none'; c.state = 'leave'; c.mover.hasTarget = false;
         }
         break;
       }
@@ -541,7 +930,7 @@ export function stepCustomers(list, w, price, dt) {
           // detector (progress toward tx/tz over a 3s window) flags. Clear it explicitly so the
           // mover is cleanly at rest, like any other arrival.
           c.mover.hasTarget = false;
-          w.events.push({ type: 'seated', id: c.id, seatId: c.seatId });
+          emitWorld(w, { type: 'seated', id: c.id, seatId: c.seatId });
         }
         break;
       }
@@ -552,23 +941,39 @@ export function stepCustomers(list, w, price, dt) {
         // false) satisfied even while dirty — a dirty seat is simply not yet reusable, not still
         // "occupied" by anyone.
         c.timer += dt; if (c.timer >= EAT_TIME) {
-          c.seat.occupied = false; c.seat.dirty = true;
-          w.events.push({ type: 'dirtied', seatId: c.seat.id });
+          // Batch 7: DIRTY_EVERY back to 1 -- every finished meal leaves dishes (props.js's
+          // dirtyMesh is what actually reads as a bussed table now, not just three crumbs), every
+          // time. occupied still clears every time (nav-fullhouse.test.js's seat-leak check), so
+          // the seat is reusable the instant it's wiped, not the instant it's vacated.
+          c.seat.occupied = false;
+          c.seat.uses = (c.seat.uses | 0) + 1;
+          if (c.seat.uses % DIRTY_EVERY === 0) { c.seat.dirty = true; emitWorld(w, { type: 'dirtied', seatId: c.seat.id }); }
+          // A SETTLED VISIT: this pet sat down in the café and had a nice time. It is what the Pet
+          // Book's friendship ladder is built on now — see the note on the subscription in
+          // systems/petFriendship.js. Emitted before the seat reference is dropped so the moment
+          // has a table to play at.
+          emitWorld(w, { type: 'settled', id: c.id, seatId: c.seat.id, x: c.seat.x, z: c.seat.z });
           c.seat = null; c.seatId = null; c.order = null; c.state = 'leave'; c.hop = 0.5;
         }
         break;
       }
       case 'leave': {
+        // Out the way they came in: a café guest by the café door, a garden guest by the garden's
+        // arch and on along the street (§1.2). The garden's exit used to sit inside the photo
+        // booth, so every deck guest vanished into its backdrop; now both are the same two-leg walk
+        // — to the doorway on the exit lane, then out to the street spot — each with its own pool.
         c.mover.mask = 2; // exit lane
-        if (c._doorSlot == null) c._doorSlot = takeSlot(w, '_doorTaken_leave', 12);
+        const garden = !!(c.terraceBound && area.terraceDoor);
+        const pool = garden ? '_gardenDoorTaken_leave' : '_doorTaken_leave';
+        if (c._doorSlot == null) c._doorSlot = takeSlot(w, pool, 12);
         if (!c._doorReached) {
-          const doorSpot = laneSpot(door, c._doorSlot, 1);
+          const doorSpot = laneSpot(garden ? area.terraceDoor : door, c._doorSlot, 1);
           if (walkTo(c, doorSpot.x, doorSpot.z, w, dt)) c._doorReached = true;
         } else {
-          const spawnSpot = laneSpot(area.spawnStart, c._doorSlot, 1);
+          const spawnSpot = laneSpot(garden ? area.terraceSpawnOut : area.spawnStart, c._doorSlot, 1);
           if (walkTo(c, spawnSpot.x, spawnSpot.z, w, dt)) {
-            releaseSlot(w, '_doorTaken_leave', c._doorSlot); c._doorSlot = null;
-            c.done = true; w.events.push({ type: 'left', id: c.id });
+            releaseSlot(w, pool, c._doorSlot); c._doorSlot = null;
+            c.done = true; emitWorld(w, { type: 'left', id: c.id });
           }
         }
         break;

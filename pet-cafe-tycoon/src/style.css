@@ -7,36 +7,9 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE8D8;font-family:"S
 #loading .spin{width:44px;height:44px;border-radius:50%;border:5px solid #fff4;border-top-color:var(--coral);animation:sp 1s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
 #hud{position:fixed;inset:0;pointer-events:none;z-index:10}
+/* The permanent HUD (wallet, Pet Book chip, Café button) and the moment sinks (#banner, .toast) are
+   styled in the HUD section at the end of this file. .pill is the shared pill shape. */
 .pill{position:absolute;background:#fff;color:var(--ink);border-radius:999px;padding:8px 14px;font-weight:800;font-size:18px;box-shadow:0 4px 0 #0001,0 8px 20px #0002;display:flex;align-items:center;gap:8px;min-height:48px;box-sizing:border-box}
-#wallet{left:calc(12px + var(--sal));top:calc(12px + var(--sat))}
-#wallet .coin{width:22px;height:22px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#fff6b0,var(--coin) 60%,#e0a800);box-shadow:inset 0 -2px 0 #0002}
-#crowd{left:calc(12px + var(--sal));top:calc(72px + var(--sat));font-size:16px;transition:background .15s,color .15s}
-#crowd .picon{width:22px;height:22px;flex:none;color:var(--ink)}
-/* M3 T5: coral + '!' while any customer's patience is under 4s */
-#crowd.urgent{background:var(--coral);color:#fff}
-#crowd.urgent .picon{color:#fff}
-.bang{font-weight:900;font-size:16px;color:#fff;background:var(--ink);width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none}
-/* Loop v2 Task 1: "hands full · <product>" tag, pinned just under the crowd pill. */
-#handsFull{left:calc(12px + var(--sal));top:calc(130px + var(--sat));font-size:14px;background:var(--cream)}
-#hint{left:50%;transform:translateX(-50%);bottom:calc(120px + var(--sab));font-size:16px;background:#fffd}
-/* Loop v2 Task 2: the SKIP pill (src/systems/intro.js), sitting just under #hint. #hud is
-   pointer-events:none, so this (appended straight to <body>, not #hud) needs its own auto. */
-.skipPill{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(64px + var(--sab));
-  font-size:14px;border:none;cursor:pointer;font-family:inherit;pointer-events:auto;z-index:10;opacity:.85}
-.toast{position:absolute;left:50%;bottom:calc(172px + var(--sab));transform:translate(-50%,8px);opacity:0;transition:opacity .2s ease,transform .2s ease;background:var(--ink);color:#fff;font-weight:700;font-size:14px;padding:8px 16px;border-radius:999px;box-shadow:0 6px 16px #0003;max-width:min(80vw,360px);text-align:center;box-sizing:border-box;pointer-events:none}
-.toast.show{opacity:1;transform:translate(-50%,0)}
-/* Loop v2 Task 3: the day pill ("Day 3 · Rush", right side, same row as #crowd — design section
-   5's day clock) with a thin phase-progress bar underneath, and a small goal-text pill right below
-   it (right side, same row #handsFull sits at on the left, so the two never collide). */
-#dayPill{right:calc(12px + var(--sar));top:calc(72px + var(--sat));font-size:15px;flex-direction:column;align-items:stretch;gap:4px;padding:8px 12px;min-width:120px}
-#dayPill .dayTop{display:flex;align-items:center;justify-content:space-between;gap:8px;font-weight:800}
-.dayBar{width:100%;height:5px;border-radius:3px;background:#0001;overflow:hidden}
-.dayBarFill{height:100%;background:var(--accent);border-radius:3px;transition:width .2s linear}
-#goalPill{right:calc(12px + var(--sar));top:calc(130px + var(--sat));font-size:13px;background:var(--cream)}
-/* The top-centre rush/weekend/holiday/closing banner — a large pill sliding in from above for a
-   few seconds (design section 5 / Task 3 brief's hud.banner(text, ms)). */
-#banner{left:50%;top:calc(16px + var(--sat));transform:translate(-50%,-160%);font-size:22px;font-weight:900;letter-spacing:.04em;padding:12px 28px;background:var(--coral);color:#fff;box-shadow:0 8px 24px #0004;transition:transform .35s cubic-bezier(.2,.9,.3,1.3);z-index:11}
-#banner.show{transform:translate(-50%,0)}
 #joy{position:absolute;width:120px;height:120px;border-radius:50%;background:#fff3;border:3px solid #fff8;transform:translate(-50%,-50%)}
 #joyKnob{position:absolute;left:50%;top:50%;width:52px;height:52px;border-radius:50%;background:#fffc;transform:translate(-50%,-50%);box-shadow:0 4px 10px #0002}
 #fx{position:fixed;inset:0;pointer-events:none;z-index:9;overflow:hidden}
@@ -55,42 +28,51 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE8D8;font-family:"S
 @keyframes wishShake{0%,100%{margin-left:0}25%{margin-left:-3px}75%{margin-left:3px}}
 .wishIcon{width:38px;height:38px;flex:none}
 .wishIcon svg{width:100%;height:100%;display:block}
+/* Program 6.2: the "no clean table" bubble. Same 44px .wish shell (so src/ui/labelLayout.js
+   anchors and declutters it exactly like a guest's order bubble) with the ink-on-white treatment
+   of a problem rather than a wish, and a one-shot pop so it reads as an event, not furniture. */
+.wish.noseat{color:var(--ink);box-shadow:0 3px 10px #0004;animation:noSeatPop .26s cubic-bezier(.2,.9,.3,1.4)}
+@keyframes noSeatPop{0%{transform:translate(-50%,-100%) scale(.55)}100%{transform:translate(-50%,-100%) scale(1)}}
 .patience{position:absolute;transform:translate(-50%,0);width:44px;height:6px;background:#0002;border-radius:3px;overflow:hidden;pointer-events:none}
 .patienceFill{height:100%;width:44px;background:#7FD69A;transition:background .15s}
 .patienceFill.warn{background:#FFC24D}
 .patienceFill.bad{background:var(--coral)}
 
-/* M3 T5: demand counters — n/cap label above every counter/machine/bowl/bush/oven */
-.demand{position:absolute;transform:translate(-50%,-50%);background:var(--cream);color:var(--ink);
-  font-size:15px;font-weight:800;border-radius:10px;padding:2px 8px;min-height:24px;box-sizing:border-box;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
-  box-shadow:0 2px 6px #0002;pointer-events:none;white-space:nowrap;z-index:1}
-.demand.zero{background:var(--coral);color:#fff}
-.demand.pulse{animation:demandPulse 0.9s ease-in-out infinite}
-@keyframes demandPulse{0%,100%{background:var(--coral);color:#fff}50%{background:#fff;color:var(--coral)}}
-.dpips{display:flex;gap:2px}
-.dpip{width:5px;height:5px;border-radius:50%;background:#0000002a}
-.dpip.filled.bean{background:#6B4A2B}
-.dpip.filled.fruit{background:var(--coral)}
-.dstage{width:6px;height:6px;border-radius:50%;background:#0000002a}
-.dstage.filled{background:#7BC47F}
+/* Station NEEDS and GAUGES (src/systems/visuals.js stationNeed / stationGauge).
+   Replaced "demand counters" — a grey pill over every station with a state glyph and "n/cap" — after
+   the day-18 report: "3/10" of what? A NEED is one picture of what to bring, in a speech bubble whose
+   tail points down at the station; it appears only when the player is needed. A GAUGE is the same
+   icon with a fill bar and no digits, and only appears when the player is standing next to it. */
+.demand{position:absolute;transform:translate(-50%,-50%);pointer-events:none;white-space:nowrap;z-index:1;
+  display:flex;align-items:center;justify-content:center;box-sizing:border-box}
+.demand .dicon{display:grid;place-items:center;line-height:0}
+.demand .dicon svg{display:block}
+.demand.need{transform:translate(-50%,-100%);padding:6px;border-radius:15px;background:#FFFDF8;
+  border:2px solid #FFFFFF;box-shadow:0 4px 12px #3B2E2A38}
+.demand.need::after{content:'';position:absolute;left:50%;bottom:-7px;width:11px;height:11px;background:inherit;
+  border-right:2px solid #FFFFFF;border-bottom:2px solid #FFFFFF;transform:translateX(-50%) rotate(45deg);
+  border-radius:0 0 3px 0;box-sizing:border-box}
+.demand.need .dicon svg{width:28px;height:28px}
+.demand.need .dbar{display:none}
+.demand.need.urgent{background:#FF8A80}
+.demand.need.pick{background:#E9F6E4}
+.demand.need.pop{animation:need-pop .42s cubic-bezier(.2,1.6,.4,1) 1}
+@keyframes need-pop{0%{transform:translate(-50%,-100%) scale(.4)}100%{transform:translate(-50%,-100%) scale(1)}}
+.demand.gauge{gap:5px;padding:4px 8px 4px 5px;border-radius:11px;background:#FFFDF8E8;box-shadow:0 2px 6px #0002}
+.demand.gauge .dicon svg{width:17px;height:17px}
+.demand .dbar{display:block;width:34px;height:6px;border-radius:3px;background:#3B2E2A1F;overflow:hidden}
+.demand .dfill{display:block;height:100%;width:0;border-radius:3px;background:#80977C;transition:width .25s ease}
+.demand.gauge.low .dfill{background:#FF8A80}
+@media(prefers-reduced-motion:reduce){.demand.need.pop{animation:none}.demand .dfill{transition:none}}
 
-/* Loop v2 Task 2: chalkboards — a small dark station-name + product-icon label, projected from the
-   3D chalkboard mesh's front-left-corner position (src/render/props.js's chalkboardMesh, positioned
-   in src/systems/visuals.js). Kept well below the demand counters (CHALK_Y 1.05 vs DEMAND_Y
-   1.55-2.3) so the two never overlap. */
-.chalk{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;gap:5px;
-  background:#2B2320;color:var(--cream);font-size:11px;font-weight:800;letter-spacing:.02em;
-  border-radius:8px;padding:4px 8px;box-shadow:0 2px 6px #0003;pointer-events:none;white-space:nowrap;z-index:1}
-.chalkIcon{width:15px;height:15px;flex:none}
-.chalkIcon svg{width:100%;height:100%;display:block}
-/* Loop v2 Task 3: a star-eligible station's chalkboard is tappable (opens the kiosk on its own
-   Machines row — see systems/visuals.js/stations.js) — needs its own pointer-events, #fx is none. */
-.chalk.tappable{pointer-events:auto;cursor:pointer}
+/* The chalkboards' own rules lived here. They are gone with the boards: a station carries its
+   pictogram on its own geometry now (render/grain.js bakes the glyph into the shared detail atlas,
+   render/props.js signParts() merges the board into the station's mesh), so there is no DOM chip to
+   style, to project or to arbitrate. See src/systems/visuals.js stationSignGlyph(). */
 
 /* Loop v2 Task 2: the floating kiosk/hire button (design section 3/4) — appears above whichever
    station the owner is standing in front of; #fx is pointer-events:none, so this needs its own auto. */
-.fbtn{position:absolute;transform:translate(-50%,-50%);left:0;top:0;min-height:48px;box-sizing:border-box;
+.fbtn{position:absolute;transform:translate(-50%,-50%);left:0;top:0;min-height:48px;min-width:48px;box-sizing:border-box;
   padding:0 22px;border:none;border-radius:999px;background:var(--coral);color:#fff;font-weight:800;
   font-size:15px;letter-spacing:.02em;box-shadow:0 4px 0 #0001,0 8px 20px #0002;cursor:pointer;
   pointer-events:auto;white-space:nowrap;z-index:2}
@@ -171,3 +153,336 @@ html,body{margin:0;height:100%;overflow:hidden;background:#BFE8D8;font-family:"S
   background:#0000000f;display:flex;align-items:center;justify-content:center;cursor:pointer}
 .chip svg{width:100%;height:100%;display:block}
 .chip.active{background:var(--accent)}
+
+/* The Shop's one locked teaser per tab (src/ui/sheets.js teaserRow): greyed, a padlock and a
+   picture of what opens it. Not a button, so nothing here can be mistaken for a buy. */
+.srow-locked{background:#3b2e2a0a;box-shadow:none}
+.srow-locked .srow-label{opacity:.55}
+.srow-teaser-info{flex-direction:row;align-items:center;gap:8px}
+.teaser-art{width:26px;height:26px;flex:none;opacity:.45;filter:grayscale(1)}.teaser-art svg{width:100%;height:100%;display:block}
+.teaser-lock{display:inline-flex;align-items:center;gap:4px;flex:none;padding:6px 9px;border-radius:12px;background:#fff;font:900 14px/1 system-ui,sans-serif}
+.teaser-num{font-variant-numeric:tabular-nums}
+
+/* --- Certification: label decluttering (src/ui/labelLayout.js) ---------------------------------
+   When the arbiter cannot find a collision-free slot for a low-priority label it marks it crowded
+   rather than letting it overlap. Fading instead of display:none keeps layout measurement stable
+   across frames, so a label can come back the instant space reappears. */
+/* The label arbiter's two presentation states (see ui/labelLayout.js) are FILTERS, not opacity
+   overrides. A filter multiplies with whatever opacity the owning system has set, so the arbiter can
+   only ever make a label less visible than its owner intends -- never more.
+   It used to be `opacity:0!important` here and `opacity:.45!important` for the muted state, and that
+   second one was the owner's "name labels still shown where no customer is, or has already left, at
+   reduced opacity". A pet tag dimmed during a rush kept `opacity:.45!important` after petMoments.js
+   had hidden it, because !important beat the base `opacity:0`. Worse, it then still measured as a
+   live label (0.45 > the read phase's 0.05 floor), so the solver kept it as a candidate, kept the
+   café looking crowded, and never un-dimmed it -- while nothing was updating its position any more.
+   A stuck 45% ghost, sitting wherever it was last solved, for the rest of the session. */
+.label-crowded{filter:opacity(0);pointer-events:none!important}
+/* Labels must never be the reason text clips: give every pill room to size to its own content. */
+.demand,.objCaption,.zlabel,.zprice,.fbtn{max-width:none}
+
+/* Task 2.1 — the Pet Photo Studio (plan 3.2). Both classes are world-projected (src/ui/photoGame.js
+   sets style.left/top in raw px every frame, exactly like .fbtn/.wish already do) so they follow
+   the same "anchor via CSS transform, position via JS left/top" split every other managed label in
+   this file uses — see src/ui/labelLayout.js's own ANCHORS comment. `.photoRing` stays out of that
+   file's tables on purpose: it must sit exactly over the posing pet for the timing to make sense, so
+   it hides itself when the pet is off screen rather than letting the solver nudge it into frame.
+   Program rule 5 (no English prose on the play field): both are pure shape/numerals. */
+.photoRing{position:absolute;transform:translate(-50%,-50%);left:0;top:0;width:0;height:0;z-index:2;pointer-events:none}
+.photoRing.hidden{display:none}
+.photoRingHit{position:absolute;left:-40px;top:-40px;width:80px;height:80px;border-radius:50%;pointer-events:auto;touch-action:none}
+.photoRingBand{position:absolute;left:50%;top:50%;border-radius:50%;border:2px solid #ffffff4a;box-sizing:border-box;transform:translate(-50%,-50%)}
+.photoRingBand.good{width:56px;height:56px}
+.photoRingBand.perfect{width:40px;height:40px;border-color:#ffd76699}
+.photoRingShot{position:absolute;left:50%;top:50%;width:64px;height:64px;margin:-32px 0 0 -32px;border-radius:50%;border:4px solid #fff;box-shadow:0 0 0 2px #00000030,0 4px 14px #0004;box-sizing:border-box;will-change:transform}
+
+/* --- The photo reveal (src/ui/photoGame.js revealPolaroid) ----------------------------------------
+   A pet's first photo, or a better one than the album holds: a soft shutter flash, then the print
+   develops in the upper middle of the screen — faded, warm and soft, coming up to full colour — with
+   the pet's name and its stars, and files itself into the collection chip. Fixed-position and
+   pointer-events:none, deliberately outside ui/labelLayout.js's managed classes: it is a moment on
+   top of the floor, not a label in it, and it must never take a tap from the game underneath. */
+.photoFlash{position:fixed;inset:0;z-index:84;background:#fff;pointer-events:none;opacity:.5;animation:photo-flash .4s ease-out forwards}
+@keyframes photo-flash{to{opacity:0}}
+.photoReveal{position:fixed;left:50%;top:38%;z-index:85;pointer-events:none;
+  width:min(44vmin,200px);box-sizing:border-box;padding:9px 9px 8px;border-radius:6px;
+  background:#fffdf8;box-shadow:0 14px 34px #3b2e2a47,0 0 0 1px #0000000d;
+  transform:translate(-50%,-50%) scale(.6) rotate(-7deg);opacity:0;
+  transition:transform .45s cubic-bezier(.2,1.45,.3,1),opacity .22s ease,left .6s cubic-bezier(.5,0,.3,1),top .6s cubic-bezier(.5,0,.3,1)}
+.photoReveal.shown{transform:translate(-50%,-50%) scale(1) rotate(-3deg);opacity:1}
+.photoReveal.stowing{transform:translate(-50%,-50%) scale(.16) rotate(9deg);opacity:0;
+  transition:transform .6s cubic-bezier(.5,0,.3,1),opacity .5s ease .15s,left .6s cubic-bezier(.5,0,.3,1),top .6s cubic-bezier(.5,0,.3,1)}
+.photoRevealFrame{width:100%;aspect-ratio:1/1;border-radius:3px;background:#f3e8d8 center/contain no-repeat;
+  transition:filter 1s ease .1s,opacity 1s ease .1s}
+.photoRevealFrame.developing{filter:sepia(.85) brightness(1.35) contrast(.65) blur(1.4px);opacity:.5}
+.photoRevealName{margin-top:7px;text-align:center;color:#4a3a33;
+  font:900 clamp(12px,3.6vmin,17px)/1.1 ui-rounded,"Arial Rounded MT Bold",system-ui,sans-serif;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.photoRevealStars{margin-top:3px;text-align:center;font-size:clamp(12px,3.4vmin,16px);letter-spacing:2px;line-height:1}
+.photoRevealStars .on{color:#F5B83D;text-shadow:0 1px 0 #b27f15}
+.photoRevealStars .off{color:#0000001f}
+@media(prefers-reduced-motion:reduce){
+  .photoReveal,.photoReveal.shown,.photoReveal.stowing{transition:opacity .3s ease!important}
+  .photoReveal{transform:translate(-50%,-50%) rotate(-3deg)}
+  .photoRevealFrame{transition:none}
+}
+
+/* --- Café Stars sheet (src/ui/pawSheet.js) ----------------------------------------------------
+   Same overlay shape as the Pet Book (fixed inset root + backdrop + one centred card), with one
+   difference that the certification matrix forces: the card is a flex COLUMN whose head and star
+   row are flex:none and whose .paw-list is the only scroller. At 653x280 the card is
+   ~268px tall, so the list has to take the remainder and scroll on its own — a card-level
+   `overflow:auto` would work too, but it lets the paw row scroll away from the checklist it
+   explains. overflow-x is hidden everywhere so the page can never scroll sideways.
+   The only tap target here is .paw-close at 48x48; rows are not pressable, so nothing else can
+   fail the 44px rule. */
+.paw-root{position:fixed;inset:0;z-index:76;display:grid;place-items:center;padding:12px;box-sizing:border-box;font-family:system-ui,sans-serif}
+.paw-backdrop{position:absolute;inset:0;background:#211a178c;backdrop-filter:blur(5px)}
+.paw-card{position:relative;width:min(430px,100%);max-height:min(660px,92vh);box-sizing:border-box;
+  display:flex;flex-direction:column;gap:10px;overflow:hidden;border-radius:24px;padding:14px;
+  background:linear-gradient(180deg,#fff8eb,#fff1df);color:var(--ink);
+  box-shadow:0 24px 70px #0006;border:1px solid #fff}
+.paw-head{flex:none;display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:48px}
+.paw-title{font:950 18px/1 system-ui,sans-serif;letter-spacing:-.01em;min-width:0;white-space:nowrap}
+.paw-close{width:48px;height:48px;flex:none;padding:0;border:0;border-radius:50%;background:#49372c10;
+  color:var(--ink);font:800 22px/1 system-ui,sans-serif;cursor:pointer}
+/* The rating itself: five paws, filled to the ratchet. The next one keeps its colour but sits at
+   half opacity inside a ring — "this is the one you are earning" said with no words. */
+.paw-stars{flex:none;display:flex;align-items:center;justify-content:center;gap:6px}
+.paw-pip{width:30px;height:30px;flex:none;display:block;opacity:.2;filter:grayscale(1)}
+.paw-pip svg{width:100%;height:100%;display:block}
+.paw-pip.filled{opacity:1;filter:none}
+.paw-pip.next{opacity:.55;filter:none;border-radius:50%;box-shadow:0 0 0 2px #8b7cf6aa}
+.paw-list{flex:1 1 auto;min-height:0;overflow-y:auto;touch-action:pan-y;overflow-x:hidden;-webkit-overflow-scrolling:touch;
+  display:flex;flex-direction:column;gap:8px}
+/* icon | numerals+bar | met mark. minmax(0,1fr) on the middle column is what stops a long numeral
+   pair pushing the mark off a 280px frame. */
+.paw-req{display:grid;grid-template-columns:30px minmax(0,1fr) 26px;align-items:center;gap:10px;
+  box-sizing:border-box;padding:9px 11px;border-radius:15px;background:#ffffffa8;border:1px solid #5f45300e}
+.paw-req.is-met{background:linear-gradient(135deg,#effbec,#fff);border-color:#68b85b32}
+.paw-req-icon{width:30px;height:30px;flex:none;display:block}
+.paw-req-icon svg{width:100%;height:100%;display:block}
+.paw-req-body{min-width:0;display:flex;flex-direction:column;gap:6px}
+/* The numerals WRAP rather than run on. A 280px frame leaves this column ~186px, and a nowrap
+   pair overflows it silently (overflow:visible paints straight off the viewport — the exact
+   defect class the audit's range measurement hunts). Wrapping costs a taller row and nothing
+   else; the pieces are individually short, so a break can only ever land between them. */
+.paw-req-num{display:flex;align-items:baseline;flex-wrap:wrap;gap:0 3px;min-width:0;font:950 15px/1.15 system-ui,sans-serif}
+.paw-cur,.paw-sep,.paw-tgt{white-space:nowrap}
+.paw-sep,.paw-tgt{font-size:13px;opacity:.5}
+.paw-req.is-met .paw-cur{color:#3f8a45}
+.paw-req-bar{height:6px;border-radius:5px;background:#2c211812;overflow:hidden}
+.paw-req-bar>span{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#ff927e,#8979f4);transition:width .35s ease}
+.paw-req.is-met .paw-req-bar>span{background:linear-gradient(90deg,#75c88a,#4fae63)}
+.paw-req-mark{width:26px;height:26px;flex:none;display:block}
+.paw-req-mark svg{width:100%;height:100%;display:block}
+/* ★5: the paw row and the closing mark go gold. A filter rather than a second icon set, so the
+   Golden Paw is visibly the SAME paw the player has been filling in, not a different trophy. */
+.paw-stars.is-golden .paw-pip.filled{filter:sepia(1) saturate(3.4) hue-rotate(-12deg) brightness(1.08)}
+.paw-complete{display:flex;align-items:center;justify-content:center;gap:10px;padding:16px 0;
+  filter:sepia(1) saturate(3.4) hue-rotate(-12deg) brightness(1.08);
+  background:radial-gradient(closest-side,#ffd76659,transparent)}
+.paw-complete>span{width:54px;height:54px;display:block}
+.paw-complete>span svg{width:100%;height:100%;display:block}
+.paw-complete-spark{width:30px!important;height:30px!important;align-self:flex-start}
+/* What the next star gives, as pictures, above its checklist. */
+.stars-next{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:2px 0 4px}
+.stars-next-star{display:inline-flex;align-items:center;gap:3px;font:950 15px/1 system-ui,sans-serif;color:#9a701f;margin-right:4px}
+.stars-next-star i{width:22px;height:22px;display:block}.stars-next-star i svg{width:100%;height:100%;display:block}
+.stars-reward{display:inline-flex;align-items:center;gap:3px;min-height:32px;padding:0 8px;border-radius:10px;background:#ffffffb8;font:900 12px/1 system-ui,sans-serif}
+.stars-reward i{width:20px;height:20px;display:block}.stars-reward i svg{width:100%;height:100%;display:block}
+.stars-reward i.gold{filter:sepia(1) saturate(3.4) hue-rotate(-12deg) brightness(1.08)}
+.stars-rows{display:flex;flex-direction:column;gap:8px}
+/* The renovation (src/ui/renovation.js): the one thing to buy on this sheet. */
+.stars-reno{display:flex;align-items:center;gap:10px;margin-top:4px;padding:9px 11px;border-radius:15px;background:linear-gradient(135deg,#fff6df,#fff);border:1px solid #d6a9412c}
+.stars-reno:empty{display:none}
+.reno-top{flex:1;min-width:0;display:grid;grid-template-columns:26px minmax(0,1fr);grid-template-rows:auto auto;column-gap:8px;row-gap:5px;align-items:center}
+.reno-ico{grid-row:1/3;width:26px;height:26px;display:block}.reno-ico svg{width:100%;height:100%;display:block}
+.reno-name{font:950 12px/1.15 system-ui,sans-serif;overflow-wrap:anywhere}
+.reno-level{display:flex;gap:3px}.reno-level i{width:10px;height:10px;border-radius:50%;background:#0000001a}.reno-level i.on{background:#E7A92F}
+.reno-buy{flex:none;min-width:92px;min-height:48px;border:0;border-radius:13px;padding:0 11px;background:linear-gradient(180deg,#f2bf4c,#d89b25);box-shadow:0 4px 0 #a86e18;color:#50360d;font:950 13px/1 system-ui,sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px}
+.reno-buy:disabled{background:#e8ded0;box-shadow:none;color:#8c8175;cursor:default}
+.reno-i{width:18px;height:18px;display:inline-flex}.reno-i svg{width:100%;height:100%;display:block}
+@media(max-width:320px){
+  .paw-root{padding:6px}
+  .paw-card{padding:10px;gap:8px;border-radius:20px}
+  .paw-title{font-size:15px}
+  .paw-stars{gap:4px}
+  .paw-pip{width:26px;height:26px}
+  .paw-req{padding:8px;gap:7px;grid-template-columns:26px minmax(0,1fr) 22px}
+  .paw-req-icon{width:26px;height:26px}
+  .paw-req-mark{width:22px;height:22px}
+  .paw-req-num{font-size:14px}
+}
+@media(max-height:430px){
+  .paw-card{max-height:96vh;padding:10px;gap:7px}
+  .paw-pip{width:24px;height:24px}
+  .paw-req{padding:7px 9px}
+  .paw-complete{padding:8px 0}
+}
+
+/* --- Play-field cues (src/ui/hud.js cueHtml) ---------------------------------------------------
+   Program rule 5: nothing over the 3D world is allowed to be a sentence. Every banner, toast,
+   floating button and objective caption is now a row of these cells -- a pictogram, a numeral, or
+   a single punctuation glyph -- with the words moved into .cueSr for screen readers only.
+
+   Sizes are in `em` on purpose: the same markup lands in a 22px banner, a 14px toast, a 13px
+   floating button and a 12px caption, and each one needs its glyphs to match the numerals beside
+   them. One rule, four call sites, no magic pixel values to keep in sync. */
+.cueRow{display:inline-flex;align-items:center;justify-content:center;gap:.34em;line-height:1;flex-wrap:nowrap}
+.cueIco{width:1.2em;height:1.2em;flex:none;display:inline-flex}
+.cueIco svg{width:100%;height:100%;display:block}
+/* A pet portrait is 80x88, so its box keeps that ratio instead of being squashed into a square. */
+.cueSwatch{width:1.55em;height:1.7em;flex:none;display:inline-flex}
+.cueSwatch svg{width:100%;height:100%;display:block}
+.cueNum{font-variant-numeric:tabular-nums;font-weight:950;white-space:nowrap}
+/* Punctuation is grammar, not content: it stays a shade quieter than the numerals it joins. */
+.cueOp{font-weight:900;opacity:.66}
+/* The one kind of word allowed on the play field: a proper noun (a pet's name). */
+.cueName{font-weight:900;letter-spacing:.02em;white-space:nowrap}
+/* Every word the play field used to print still exists here, for assistive tech only. */
+.cueSr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
+  clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
+
+/* The objective caption is a single glyph now, so the pill collapses to a circle around it rather
+   than keeping the width a word needed. */
+.objCaption.cueRow{padding:5px;border-radius:999px}
+.objCaption .cueIco{width:22px;height:22px}
+
+/* Hidden means hidden. The `hidden` attribute is a UA-level display:none, which ANY author display
+   rule overrides — and .cueRow (the pictogram row every banner, toast and floating button now uses)
+   sets display:inline-flex. That combination left the party-order collect button drawn at its last
+   screen position after the order was claimed, sliding along with the camera as if it followed the
+   player. contractBadge.js had already scoped this same rule to itself once; it belongs here, once,
+   for everything. */
+[hidden]{display:none!important}
+
+/* --- Guidance (2026-09-17): off-screen edge arrow and the first-touch drag hint ------------------
+   Both are pictures, never words. The edge arrow points from the screen edge toward a target the
+   camera cannot fit; the touch hint is a hand that drags a short way and springs back, beside the
+   owner, until the player takes a first real step. */
+.edgeArrow{position:absolute;width:44px;height:44px;transform:translate(-50%,-50%) rotate(var(--rot,0deg));
+  pointer-events:none;z-index:2;filter:drop-shadow(0 2px 3px #0004);animation:edgeNudge .9s ease-in-out infinite alternate}
+.edgeArrow svg{width:100%;height:100%;display:block}
+@keyframes edgeNudge{from{transform:translate(-50%,-50%) rotate(var(--rot,0deg)) translateY(0)}to{transform:translate(-50%,-50%) rotate(var(--rot,0deg)) translateY(-7px)}}
+.touchHint{position:absolute;width:120px;height:64px;transform:translate(-50%,-50%);pointer-events:none;z-index:2}
+.touchHintTrack{position:absolute;left:14px;right:14px;top:50%;height:10px;transform:translateY(-50%);border-radius:999px;
+  background:#3B2E2A22;box-shadow:inset 0 0 0 2px #FFFFFF88}
+.touchHintHand{position:absolute;left:10px;top:50%;width:40px;height:40px;transform:translateY(-40%);
+  filter:drop-shadow(0 3px 4px #0005);animation:touchDrag 1.5s cubic-bezier(.45,0,.3,1) infinite}
+.touchHintHand svg{width:100%;height:100%;display:block}
+@keyframes touchDrag{0%{transform:translate(0,-40%)}55%{transform:translate(64px,-40%)}72%{transform:translate(64px,-40%)}100%{transform:translate(0,-40%)}}
+@media(prefers-reduced-motion:reduce){.edgeArrow{animation:none}.touchHintHand{animation:none;transform:translate(32px,-40%)}}
+
+/* ==== THE HUD (Batch D: one simple menu) ====================================================
+   Everything permanent on the play field, and nothing else: the wallet with its saving ring
+   (src/ui/hud.js), the Pet Book chip (src/ui/meta.js) and the Café button (src/ui/pauseMenu.js),
+   plus the two moment sinks and the new-pet card (src/ui/moments.js, src/ui/meta.js). It replaces
+   five override layers (hudLayout, cleanHud, playablesShell, certificationPolish, responsive) and
+   their ~500 !important rules. Every control is at least 48x48 and sits inside the safe area. */
+:root{--hud-edge:12px;--ui-milk:#FFF9F1;--ui-espresso:#3E302B}
+@media(max-width:359px){:root{--hud-edge:8px}}
+@media(max-width:259px),(max-height:259px){:root{--hud-edge:5px}}
+
+/* The wallet: coins, then the saving ring. Tapping it points at what it is saving for. */
+#wallet{position:fixed;left:calc(var(--hud-edge) + var(--sal));top:calc(var(--hud-edge) + var(--sat));
+  min-width:94px;max-width:min(176px,calc(100vw - 2 * var(--hud-edge) - 60px - var(--sal) - var(--sar)));height:48px;
+  padding:0 12px;gap:7px;border:1px solid #3e302b18;border-radius:15px;background:rgba(255,249,241,.94);color:var(--ui-espresso);
+  box-shadow:0 4px 14px #271b1524;font:850 17px/1 ui-rounded,"Arial Rounded MT Bold",system-ui,sans-serif;
+  font-variant-numeric:tabular-nums;overflow:hidden;white-space:nowrap;pointer-events:auto;cursor:pointer;touch-action:manipulation}
+#wallet:focus-visible{outline:3px solid #80977C;outline-offset:2px}
+#wallet .coin{width:20px;height:20px;flex:none;border-radius:50%;background:radial-gradient(circle at 35% 35%,#fff6b0,var(--coin) 60%,#e0a800);box-shadow:inset 0 -2px 0 #0002}
+#walletNum{display:block;min-width:3ch}
+/* The ring is its own slot after the numeral, a conic fill toward the next build's price with that
+   build's glyph in the middle; green once it can be bought (an invitation, not a warning). */
+.wallet-target{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px}
+.wallet-ring{width:100%;height:100%;border-radius:50%;display:none;place-items:center;background:conic-gradient(var(--accent) var(--wallet-progress,0%),#00000021 0)}
+#wallet.saving .wallet-ring{display:grid}
+#wallet.saving-ready .wallet-ring{background:#4FB98A}
+.wallet-ring-ico{width:74%;height:74%;border-radius:50%;background:var(--cream);display:grid;place-items:center}
+.wallet-ring-ico svg{width:74%;height:74%;display:block}
+
+/* The Pet Book chip, docked under the wallet: a paw, found/total, and a dot while something is new. */
+.meta-pawbook{position:fixed;left:calc(var(--hud-edge) + var(--sal));top:calc(var(--hud-edge) + 56px + var(--sat));z-index:15;
+  display:flex;align-items:center;gap:6px;height:48px;min-width:48px;padding:0 12px 0 9px;box-sizing:border-box;
+  border:1px solid #3e302b18;border-radius:15px;background:rgba(255,249,241,.94);color:var(--ui-espresso);
+  box-shadow:0 4px 14px #271b1524;font:850 15px/1 ui-rounded,"Arial Rounded MT Bold",system-ui,sans-serif;
+  font-variant-numeric:tabular-nums;cursor:pointer;touch-action:manipulation;transition:transform .16s ease}
+.meta-pawbook.bump{transform:scale(1.12)}
+.meta-pawbook .meta-paw{width:24px;height:24px;flex:none;display:grid;place-items:center}
+.meta-pawbook .meta-paw svg{width:24px;height:24px;display:block}
+.meta-new-dot{position:absolute;right:-3px;top:-3px;width:12px;height:12px;border-radius:50%;background:#FF6B5E;box-shadow:0 0 0 2px #fff}
+.meta-new-dot[hidden]{display:none}
+
+/* The Café button: the day on its badge, today's goal as a ring around it. */
+.pause-btn{position:fixed;right:calc(var(--hud-edge) + var(--sar));top:calc(var(--hud-edge) + var(--sat));z-index:24;
+  width:48px;height:48px;padding:0;border:1px solid #3e302b18;border-radius:15px;background:rgba(255,249,241,.94);color:var(--ui-espresso);
+  box-shadow:0 4px 14px #271b1524;display:grid;place-items:center;cursor:pointer;pointer-events:auto;touch-action:manipulation}
+.pause-btn>svg{width:28px;height:28px;display:block;position:relative}
+.pause-btn:focus-visible{outline:3px solid #80977C;outline-offset:4px}
+.goal-ring{position:absolute;inset:-4px;border-radius:18px;pointer-events:none;padding:3px;
+  background:conic-gradient(#75bda0 var(--goal-progress,0%),#3e302b1f 0);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude}
+.goal-ring[hidden]{display:none}
+.pause-btn.goal-complete .goal-ring{background:#4FB98A}
+.pause-btn.goal-celebrate .goal-ring{animation:goal-met .65s ease-out}
+@keyframes goal-met{40%{transform:scale(1.08)}100%{transform:scale(1)}}
+.cafe-day-badge{position:absolute;right:-4px;bottom:-6px;padding:2px 5px;border-radius:7px;background:#3e302b;color:#fff9f1;font:800 10px/1.2 system-ui,sans-serif;pointer-events:none}
+.cafe-day-badge.rush{background:#E26A4E;padding:1px 3px;line-height:0}
+.cafe-day-badge.rush svg{width:13px;height:13px;display:block}
+.pause-btn.rush-soon{box-shadow:0 0 0 2px #cf9161,0 4px 14px #271b1524}
+.pause-btn.rush-on{box-shadow:0 0 0 2px #E26A4E,0 4px 14px #271b1524}
+
+/* ---- moments (src/ui/moments.js): one at a time, held under any sheet ---------------------- */
+body.modal-open .moment{visibility:hidden}
+/* The banner. At 380px it used to cross the wallet (wallet right edge 151px, banner left 144px):
+   on a narrow frame it sits under the wallet and Pet Book column instead, and on a wide one it is
+   capped so it can never reach either corner. */
+#banner{left:50%;top:calc(16px + var(--sat));transform:translate(-50%,-160%);max-width:calc(100vw - 2 * (var(--hud-edge) + 182px));
+  font-size:22px;font-weight:900;letter-spacing:.04em;padding:12px 28px;background:var(--coral);color:#fff;box-shadow:0 8px 24px #0004;
+  transition:transform .35s cubic-bezier(.2,.9,.3,1.3),opacity .2s ease;z-index:11;white-space:nowrap;opacity:0}
+#banner.show{transform:translate(-50%,0);opacity:1}
+@media(max-width:600px){#banner{top:calc(var(--hud-edge) + 116px + var(--sat));max-width:calc(100vw - 2 * var(--hud-edge));font-size:18px;padding:10px 18px;letter-spacing:0}}
+@media(max-width:300px){#banner{font-size:15px;padding:9px 13px}}
+/* A celebration is not a control: on the smallest frames it steps down to a status pill, below the
+   48px of the permanent HUD beside it. */
+@media(max-width:259px),(max-height:259px){#banner{min-height:30px;padding:6px 10px;font-size:13px}}
+.toast{position:absolute;left:50%;bottom:calc(172px + var(--sab));transform:translate(-50%,8px);opacity:0;transition:opacity .2s ease,transform .2s ease;
+  background:var(--ink);color:#fff;font-weight:700;font-size:14px;padding:8px 16px;border-radius:999px;box-shadow:0 6px 16px #0003;
+  max-width:min(80vw,360px);text-align:center;box-sizing:border-box;pointer-events:none;white-space:nowrap}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+/* A friendship level-up: the same slot, in the Pet Book's pink. */
+.toast.toast-friend{background:#fff4f7f2;color:#704250;border:1px solid #fff;box-shadow:0 10px 28px #7e394431}
+.toast.toast-friend svg{width:14px;height:14px}
+
+/* A NEW PET: the Pet Book card, revealed like a new photo, then filed into the chip. */
+.pet-reveal{position:fixed;left:50%;top:40%;z-index:85;pointer-events:none;width:min(40vmin,176px);box-sizing:border-box;padding:10px 10px 9px;
+  border-radius:16px;background:linear-gradient(160deg,#fffdf8,#fbe7d8);box-shadow:0 14px 34px #3b2e2a47,0 0 0 1px #0000000d;
+  display:flex;flex-direction:column;align-items:center;gap:5px;
+  transform:translate(-50%,-50%) scale(.6) rotateY(80deg);opacity:0;
+  transition:transform .45s cubic-bezier(.2,1.45,.3,1),opacity .22s ease,left .6s cubic-bezier(.5,0,.3,1),top .6s cubic-bezier(.5,0,.3,1)}
+.pet-reveal.shown{transform:translate(-50%,-50%) scale(1) rotateY(0);opacity:1}
+.pet-reveal.stowing{transform:translate(-50%,-50%) scale(.16) rotateY(160deg);opacity:0;
+  transition:transform .6s cubic-bezier(.5,0,.3,1),opacity .5s ease .15s,left .6s cubic-bezier(.5,0,.3,1),top .6s cubic-bezier(.5,0,.3,1)}
+.pet-reveal-portrait{width:78%;aspect-ratio:80/88}.pet-reveal-portrait svg{width:100%;height:100%;display:block}
+.pet-reveal-name{font:900 clamp(13px,3.8vmin,18px)/1.1 ui-rounded,"Arial Rounded MT Bold",system-ui,sans-serif;color:#4a3a33;white-space:nowrap}
+.pet-reveal-rarity{width:28px;height:28px}.pet-reveal-rarity svg{width:100%;height:100%;display:block}
+
+/* ---- pausing, motion ------------------------------------------------------------------------ */
+/* A paused café freezes CSS-driven motion too; the simulation and audio are paused in main.js. */
+body.game-paused *,body.game-paused *::before,body.game-paused *::after{animation-play-state:paused!important}
+/* The sheets themselves keep their own small transitions while the café behind them is paused. */
+body.game-paused .pause-root *,body.game-paused .sheet-root *,body.game-paused .meta-book-root *,body.game-paused .paw-root *{animation-play-state:running!important}
+body.reduced-motion *,body.reduced-motion *::before,body.reduced-motion *::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}
+@media(prefers-reduced-motion:reduce){.pet-reveal,.pet-reveal.shown,.pet-reveal.stowing{transition:opacity .3s ease}.pet-reveal{transform:translate(-50%,-50%)}}
+
+/* ---- the smallest frames -------------------------------------------------------------------- */
+@media(max-width:359px){#wallet{min-width:82px;padding:0 10px;font-size:15px}}
+@media(max-width:259px),(max-height:259px){
+  #wallet{min-width:74px;padding:0 8px;gap:5px;font-size:14px}
+  #wallet .coin{width:18px;height:18px}
+  .meta-pawbook{font-size:13px;padding:0 9px 0 7px}
+  .meta-pawbook .meta-paw,.meta-pawbook .meta-paw svg{width:20px;height:20px}
+}
+/* A landscape this short has no room for a column: the Pet Book chip moves beside the wallet. */
+@media(max-height:259px) and (orientation:landscape){.meta-pawbook{top:calc(var(--hud-edge) + var(--sat));left:calc(var(--hud-edge) + 186px + var(--sal))}}

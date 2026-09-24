@@ -7,28 +7,57 @@ test('initial world has only pre-built stations active', () => {
   assert.equal(w.stations.get('oven1').active, true);
   assert.equal(w.stations.get('dispCupcake').active, false);
   assert.deepEqual(activeZones(w).map(z => z.id), ['z_seats1']);
-  assert.equal(freeSeat(w), null);
+  // Batch E1 (ship plan 1.6, "the first 3 seconds show the cafe working"): the cafe OWNS two
+  // tables before the player arrives, so the two opening guests have somewhere to be sitting at
+  // t = 0. freeSeat therefore finds one immediately instead of null -- the old assertion pinned an
+  // opening state the plan deliberately replaced. The gating rule it was really protecting (a seat
+  // behind an unbought zone stays inert) is asserted on seat3/seat6 instead.
+  assert.ok(freeSeat(w), 'the cafe opens with its own tables');
+  assert.equal(w.stations.get('seat1').active, true);
+  assert.equal(w.stations.get('seat2').active, true);
+  assert.equal(w.stations.get('seat3').active, false, 'z_seats1 is still a real purchase');
+  assert.equal(w.stations.get('seat6').active, false);
 });
 // Loop v2 Task 1 new layout (data/area1.js): 2 ovens + coffee1 + pantry1 + blender1 (5
 // machines/pantry) + return1 + 4 displays + 2 registers (code type 'checkout') + 1 bowl + 3
 // bushes + 6 seats + hire + kiosk = 24 stations, 9 zones in the chain.
-test('AREA1 has 24 stations and 9 zones', () => {
-  assert.equal(AREA1.stations.length, 24);
-  assert.equal(AREA1.zones.length, 9);
+// Batch 1 (plan 7.1) appends the terrace: 15 stations (gate1, fountain1, seat7/8, icecream1,
+// barIce, coldPantry1, register3, photo1, seat9-12, wc1, splash1) across 7 new zones.
+// 2026-09-18: + return2, the terrace's own RETURN crate, built with the ice cream lane.
+// 2026-09-19: the Pet Spa is retired (docs/SHIP-PLAN-2026-09-19.md): its 10 stations (gate2,
+// spaSeat1-3, planters, groom1, bath1, waterTank1, boutique1, photoDesk1) and 5 zones are gone.
+// 2026-09-19, Batch B1 (the Ice cream garden, §1.1-1.2): register3, wc1, splash1, coldPantry1 and
+// return2 are cut with z_icecream (folded into z_terrace), z_register3, z_restroom and z_splash;
+// the lounge adds two tables instead of four (seat4/seat5 left the gate apron) and the garden has
+// four deck tables instead of six (seat11/seat12 gone): 40 - 9 = 31 stations, 16 - 4 = 12 zones.
+// 2026-09-19, Batch B2 (photos at the tables, 1.3): photo1, the booth, is replaced one-for-one by
+// photoWall1, the wall the album fills in -- still 31 stations and 12 zones.
+// 2026-09-20, Batch C (hands that do what the player means, 1.4): return1 and kiosk1 are deleted.
+// The crate is replaced by the load flying home on its own (systems/stations.js flyBackHeld) and
+// the kiosk by the one Shop the Cafe card and the staff desk already open: 31 - 2 = 29 stations,
+// still 12 zones.
+test('AREA1 has 30 stations and 12 zones', () => {
+  // 29 + the jukebox by the door (systems/party.js).
+  assert.equal(AREA1.stations.length, 30);
+  assert.equal(AREA1.zones.length, 12);
 });
-test('exactly oven1, dispCookie, register1, kiosk1, return1 are active at start (kiosk/return need no zone)', () => {
+test('exactly oven1, dispCookie, register1, the jukebox and the two opening tables are active at start', () => {
   const w = createWorld(AREA1);
   const active = [...w.stations.values()].filter(st => st.active).map(st => st.id).sort();
-  assert.deepEqual(active, ['dispCookie', 'kiosk1', 'oven1', 'register1', 'return1']);
+  // seat1/seat2 joined this set in Batch E1 -- see the opening-cafe note above.
+  assert.deepEqual(active, ['dispCookie', 'jukebox1', 'oven1', 'register1', 'seat1', 'seat2']);
 });
 test('building the whole zone chain in order activates every station and rebuilds w.boxes', () => {
   const w = createWorld(AREA1);
   for (const z of AREA1.zones) {
     let r; do { r = payZone(w, z.id, 100000, 1); } while (!r.done);
   }
+  // Nothing retires a built station any more (z_splash, which swapped fountain1 for its pool, is
+  // gone), so the whole chain leaves every station active.
   const inactive = [...w.stations.values()].filter(st => !st.active);
-  assert.deepEqual(inactive, []);
-  assert.equal(w.boxes.length, 24);
+  assert.deepEqual(inactive.map(st => st.id), []);
+  // 30 stations - gate1 and photoWall1 (both non-blocking, never in w.boxes) = 28.
+  assert.equal(w.boxes.length, 28);
 });
 test('paying a zone drains and completes', () => {
   const w = createWorld(AREA1);
@@ -110,8 +139,11 @@ test('refreshActive lists both cupcake-chain displays after building z_oven2 (re
   refreshActive(w); // idempotent, callable directly too
   assert.deepEqual(w.displays.slice().sort(), ['dispCookie', 'dispCupcake']);
 });
-test('freeSeat returns null with no seats, and pair geometry after z_seats1', () => {
+test('freeSeat returns null when every seat is taken, and pair geometry on a table', () => {
   const w = createWorld(AREA1);
+  // No unbuilt-café case left to test (the café owns two tables from t = 0), so the real invariant
+  // -- freeSeat never invents a seat -- is checked by occupying the ones that exist.
+  for (const st of w.stations.values()) if (st.type === 'seat' && st.active) st.occupied = true;
   assert.equal(freeSeat(w), null);
   const w2 = createWorld(AREA1, { built: ['z_seats1'] });
   const seat = freeSeat(w2);
