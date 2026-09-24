@@ -51,12 +51,12 @@ export const LOCATIONS = {
   beach: {
     id: 'beach', name: 'Beach Café', emoji: '🏖️', theme: 'beach',
     menu: ['lemonade', 'smoothie', 'icecream', 'fish'], priceScale: 2.4,
-    variants: [5, 6, 7, 8], unlock: { hamster: 'coffee1', bunny: 'treats1' }, cost: 3000,
+    variants: [5, 6, 7, 8], unlock: { hamster: 'coffee1', bunny: 'treats1' }, cost: 6000,
   },
   mall: {
     id: 'mall', name: 'Mall Café', emoji: '🛍️', theme: 'mall',
     menu: ['donut', 'bubbletea', 'waffle', 'jerky'], priceScale: 5.5,
-    variants: [9, 10, 11, 12], unlock: { hamster: 'coffee1', bunny: 'treats1' }, cost: 9000,
+    variants: [9, 10, 11, 12], unlock: { hamster: 'coffee1', bunny: 'treats1' }, cost: 20000,
   },
 };
 export const LOCATION_ORDER = ['town', 'beach', 'mall'];

@@ -51,6 +51,25 @@ function sailboat() {
   return g;
 }
 
+// the beacon over the café to go to next: a soft column of light and a ring rippling on the ground
+function beaconTexture() {
+  const c = document.createElement('canvas'); c.width = 4; c.height = 128;
+  const g = c.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 128);
+  gr.addColorStop(0, 'rgba(255,220,130,0)'); gr.addColorStop(0.35, 'rgba(255,205,115,0.45)'); gr.addColorStop(1, 'rgba(255,175,90,0.95)');
+  g.fillStyle = gr; g.fillRect(0, 0, 4, 128);
+  return new THREE.CanvasTexture(c);
+}
+function makeBeacon() {
+  const g = new THREE.Group();
+  const beamMat = new THREE.MeshBasicMaterial({ map: beaconTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false });
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 3.4, 30, 28, 1, true), beamMat); beam.position.y = 22; g.add(beam);
+  const core = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.5, 30, 20, 1, true), beamMat); core.position.y = 22; g.add(core);
+  const ringMat = new THREE.MeshBasicMaterial({ color: '#FFC86E', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
+  const rings = [0, 1, 2].map(() => { const r = new THREE.Mesh(new THREE.RingGeometry(0.9, 1, 64).rotateX(-Math.PI / 2), ringMat.clone()); r.position.y = 0.25; g.add(r); return r; });
+  g.userData = { beam, rings };
+  return g;
+}
+
 // a polyline path: position and heading at any distance along it (closed loops wrap)
 function makePath(pts, closed) {
   const P = pts.map(p => new THREE.Vector3(...p)); if (closed) P.push(P[0].clone());
@@ -73,6 +92,7 @@ export function createCityView(S) {
   const view = { x: 0, y: 0, h: 30 }, goal = { x: 0, y: 0, h: 30 };
   let diving = false;          // the dive into a café may zoom past the picture's comfortable resolution
   const movers = [], glints = [];
+  const beacon = makeBeacon(); beacon.visible = false; scene.add(beacon);
   const tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3();
   const blobMat = new THREE.MeshBasicMaterial({ map: blobTexture(), transparent: true, depthWrite: false, toneMapped: false });
   const blobGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
@@ -219,6 +239,11 @@ export function createCityView(S) {
         m.obj.rotation.z = Math.sin(t * 1.3) * 0.06;
       }
     }
+    if (beacon.visible) {
+      const u = beacon.userData;
+      u.beam.material.opacity = 0.7 + Math.sin(t * 2.4) * 0.2;
+      u.rings.forEach((r, i) => { const k = (t * 0.4 + i / 3) % 1; r.scale.setScalar(9 + k * 12); r.material.opacity = (1 - k) * 0.85; });
+    }
     for (const g of glints) {
       const k = Math.max(0, Math.sin(t * g.sp0 * 1.7 + g.ph));
       g.sp.material.opacity = k * k * 0.9; g.sp.scale.setScalar(0.4 + k * 0.9);
@@ -282,6 +307,11 @@ export function createCityView(S) {
       const a = aspect(), px = view.x + ((cxPx / innerWidth) * 2 - 1) * view.h * a, py = view.y - ((cyPx / innerHeight) * 2 - 1) * view.h;
       const nh = view.h * f; const g = { x: px - (px - view.x) * (nh / view.h), y: py - (py - view.y) * (nh / view.h), h: nh };
       clampView(g); Object.assign(goal, g); Object.assign(view, g);
+    },
+    // light up the café to go to next (null: none)
+    setBeacon(id) {
+      if (!L || !id || !L.sites[id]) { beacon.visible = false; return; }
+      const s = L.sites[id]; beacon.position.set(s[0], 0, s[2]); beacon.visible = true;
     },
     screenOf(id, out) {
       if (!L || !L.sites[id]) return null;

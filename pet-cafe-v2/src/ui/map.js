@@ -23,7 +23,7 @@ const ICON = {
 const DROP = '<svg class="cp-drop" viewBox="0 0 48 60"><path d="M24 57.5C24 57.5 4.5 36.5 4.5 22.5a19.5 19.5 0 0 1 39 0C43.5 36.5 24 57.5 24 57.5Z"/></svg>';
 const fmt = n => Math.floor(n).toLocaleString('en-US');
 
-export function createMap(root, W, audio, onPause, onTravel, S) {
+export function createMap(root, W, audio, onPause, onTravel, S, onSeason) {
   const view = createCityView(S);
   root.insertAdjacentHTML('beforeend', `<button class="mapbtn ui hidden" id="mapbtn" aria-label="Café map"><span>🗺️</span><i class="dot hidden"></i></button>`);
   document.body.insertAdjacentHTML('beforeend', `
@@ -31,7 +31,13 @@ export function createMap(root, W, audio, onPause, onTravel, S) {
       <div class="cm-pins" id="cmpins"></div>
       <div class="cm-title"><span class="cm-paw">${ICON.paw}</span><b>Your café city</b></div>
       <div class="cm-top"><span class="cm-coins"><i class="coin"></i><b id="cmcoins">0</b></span><button class="cm-close" id="cmclose" aria-label="Close">✕</button></div>
+      <button class="cm-season hidden" id="cmseason"></button>
       <div class="cm-review hidden" id="cmreview"></div>
+      <div class="cm-confirm hidden" id="cmconfirm"><div class="cmc-card">
+        <div class="cmc-star">⭐</div><b id="cmctitle"></b>
+        <p>Your three cafés open again from the start. You keep every pet you have met.<br>Everything sells for <strong id="cmcmult"></strong> — for good.</p>
+        <button class="cmc-go" id="cmcgo"></button><button class="cmc-no" id="cmcno">Not yet</button>
+      </div></div>
       <button class="cm-cta hidden" id="cmcta"></button>
       <div class="cm-load" id="cmload"><span>${ICON.paw}</span></div>
     </div>`);
@@ -40,6 +46,23 @@ export function createMap(root, W, audio, onPause, onTravel, S) {
   const cta = document.getElementById('cmcta'), revEl = document.getElementById('cmreview');
   const closeBtn = document.getElementById('cmclose'), loadEl = document.getElementById('cmload');
   const titleEl = el.querySelector('.cm-title'), topEl = el.querySelector('.cm-top');
+  const seasonBtn = document.getElementById('cmseason'), confirmEl = document.getElementById('cmconfirm');
+  // the season: shown in the title, and offered once every café is finished
+  function renderSeason() {
+    titleEl.querySelector('b').textContent = W.season > 1 ? `Your café city · ⭐${W.season}` : 'Your café city';
+    const next = 1 + 0.5 * W.season, can = W.allDone() && mode === 'browse';
+    seasonBtn.innerHTML = `⭐ New season <b>×${String(next).replace('.0', '')}</b>`;
+    seasonBtn.classList.toggle('hidden', !can);
+  }
+  seasonBtn.addEventListener('click', () => {
+    audio.play('open');
+    document.getElementById('cmctitle').textContent = `Start season ${W.season + 1}?`;
+    document.getElementById('cmcmult').textContent = '×' + String(1 + 0.5 * W.season).replace('.0', '');
+    document.getElementById('cmcgo').textContent = `⭐ Start season ${W.season + 1}`;
+    confirmEl.classList.remove('hidden');
+  });
+  document.getElementById('cmcno').addEventListener('click', () => { audio.play('close'); confirmEl.classList.add('hidden'); });
+  document.getElementById('cmcgo').addEventListener('click', () => { confirmEl.classList.add('hidden'); audio.play('chime'); close(); setTimeout(() => onSeason && onSeason(), 420); });
   let mode = 'browse', running = false, last = 0, sel = 'town', revTimer = 0, revIdx = 0, revFor = null, pending = null;
 
   // ---- what each café is right now ---------------------------------------------------------------------
@@ -66,10 +89,14 @@ export function createMap(root, W, audio, onPause, onTravel, S) {
   const tone = st => (st === 'done' ? 'green' : st === 'locked' || st === 'soon' ? 'lilac' : 'coral');
   const iconOf = st => (st === 'done' ? ICON.check : st === 'locked' || st === 'soon' ? ICON.lock : ICON.paw);
 
+  // the café to go to next: the one you are building, or the one you can open now
+  const nextTarget = () => LOCATION_ORDER.find(id => stateOf(id) === 'here') || LOCATION_ORDER.find(id => stateOf(id) === 'open') || LOCATION_ORDER.find(id => stateOf(id) === 'buy') || null;
   function renderPins() {
+    const target = nextTarget();
+    view.setBeacon(target);
     pinsEl.innerHTML = PLACES.map(id => {
       const st = stateOf(id);
-      return `<button class="cpin ${tone(st)}${id === sel ? ' sel' : ''}" data-id="${id}" aria-label="${nameOf(id)}">
+      return `<button class="cpin ${tone(st)}${id === sel ? ' sel' : ''}${id === target ? ' target' : ''}" data-id="${id}" aria-label="${nameOf(id)}">
         <span class="cp-label"><b>${nameOf(id)}</b><small>${status(id, st)}</small></span>
         <span class="cp-mark">${DROP}<span class="cp-ico">${iconOf(st)}</span></span></button>`;
     }).join('');
@@ -110,7 +137,7 @@ export function createMap(root, W, audio, onPause, onTravel, S) {
   function select(id, glide = true) {
     sel = id;
     if (glide) view.focus(id);
-    renderPins(); renderCta();
+    renderPins(); renderCta(); renderSeason();
     const shown = reviewFor(id) ? id : [...LOCATION_ORDER].reverse().find(k => W.ratings[k]);
     if (shown && shown !== revFor) showReview(shown);
     else if (!shown) { revEl.classList.add('hidden'); revFor = null; }
@@ -127,7 +154,7 @@ export function createMap(root, W, audio, onPause, onTravel, S) {
     view.frame(dt);
     // keep every pin on screen and clear of the header and the button: one that would sit under
     // them parks at the edge as a bare marker (tap it and the map glides there)
-    const topBar = Math.max(titleEl.getBoundingClientRect().bottom, topEl.getBoundingClientRect().bottom);
+    const topBar = Math.max(titleEl.getBoundingClientRect().bottom, topEl.getBoundingClientRect().bottom, seasonBtn.classList.contains('hidden') ? 0 : seasonBtn.getBoundingClientRect().bottom);
     let bottom = innerHeight - 8;
     for (const o of [cta, revEl]) if (!o.classList.contains('hidden')) bottom = Math.min(bottom, o.getBoundingClientRect().top - 6);
     const safe = { l: 30, r: innerWidth - 30, t: topBar + 66, b: bottom };
@@ -151,6 +178,7 @@ export function createMap(root, W, audio, onPause, onTravel, S) {
     document.getElementById('cmcoins').textContent = fmt(W.coins);
     el.classList.remove('hidden'); document.body.classList.add('mapmode'); onPause(true);
     cta.classList.add('hidden'); revEl.classList.add('hidden'); revFor = null;
+    seasonBtn.classList.add('hidden'); confirmEl.classList.add('hidden');
     loadEl.classList.remove('hidden');
     await view.load();
     loadEl.classList.add('hidden');
@@ -206,7 +234,7 @@ export function createMap(root, W, audio, onPause, onTravel, S) {
   btn.addEventListener('click', e => { e.stopPropagation(); dot.classList.add('hidden'); open(); audio.play('tap'); });
   const pts = new Map(); let dragged = false, pinch = 0;
   el.addEventListener('pointerdown', e => {
-    if (e.target.closest('.cm-cta, .cm-close, .cm-review')) return;
+    if (e.target.closest('.cm-cta, .cm-close, .cm-review, .cm-season, .cm-confirm')) return;
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); dragged = false;
     if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = Math.hypot(a.x - b.x, a.y - b.y); }
   });

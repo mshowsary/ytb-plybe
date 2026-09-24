@@ -70,7 +70,7 @@ async function boot() {
   if (saved && typeof saved.play === "number") playTime = saved.play;
   const petbook = createPetBook(root, W, audio, p => { sheetPaused = p; });
   const upgrades = createUpgrades(root, W, audio, fx, p => { sheetPaused = p; });
-  const map = createMap(root, W, audio, p => { sheetPaused = p; }, id => travel(id), S);
+  const map = createMap(root, W, audio, p => { sheetPaused = p; }, id => travel(id), S, () => newSeason());
   const goals = createGoals(W); goals.restore(saved && saved.goals);
   const goalsUI = createGoalsUI(root, W, goals, audio, fx, platform, p => { sheetPaused = p; });
   let lastServed = null;
@@ -126,6 +126,23 @@ async function boot() {
     }, 450);
   }
 
+  // NEW SEASON: every café finished; the journey starts again at the Town Café, and everything sells
+  // for 50% more than last time. Pets met and friendships stay.
+  function newSeason() {
+    if (travelling) return;
+    travelling = true;
+    const veil = document.getElementById('veil');
+    veil.classList.add('show');
+    setTimeout(() => {
+      W.newSeason();
+      tearDown(); buildCafe('town'); completed = false; save();
+      veil.classList.remove('show'); travelling = false;
+      hud.banner(`⭐ Season ${W.season}! Everything sells for ×${W.seasonMult().toFixed(1).replace('.0', '')}`, 3200);
+      audio.play('fanfare'); fx.confetti(-1.5, 1, 6, 90);
+      S.look({ x: -1.5, z: 0.3 }, 24, 2.6);
+    }, 450);
+  }
+
   function onBuilt(id) {
     nav.rebuild([...W.stations.values()]);
     if (id.startsWith('staff:')) staff.hire(id.slice(6));
@@ -148,10 +165,12 @@ async function boot() {
   buildCafe(W.loc);
   // WHILE YOU WERE AWAY: an automated café (a Runner at least) keeps selling while the game is closed,
   // up to three hours' worth. Offered on return with a ▶ x2.
-  const awaySec = saved && saved.ts ? Math.min(3 * 3600, (Date.now() - saved.ts) / 1000) : 0;
+  // two hours at most, at a third of the old rate: a welcome back, not a jackpot (it used to hand out
+  // around 100,000 coins at the mall, which made every price meaningless)
+  const awaySec = saved && saved.ts ? Math.min(2 * 3600, (Date.now() - saved.ts) / 1000) : 0;
   if (awaySec > 120 && W.isBuilt('staff:runner')) {
     const base = W.built('counter').reduce((a, c) => a + W.price(c.product), 0);
-    const perSec = base * 0.03 * (W.isBuilt('staff:cashier') ? 1 : 0.5) * (1 + 0.5 * W.done.size);
+    const perSec = base * 0.01 * (W.isBuilt('staff:cashier') ? 1 : 0.5) * (1 + 0.5 * W.done.size);
     const amount = Math.round(perSec * awaySec);
     if (amount >= 20) setTimeout(() => goalsUI.welcome(amount), 700);
   }

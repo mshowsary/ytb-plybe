@@ -305,3 +305,29 @@ body.mapmode #ui,body.mapmode #fx,body.mapmode .petcard,body.mapmode .partychip,
 @keyframes helpin{from{translate:-50% 90px;opacity:0}}
 @keyframes helppulse{0%,100%{scale:1}50%{scale:1.07}}
 @media(max-height:480px) and (min-aspect-ratio:1/1){.helpbtn{height:50px;font-size:20px;bottom:calc(var(--edge) + var(--sab) + 6px)}.helpbtn .play{width:34px;height:34px}.helpbtn .play::after{left:13px;top:9px;border-left-width:12px;border-top-width:8px;border-bottom-width:8px}}
+
+/* New Season: a gold button once every café is finished, and a card that says what it means */
+.cm-season{position:absolute;left:50%;top:calc(var(--edge) + var(--sat) + 66px);translate:-50% 0;display:flex;align-items:center;gap:8px;height:50px;padding:0 22px;border:3px solid #fff;border-radius:25px;background:linear-gradient(180deg,#FFD66B,#F2A93B);color:#5A3A0C;font:900 19px ui-rounded,system-ui,sans-serif;box-shadow:0 5px 0 #C9812A,0 10px 22px #0004;cursor:pointer;animation:ctapulse 1.6s ease-in-out infinite;white-space:nowrap}
+.cm-season.hidden{display:none}
+.cm-season b{padding:2px 9px;border-radius:12px;background:#FFFFFF8C}
+.cm-confirm{position:absolute;inset:0;display:grid;place-items:center;background:#1d14106b;padding:16px;cursor:default}
+.cm-confirm.hidden{display:none}
+.cmc-card{width:min(380px,100%);display:flex;flex-direction:column;align-items:center;gap:10px;padding:22px 20px 18px;border-radius:24px;background:#FFFBF4;box-shadow:0 18px 50px #0006;text-align:center;animation:revpop .45s cubic-bezier(.2,1.4,.4,1)}
+.cmc-star{font-size:54px;line-height:1;filter:drop-shadow(0 4px 6px #C9812A66)}
+.cmc-card b{font-size:22px;font-weight:900}
+.cmc-card p{margin:0;font-size:15px;line-height:1.4;font-weight:700;opacity:.8}
+.cmc-card strong{color:#D9822B}
+.cmc-go{width:100%;height:56px;border:0;border-radius:18px;background:linear-gradient(180deg,#FFD66B,#F2A93B);color:#5A3A0C;font:900 20px ui-rounded,system-ui,sans-serif;box-shadow:0 5px 0 #C9812A;cursor:pointer;margin-top:4px}
+.cmc-no{border:0;background:none;font:800 15px ui-rounded,system-ui,sans-serif;color:var(--ink);opacity:.6;cursor:pointer;padding:6px}
+@media(max-height:480px) and (min-aspect-ratio:1/1){.cm-season{left:calc(var(--edge) + var(--sal));translate:0 0;top:calc(var(--edge) + var(--sat) + 50px);height:40px;font-size:15px;padding:0 16px}.cmc-card{padding:14px;gap:6px}.cmc-star{font-size:36px}.cmc-go{height:46px}}
+
+/* the map's own UI always sits above the pins */
+.cm-title,.cm-top,.cm-review,.cm-cta,.cm-season{z-index:3}.cm-confirm{z-index:5}.cm-load{z-index:6}
+
+/* the café to go to next: a radar ping under its pin, and its pin a size larger */
+.cpin.target::before{content:"";position:absolute;left:-34px;top:-14px;width:68px;height:28px;border-radius:50%;border:3px solid #FFC86E;box-shadow:0 0 12px #FFC86E;animation:ping 1.6s ease-out infinite;pointer-events:none}
+.cpin.target .cp-mark{transform:scale(1.22)}
+.cpin.target.sel .cp-mark{animation:pinbob2 1.3s ease-in-out infinite}
+@keyframes pinbob2{0%,100%{transform:scale(1.22) translateY(0)}50%{transform:scale(1.22) translateY(-8px)}}
+@keyframes ping{0%{transform:scale(.4);opacity:1}100%{transform:scale(1.8);opacity:0}}
+.cpin.edge.target .cp-label{display:block;top:-52px}.cpin.edge.target .cp-label small{display:none}

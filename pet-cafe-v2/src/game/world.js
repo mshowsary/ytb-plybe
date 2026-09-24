@@ -30,6 +30,7 @@ export function createWorld() {
     requests: {},
     tips: new Set(),             // one-time tips already shown
     ratings: {},
+    season: 1,                   // New Season: each one sells everything for 50% more, for good
     petCount: 0,                 // pets stroked, all cafés (the ghost hand stops after the first few)                 // loc id -> { stars, count, reviews } once a café is finished                // product -> open table requests (only the owner fills them)
   };
 
@@ -74,7 +75,8 @@ export function createWorld() {
   W.carryBonus = () => W.lvl('carry');
   W.makeMult = () => Math.pow(0.9, W.lvl('machines'));
   W.counterCap = () => COUNTER_CAP + 2 * W.lvl('counters');
-  W.price = product => Math.round(PRODUCTS[product].price * (1 + 0.1 * W.lvl('prices')) * (W.priceMult || 1));
+  W.seasonMult = () => 1 + 0.5 * ((W.season | 0) - 1);
+  W.price = product => Math.round(PRODUCTS[product].price * (1 + 0.1 * W.lvl('prices')) * (W.priceMult || 1) * W.seasonMult());
   W.buyUpgrade = id => {
     const u = UPGRADES.find(x => x.id === id), l = W.lvl(id);
     if (!u || l >= u.max) return false;
@@ -133,7 +135,7 @@ export function createWorld() {
 
   W.dirtyTable = t => {
     t.dirty = true; t.guest = null;
-    t.tip += Math.round((TABLE_TIP[0] + Math.floor(Math.random() * (TABLE_TIP[1] - TABLE_TIP[0] + 1)) + 2 * W.lvl('tips')) * L.LOC.priceScale);
+    t.tip += Math.round((TABLE_TIP[0] + Math.floor(Math.random() * (TABLE_TIP[1] - TABLE_TIP[0] + 1)) + 2 * W.lvl('tips')) * L.LOC.priceScale * W.seasonMult());
   };
   W.cleanTable = t => {
     const tip = t.tip; t.dirty = false; t.tip = 0; t.claimed = null;
@@ -186,12 +188,22 @@ export function createWorld() {
     W.events.push({ type: 'built', id });
   };
 
+  // ---- New Season: every café finished — start the journey again, richer --------------------------
+  W.allDone = () => LOCATION_ORDER.every(id => W.done.has(id));
+  W.newSeason = () => {
+    W.season = (W.season | 0) + 1;
+    W.coins = 0; W.up = {}; W.saved = {}; W.ratings = {};
+    W.open = new Set(['town']); W.done = new Set();
+    W.loc = 'town';
+    // kept for good: every pet met, every friendship, the one-time tips, the stroke count
+  };
+
   // ---- save / load ----------------------------------------------------------------------------
   W.snapshot = () => {
     W.stashHere();
     if (W.complete()) W.done.add(W.loc);
     return { v: 3, loc: W.loc, coins: Math.floor(W.coins), met: [...W.met], friends: W.friends, up: W.up,
-      open: [...W.open], done: [...W.done], cafes: W.saved, tips: [...W.tips], ratings: W.ratings, petCount: W.petCount };
+      open: [...W.open], done: [...W.done], cafes: W.saved, tips: [...W.tips], ratings: W.ratings, petCount: W.petCount, season: W.season };
   };
   W.restore = s => {
     if (!s) return false;
@@ -210,6 +222,7 @@ export function createWorld() {
     for (const k of s.tips || []) if (typeof k === 'string') W.tips.add(k);
     if (s.ratings && typeof s.ratings === 'object') W.ratings = s.ratings;
     W.petCount = s.petCount | 0;
+    W.season = Math.max(1, s.season | 0);
     W.loc = LOCATIONS[s.loc] && W.open.has(s.loc) ? s.loc : 'town';
     return true;
   };
