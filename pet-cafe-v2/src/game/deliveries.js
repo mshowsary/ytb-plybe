@@ -3,9 +3,9 @@
 // Every minute or two the café van pulls into the side alley beside the delivery hatch (a window in
 // the right wall). Its order is one product in a quantity — "🧁 ×8" — and only the owner fills it:
 // fetch from the machine (you may carry past what the counter could take while an order needs it),
-// then drop the goods into the hatch crate. Deliveries pay double. When one is done, a ▶ ×2 button
-// offers to double that reward for a video. Ignore the van and it simply leaves; anything already
-// handed in is still paid. Nothing is ever lost.
+// then drop the goods into the hatch crate. Deliveries pay three times the shelf price. When one is
+// done, a ▶ ×2 button offers to double that reward for a video. Ignore the van and it simply leaves;
+// anything already handed in is still paid. Nothing is ever lost.
 import * as THREE from 'three';
 import { part, mesh } from '../render/geo.js';
 import { PRODUCTS } from './layout.js';
@@ -69,7 +69,7 @@ export function createDeliveries(ctx) {
   }
   function finish(done) {
     if (order && order.got > 0) {
-      const pay = W.price(order.product) * order.got * 2;
+      const pay = W.price(order.product) * order.got * 3;        // the owner's own job: well worth the walk
       W.earn(pay, HATCH.x, HATCH.z);
       if (done) { W.events.push({ type: 'delivered' }); hud.banner(`🚚 Delivery done! +${pay}`, 2200); audio.play('fanfare'); fx.confetti(HATCH.x, HATCH.z, 1.4, 40); bonus = pay; claimT = 8; }
     }

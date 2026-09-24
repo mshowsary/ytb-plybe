@@ -101,7 +101,7 @@ async function boot() {
     completed = W.complete();
     rushT = 0; nextRush = 150;
     S.snap(owner.o.x, owner.o.z);
-    window.__v2 = { W, owner, guests, staff, pads, S, nav, travel, deliveries, tips, hotspots, map, helpers, view, audio, guide: () => guideTarget(owner, staff, guests, 0) };
+    window.__v2 = { W, owner, guests, staff, pads, S, nav, travel, deliveries, tips, hotspots, map, helpers, view, audio, clock: () => playTime, guide: () => guideTarget(owner, staff, guests, 0) };
   }
   function tearDown() {
     pads.teardown(); party.teardown(); guests.teardown(); deliveries.teardown(); helpers.teardown();
@@ -145,7 +145,12 @@ async function boot() {
 
   function onBuilt(id) {
     nav.rebuild([...W.stations.values()]);
-    if (id.startsWith('staff:')) staff.hire(id.slice(6));
+    if (id.startsWith('staff:')) {
+      staff.hire(id.slice(6));
+      // a helper is a milestone now: say so, briefly
+      const hi = { runner: '🏃 Runner hired!', cashier: '💰 Cashier hired!', cleaner: '🧽 Cleaner hired!', runner2: '🏃 Second Runner hired!' }[id.slice(6)];
+      if (hi) { hud.banner(hi, 2200); audio.play('fanfare'); }
+    }
     else view.built(id);
     S.shake(0.08);
     save();
@@ -156,9 +161,10 @@ async function boot() {
     audio.play('fanfare');
     S.look({ x: -1.5, z: 0 }, 26, 4.5);
     for (let i = 0; i < 10; i++) setTimeout(() => { fx.firework(-5 + Math.random() * 9, 4 + Math.random() * 1.5, -3 + Math.random() * 6); audio.play('pop'); if (i % 3 === 0) fx.confetti(-1, 1, 6, 60); }, 300 + i * 380);
-    const next = LOCATION_ORDER[LOCATION_ORDER.indexOf(W.loc) + 1];
-    // the guests and pets leave their review, then the map opens on the next café
-    setTimeout(() => map.review(W.loc), 6000);
+    // the grand-opening bonus (a big step toward the next café), then the pets' review on the map
+    const done = W.loc, bonus = Math.round(L.LOC.grand * W.seasonMult() / 50) * 50;
+    setTimeout(() => goalsUI.reward({ art: '🎉🐾', title: 'Grand opening!', text: `The whole town came to celebrate your ${L.LOC.name}.`, amount: bonus,
+      ad: 'pet-cafe-grand-double', then: () => map.review(done) }), 4600);
   }
   function save() { platform.save({ ...W.snapshot(), play: Math.floor(playTime), goals: goals.snapshot(), ts: Date.now() }); }
 
@@ -200,16 +206,8 @@ async function boot() {
     }
     qWall = now; qFrames = 0;
   }
-  let last = performance.now();
-  function frame(now) {
-    requestAnimationFrame(frame);
-    const dt = Math.min(0.05, (now - last) / 1000); last = now;
-    if (paused || hostPaused || sheetPaused) { qWall = now; qFrames = 0; return; }
-    watchQuality(now);
-    playTime += dt;
-    items.begin(); bubbles.begin(); hotspots.begin(dt);
-
-    const move = window.__drive || input.read();       // __drive: a test can steer like a thumb would
+  // one step of the simulation (a test may run several per frame: window.__steps, to measure pace fast)
+  function simulate(dt, move) {
     owner.update(dt, move);
     W.step(dt);
     staff.update(dt);
@@ -249,6 +247,20 @@ async function boot() {
       }
     }
     W.events.length = 0;
+  }
+  let last = performance.now();
+  function frame(now) {
+    requestAnimationFrame(frame);
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (paused || hostPaused || sheetPaused) { qWall = now; qFrames = 0; return; }
+    watchQuality(now);
+    playTime += dt;
+    items.begin(); bubbles.begin(); hotspots.begin(dt);
+
+    const move = window.__drive || input.read();       // __drive: a test can steer like a thumb would
+    const steps = Math.max(1, Math.min(8, window.__steps | 0));
+    for (let k = 0; k < steps; k++) simulate(dt, move);
+    playTime += dt * (steps - 1);
 
     view.update(dt, party.active);
     life.update(dt);
@@ -316,13 +328,14 @@ function guideTarget(owner, staff, guests, playTime) {
     const dry = W.built('machine').find(v => v.level <= 1);
     if (dry) return at(W.stations.get('pantry1').spots.work);
   }
-  const dirty = W.built('table').find(t => t.dirty);
-  if (dirty && !staff.crew.has('cleaner')) return at(dirty, 1.3);
+  // something you can build now comes before a table to wipe: building is how the café grows
   const pad = W.padsOpen().find(p => W.coins + (W.paid[p.id] || 0) >= p.price);
   if (pad) {
     const b = pad.builds;
     return at(b.startsWith('staff:') ? STAFF[b.slice(6)].home : W.stations.get(b), 0.6);
   }
+  const dirty = W.built('table').find(t => t.dirty);
+  if (dirty && !staff.crew.has('cleaner')) return at(dirty, 1.3);
   return null;
 }
 

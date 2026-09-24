@@ -30,7 +30,7 @@ export function createGoals(W) {
     state = { day: today(), list: pick.map((t, i) => {
       const n = t.n[Math.min(2, i)] * (t.id === 'earn' ? scale : 1);
       const coin = Math.max(...Object.keys(PRODUCTS).filter(p => W.counterFor(p)?.built).map(p => W.price(p)), 7);
-      return { id: t.id, n, got: 0, claimed: false, reward: Math.round((40 + i * 45) * coin / 7 / 5) * 5 };
+      return { id: t.id, n, got: 0, claimed: false, reward: Math.round((60 + i * 70) * coin / 7 / 5) * 5 };
     }) };
   }
 

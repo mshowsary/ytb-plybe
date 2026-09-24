@@ -8,9 +8,9 @@ export function createGoalsUI(root, W, goals, audio, fx, platform, onPause) {
       <div class="goalfoot">New goals every day 🌅</div>
     </div></div>
     <div class="sheet hidden" id="awaysheet"><div class="sheet-card awaycard">
-      <div class="awayart">😺☕</div>
-      <div class="awaytitle">Welcome back!</div>
-      <div class="awaytext">While you were away, your staff kept the café running.</div>
+      <div class="awayart" id="awayart">😺☕</div>
+      <div class="awaytitle" id="awaytitle">Welcome back!</div>
+      <div class="awaytext" id="awaytext">While you were away, your staff kept the café running.</div>
       <div class="awaycoins"><i class="coin"></i><b id="awayamt">0</b></div>
       <button class="big" id="awaydouble"><i class="play"></i> Collect ×2</button>
       <button class="plain" id="awaytake">Collect</button>
@@ -18,7 +18,7 @@ export function createGoalsUI(root, W, goals, audio, fx, platform, onPause) {
   const btn = root.querySelector('#goalbtn'), dot = btn.querySelector('.dot');
   const sheet = document.getElementById('goalsheet'), list = document.getElementById('goallist');
   const away = document.getElementById('awaysheet');
-  let awayAmt = 0;
+  let awayAmt = 0, awayThen = null, awayAd = 'pet-cafe-away-double';
 
   function render() {
     list.innerHTML = goals.list.map((g, i) => {
@@ -46,17 +46,34 @@ export function createGoalsUI(root, W, goals, audio, fx, platform, onPause) {
   btn.addEventListener('click', e => { e.stopPropagation(); goals.ensure(); render(); sheet.classList.remove('hidden'); onPause(true); audio.play('tap'); });
   sheet.addEventListener('click', e => { if (e.target === sheet || e.target.closest('.close')) { sheet.classList.add('hidden'); onPause(false); } });
 
-  const closeAway = (mult) => { if (awayAmt > 0) W.earn(awayAmt * mult, W.stations.get('till1').x, W.stations.get('till1').z, true); awayAmt = 0; away.classList.add('hidden'); onPause(false); audio.play(mult > 1 ? 'fanfare' : 'coin'); };
+  const closeAway = (mult) => {
+    if (awayAmt > 0) W.earn(awayAmt * mult, W.stations.get('till1').x, W.stations.get('till1').z, true);
+    awayAmt = 0; away.classList.add('hidden'); onPause(false); audio.play(mult > 1 ? 'fanfare' : 'cash');
+    const then = awayThen; awayThen = null; if (then) setTimeout(then, 400);
+  };
   document.getElementById('awaytake').addEventListener('click', () => closeAway(1));
   document.getElementById('awaydouble').addEventListener('click', async () => {
-    const ok = await platform.rewarded('pet-cafe-away-double');
+    const ok = await platform.rewarded(awayAd);
     closeAway(ok ? 2 : 1);
   });
 
   let t = 0;
   let glowT = 0;
   return {
+    // any big reward: a picture, a title, a line, the coins, and the ▶ ×2 offer
+    reward({ art, title, text, amount, ad, then }) {
+      document.getElementById('awayart').textContent = art; document.getElementById('awaytitle').textContent = title;
+      document.getElementById('awaytext').textContent = text;
+      awayAd = ad; awayThen = then || null;
+      awayAmt = amount;
+      document.getElementById('awayamt').textContent = amount.toLocaleString('en-US');
+      document.getElementById('awaydouble').style.display = platform.rewardedAvailable() ? '' : 'none';
+      away.classList.remove('hidden'); onPause(true); audio.play('fanfare');
+    },
     welcome(amount) {
+      document.getElementById('awayart').textContent = '😺☕'; document.getElementById('awaytitle').textContent = 'Welcome back!';
+      document.getElementById('awaytext').textContent = 'While you were away, your staff kept the café running.';
+      awayAd = 'pet-cafe-away-double'; awayThen = null;
       awayAmt = amount;
       document.getElementById('awayamt').textContent = amount.toLocaleString('en-US');
       document.getElementById('awaydouble').style.display = platform.rewardedAvailable() ? '' : 'none';

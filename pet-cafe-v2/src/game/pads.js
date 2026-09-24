@@ -1,10 +1,14 @@
 // src/game/pads.js — build pads (DESIGN.md rule 4). A pad is the footprint of the thing it builds, on
 // the spot where it will stand, with a see-through preview of it. Stand on it and coins flow in.
-// When you cannot afford the rest yet, a ▶ chip offers to pay half for a video (once per pad).
+// A video can help with the pad you are saving for: after you have waited on it a little, a ▶ chip
+// offers 40% of its price (once per pad, and not again for a while) — a boost, never a skip.
 import * as THREE from 'three';
 import { PADS, STAFF } from './layout.js';
+import * as LAYOUT from './layout.js';
 import { modelFor, ghostOf } from '../render/props.js';
 import { createHuman } from '../render/human.js';
+
+const BOOST_SHARE = 0.4, BOOST_WAIT = 20, BOOST_GAP = 150, BOOST_MIN = 400;   // no ad offers on the cheap opening pads
 
 const LABEL_Y = 1.9;
 
@@ -29,7 +33,8 @@ export function createPads(ctx) {
   const { W, scene, S, fx, audio, layer, platform, onBuilt } = ctx;
   const live = new Map();              // pad id -> { pad, rect, mesh, tex, ghost, label, boost, frac }
   const scr = { x: 0, y: 0, on: true };
-  let billT = 0;
+  let billT = 0, clock = 0, lastBoost = -BOOST_GAP;
+  const boostOf = pad => Math.ceil(pad.price * BOOST_SHARE / 5) * 5;
 
   function rectFor(pad) {
     if (pad.builds.startsWith('staff:')) { const h = STAFF[pad.builds.slice(6)].home; return { x: h.x, z: h.z, w: 1.1, d: 1.1 }; }
@@ -56,10 +61,11 @@ export function createPads(ctx) {
     }
     scene.add(ghost);
     const label = document.createElement('div'); label.className = 'padlabel';   // touches pass through (only the ▶ button is tappable)
-    label.innerHTML = '<span class="coin"></span><b></b><button class="boost" aria-label="Watch a video to pay half">▶ ½</button>';
+    label.innerHTML = '<span class="coin"></span><b></b><button class="boost" aria-label="Watch a video for coins toward this"></button>';
     layer.appendChild(label);
     const boost = label.querySelector('.boost');
-    const L = { pad, rect, mesh, tex, ghost, label, boost, frac: -1, boosted: false };
+    const L = { pad, rect, mesh, tex, ghost, label, boost, frac: -1, boosted: false, openedAt: clock };
+    boost.innerHTML = `<i class="play"></i>+<span class="coin"></span>${boostOf(pad)}`;
     boost.addEventListener('click', async e => {
       e.stopPropagation();
       if (L.boosted) return;
@@ -67,12 +73,14 @@ export function createPads(ctx) {
       const ok = await platform.rewarded('pet-cafe-build-boost');
       boost.disabled = false;
       if (!ok) return;
-      L.boosted = true;
+      L.boosted = true; lastBoost = clock;
       const left = pad.price - (W.paid[pad.id] || 0);
-      W.paid[pad.id] = (W.paid[pad.id] || 0) + Math.min(left, Math.ceil(pad.price / 2));
+      W.paid[pad.id] = (W.paid[pad.id] || 0) + Math.min(left, boostOf(pad));
       audio.play('coin'); fx.burst(rect.x, 0.6, rect.z, '#B79BFF', 20);
     });
     live.set(pad.id, L);
+    // a new pad pops in with a little sparkle
+    label.classList.add('appear'); fx.burst(rect.x, 0.3, rect.z, '#FFFFFF', 10, 0.45);
   }
   function close(id) {
     const L = live.get(id); if (!L) return;
@@ -84,7 +92,10 @@ export function createPads(ctx) {
     const want = W.padsOpen();
     for (const id of [...live.keys()]) if (!want.find(p => p.id === id)) close(id);
     for (const p of want) if (!live.has(p.id)) open(p);
-    billT -= dt;
+    billT -= dt; clock += dt;
+    // the pad you are saving for: the cheapest one you cannot pay for yet
+    let saving = null;
+    for (const L of live.values()) { const left = L.pad.price - (W.paid[L.pad.id] || 0); if (W.coins < left && (!saving || left < saving.left)) saving = { L, left }; }
     for (const L of live.values()) {
       const { pad, rect } = L;
       let paid = W.paid[pad.id] || 0;
@@ -105,11 +116,16 @@ export function createPads(ctx) {
       L.ghost.traverse(o => { if (o.isMesh) o.material.opacity = on ? 0.5 : 0.3; });
       S.worldToScreen(rect.x, LABEL_Y, rect.z, scr);
       L.label.style.display = scr.on ? '' : 'none';
-      L.label.style.transform = `translate(${scr.x | 0}px,${scr.y | 0}px)`;
-      L.label.querySelector('b').textContent = String(pad.price - paid);
-      const showBoost = !L.boosted && platform.rewardedAvailable() && W.coins < pad.price - paid && frac < 0.5;
-      L.boost.style.display = showBoost ? '' : 'none';
+      const txt = String(pad.price - paid), b = L.label.querySelector('b');
+      if (b.textContent !== txt) { b.textContent = txt; L.w = 0; }
+      const showBoost = saving && saving.L === L && !L.boosted && platform.rewardedAvailable() && pad.price >= BOOST_MIN * LAYOUT.LOC.priceScale
+        && clock - L.openedAt > BOOST_WAIT && clock - lastBoost > BOOST_GAP && frac < 0.7;
+      if (L.boostOn !== showBoost) { L.boostOn = showBoost; L.boost.style.display = showBoost ? '' : 'none'; L.w = 0; }
       L.label.classList.toggle('afford', W.coins >= pad.price - paid);
+      // a pad near the edge of a phone screen keeps its whole label (and the ▶ chip) on screen
+      if (!L.w && scr.on) L.w = L.label.offsetWidth;
+      const half = (L.w || 0) / 2 + 8, x = Math.max(half, Math.min(innerWidth - half, scr.x));
+      L.label.style.transform = `translate(${x | 0}px,${scr.y | 0}px)`;
     }
   }
 

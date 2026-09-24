@@ -117,7 +117,12 @@ export function createOwner(ctx) {
     const rx = Math.cos(YAW), rz = -Math.sin(YAW), fx0 = -Math.sin(YAW), fz0 = -Math.cos(YAW);
     const mx = rx * move.x + fx0 * -move.y, mz = rz * move.x + fz0 * -move.y;
     o.vx = mx * OWNER.speed * W.speedMult(); o.vz = mz * OWNER.speed * W.speedMult();
-    const p = nav.collide(o.x + o.vx * dt, o.z + o.vz * dt);
+    // a station just built where the owner stood: step straight out in front of it, before the
+    // collision can shove them into the slot behind it
+    if (nav.overlaps(o.x, o.z, 0.05)) { const e = nav.escape(o.x, o.z); if (e) { o.x = e.x; o.z = e.z; } }
+    let p = nav.collide(o.x + o.vx * dt, o.z + o.vz * dt);
+    // wedged inside something (a station just built where the owner stood): step out to open floor
+    if (nav.overlaps(p.x, p.z)) { o.wedgeT = (o.wedgeT || 0) + dt; if (o.wedgeT > 0.3) { const e = nav.escape(p.x, p.z); if (e) p = e; o.wedgeT = 0; } } else o.wedgeT = 0;
     const realVx = (p.x - o.x) / Math.max(dt, 1e-4), realVz = (p.z - o.z) / Math.max(dt, 1e-4);
     o.x = p.x; o.z = p.z;
     o.tick -= dt;

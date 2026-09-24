@@ -20,25 +20,28 @@ export function createWorld() {
     served: 0,
     met: new Set(),              // pet book: 'species:variant'
     friends: {},                 // 'species:variant' -> times petted
-    up: {},                      // upgrade id -> level
+    up: {},                      // upgrade id -> level (this café)
     open: new Set(['town']),     // cafés the player owns
     done: new Set(),             // cafés completed
     saved: {},                   // loc id -> that café's saved state while you are elsewhere
     events: [],
     ownerHold: { kind: null, n: 0 },
     priceMult: 1,
-    requests: {},
+    requests: {},                // product -> open table requests (only the owner fills them)
     tips: new Set(),             // one-time tips already shown
-    ratings: {},
+    ratings: {},                 // loc id -> { stars, count, reviews } once a café is finished
     season: 1,                   // New Season: each one sells everything for 50% more, for good
-    petCount: 0,                 // pets stroked, all cafés (the ghost hand stops after the first few)                 // loc id -> { stars, count, reviews } once a café is finished                // product -> open table requests (only the owner fills them)
+    petCount: 0,                 // pets stroked, all cafés (the ghost hand stops after the first few)
   };
 
   // ---- entering a café: rebuild its stations from the live layout, then its saved state -------
   W.enter = id => {
     setLocation(id); W.loc = L.LOC.id;
-    W.stations.clear(); W.staff.clear(); W.paid = {}; W.served = 0; W.priceMult = 1; W.requests = {};
+    W.stations.clear(); W.staff.clear(); W.paid = {}; W.served = 0; W.priceMult = 1; W.requests = {}; W.up = {};
     W.ownerHold.kind = null; W.ownerHold.n = 0;
+    // this café's upgrades first: the counters below are sized by them
+    const su = W.saved[W.loc] && W.saved[W.loc].up;
+    if (su && typeof su === 'object') for (const u of UPGRADES) { const l = su[u.id]; if (l) W.up[u.id] = Math.min(u.max, l | 0); }
     for (const def of L.STATIONS) {
       const st = { ...def, built: !!def.built, spots: spotsFor(def) };
       if (st.type === 'machine') Object.assign(st, { model: PRODUCTS[st.product].model, supply: PRODUCTS[st.product].supply, tray: 0, level: MACHINE_CAP, t: 0 });
@@ -47,7 +50,7 @@ export function createWorld() {
       W.stations.set(st.id, st);
     }
     const s = W.saved[W.loc];
-    if (s) {
+    if (s && s.built) {          // (an entry holding only upgrades is a café not yet played)
       W.served = s.served | 0;
       for (const sid of s.built || []) { const st = W.stations.get(sid); if (st) st.built = true; }
       for (const r of s.staff || []) if (STAFF[r]) W.staff.add(r);
@@ -63,13 +66,13 @@ export function createWorld() {
     W.saved[W.loc] = {
       served: W.served,
       built: [...W.stations.values()].filter(s => s.built && !L.STATIONS.find(d => d.id === s.id).built).map(s => s.id),
-      staff: [...W.staff], paid: { ...W.paid },
+      staff: [...W.staff], paid: { ...W.paid }, up: { ...W.up },
       machines: W.built('machine').map(m => [m.id, m.tray, m.level]),
       counters: W.built('counter').map(c => [c.id, c.stock]),
     };
   };
 
-  // ---- upgrades (carried to every café) -------------------------------------------------------
+  // ---- upgrades (each café has its own) -------------------------------------------------------
   W.lvl = id => W.up[id] | 0;
   W.speedMult = () => 1 + 0.1 * W.lvl('speed');
   W.carryBonus = () => W.lvl('carry');
@@ -142,7 +145,7 @@ export function createWorld() {
     W.events.push({ type: 'cleaned', id: t.id, tip });
     return tip;
   };
-  W.earn = (n, x, z, bonus = false) => { W.coins += n; W.events.push({ type: 'earn', n, x, z, bonus }); };
+  W.earn = (n, x, z, bonus = false) => { W.coins += n; W.earnedTotal = (W.earnedTotal || 0) + n; W.events.push({ type: 'earn', n, x, z, bonus }); };
 
   // ---- pets --------------------------------------------------------------------------------
   W.complete = () => L.PADS.every(p => W.isBuilt(p.builds));
@@ -215,7 +218,12 @@ export function createWorld() {
     W.coins = Math.max(0, s.coins | 0);
     for (const k of s.met || []) if (typeof k === 'string') W.met.add(k);
     if (s.friends && typeof s.friends === 'object') for (const k in s.friends) W.friends[k] = s.friends[k] | 0;
-    for (const u of UPGRADES) { const l = s.up && s.up[u.id]; if (l) W.up[u.id] = Math.min(u.max, l | 0); }
+    // upgrades used to be one set for every café: an older save gives its levels to each café it owns
+    const perCafe = s.cafes && Object.values(s.cafes).some(c => c && c.up);
+    if (!perCafe && s.up && typeof s.up === 'object' && Object.keys(s.up).length) {
+      s.cafes = s.cafes || {};
+      for (const id of s.open || ['town']) { if (!LOCATIONS[id]) continue; s.cafes[id] = s.cafes[id] || {}; s.cafes[id].up = { ...s.up }; }
+    }
     for (const id of s.open || []) if (LOCATIONS[id]) W.open.add(id);
     for (const id of s.done || []) if (LOCATIONS[id]) W.done.add(id);
     W.saved = s.cafes && typeof s.cafes === 'object' ? s.cafes : {};

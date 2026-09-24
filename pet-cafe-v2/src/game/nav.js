@@ -148,11 +148,28 @@ export function createNav() {
     return { x, z };
   }
 
+  // Is a body of radius r overlapping anything solid? And if it is, the nearest open floor to step to.
+  // (A station built on top of the owner can wedge them into a gap narrower than their body, where two
+  // boxes keep pushing them back and forth; the owner must never be left stuck like that.)
+  const overlaps = (x, z, r = 0.24) => boxes.some(b => { const nx = Math.max(b.x0, Math.min(x, b.x1)), nz = Math.max(b.z0, Math.min(z, b.z1)); return (x - nx) ** 2 + (z - nz) ** 2 < r * r; });
+  // the closest floor inside the café that a whole body fits on (in front of a new machine, usually)
+  function escape(x, z) {
+    const i0 = Math.floor((x - X0) / CELL), j0 = Math.floor((z - Z0) / CELL);
+    let best = null, bd = Infinity;
+    for (let dj = -6; dj <= 6; dj++) for (let di = -6; di <= 6; di++) {
+      const i = i0 + di, j = j0 + dj; if (i < 0 || j < 0 || i >= W || j >= H) continue;
+      const k = j * W + i, px = cx(k), pz = cz(k);
+      if (blocked[k] || px < ROOM.x0 + 0.3 || px > ROOM.x1 - 0.3 || pz < ROOM.z0 + 0.3 || pz > ROOM.z1 - 0.45 || overlaps(px, pz, 0.3)) continue;
+      const d = (px - x) ** 2 + (pz - z) ** 2; if (d < bd) { bd = d; best = { x: px, z: pz }; }
+    }
+    return best;
+  }
+
   // For pets: not inside furniture or walls (a small margin), anywhere else is fine.
   const walkable = (x, z) => {
     for (const b of boxes) if (x > b.x0 - 0.12 && x < b.x1 + 0.12 && z > b.z0 - 0.12 && z < b.z1 + 0.12) return false;
     return true;
   };
 
-  return { rebuild, path, collide, walkable, boxes };
+  return { rebuild, path, collide, walkable, boxes, overlaps, escape };
 }

@@ -14,6 +14,7 @@ export function createParty(ctx) {
   const chip = document.createElement('div'); chip.className = 'partychip hidden'; chip.innerHTML = '🎵 <b>×2</b> <span></span>';
   document.body.appendChild(chip);
   let t = 0, breather = 0, session = 0, busy = false, thrown = 0, confT = 0, noteT = 0;
+  let hadRunner = W.isBuilt('staff:runner');
   const scr = { x: 0, y: 0, on: true };
 
   badge.addEventListener('click', async e => {
@@ -31,6 +32,8 @@ export function createParty(ctx) {
     get active() { return t > 0; },
     update(dt, paused) {
       session += dt;
+      // a Runner just hired: table requests start now, the first van comes in a minute, the party after a breather
+      if (!hadRunner && W.isBuilt('staff:runner')) { hadRunner = true; breather = BREATHER; }
       if (t > 0) {
         t -= dt; W.priceMult = 2;
         chip.classList.remove('hidden'); chip.querySelector('span').textContent = '0:' + String(Math.max(0, Math.ceil(t))).padStart(2, '0');
@@ -40,7 +43,8 @@ export function createParty(ctx) {
         if (t <= 0) { W.priceMult = 1; breather = BREATHER; audio.setParty(false); chip.classList.add('hidden'); }
       } else if (breather > 0) breather -= dt;
       const inside = guests.list.filter(g => g.state !== 'leave').length;
-      const offer = !paused && t <= 0 && breather <= 0 && !busy && thrown < 2 && session > MIN_SESSION && inside >= MIN_GUESTS && platform.rewardedAvailable();
+      // not in a new player's first minutes: the party is offered once the café has its first helper
+      const offer = !paused && t <= 0 && breather <= 0 && !busy && thrown < 2 && session > MIN_SESSION && inside >= MIN_GUESTS && W.isBuilt('staff:runner') && platform.rewardedAvailable();
       if (offer) {
         S.worldToScreen(juke.x, 1.9, juke.z, scr);
         badge.classList.toggle('hidden', !scr.on);

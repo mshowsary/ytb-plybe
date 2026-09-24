@@ -46,17 +46,17 @@ export const LOCATIONS = {
   town: {
     id: 'town', name: 'Town Café', emoji: '🏡', theme: 'town',
     menu: ['cookie', 'cupcake', 'coffee', 'treat'], priceScale: 1,
-    variants: [0, 1, 2, 3], unlock: { hamster: 'coffee1', bunny: 'treats1' },
+    variants: [0, 1, 2, 3], unlock: { hamster: 'coffee1', bunny: 'treats1' }, grand: 2500,
   },
   beach: {
     id: 'beach', name: 'Beach Café', emoji: '🏖️', theme: 'beach',
     menu: ['lemonade', 'smoothie', 'icecream', 'fish'], priceScale: 2.4,
-    variants: [5, 6, 7, 8], unlock: { hamster: 'coffee1', bunny: 'treats1' }, cost: 6000,
+    variants: [5, 6, 7, 8], unlock: { hamster: 'coffee1', bunny: 'treats1' }, cost: 5000, grand: 7000,
   },
   mall: {
     id: 'mall', name: 'Mall Café', emoji: '🛍️', theme: 'mall',
     menu: ['donut', 'bubbletea', 'waffle', 'jerky'], priceScale: 5.5,
-    variants: [9, 10, 11, 12], unlock: { hamster: 'coffee1', bunny: 'treats1' }, cost: 20000,
+    variants: [9, 10, 11, 12], unlock: { hamster: 'coffee1', bunny: 'treats1' }, cost: 14000, grand: 15000,
   },
 };
 export const LOCATION_ORDER = ['town', 'beach', 'mall'];
@@ -86,21 +86,26 @@ function stationsFor(menu) {
     { id: 'jukebox1', type: 'jukebox', x: -6.6, z: 3.9, fw: 0.6, fd: 0.8, rot: Math.PI / 2, built: true },
   ];
 }
+// The build order is the game's pacing. The first buys come quickly (the hook); then the owner runs two
+// products single-handed for a few minutes before the Runner arrives — the helper is a milestone, the
+// relief the player has earned — and the Cashier only after the coffee corner. Prices rise so there is
+// always a next thing worth saving for, a minute or two away, with serving, stroking and deliveries to
+// fill the time in between. The beach and the mall scale these by their priceScale.
 const PAD_PLAN = [
-  { id: 'p_table3',   builds: 'table3',        price: 40,  after: [] },
-  { id: 'p_runner',   builds: 'staff:runner',  price: 90,  after: ['table3'] },
-  { id: 'p_oven2',    builds: 'oven2',         price: 220, after: ['staff:runner'] },
-  { id: 'p_counter2', builds: 'counter2',      price: 160, after: ['oven2'] },
-  { id: 'p_cashier',  builds: 'staff:cashier', price: 300, after: ['counter2'] },
-  { id: 'p_table4',   builds: 'table4',        price: 180, after: ['table3'] },
-  { id: 'p_coffee1',  builds: 'coffee1',       price: 420, after: ['staff:cashier'] },
-  { id: 'p_counter3', builds: 'counter3',      price: 280, after: ['coffee1'] },
-  { id: 'p_table5',   builds: 'table5',        price: 340, after: ['table4', 'counter3'] },
-  { id: 'p_treats1',  builds: 'treats1',       price: 700, after: ['counter3'] },
-  { id: 'p_counter4', builds: 'counter4',      price: 450, after: ['treats1'] },
-  { id: 'p_cleaner',  builds: 'staff:cleaner', price: 560, after: ['counter4'] },
-  { id: 'p_table6',   builds: 'table6',        price: 620, after: ['table5', 'staff:cleaner'] },
-  { id: 'p_runner2',  builds: 'staff:runner2', price: 800, after: ['staff:cleaner'] },
+  { id: 'p_table3',   builds: 'table3',        price: 45,   after: [] },
+  { id: 'p_oven2',    builds: 'oven2',         price: 120,  after: ['table3'] },
+  { id: 'p_counter2', builds: 'counter2',      price: 100,  after: ['oven2'] },
+  { id: 'p_table4',   builds: 'table4',        price: 130,  after: ['counter2'] },
+  { id: 'p_runner',   builds: 'staff:runner',  price: 280,  after: ['counter2'] },
+  { id: 'p_coffee1',  builds: 'coffee1',       price: 560,  after: ['staff:runner'] },
+  { id: 'p_counter3', builds: 'counter3',      price: 240,  after: ['coffee1'] },
+  { id: 'p_table5',   builds: 'table5',        price: 620,  after: ['table4', 'counter3'] },
+  { id: 'p_cashier',  builds: 'staff:cashier', price: 700,  after: ['counter3'] },
+  { id: 'p_treats1',  builds: 'treats1',       price: 1050, after: ['staff:cashier'] },
+  { id: 'p_counter4', builds: 'counter4',      price: 480,  after: ['treats1'] },
+  { id: 'p_table6',   builds: 'table6',        price: 950,  after: ['table5', 'counter4'] },
+  { id: 'p_cleaner',  builds: 'staff:cleaner', price: 1050, after: ['counter4'] },
+  { id: 'p_runner2',  builds: 'staff:runner2', price: 1250, after: ['staff:cleaner'] },
 ];
 
 export const ROOM = { x0: -7, x1: 3.6, z0: -5, z1: 5, doorX0: 2.0, doorX1: 3.5 };
@@ -147,13 +152,14 @@ export function spotsFor(st) {
   return s;
 }
 
-// ---- upgrades: the long coin sink. Each level costs base * mult^level. -------------------------
+// ---- upgrades: each café has its own. A level costs base * mult^level, scaled to the café's prices, so
+// the town's cheap upgrades never make the beach or the mall a walk-over. ---------------------------
 export const UPGRADES = [
-  { id: 'speed',    icon: '👟', name: 'Quick feet',      what: 'Everyone walks faster',     max: 5, base: 150, mult: 1.9 },
-  { id: 'carry',    icon: '🧺', name: 'Bigger trays',    what: 'Carry one more item',        max: 4, base: 200, mult: 2.0 },
-  { id: 'machines', icon: '⚙️', name: 'Faster machines', what: 'Goods are made quicker',     max: 5, base: 250, mult: 1.9 },
-  { id: 'counters', icon: '🗄️', name: 'Bigger counters', what: 'Two more on every counter',  max: 3, base: 300, mult: 2.1 },
-  { id: 'prices',   icon: '💰', name: 'Premium menu',    what: 'Everything sells for more',  max: 5, base: 400, mult: 1.9 },
-  { id: 'tips',     icon: '💝', name: 'Cosy tables',     what: 'Bigger tips at the tables',  max: 4, base: 250, mult: 1.9 },
+  { id: 'speed',    icon: '👟', name: 'Quick feet',      what: 'Everyone walks faster',     max: 5, base: 300, mult: 1.9 },
+  { id: 'carry',    icon: '🧺', name: 'Bigger trays',    what: 'Carry one more item',        max: 4, base: 400, mult: 2.0 },
+  { id: 'machines', icon: '⚙️', name: 'Faster machines', what: 'Goods are made quicker',     max: 5, base: 500, mult: 1.9 },
+  { id: 'counters', icon: '🗄️', name: 'Bigger counters', what: 'Two more on every counter',  max: 3, base: 600, mult: 2.1 },
+  { id: 'prices',   icon: '💰', name: 'Premium menu',    what: 'Everything sells for more',  max: 5, base: 800, mult: 1.9 },
+  { id: 'tips',     icon: '💝', name: 'Cosy tables',     what: 'Bigger tips at the tables',  max: 4, base: 500, mult: 1.9 },
 ];
-export const upgradeCost = (u, lvl) => Math.round(u.base * Math.pow(u.mult, lvl) / 10) * 10;
+export const upgradeCost = (u, lvl) => Math.round(u.base * Math.pow(u.mult, lvl) * LOC.priceScale / 10) * 10;
