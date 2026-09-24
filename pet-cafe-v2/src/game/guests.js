@@ -215,7 +215,7 @@ export function createGuests(ctx) {
                 g.petted = true; g.pet.joy(0.8); g.eat += 1.5; W.petCount = (W.petCount | 0) + 1;
                 const k = g.species + ':' + g.variant, f = (W.friends[k] = (W.friends[k] | 0) + 1);
                 const tip = 2 + (f >= 10 ? 6 : f >= 4 ? 3 : 1);
-                W.earn(tip, pp.x, pp.z); W.events.push({ type: 'petted', x: pp.x, z: pp.z, f });
+                W.earn(tip, pp.x, pp.z); W.events.push({ type: 'petted', x: pp.x, z: pp.z, f, species: g.species });
               }
             } else {
               g.petT = 0;

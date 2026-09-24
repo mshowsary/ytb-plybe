@@ -122,6 +122,7 @@ export function createMap(root, W, audio, onPause, onTravel, S) {
     if (!running) return;
     requestAnimationFrame(loop);
     const dt = Math.min(0.05, (now - (last || now)) / 1000); last = now;
+    audio.musicUpdate?.(dt);          // the café's music keeps playing under the map
     if (!view.ready) return;
     view.frame(dt);
     // keep every pin on screen and clear of the header and the button: one that would sit under
@@ -191,7 +192,7 @@ export function createMap(root, W, audio, onPause, onTravel, S) {
     if (!act) return;
     audio.play('chime');
     // dive into the café's pin, then fade into it
-    const dive = then => { cta.classList.add('hidden'); revEl.classList.add('hidden'); view.dive(id); setTimeout(then, 520); };
+    const dive = then => { cta.classList.add('hidden'); revEl.classList.add('hidden'); view.dive(id); audio.play('whoosh'); setTimeout(then, 520); };
     if (act === 'close') dive(close);
     else if (act === 'go') dive(() => { close(); if (id !== W.loc) setTimeout(() => onTravel(id), 420); });
     else if (act === 'buy') {

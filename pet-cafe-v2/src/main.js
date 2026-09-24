@@ -83,7 +83,7 @@ async function boot() {
     nav.rebuild([...W.stations.values()]);
     stage = new THREE.Group(); S.scene.add(stage);
     roomView = L.LOC.theme === 'beach' ? createBeachRoom(stage) : L.LOC.theme === 'mall' ? createMallRoom(stage) : createRoom(stage);
-    S.setTheme(L.LOC.theme);
+    S.setTheme(L.LOC.theme); audio.setTheme(L.LOC.theme); audio.setMusicPhase('morning');
     hotspots = createHotspots(stage);
     const ctx = { W, nav, scene: stage, S, items, bubbles, fx, audio, layer, platform, hud, hotspots };
     view = createView(ctx);
@@ -101,7 +101,7 @@ async function boot() {
     completed = W.complete();
     rushT = 0; nextRush = 150;
     S.snap(owner.o.x, owner.o.z);
-    window.__v2 = { W, owner, guests, staff, pads, S, nav, travel, deliveries, tips, hotspots, map, helpers, view, guide: () => guideTarget(owner, staff, guests, 0) };
+    window.__v2 = { W, owner, guests, staff, pads, S, nav, travel, deliveries, tips, hotspots, map, helpers, view, audio, guide: () => guideTarget(owner, staff, guests, 0) };
   }
   function tearDown() {
     pads.teardown(); party.teardown(); guests.teardown(); deliveries.teardown(); helpers.teardown();
@@ -179,7 +179,8 @@ async function boot() {
     // banner). A moment, not a test — nothing is lost if some of them are not served.
     if (W.isBuilt('coffee1')) {
       if (rushT > 0) rushT -= dt;
-      else if ((nextRush -= dt) <= 0) { rushT = 40; nextRush = 170 + Math.random() * 60; hud.banner('🔔 Rush hour!', 2000); audio.play('chime'); }
+      else if ((nextRush -= dt) <= 0) { rushT = 40; nextRush = 170 + Math.random() * 60; hud.banner('🔔 Rush hour!', 2000); audio.play('chime'); audio.setMusicPhase('rush'); }
+      if (rushT > 0 && rushT - dt <= 0) audio.setMusicPhase('morning');
     }
     guests.update(dt, owner.o.atTill || staff.cashierAtTill(), rushT > 0, owner.o);
     pads.update(dt, owner.o);
@@ -195,12 +196,13 @@ async function boot() {
         if (!e.bonus) goals.add('earn', e.n);
         inFlight += e.n;
         fx.number(e.x, 2.1, e.z, '+' + e.n, 'gain');
-        fx.coins(e.x, 1.3, e.z, Math.min(8, 2 + (e.n / 5) | 0), () => { inFlight -= e.n; hud.bump(); audio.play('coin'); });
+        const big = e.n >= 25 * L.LOC.priceScale;
+        fx.coins(e.x, 1.3, e.z, Math.min(8, 2 + (e.n / 5) | 0), () => { inFlight -= e.n; hud.bump(); audio.play(big ? 'cash' : 'coin'); });
       } else if (e.type === 'request') { audio.play('chime'); fx.burst(e.x, 1.3, e.z, '#FFD84D', 16, 0.8); fx.hearts?.(e.x, 1.4, e.z);
       } else if (e.type === 'vip') { hud.banner('👑 A VIP paid triple!', 1800); audio.play('fanfare'); fx.burst(e.x, 1.6, e.z, '#FFC940', 26);
       } else if (e.type === 'petted') {
         goals.add('pet');
-        audio.play('petCat'); fx.burst(e.x, 1.2, e.z, '#FF8FB1', 14, 0.7);
+        audio.play({ dog: 'petDog', bunny: 'petBunny', hamster: 'petHamster' }[e.species] || 'petCat'); fx.burst(e.x, 1.2, e.z, '#FF8FB1', 14, 0.7);
         if (e.f === 4 || e.f === 10) hud.banner(e.f === 10 ? '💖 A new Bestie!' : '❤️ A new pet friend!', 1800);
       } else if (e.type === 'upgrade') { fx.confetti(owner.o.x, owner.o.z, 1.5, 24); audio.play('chime');
       } else if (e.type === 'newpet') {
